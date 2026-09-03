@@ -285,7 +285,7 @@ const pages = {
       ${mine.map((c) => `<label class="chk"><input type="checkbox" name="coll" value="${esc(c.name)}" ${sel.has(c.name) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}
       <input class="pn-field" name="newcoll" placeholder="+ New collection" value="">
     </fieldset>
-    <div class="pn-image"><input class="pn-field" name="image" type="url" placeholder="Image URL" value="${esc(o.image)}"></div>
+    <div class="pn-image"><input class="pn-field" name="image" type="url" placeholder="Image URL (required)" value="${esc(o.image)}" required></div>
     <div class="pn-stack">
       <input class="pn-field" name="name" placeholder="Title (required)" required maxlength="120" value="${esc(o.name)}">
       <textarea class="pn-field" name="why" rows="7" maxlength="1000" placeholder="Comments">${esc(o.why)}</textarea>
@@ -433,12 +433,12 @@ const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 const TOOLS = [
   { name: 'note_object', description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
-    inputSchema: { type: 'object', required: ['headline'], properties: {
+    inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
       headline: { type: 'string', description: 'Short headline: the object and maker, e.g. "Mauviel M\'250 copper saucepan"' },
       description: { type: 'string', description: 'One to three sentences: what it is and why it is worth noting, in the member\'s voice' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["kitchen","copper","france"]' },
       link: { type: 'string', description: 'URL where the object can be found' },
-      image: { type: 'string', description: 'Optional image URL' },
+      image: { type: 'string', description: 'Image URL for the object. Required — every note carries an image.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' } } } },
   { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} } },
@@ -450,6 +450,7 @@ function mcpCall(user, name, a = {}) {
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
+    if (!a.image) throw new Error('image is required: every note carries an image');
     const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(user.id, r.lastInsertRowid);
     if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
@@ -489,11 +490,17 @@ async function handle(req, res) {
   const p = url.pathname; const m = req.method;
   const me = currentUser(req);
   const need = () => { redirect(res, '/login'); return true; };
+  let mt;
 
+  if ((mt = p.match(/^\/seed\/([a-z0-9_-]+\.jpg)$/))) {
+    const f = path.join(__dirname, 'public', 'seed', mt[1]);
+    if (!fs.existsSync(f)) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
+    return fs.createReadStream(f).pipe(res);
+  }
   if (STATIC[p]) { res.writeHead(200, { 'Content-Type': STATIC[p], 'Cache-Control': 'public, max-age=3600' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
-  let mt;
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
@@ -529,6 +536,7 @@ async function handle(req, res) {
     if (m === 'GET') return pages.form(req, res, me);
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.form(req, res, me, b, 'A note needs a title.', colls);
+    if (!(b.image || '').trim()) return pages.form(req, res, me, b, 'Every note needs an image.', colls);
     const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)')
       .run(me.id, b.name.trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)').run(me.id, r.lastInsertRowid, '');
