@@ -35,6 +35,10 @@ CREATE TABLE IF NOT EXISTS follows (
   follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (follower_id, followee_id));
+CREATE TABLE IF NOT EXISTS comments (
+  id INTEGER PRIMARY KEY, object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS collections (
   id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, name));
@@ -241,32 +245,21 @@ const pages = {
 
   object(req, res, me, url, id) {
     const o = q(OBJ_SQL + ' WHERE o.id=?').get(id); if (!o || !canSee(o, me)) return send(res, layout({ title: 'Not found', body: '<p>No such note.</p>', me }), 404);
-    const noted = me ? q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id) : null;
-    const cs = objCollections(o.id); const tags = tagList(o.tags);
+    const tags = tagList(o.tags);
     const noters = q('SELECT u.handle, u.name, u.avatar FROM notes n JOIN users u ON u.id=n.user_id WHERE n.object_id=? ORDER BY n.created_at').all(id);
+    const cmts = q('SELECT c.*, u.handle, u.name, u.avatar FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? ORDER BY c.created_at').all(id);
     const ld = { '@context': 'https://schema.org', '@type': 'Product', name: o.name, url: o.url || undefined, image: o.image || undefined, description: o.why, keywords: tags.join(', ') || undefined };
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'notes')}
 <section class="feed profile-feed">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}?tab=notes">${esc(author.name)}'s Notes</a> › ${esc(o.name)}</h3>
-<article class="article">
-  <p class="art-coll">${cs.length ? cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ') : 'Note'}${o.private ? ' <span class="badge">Private</span>' : ''}</p>
-  <div class="art-head">
-    <div>
-      <h1>${esc(o.name)}</h1>
-      ${o.url ? `<p class="art-link"><span class="lbl">Link:</span><br><a href="${esc(o.url)}" rel="noopener">${esc(o.url.length > 46 ? o.url.slice(0, 46) + '…' : o.url)}</a></p>` : ''}
-    </div>
-    <ul class="art-lede"><li>${esc(o.why || 'No description.')}</li></ul>
-  </div>
-  ${o.image ? `<div class="art-figure"><img src="${esc(o.image)}" alt="${esc(o.name)}"></div>` : ''}
-  <p class="art-by">Noted by <a href="/u/${esc(o.handle)}">${esc(o.uname)}</a>, ${timeAgo(o.created_at)}</p>
-  ${tags.length ? `<p class="tags art-tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
-  <div class="art-actions">
-    <div class="noteit">${me ? `<form method="post" action="/o/${o.id}/${noted ? 'unnote' : 'note'}"><button class="btn-note ${noted ? 'is-noted' : ''}">${noted ? 'Noted' : 'Note this'}</button></form>` : `<a class="btn-note" href="/login">Note this</a>`}</div>
-    ${me && me.id === o.user_id ? `<a class="fine" href="/o/${o.id}/edit">Edit this note</a>` : ''}
-  </div>
-  <section class="noters"><h3 class="lbl">Noted by</h3><ul class="people">${noters.map((n) => `<li><a class="person" href="/u/${esc(n.handle)}">${avatar(n)}<span class="person-name">${esc(n.name)}<em>${esc(n.handle)}</em></span></a></li>`).join('')}</ul></section>
-</article>
+<div class="grid grid-single">${objectCard(o, me, true)}</div>
+<section class="noters"><h3 class="lbl">Noted by</h3><ul class="people">${noters.map((n) => `<li><a class="person" href="/u/${esc(n.handle)}">${avatar(n)}<span class="person-name">${esc(n.name)}<em>${esc(n.handle)}</em></span></a></li>`).join('') || '<li class="empty pad">No one yet.</li>'}</ul></section>
+<section class="comments">
+  <h3 class="lbl">Comments</h3>
+  ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form">${avatar(me)}<textarea name="body" rows="2" maxlength="600" placeholder="Add a comment" required></textarea><button class="btn">Post</button></form>` : `<p class="empty pad">Sign in to leave a comment.</p>`}
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.name)}</a> · ${timeAgo(c.created_at)}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+</section>
 </section></div>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>`;
     send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
@@ -285,7 +278,32 @@ const pages = {
       ${mine.map((c) => `<label class="chk"><input type="checkbox" name="coll" value="${esc(c.name)}" ${sel.has(c.name) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}
       <input class="pn-field" name="newcoll" placeholder="+ New collection" value="">
     </fieldset>
-    <div class="pn-image"><input class="pn-field" name="image" type="url" placeholder="Image URL (required)" value="${esc(o.image)}" required></div>
+    <div class="pn-image" id="pn-image-drop">
+      <img class="pn-image-preview" id="pn-image-preview" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
+      <input class="pn-field" id="pn-image-input" name="image" type="text" placeholder="Paste an image URL, or drag one here" value="${esc(o.image)}" required>
+    </div>
+    <script>
+    (function () {
+      var drop = document.getElementById('pn-image-drop'), input = document.getElementById('pn-image-input'), preview = document.getElementById('pn-image-preview');
+      function refresh() { if (input.value) { preview.src = input.value; preview.hidden = false; drop.classList.add('has-image'); } else { preview.hidden = true; drop.classList.remove('has-image'); } }
+      input.addEventListener('input', refresh);
+      ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('dragover'); }); });
+      ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('dragover'); }); });
+      drop.addEventListener('drop', function (e) {
+        e.preventDefault();
+        var dt = e.dataTransfer, file = dt.files && dt.files[0];
+        if (file && file.type.indexOf('image/') === 0) {
+          var reader = new FileReader();
+          reader.onload = function () { input.value = reader.result; refresh(); };
+          reader.readAsDataURL(file);
+          return;
+        }
+        var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
+        if (uri) { input.value = uri.trim(); refresh(); }
+      });
+      refresh();
+    })();
+    </script>
     <div class="pn-stack">
       <input class="pn-field" name="name" placeholder="Title (required)" required maxlength="120" value="${esc(o.name)}">
       <textarea class="pn-field" name="why" rows="7" maxlength="1000" placeholder="Comments">${esc(o.why)}</textarea>
@@ -294,8 +312,11 @@ const pages = {
     <input class="pn-field" name="url" type="url" placeholder="Link" value="${esc(o.url)}">
     <button class="pn-post">${editing ? 'Save note' : 'Post note'}</button>
   </div>
-  <p class="pn-cancel"><a href="${editing ? `/o/${o.id}` : '/'}">Cancel</a></p>
-</form>`;
+</form>
+<div class="pn-foot">
+  ${editing ? `<form method="post" action="/o/${o.id}/delete" onsubmit="return confirm('Delete this note? This can\\'t be undone.');"><button class="pn-link pn-link-danger">Delete this note</button></form>` : '<span></span>'}
+  <a class="pn-link" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>
+</div>`;
     send(res, layout({ title: editing ? 'Edit note' : 'Post a new note', body, me }));
   },
 
@@ -445,6 +466,18 @@ const TOOLS = [
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 10 } } } },
   { name: 'my_notes', description: 'List the connected member\'s own notes.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20 } } } },
+  { name: 'edit_note', description: 'Edit a note the connected member owns. Only pass the fields being changed — anything omitted is left as is.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The note\'s id, e.g. from note_object\'s "Noted as #7" or from recent_notes/my_notes.' },
+      headline: { type: 'string' },
+      description: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+      link: { type: 'string' },
+      image: { type: 'string' },
+      collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
+      private: { type: 'boolean' } } } },
+  { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
 ];
 function mcpCall(user, name, a = {}) {
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
@@ -463,6 +496,29 @@ function mcpCall(user, name, a = {}) {
   }
   if (name === 'my_collections') return q('SELECT c.name, (SELECT COUNT(*) FROM object_collections oc WHERE oc.collection_id=c.id) n FROM collections c WHERE c.user_id=? ORDER BY c.name').all(user.id).map((c) => `${c.name} (${c.n})`).join('\n') || 'No collections yet.';
   if (name === 'my_notes') return q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50)).map(fmt).join('\n') || 'No notes yet.';
+  if (name === 'edit_note') {
+    if (!a.id) throw new Error('id is required');
+    const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
+    if (!o) throw new Error(`No note #${a.id}`);
+    if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
+    const name_ = a.headline !== undefined ? String(a.headline).trim() : o.name;
+    const why = a.description !== undefined ? String(a.description).trim() : o.why;
+    const tags = a.tags !== undefined ? tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', ') : o.tags;
+    const url = a.link !== undefined ? a.link : o.url;
+    const image = a.image !== undefined ? a.image : o.image;
+    const priv = a.private !== undefined ? (a.private ? 1 : 0) : o.private;
+    q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?').run(name_, why, tags, url, image, priv, o.id);
+    if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
+    return `Updated #${o.id}: ${name_}`;
+  }
+  if (name === 'delete_note') {
+    if (!a.id) throw new Error('id is required');
+    const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
+    if (!o) throw new Error(`No note #${a.id}`);
+    if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
+    q('DELETE FROM objects WHERE id=?').run(o.id);
+    return `Deleted #${a.id}: ${o.name}`;
+  }
   throw new Error('Unknown tool ' + name);
 }
 async function mcp(req, res, tok) {
@@ -475,7 +531,7 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.0' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.0' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
@@ -550,6 +606,13 @@ async function handle(req, res) {
     else if (!q('SELECT 1 FROM objects WHERE id=? AND user_id=?').get(+mt[1], me.id)) q('DELETE FROM notes WHERE user_id=? AND object_id=?').run(me.id, +mt[1]);
     return redirect(res, req.headers.referer || `/o/${mt[1]}`);
   }
+  if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
+    if (!me) return need();
+    const o = q('SELECT id FROM objects WHERE id=?').get(+mt[1]); if (!o) return send(res, 'Not found', 404);
+    const b = await readBody(req); const body = (b.body || '').trim();
+    if (body) q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
+    return redirect(res, `/o/${o.id}`);
+  }
   if ((mt = p.match(/^\/o\/(\d+)\/edit$/))) {
     if (!me) return need();
     const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
@@ -559,6 +622,12 @@ async function handle(req, res) {
       .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0, o.id);
     setCollections(o.user_id, o.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     return redirect(res, `/o/${o.id}`);
+  }
+  if ((mt = p.match(/^\/o\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
+    q('DELETE FROM objects WHERE id=?').run(o.id);
+    return redirect(res, `/u/${me.handle}?tab=notes`);
   }
   if ((mt = p.match(/^\/u\/([a-z0-9]+)\/(follow|unfollow)$/)) && m === 'POST') {
     if (!me) return need();
