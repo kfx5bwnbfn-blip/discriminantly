@@ -20,7 +20,7 @@
   --dbtn-top: #4a4a4a; --dbtn-bottom: #262626; --dbtn-border: #141414;
   --slab: "Chaparral Pro", "ChaparralPro-Regular", "Rokkitt", "Roboto Slab", "Rockwell", "Zilla Slab", Georgia, serif;
   /* fine vertical stripe, ~2px period, over a soft mottle — matches the dark chrome */
-  --stripe: repeating-linear-gradient(90deg, rgba(255,255,255,.062) 0 1px, rgba(0,0,0,.13) 1px 2px);
+  --stripe: repeating-linear-gradient(90deg, rgba(255,255,255,.050) 0 1px, rgba(0,0,0,.075) 1px 2px);
   --table-gap: 6px;
   --radius-search: 22px;
   --searchbar-h: 65px;
@@ -79,7 +79,7 @@ h1 { font-size: 1.8rem; }
   pointer-events: none; background: var(--masthead-shadow); }
 body:not(.is-in) { padding-top: var(--masthead-h); }
 .masthead .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 4.4rem; gap: 1rem; }
-.mark { display: flex; align-items: center; gap: 1.05rem; color: var(--chrome-text); font-weight: 500; font-size: .78rem; letter-spacing: .22em; text-transform: uppercase; }
+.mark { display: flex; align-items: center; gap: .95rem; color: var(--chrome-text); font-weight: 500; font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; }
 .mark:hover { text-decoration: none; color: #fff; }
 .mark img { filter: brightness(0) invert(.84); }  /* original brown mark, rendered light on the dark chrome */
 .mark:hover img { filter: brightness(0) invert(1); }
@@ -310,9 +310,9 @@ textarea.pn-field { text-transform: none; letter-spacing: .02em; min-height: 10r
   background-image: linear-gradient(rgba(0,0,0,.10) 0%, rgba(255,255,255,.45) 12%, rgba(255,255,255,.12) 30%, rgba(0,0,0,.03) 70%, rgba(0,0,0,.07) 100%);
   border: 1px solid rgba(0,0,0,.09); box-shadow: inset 0 2px 3px rgba(0,0,0,.10), 0 1px 0 rgba(255,255,255,.55); }
 .within input::placeholder { color: #9a9c9c; letter-spacing: .06em; }
-.post-box { display: flex; align-items: center; gap: 1.2rem; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.05); padding: 1rem 1.6rem; margin-bottom: 1.6rem; text-decoration: none; color: var(--ink); font-size: 1.25rem; }
+.post-box { display: flex; align-items: center; justify-content: center; gap: 1.3rem; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.05); padding: 1.15rem 1.6rem; margin-bottom: 1.6rem; text-decoration: none; color: #6f7171; font-weight: 400; font-size: 1.28rem; }
 .post-box:hover { text-decoration: none; background: #fafafa; }
-.post-box .plus { width: 4.4rem; height: 4.4rem; border-radius: 50%; border: 4px solid #d6d6d6; background: #ececec; color: #bbb; display: grid; place-items: center; font-size: 2.6rem; font-weight: 300; line-height: 1; }
+.post-box .plus { display: block; width: 4rem; height: 4rem; }
 @media (max-width: 52rem) {
   .profile-rail { padding-top: 1.4rem; }
   .prail-nav { display: grid; grid-template-columns: 1fr 1fr; }
@@ -385,10 +385,10 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .pad { padding: 1rem 0; }
 
 /* ---- activity list ---- */
-.activity-feed { display: grid; gap: .9rem; }
-.act-line { display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
+.activity-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(30rem, 1fr)); gap: 1.2rem 2rem; align-items: start; }
+.act-line { grid-column: 1 / -1; display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
 .act-date { flex: 0 0 7rem; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
-.act-note .note { max-width: 42rem; }
+.act-note .note { max-width: none; }
 
 /* ---- article page (screenshot 1) ---- */
 .article { max-width: 46rem; margin: 0 auto; background: #fff; padding: 1.6rem 1.8rem 2rem; box-shadow: 0 1px 3px rgba(0,0,0,.16), 0 0 0 1px rgba(0,0,0,.05); }
@@ -582,7 +582,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* ================= the curtain ================= */
 /* Proportions taken from the original mock: card 640 wide, tint band 40 each side,
    ribbon 180 wide flush to the card's right edge and flush under its bottom.        */
-.curtain { --peek: 20px; --nub-w: 187px; --nub-h: 273px;
+.curtain { --peek: 52px; --nub-w: 177px; --nub-h: 259px;
   position: fixed; top: var(--searchbar-h); right: 3.5rem; z-index: 5;
   width: 29rem; box-sizing: border-box;
   display: flex; flex-direction: column; align-items: flex-end;
@@ -605,12 +605,12 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   margin: 0;                            /* butts against the tail: bands continue, no double tint */
   background: url("/nub.png") no-repeat top center / 100% auto;
   border: 0; cursor: pointer; color: var(--nub-gold);
-  padding: 1.1rem 1.8rem 0; text-align: center; }
-.nub-label { display: block; font-family: var(--slab); font-weight: 700; font-size: .72rem; letter-spacing: .13em;
+  padding: .95rem 1.5rem 0; text-align: center; }
+.nub-label { display: block; font-family: var(--slab); font-weight: 700; font-size: .68rem; letter-spacing: .13em;
   text-transform: uppercase; line-height: 1.5; color: var(--nub-gold); }
-.nub-icon { display: grid; place-items: center; margin: .7rem auto 0; width: 3.9rem; height: 3.9rem;
+.nub-icon { display: grid; place-items: center; margin: .6rem auto 0; width: 3.5rem; height: 3.5rem;
   border-radius: 50%; background: rgba(255,255,255,.10); color: #fff; }
-.nub-icon svg { width: 34px; height: 36px; }
+.nub-icon svg { width: 30px; height: 32px; }
 .curtain-nub:focus-visible { outline: 2px solid var(--nub-gold); outline-offset: -6px; }
 @media (max-width: 60rem) { .curtain { display: none; } }
 

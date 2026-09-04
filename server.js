@@ -117,7 +117,7 @@ function layout({ title, body, me, flash, cls = '' }) {
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="icon" href="/mark.png"><link rel="stylesheet" href="/style.css"></head><body class="${cls}${me ? ' is-in' : ''}">
+<link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body class="${cls}${me ? ' is-in' : ''}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile">${ICONS.person}</a>
@@ -169,7 +169,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 })();
 </script>`
   : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="24" height="32"><span>discriminant.ly</span></a>
+  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="20" height="27"><span>discriminant.ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
@@ -426,7 +426,7 @@ const pages = {
       <div class="tiles">${tile(0, 'All notes', visible.length, '', !cid)}${colls.map((c) => tile(c.id, c.name, c.count, c.image, c.id === cid)).join('')}</div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes'], ['public', 'Public Notes'], ['private', 'Private Notes']].map(([k, l]) => `<a class="${vis === k ? 'on' : ''}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
-      <a class="post-box" href="/new"><span class="plus">+</span><span>Post a new Note</span></a>` : ''}
+      <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
       <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>`;
     } else {
       const acts = [];
@@ -609,7 +609,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/plus.png': 'image/png' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
