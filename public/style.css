@@ -8,7 +8,7 @@
   --chrome-muted: #7d7d7d;
   --paper: #dcdddd;         /* light feed area behind the cards */
   --paper-strip: #d2d4d4;   /* "Activity from the entire network" band */
-  --card: #f6f5f2;   /* warmed off the cold blue-grey, in line with the carousel */
+  --card: #f4f4f2;   /* neutral: off the cold blue-grey, not warm */
   --ink: #2a2a2a;
   --ink-soft: #949494;
   --rule: #d0d0d0;
@@ -44,9 +44,9 @@
   --curtain-frame: rgba(0,0,0,.5);
   --curtain-nub: rgba(0,0,0,.75);
   --nub-gold: #dfcf87;
-  --nf-card: #dedbd6;      /* warmed a step off cold grey */
-  --nf-field: #f5f3f0;
-  --nf-field-soft: #e3e0db;
+  --nf-card: #dcdad6;
+  --nf-field: #f3f2ef;
+  --nf-field-soft: #e1dfdb;
   --nf-rule: rgba(0,0,0,.10);
   --nf-ink: #4b4844;
   --nf-input-size: .78rem;   /* placeholder/label size inside the note card */
@@ -149,7 +149,7 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .rail .rail-tags a { color: var(--chrome-text); font-weight: 500; }
 .rail .rail-tags a.on { color: var(--gold); }
 .members { list-style: none; padding: 0; margin: .4rem 0 0; }
-.members li a { display: flex; align-items: center; gap: .8rem; padding: .45rem 0; font-size: .95rem; }
+.members li a { display: flex; align-items: center; gap: .85rem; padding: .45rem 0 .45rem .7rem; font-size: .95rem; }
 .welcome { text-align: center; padding: .4rem 0 1rem; }
 .welcome-name { font-size: 1.1rem; color: #eee; margin: .6rem 0 .9rem; }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #111; border: 1px solid #111; margin-bottom: 1rem; }
@@ -168,7 +168,7 @@ footer a { color: var(--chrome-text); }
 .avatar { position: relative; width: 2.9rem; height: 2.9rem; border-radius: 50%; object-fit: cover; display: block; background: #ccc;
   box-shadow: var(--avatar-shadow); }
 .avatar-initial { display: grid; place-items: center; font-family: var(--slab); font-weight: 400; color: #e8e8e8; background: #4a4b4b; font-size: 1.25rem; }
-.avatar.big { width: 6rem; height: 6rem; margin: 0 auto; font-size: 2.4rem;
+.avatar.big { width: 6rem; height: 6rem; margin: 0 auto; font-size: 2.7rem;
   box-shadow: var(--avatar-shadow-big); }
 .stackdate { display: flex; flex-direction: column; align-items: center; line-height: 1; margin-top: .6rem; color: #949494; font-weight: 300; }
 .stackdate .mon { font-size: .95rem; text-transform: uppercase; letter-spacing: .04em; }
@@ -675,6 +675,16 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* ---- search bar active state (its own token, separate from .btn3d) ---- */
 :root { --search-active-face: linear-gradient(rgba(0,0,0,.34) 0%, rgba(0,0,0,.12) 42%, rgba(0,0,0,0) 62%, rgba(0,0,0,.06) 100%); }
-.searchbar.is-active input { background-image: var(--search-active-face);
+.searchbar.is-active input { text-transform: none; background-image: var(--search-active-face);
   box-shadow: inset 0 2px 4px rgba(0,0,0,.5), inset 0 -1px 0 rgba(255,255,255,.06);
   border-color: rgba(255,255,255,.10); color: #efefef; text-align: left; letter-spacing: .1em; }
+
+/* ---- new-collection tile: stacked CTAs with room to breathe ---- */
+.tile-new .tile-count { flex-direction: column; gap: .5rem; padding: .55rem .6rem .7rem; }
+.tile-new input { margin-bottom: .1rem; padding: .4rem .5rem; }
+.tile-ctas { display: none; flex-direction: column; gap: .45rem; width: 100%; }
+.tile-new.is-open .tile-ctas { display: flex; }
+.tile-cta { display: block; width: 100%; background: none; border: 0; cursor: pointer; padding: .3rem 0;
+  font-family: var(--slab); font-weight: 700; font-size: .62rem; letter-spacing: .13em; text-transform: uppercase; color: #7b7b7b; }
+.tile-cta:hover { color: #333; }
+.tile-cta-go { color: #333; }

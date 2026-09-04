@@ -103,9 +103,9 @@ const timeAgo = (t) => { const d = (Date.now() - new Date(t + 'Z')) / 864e5; ret
 
 // ---------- templates ----------
 const ICONS = {
-  home: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 3 1.8 11.4h3.1V21h5.2v-5.9h3.8V21h5.2v-9.6h3.1z"/></svg>',
-  person: '<svg viewBox="0 0 24 24" width="20" height="21" aria-hidden="true"><circle cx="12" cy="6.6" r="4.6" fill="currentColor"/><path fill="currentColor" d="M12 12.4c-4.6 0-8.2 2.9-8.2 6.6V22h16.4v-3c0-3.7-3.6-6.6-8.2-6.6z"/></svg>',
-  gear: '<svg viewBox="0 0 24 24" width="16" height="17" aria-hidden="true"><path fill="currentColor" d="M21 13.6v-3.2l-2.6-.4a6.9 6.9 0 0 0-.9-2.1l1.6-2.1-2.3-2.3-2.1 1.6a6.9 6.9 0 0 0-2.1-.9L12.2 2H9l-.4 2.2a6.9 6.9 0 0 0-2.1.9L4.4 3.5 2.1 5.8l1.6 2.1a6.9 6.9 0 0 0-.9 2.1L.2 10.4v3.2l2.6.4c.2.8.5 1.5.9 2.1l-1.6 2.1 2.3 2.3 2.1-1.6c.7.4 1.4.7 2.1.9l.4 2.6h3.2l.4-2.6c.8-.2 1.5-.5 2.1-.9l2.1 1.6 2.3-2.3-1.6-2.1c.4-.7.7-1.4.9-2.1zM11 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z"/></svg>',
+  home: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M12 3.6 3.4 10.9h1.9V20.4h4.3v-5.5h4.8v5.5h4.3V10.9h1.9z"/></svg>',
+  person: '<svg viewBox="0 0 24 24" width="19" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2.4a4.7 4.7 0 0 1 3.05 8.28C18.02 11.86 20 14.3 20 17.2V21.4H4v-4.2c0-2.9 1.98-5.34 4.95-6.52A4.7 4.7 0 0 1 12 2.4z"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M22.77 9.77 L22.77 14.23 L20.36 14.01 L19.33 16.49 L21.19 18.04 L18.04 21.19 L16.49 19.33 L14.01 20.36 L14.23 22.77 L9.77 22.77 L9.99 20.36 L7.51 19.33 L5.96 21.19 L2.81 18.04 L4.67 16.49 L3.64 14.01 L1.23 14.23 L1.23 9.77 L3.64 9.99 L4.67 7.51 L2.81 5.96 L5.96 2.81 L7.51 4.67 L9.99 3.64 L9.77 1.23 L14.23 1.23 L14.01 3.64 L16.49 4.67 L18.04 2.81 L21.19 5.96 L19.33 7.51 L20.36 9.99 Z M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
   chev: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 4.5 16.5 12 9 19.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   mic: '<svg viewBox="0 0 24 24" width="17" height="19" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 17.5V21M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
@@ -126,7 +126,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/settings" title="Account settings">${ICONS.gear}</a>
   <button type="button" class="iconrail-btn" id="dictate-btn" title="Dictate a note">${ICONS.mic}</button>
 </nav>
-<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput"></form></div></div>
+<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
 <script>
 (function () {
   var si = document.getElementById('searchinput'), sb = document.getElementById('searchbar');
@@ -453,7 +453,7 @@ const pages = {
           <form class="tile tile-new" method="post" action="/collections/new">
             <span class="tile-img"><img src="/plus-sm.png" alt="" width="40" height="40"></span>
             <span class="tile-name">New collection</span>
-            <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><button class="tile-save">Save</button></span>
+            <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><span class="tile-ctas"><button type="button" class="tile-cta" data-cancel-new>Cancel</button><button class="tile-cta tile-cta-go">Save</button></span></span>
           </form>` : ''}</div>
       </div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
@@ -467,7 +467,11 @@ const pages = {
         b.addEventListener('click', function () { t.scrollBy({ left: (+b.dataset.scroll) * Math.max(240, t.clientWidth * 0.6), behavior: 'smooth' }); });
       });
       var nw = document.querySelector('.tile-new');
-      if (nw) nw.addEventListener('click', function () { nw.classList.add('is-open'); nw.querySelector('input').focus(); });
+      if (nw) {
+        nw.addEventListener('click', function (e) { if (e.target.hasAttribute('data-cancel-new')) return; nw.classList.add('is-open'); nw.querySelector('input').focus(); nw.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' }); });
+        var cx = nw.querySelector('[data-cancel-new]');
+        if (cx) cx.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); nw.classList.remove('is-open'); nw.querySelector('input').value = ''; });
+      }
       var dlg = document.getElementById('confirm-dialog');
       if (dlg) {
         document.querySelectorAll('.tile-del').forEach(function (b) {
@@ -672,6 +676,12 @@ async function handle(req, res) {
   const need = () => { redirect(res, '/login'); return true; };
   let mt;
 
+  if ((mt = p.match(/^\/avatars\/([a-z0-9_-]+\.png)$/))) {
+    const f = path.join(__dirname, 'public', 'avatars', mt[1]);
+    if (!fs.existsSync(f)) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+    return fs.createReadStream(f).pipe(res);
+  }
   if ((mt = p.match(/^\/seed\/([a-z0-9_-]+\.jpg)$/))) {
     const f = path.join(__dirname, 'public', 'seed', mt[1]);
     if (!fs.existsSync(f)) return send(res, 'Not found', 404);
@@ -791,7 +801,7 @@ async function handle(req, res) {
 // ---------- bootstrap admin + optional seed ----------
 if (q('SELECT COUNT(*) c FROM users').get().c === 0) {
   const email = process.env.ADMIN_EMAIL || 'admin@discriminant.ly', pass = process.env.ADMIN_PASSWORD || 'changeme1';
-  q('INSERT INTO users(handle,name,email,pass,is_admin) VALUES(?,?,?,?,1)').run(process.env.ADMIN_HANDLE || 'elicierto', process.env.ADMIN_NAME || 'Brian Elicierto', email, hashPass(pass));
+  q('INSERT INTO users(handle,name,email,pass,is_admin,avatar) VALUES(?,?,?,?,1,?)').run(process.env.ADMIN_HANDLE || 'elicierto', process.env.ADMIN_NAME || 'Brian Elicierto', email, hashPass(pass), '/avatars/elicierto.png');
   const code = token(6); q('INSERT INTO invites(code,from_user) VALUES(?,1)').run(code);
   console.log(`First run: admin ${email} / ${pass}. One invite code: ${code}`);
   if (process.env.SEED) require('./seed')(db);
