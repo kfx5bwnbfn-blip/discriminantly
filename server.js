@@ -175,14 +175,14 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     </details>
     <div class="nf-image" id="${dropId}">
       <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
-      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="Drag image into here" value="${esc(o.image)}" required>
+      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="DRAG IMAGE INTO HERE" value="${esc(o.image)}" required>
     </div>
     <div class="nf-stack">
-      <input class="nf-field" name="name" placeholder="Title (required)" required maxlength="120" value="${esc(o.name)}">
-      <textarea class="nf-field" name="why" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="Comments">${esc(o.why)}</textarea>
-      <input class="nf-field" name="tags" placeholder="#Hashtags" value="${esc(o.tags)}">
+      <input class="nf-field" name="name" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
+      <textarea class="nf-field" name="why" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="COMMENTS">${esc(o.why)}</textarea>
+      <input class="nf-field" name="tags" placeholder="#HASHTAGS" value="${esc(o.tags)}">
     </div>
-    <input class="nf-field nf-link" name="url" type="url" placeholder="Link" value="${esc(o.url)}">
+    <input class="nf-field nf-link" name="url" type="url" placeholder="LINK" value="${esc(o.url)}">
     <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
     <div class="nf-foot">
       ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/o/${o.id}/delete">Delete</button>` : '<span></span>'}

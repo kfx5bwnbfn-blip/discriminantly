@@ -519,12 +519,15 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .nf { margin: 0; }
 .nf-top { display: flex; justify-content: flex-end; align-items: center; gap: .8rem; padding: .1rem .1rem .3rem; }
 .nf-lbl { font-family: var(--slab); font-weight: 700; font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--nf-ink); }
-.nf-box { background: var(--nf-card); padding: 10px; display: grid; gap: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.10); }
+.nf-box { background: var(--nf-card); padding: 17px 17px 25px; display: grid; gap: 11px; box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.10); }
 .nf-field { display: block; width: 100%; margin: 0; box-sizing: border-box;
-  font-family: var(--slab); font-weight: 400; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; color: var(--nf-ink);
-  background: var(--nf-field); border: 1px solid var(--nf-rule); box-shadow: none; padding: .75rem .8rem; }
-.nf-field::placeholder { color: #9b9c9d; }
-textarea.nf-field { text-transform: none; letter-spacing: .02em; font-size: .9rem; resize: vertical; }
+  font-family: var(--slab); font-weight: 400; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; color: #333;
+  background: var(--nf-field); border: 1px solid var(--nf-rule); box-shadow: none; padding: .78rem .85rem; }
+.nf-field::placeholder { color: #9b9c9d; letter-spacing: .12em; }
+/* title + comments carry the note card's body voice: mixed case, same ink */
+.nf-stack input[name="name"], textarea.nf-field {
+  text-transform: none; letter-spacing: .01em; font-size: .95rem; line-height: 1.45; color: #333; }
+textarea.nf-field { resize: vertical; }
 /* collections dropdown: gradient tints give it depth over the card */
 .nf-drop { position: relative; }
 .nf-drop > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
@@ -563,7 +566,7 @@ textarea.nf-field { text-transform: none; letter-spacing: .02em; font-size: .9re
   background: linear-gradient(#fafbfb 0%, #e4e5e6 55%, #d2d3d5 100%); box-shadow: 0 1px 0 #fff inset; }
 .nf-post:hover { background: linear-gradient(#fff, #dcdddf); }
 .nf-post:active { box-shadow: 0 2px 5px rgba(0,0,0,.22) inset; }
-.nf-foot { display: flex; justify-content: space-between; align-items: center; padding-top: .1rem; }
+.nf-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 0; }
 .nf-link-btn { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none;
   font-family: var(--slab); font-weight: 700; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--nf-ink); }
 .nf-link-btn:hover { text-decoration: underline; }
@@ -583,12 +586,12 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .curtain:hover { --peek: var(--nub-h); }
 .curtain.is-open, .curtain.is-open:hover { transform: translateY(0); }
 .curtain-frame { width: 100%; box-sizing: border-box; background: var(--curtain-frame);
-  padding: 0 29px 0; }              /* tint band hugs the card; nothing below it */
+  padding: 0 29px 29px; }           /* tint band wraps the card: sides and bottom, same width */
 .curtain-body { width: 100%; }
 /* the tint + ribbon silhouette is a PNG so the two translucencies and points stay exact */
 .curtain-nub { position: relative; box-sizing: border-box;
   width: var(--nub-w); height: var(--nub-h);
-  margin: 0 29px 0 0;                   /* ribbon's right edge lines up with the card's */
+  margin: -29px 29px 0 0;               /* pulls up so the ribbon starts flush at the card's bottom edge */
   background: url("/nub.png") no-repeat top center / 100% auto;
   border: 0; cursor: pointer; color: var(--nub-gold);
   padding: 1.1rem 1.8rem 0; text-align: center; }
