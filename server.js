@@ -103,8 +103,8 @@ const timeAgo = (t) => { const d = (Date.now() - new Date(t + 'Z')) / 864e5; ret
 
 // ---------- templates ----------
 const ICONS = {
-  home: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" d="M12 3.6 3.4 10.9h1.9V20.4h4.3v-5.5h4.8v5.5h4.3V10.9h1.9z"/></svg>',
-  person: '<svg viewBox="0 0 24 24" width="19" height="20" aria-hidden="true"><path fill="currentColor" d="M12 2.4a4.7 4.7 0 0 1 3.05 8.28C18.02 11.86 20 14.3 20 17.2V21.4H4v-4.2c0-2.9 1.98-5.34 4.95-6.52A4.7 4.7 0 0 1 12 2.4z"/></svg>',
+  home: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M12 3.4 4.8 10.4V20.6h14.4V10.4zM10.3 20.6v-5.4h3.4v5.4z"/></svg>',
+  person: '<svg viewBox="0 0 24 24" width="18" height="19" aria-hidden="true"><path fill="currentColor" d="M12 2.6a4.6 4.6 0 0 1 2.62 8.38C17.1 12.02 18.7 14.1 18.7 16.6v4.8H5.3v-4.8c0-2.5 1.6-4.58 4.08-5.62A4.6 4.6 0 0 1 12 2.6z"/></svg>',
   gear: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M22.77 9.77 L22.77 14.23 L20.36 14.01 L19.33 16.49 L21.19 18.04 L18.04 21.19 L16.49 19.33 L14.01 20.36 L14.23 22.77 L9.77 22.77 L9.99 20.36 L7.51 19.33 L5.96 21.19 L2.81 18.04 L4.67 16.49 L3.64 14.01 L1.23 14.23 L1.23 9.77 L3.64 9.99 L4.67 7.51 L2.81 5.96 L5.96 2.81 L7.51 4.67 L9.99 3.64 L9.77 1.23 L14.23 1.23 L14.01 3.64 L16.49 4.67 L18.04 2.81 L21.19 5.96 L19.33 7.51 L20.36 9.99 Z M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
   chev: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 4.5 16.5 12 9 19.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -112,7 +112,7 @@ const ICONS = {
   lens: '<svg viewBox="0 0 44 48" width="44" height="48" aria-hidden="true"><defs><linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="18" cy="17" r="12.6" fill="url(%23glare)"/><circle cx="18" cy="17" r="12.6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M26.9 26.2 29.4 28.7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.3" fill="currentColor"/><circle cx="31.8" cy="36.4" r="1.7" fill="currentColor"/><circle cx="32" cy="41.4" r="1.3" fill="currentColor"/></svg>',
 };
 
-function layout({ title, body, me, flash, cls = '' }) {
+function layout({ title, body, me, flash, cls = '', nav = '' }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
@@ -121,9 +121,9 @@ function layout({ title, body, me, flash, cls = '' }) {
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body class="${cls}${me ? ' is-in' : ''}">
 ${me ? `<nav class="iconrail" aria-label="Main">
-  <a href="/" title="Home">${ICONS.home}</a>
-  <a href="/u/${esc(me.handle)}" title="Your profile">${ICONS.person}</a>
-  <a href="/settings" title="Account settings">${ICONS.gear}</a>
+  <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
+  <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
+  <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
   <button type="button" class="iconrail-btn" id="dictate-btn" title="Dictate a note">${ICONS.mic}</button>
 </nav>
 <div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
@@ -198,7 +198,6 @@ ${me ? `<div class="curtain dialog" id="confirm-dialog">
 </div>` : ''}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
 <main class="wrap">${body}</main>
-<footer class="wrap"><p>A lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods. <a href="/about">About</a> · <a href="/objects.json">Data</a></p></footer>
 </body></html>`;
 }
 
@@ -384,7 +383,7 @@ const pages = {
     <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>
   </section>
 </div>`;
-    send(res, layout({ title: '', body, me }));
+    send(res, layout({ title: '', body, me, nav: 'home' }));
   },
 
   object(req, res, me, url, id) {
@@ -502,7 +501,7 @@ const pages = {
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
   <section class="feed profile-feed">${main}</section>
 </div>`;
-    send(res, layout({ title: u.name, body, me }));
+    send(res, layout({ title: u.name, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
   },
 
   login(req, res, me, err = '') {
@@ -553,7 +552,7 @@ const pages = {
     <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
   </div>
 </div>`;
-    send(res, layout({ title: 'Settings', body, me, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Settings', body, me, cls: 'is-dark-page', nav: 'settings' }));
   },
 
   welcome(req, res, me) {
