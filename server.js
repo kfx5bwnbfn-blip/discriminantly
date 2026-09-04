@@ -107,6 +107,7 @@ const ICONS = {
   person: '<svg viewBox="0 0 24 24" width="20" height="21" aria-hidden="true"><circle cx="12" cy="6.6" r="4.6" fill="currentColor"/><path fill="currentColor" d="M12 12.4c-4.6 0-8.2 2.9-8.2 6.6V22h16.4v-3c0-3.7-3.6-6.6-8.2-6.6z"/></svg>',
   gear: '<svg viewBox="0 0 24 24" width="16" height="17" aria-hidden="true"><path fill="currentColor" d="M21 13.6v-3.2l-2.6-.4a6.9 6.9 0 0 0-.9-2.1l1.6-2.1-2.3-2.3-2.1 1.6a6.9 6.9 0 0 0-2.1-.9L12.2 2H9l-.4 2.2a6.9 6.9 0 0 0-2.1.9L4.4 3.5 2.1 5.8l1.6 2.1a6.9 6.9 0 0 0-.9 2.1L.2 10.4v3.2l2.6.4c.2.8.5 1.5.9 2.1l-1.6 2.1 2.3 2.3 2.1-1.6c.7.4 1.4.7 2.1.9l.4 2.6h3.2l.4-2.6c.8-.2 1.5-.5 2.1-.9l2.1 1.6 2.3-2.3-1.6-2.1c.4-.7.7-1.4.9-2.1zM11 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" width="17" height="19" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 17.5V21M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   lens: '<svg viewBox="0 0 44 46" width="44" height="46" aria-hidden="true"><circle cx="19" cy="18" r="10.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M26.4 25.8 29.6 29" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.1" fill="currentColor"/><circle cx="31.8" cy="36" r="1.4" fill="currentColor"/><circle cx="31.8" cy="40.4" r="1.1" fill="currentColor"/></svg>',
 };
 
@@ -121,11 +122,12 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile">${ICONS.person}</a>
   <a href="/settings" title="Account settings">${ICONS.gear}</a>
-  <a href="/invites" title="Invites">${ICONS.key}</a>
+  <button type="button" class="iconrail-btn" id="dictate-btn" title="Dictate a note">${ICONS.mic}</button>
 </nav>
 <div class="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly"></form></div></div>
 <div class="curtain" id="curtain">
   <div class="curtain-frame"><div class="curtain-body">${noteForm(me, {}, { idp: 'ct', compact: true })}</div></div>
+  <div class="curtain-tail" aria-hidden="true"><span class="tail-band"></span><span class="tail-bridge"></span><span class="tail-edge"></span></div>
   <button class="curtain-nub" id="curtain-nub" aria-expanded="false" aria-controls="curtain">
     <span class="nub-label">Create a<br>new note</span>
     <span class="nub-icon">${ICONS.lens}</span>
@@ -140,6 +142,30 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   nub.addEventListener('click', function () { c.classList.contains('is-open') ? close() : open(); });
   c.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', close); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+  // voice dictation into the note form (browser speech recognition; no data leaves the browser except to the speech service)
+  var dictate = document.getElementById('dictate-btn');
+  if (!dictate) return;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  dictate.addEventListener('click', function () {
+    open();
+    var title = c.querySelector('input[name=name]'), why = c.querySelector('textarea[name=why]');
+    if (!SR) { why.setAttribute('placeholder', 'DICTATION NEEDS A BROWSER WITH SPEECH RECOGNITION (CHROME OR SAFARI) — OR SPEAK TO CLAUDE VIA THE CONNECTOR'); why.focus(); return; }
+    var rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
+    var target = document.activeElement === title ? title : why;
+    target.focus(); dictate.classList.add('is-listening');
+    var base = target.value ? target.value + ' ' : '';
+    rec.onresult = function (e) {
+      var txt = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
+      target.value = base + txt;
+      if (target.value && e.results[e.results.length - 1].isFinal) base = target.value + ' ';
+    };
+    rec.onend = function () { dictate.classList.remove('is-listening'); };
+    rec.onerror = function () { dictate.classList.remove('is-listening'); };
+    rec.start();
+    dictate.addEventListener('click', function stop() { rec.stop(); dictate.removeEventListener('click', stop); }, { once: true });
+  });
 })();
 </script>`
   : `<header class="masthead"><div class="wrap">

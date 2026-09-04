@@ -452,8 +452,14 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .iconrail { position: fixed; left: 0; top: var(--searchbar-h); bottom: 0; width: 62px; z-index: 5;
   background: transparent;            /* the page texture shows through, undarkened */
   display: flex; flex-direction: column; align-items: center; }
-.iconrail a { position: relative; display: grid; place-items: center; width: 100%; height: 119px; color: #f0f0f0; }
-.iconrail a + a::before { content: ""; position: absolute; top: 0; left: 12px; right: 10px; height: 2px;
+.iconrail a, .iconrail-btn { position: relative; display: grid; place-items: center; width: 100%; height: 119px; color: #f0f0f0;
+  background: none; border: 0; padding: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+.iconrail-btn.is-listening { color: var(--nub-gold); }
+.iconrail-btn.is-listening::after { content: ""; position: absolute; bottom: 32px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--nub-gold); animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: .25 } 50% { opacity: 1 } }
+.iconrail-btn:hover { color: #fff; }
+.iconrail a + a::before, .iconrail a + .iconrail-btn::before { content: ""; position: absolute; top: 0; left: 12px; right: 10px; height: 2px;
   background: linear-gradient(var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
 .iconrail a:hover { color: #fff; }
 .iconrail svg { opacity: .92; }
@@ -519,7 +525,7 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .nf { margin: 0; }
 .nf-top { display: flex; justify-content: flex-end; align-items: center; gap: .8rem; padding: .1rem .1rem .3rem; }
 .nf-lbl { font-family: var(--slab); font-weight: 700; font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--nf-ink); }
-.nf-box { background: var(--nf-card); padding: 17px 17px 25px; display: grid; gap: 11px; box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.10); }
+.nf-box { background: var(--nf-card); padding: 17px 22px 25px; display: grid; gap: 11px; box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.10); }
 .nf-field { display: block; width: 100%; margin: 0; box-sizing: border-box;
   font-family: var(--slab); font-weight: 400; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; color: #333;
   background: var(--nf-field); border: 1px solid var(--nf-rule); box-shadow: none; padding: .78rem .85rem; }
@@ -586,12 +592,17 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .curtain:hover { --peek: var(--nub-h); }
 .curtain.is-open, .curtain.is-open:hover { transform: translateY(0); }
 .curtain-frame { width: 100%; box-sizing: border-box; background: var(--curtain-frame);
-  padding: 0 29px 29px; }           /* tint band wraps the card: sides and bottom, same width */
+  padding: 0 29px 0; }              /* side bands; the bottom band lives in .curtain-tail */
 .curtain-body { width: 100%; }
+/* bottom band and the ribbon's bridge sit side by side, so the two tints meet without overlapping */
+.curtain-tail { display: flex; width: 100%; height: 29px; }
+.tail-band { flex: 1; background: var(--curtain-frame); }
+.tail-bridge { width: calc(var(--nub-w) * 180 / 260); background: var(--curtain-nub); }
+.tail-edge { width: calc(var(--nub-w) * 40 / 260); background: var(--curtain-frame); }
 /* the tint + ribbon silhouette is a PNG so the two translucencies and points stay exact */
 .curtain-nub { position: relative; box-sizing: border-box;
   width: var(--nub-w); height: var(--nub-h);
-  margin: -29px 29px 0 0;               /* pulls up so the ribbon starts flush at the card's bottom edge */
+  margin: 0;                            /* butts against the tail: bands continue, no double tint */
   background: url("/nub.png") no-repeat top center / 100% auto;
   border: 0; cursor: pointer; color: var(--nub-gold);
   padding: 1.1rem 1.8rem 0; text-align: center; }
