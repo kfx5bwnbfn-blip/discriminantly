@@ -369,10 +369,10 @@ function profileRail(u, me, tab) {
     ${u.bio ? `<p class="prail-bio">${esc(u.bio)}</p>` : ''}${u.site ? `<p class="prail-site"><a href="${esc(u.site)}" rel="noopener">${esc(u.site.replace(/^https?:\/\//, ''))}</a></p>` : ''}
     ${me && me.id !== u.id ? `<form method="post" action="/u/${esc(u.handle)}/${following ? 'unfollow' : 'follow'}" class="prail-follow"><button class="btn ${following ? 'btn-on' : ''} block">${following ? 'Following' : 'Follow'}</button></form>` : ''}
     <ul class="prail-nav">
-      <li><a class="${tab === 'activity' ? 'on' : ''}" href="${link('activity')}">All Activity <span>›</span></a></li>
-      <li><a class="${tab === 'notes' ? 'on' : ''}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
-      <li><a class="${tab === 'followers' ? 'on' : ''}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
-      <li><a class="${tab === 'following' ? 'on' : ''}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
+      <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" href="${link('activity')}">All Activity <span>›</span></a></li>
+      <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
+      <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
+      <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
 
   </aside>`;
@@ -539,7 +539,7 @@ const pages = {
           </form>` : ''}</div>
       </div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
-      ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes'], ['public', 'Public Notes'], ['private', 'Private Notes']].map(([k, l]) => `<a class="${vis === k ? 'on' : ''}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
+      ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes', 'All'], ['public', 'Public Notes', 'Public'], ['private', 'Private Notes', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
       ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
         : emptyState(me, 'notes', u)}

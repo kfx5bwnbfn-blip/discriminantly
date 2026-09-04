@@ -747,7 +747,10 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
     --m-searchbar-h: 52px;   /* measured height of the mobile search bar */
     --m-masthead-h: 100px;   /* signed-out masthead wraps to two rows on mobile */
     --m-tab-h: 34px;
+    --m-tab-h-tall: 50px;   /* tabs that carry a wrapped label and a count */
+    --m-tab-line: 1.05rem;  /* one line box for every tab line, so baselines align across tabs */
     --m-gutter: .75rem;
+    --m-page-pad: 1.15rem;   /* breathing room on either side of scrolling content */
   }
 
   /* fixed chrome stays fixed: icon rail, search bar, signed-out masthead */
@@ -758,6 +761,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   body.is-in { padding-top: var(--m-searchbar-h); }
   body:not(.is-in) { padding-top: var(--m-masthead-h); }
   body.is-in main.wrap { padding-left: var(--m-rail-w); padding-right: 0; }
+  body.is-dark-page main.wrap { padding-right: var(--m-page-pad); }
+  main > .settings { padding: 0 var(--m-page-pad) !important; }
+  .dark-strip { padding-left: var(--m-page-pad); padding-right: var(--m-page-pad); }
   .searchbar { padding: .4rem 0 .35rem; }
   .searchbar .wrap { padding: 0 .5rem; }
   .searchbar input { height: 40px; font-size: .68rem; letter-spacing: .16em; }
@@ -784,8 +790,8 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .feednav li + li { border-top: 0; }
   .feednav li + li::before { top: 14%; bottom: 14%; left: 0; right: auto; width: 2px; height: auto;
     background: linear-gradient(90deg, var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
-  .feednav a { justify-content: center; text-align: center; height: var(--m-tab-h); padding: 0 .3rem;
-    font-weight: 600; letter-spacing: .09em; text-transform: uppercase; line-height: 1.15;
+  .feednav a { justify-content: center; text-align: center; min-height: var(--m-tab-h-tall); padding: .3rem;
+    font-weight: 600; letter-spacing: .09em; text-transform: uppercase; line-height: var(--m-tab-line);
     background-image: linear-gradient(rgba(255,255,255,.05), rgba(0,0,0,.16)); }
   .feednav a:hover { background-image: linear-gradient(rgba(255,255,255,.08), rgba(0,0,0,.14)); }
   /* .on keeps the shared surface-base repaint: bare page texture, no overlay */
@@ -804,6 +810,35 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .welcome-name { font-size: 1rem; margin: .5rem 0 .7rem; }
   .wcell { padding: 1rem .5rem; }
   .wcell b { font-size: 1.3rem; }
+
+  /* profile rail nav: same tab pattern and tokens as the home feed nav */
+  .profile-rail { padding-bottom: 0; }
+  .prail-nav { position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
+    margin: 1.1rem calc(-1 * var(--m-gutter)) 0; border-top: 1px solid rgba(0,0,0,.4); }
+  .prail-nav::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 9px; z-index: 2;
+    pointer-events: none; background: var(--masthead-shadow); }
+  .prail-nav li { position: relative; border-bottom: 0; }
+  .prail-nav li::after { display: none; }
+  .prail-nav li + li::before { content: ""; position: absolute; top: 14%; bottom: 14%; left: 0; width: 2px;
+    background: linear-gradient(90deg, var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
+  .prail-nav a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0;
+    text-align: center; min-height: var(--m-tab-h-tall); padding: .3rem .2rem;
+    font-size: 0; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+    background-image: linear-gradient(rgba(255,255,255,.05), rgba(0,0,0,.16)); }
+  /* every line — wrapped label or count — sits in an identical line box, so the
+     second line of "All / Activity" shares a baseline with the counts beside it */
+  .prail-nav a::before { content: attr(data-short); font-size: .52rem; line-height: var(--m-tab-line);
+    white-space: pre-line; }
+  .prail-nav a[data-count]::after { content: attr(data-count); font-size: .54rem; font-weight: 400;
+    line-height: var(--m-tab-line); letter-spacing: .04em; color: var(--chrome-muted); }
+  /* All Activity already wraps to two lines, so it needs no filler line */
+  .prail-nav a.on[data-count]::after { color: #cfcfcf; }
+  .prail-nav a span { display: none; }
+  .prail-nav a:hover { background-image: linear-gradient(rgba(255,255,255,.08), rgba(0,0,0,.14)); }
+
+  /* notes filters: short labels so they stay on one line */
+  .vis-tabs a { display: flex; align-items: center; justify-content: center; min-height: 42px; font-size: 0; padding: .4rem .3rem; }
+  .vis-tabs a::after { content: attr(data-short); font-size: .68rem; letter-spacing: .05em; }
 
   .empty-state { min-height: 12rem; padding: 2rem .75rem 1.6rem; }
   .empty-line { font-size: 1.75rem; max-width: 20ch; }
