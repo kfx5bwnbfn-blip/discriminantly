@@ -45,6 +45,8 @@
   --curtain-nub: rgba(0,0,0,.75);
   --nub-gold: #dfcf87;
   --nav-active: #d6d0e6;   /* very pale lavender for the active rail icon */
+  --link: #6f63a8;         /* lavender for links on light grounds */
+  --link-on-dark: #b8b0d8;  /* lavender for links on the dark chrome */
   --date-ink: #7a7773;     /* stacked date on light ground */
   --nf-card: #dcdad6;
   --nf-field: #f3f2ef;
@@ -65,7 +67,7 @@ body { margin: 0; color: var(--ink); font-family: var(--slab); font-weight: 300;
   background-size: auto, 200px 200px;
   background-attachment: fixed, fixed;   /* anchored: never scrolls or shifts with the UI */
   background-position: 0 0, 0 0; }
-a { color: var(--red); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 .wrap { max-width: 120rem; margin: 0 auto; padding: 0 2rem; }
 h1, h2 { font-weight: 400; line-height: 1.2; margin: 0 0 .5rem; }
@@ -136,6 +138,7 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .cols { display: grid; grid-template-columns: 19rem minmax(0, 1fr); align-items: stretch; margin-top: 0; }
 .rail { background-color: var(--rail-overlay); color: var(--chrome-text); padding: 1.6rem 2rem 2rem; }   /* overlay only; texture comes from the fixed body background */
 .rail a { color: var(--chrome-text); }
+.rail .prail-site a, .dialog a { color: var(--link-on-dark); }
 .rail-title { text-align: center; font-size: 1.2rem; font-weight: 300; margin: .4rem 0 1.1rem; color: #c8c8c8; }
 .steps { list-style: none; padding: 0; margin: 0 0 1.4rem; }
 .steps li { display: flex; align-items: center; gap: .8rem; padding: .35rem 0; font-size: .95rem; }
@@ -162,7 +165,7 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .feed { background-color: var(--paper); background-image: var(--mottle-soft); background-size: 140px 140px; padding: 0 1.5rem 2rem; min-width: 0; }
 .strip { position: relative; margin: 0 -1.5rem 1.5rem; padding: .85rem 1.5rem; text-align: center; font-weight: 400; font-size: 1rem; color: #6f7070; background: transparent; border: 0; box-shadow: none; }
 .strip::after, .edge-shadow::after { content: ""; position: absolute; left: var(--edge-inset); right: 0; top: 100%; height: 5px; pointer-events: none; background: var(--edge-shadow); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(30rem, 1fr)); gap: 1.6rem 2rem; align-items: start; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr)); gap: 1.6rem 2rem; align-items: start; }
 footer { margin: 2rem auto; color: var(--chrome-muted); font-size: .8rem; }
 footer a { color: var(--chrome-text); }
 
@@ -192,11 +195,11 @@ img.avatar.big { box-shadow: inset 0 0 0 1px rgba(0,0,0,.2), 0 0 0 1px rgba(255,
 .note h2 { font-size: 1.25rem; margin: 0 0 .5rem; }
 .note h2 a { color: var(--ink); }
 .body { margin: 0 0 .8rem; font-size: .88rem; line-height: 1.45; color: #444; }
-.tags { margin: 0 0 .2rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--red); }
-.tags a { color: var(--red); }
-.link { margin: 0 0 .8rem; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; word-break: break-all; }
-.link .lbl { color: var(--ink); }
-.link a { color: var(--red); }
+.tags { margin: 0 0 .2rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--link); }
+.tags a { color: var(--link); }
+.link { margin: 0 0 .8rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; word-break: break-all; }
+.link .lbl { color: var(--ink); font-weight: 600; letter-spacing: .1em; }
+.link a { color: var(--link); font-weight: 600; }
 .noteit { background: #eff2f2; border: 1px solid #e2e5e5; padding: .5rem; display: block; width: 100%; }
 .noteit form { margin: 0; }
 .btn-note { display: block; width: 100%; font-family: var(--slab); font-weight: 700; font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; line-height: 1; padding: .8rem; cursor: pointer; text-align: center; color: var(--ink); border: 1px solid var(--btn-border);
@@ -237,7 +240,10 @@ code { font-family: Menlo, Consolas, monospace; font-size: .85em; }
   .cols { grid-template-columns: 1fr; }
   .rail { padding: 1.2rem; }
   .rail h3.lbl, .rail .about, .rail .members, .rail .rail-tags { display: none; }
-  .grid { grid-template-columns: 1fr; gap: 1.2rem; }
+  .grid, .activity-feed { grid-template-columns: 1fr; gap: 1.2rem; }
+  .act-note .note, .grid .note { min-width: 0; }
+  .note .card, .note .text { min-width: 0; }
+  .link, .body, .note h2 { overflow-wrap: anywhere; }
   .note { grid-template-columns: 1fr; gap: .4rem; }
   .byline { flex-direction: row; gap: .8rem; align-items: center; }
   .stackdate { flex-direction: row; gap: .35rem; margin: 0; }
@@ -289,7 +295,7 @@ textarea.pn-field { text-transform: none; letter-spacing: .02em; min-height: 10r
 .pn-link-danger:hover { color: #e8988f; }
 .badge { display: inline-block; margin-left: .4rem; padding: .1rem .4rem; background: var(--ink); color: #fff; font-size: .55rem; letter-spacing: .14em; vertical-align: middle; }
 .colls { margin: 0 0 .3rem; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
-.art-tags, .note .tags { color: var(--red); }
+.art-tags, .note .tags { color: var(--link); }
 .colls a { color: var(--ink-soft); }
 
 /* ---- profile page (screenshot 5) ---- */
@@ -297,7 +303,7 @@ textarea.pn-field { text-transform: none; letter-spacing: .02em; min-height: 10r
 .prail-handle { font-size: 1.15rem; color: #eee; margin: .9rem 0 .4rem; }
 .prail-bio { color: var(--chrome-muted); font-size: .95rem; margin: 0 0 .2rem; }
 .prail-site { margin: 0 0 1.2rem; font-size: .85rem; }
-.prail-site a { color: var(--gold); }
+.prail-site a { color: var(--link-on-dark); }
 .prail-nav { list-style: none; padding: 0; margin: 0 -2rem; text-align: left; border-top: 1px solid rgba(0,0,0,.5); }
 .prail-nav li { border-bottom: 0; position: relative; }
 .prail-nav li::after { content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
@@ -410,7 +416,7 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .pad { padding: 1rem 0; }
 
 /* ---- activity list ---- */
-.activity-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(30rem, 1fr)); gap: 1.2rem 2rem; align-items: start; }
+.activity-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr)); gap: 1.2rem 2rem; align-items: start; }
 .act-line { grid-column: 1 / -1; display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
 .act-date { flex: 0 0 7rem; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
 .act-note .note { max-width: none; }
@@ -421,8 +427,9 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .art-coll a { color: var(--ink-soft); }
 .art-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 2.5rem; align-items: start; }
 .article h1 { font-size: 1.7rem; font-weight: 400; line-height: 1.25; margin: 0 0 .8rem; }
-.art-link { margin: 0; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; word-break: break-all; }
+.art-link { margin: 0; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; word-break: break-all; }
 .art-link .lbl { color: var(--ink); }
+.art-link a { color: var(--link); }
 .art-lede { list-style: disc; margin: .3rem 0 0; padding-left: 1.1rem; color: #444; }
 .art-lede li { font-size: .95rem; line-height: 1.5; }
 .art-figure { margin: 1.6rem 0 1.2rem; background: #f0f0f0; }
@@ -840,6 +847,62 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .vis-tabs a { display: flex; align-items: center; justify-content: center; min-height: 42px; font-size: 0; padding: .4rem .3rem; }
   .vis-tabs a::after { content: attr(data-short); font-size: .68rem; letter-spacing: .05em; }
 
+  /* note form: the icon rail eats 52px, so the card is scaled down as a set —
+     type and controls come down together so the proportions hold             */
+  :root { --nf-input-size: .68rem; }
+  main > .notecard-page { max-width: none; margin: 1rem var(--m-gutter) 2rem 0 !important; padding: 0 !important; }
+  .nf-box { padding: 12px 12px 18px; gap: 9px; }
+  .nf-drop-menu { left: -1px; right: -1px; }
+  .nf-lbl { font-size: .6rem; letter-spacing: .12em; }
+  .nf-field { padding: .62rem .7rem; }
+  .nf-stack input[name="name"], textarea.nf-field { font-size: .8rem; }
+  .nf-image .nf-field { padding: 2rem .8rem; font-size: .7rem; letter-spacing: .12em; }
+  .nf-image-preview { max-height: 10rem; }
+  .nf-drop > summary { padding: .62rem .75rem; font-size: .68rem; letter-spacing: .11em; }
+  .nf-opt { padding: .5rem .75rem; font-size: .66rem; }
+  .nf-post { font-size: .76rem; letter-spacing: .17em; padding: .8rem .8rem; }
+  .nf-foot { margin-top: 16px; }
+  .nf-link-btn { font-size: .66rem; letter-spacing: .14em; }
+  .switch { width: 2.7rem; height: 1.4rem; }
+  .switch span::after { width: 1.16rem; height: 1.16rem; }
+  .switch input:checked + span::after { transform: translateX(1.3rem); }
+
   .empty-state { min-height: 12rem; padding: 2rem .75rem 1.6rem; }
   .empty-line { font-size: 1.75rem; max-width: 20ch; }
 }
+
+/* ---- article page: section rules, member list, comment composer ---- */
+.section-rule { height: 2px; margin: 1.6rem 0;
+  background: linear-gradient(var(--hr-light) 0 1px, var(--hr-light-lift) 1px 2px); }
+/* "Also noted by" reads like the members list in the signed-out rail */
+.noter-list { list-style: none; padding: 0; margin: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr)); gap: .2rem 1.2rem; }
+.noter-list li a { display: flex; align-items: center; gap: .85rem; padding: .45rem 0; font-size: .95rem;
+  color: var(--ink); text-decoration: none; }
+.noter-list li a:hover { color: #000; }
+.noter-list .avatar, .comment-list .avatar, .is-article .byline .avatar { width: 2.6rem; height: 2.6rem; }
+.stamp { text-transform: uppercase; letter-spacing: .08em; font-size: .92em; }
+/* the composer lines up with the note card above it and reuses the Post Note face */
+.comment-form { display: block; margin: 0 0 1.6rem; }
+.comment-form textarea { width: 100%; margin: 0 0 .7rem; text-transform: none; letter-spacing: .01em; font-size: .88rem; }
+.comment-form textarea::placeholder { text-transform: uppercase; letter-spacing: .12em; font-size: .82em; }
+.comment-form .nf-post { width: 100%; }
+/* line the sections up with the note card, which sits past the avatar/date column */
+.section-rule, .comments, .noters { max-width: 42rem; margin-left: 0; margin-right: 0; }
+.comments, .noters { padding-left: calc(3.4rem + 1.2rem); }
+.section-rule { margin-left: calc(3.4rem + 1.2rem); max-width: calc(42rem - 3.4rem - 1.2rem); }
+
+/* mobile overrides that must sit after the article-page rules above */
+@media (max-width: 52rem) {
+  /* the card runs full width on mobile, so the sections take no indent */
+  .comments, .noters { padding-left: 0; max-width: none; }
+  .section-rule { margin-left: 0; max-width: none; }
+  .noter-list { grid-template-columns: 1fr 1fr; gap: .1rem .6rem; }
+  .noter-list li a { font-size: .85rem; gap: .6rem; }
+  .noter-list .avatar { width: 2rem; height: 2rem; }
+  .comment-form .nf-post { font-size: .76rem; letter-spacing: .17em; }
+}
+
+/* one avatar scale across the article page */
+.article-page-avatars { }
+.noters .avatar, .comments .avatar, .is-article .note .byline .avatar { width: 2.6rem; height: 2.6rem; }

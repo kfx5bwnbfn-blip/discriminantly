@@ -56,7 +56,7 @@ try { db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN site TEXT DEFAULT ''"); } catch {}
 try { db.exec("ALTER TABLE objects ADD COLUMN private INTEGER DEFAULT 0"); } catch {}
 const q = (sql) => db.prepare(sql);
-const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="">` : `<span class="${cls} avatar-initial">${esc((u.name || u.handle || '?')[0].toUpperCase())}</span>`;
+const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
 function setCollections(userId, objectId, names) {
   q('DELETE FROM object_collections WHERE object_id=?').run(objectId);
@@ -351,7 +351,7 @@ function emptyState(me, kind, subject = null) {
     if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
       <ul class="people">${picks.map((p) => {
         const n = q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c;
-        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.name)}<em>${esc(p.handle)} · ${n} ${n === 1 ? 'note' : 'notes'}</em></span></a>
+        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${n} ${n === 1 ? 'note' : 'notes'}</em></span></a>
         <form method="post" action="/u/${esc(p.handle)}/follow"><button class="btn">Follow</button></form></li>`;
       }).join('')}</ul>`;
   }
@@ -436,7 +436,7 @@ const pages = {
       const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
       rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
       <div class="wtable">
-        <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.name.split(' ')[0])}</p></div>
+        <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${colls}</b><span>Collections</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=followers"><b>${fc.followers}</b><span>Followers</span></a>
@@ -478,13 +478,16 @@ const pages = {
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'notes')}
 <section class="feed profile-feed">
-<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}?tab=notes">${esc(author.name)}'s Notes</a> › ${esc(o.name)}</h3>
+<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}?tab=notes">${esc(author.handle)}'s Notes</a> › ${esc(o.name)}</h3>
 <div class="grid grid-single">${objectCard(o, me, true)}</div>
-<section class="noters"><h3 class="lbl">Noted by</h3><ul class="people">${noters.map((n) => `<li><a class="person" href="/u/${esc(n.handle)}">${avatar(n)}<span class="person-name">${esc(n.name)}<em>${esc(n.handle)}</em></span></a></li>`).join('') || '<li class="empty pad">No one yet.</li>'}</ul></section>
+<div class="section-rule"></div>
+<section class="noters"><h3 class="lbl">Also noted by</h3>
+  <ul class="noter-list">${noters.map((n) => `<li><a href="/u/${esc(n.handle)}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('') || '<li class="empty">No one yet.</li>'}</ul></section>
+<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
-  ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form">${avatar(me)}<textarea name="body" rows="2" maxlength="600" placeholder="Add a comment" required></textarea><button class="btn">Post</button></form>` : `<p class="empty pad">Sign in to leave a comment.</p>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.name)}</a> · ${timeAgo(c.created_at)}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+  ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form>` : `<p class="empty pad">Sign in to leave a comment.</p>`}
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
 </section></div>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>`;
@@ -515,10 +518,10 @@ const pages = {
       const rows = tab === 'followers'
         ? q('SELECT u.* FROM follows f JOIN users u ON u.id=f.follower_id WHERE f.followee_id=? ORDER BY f.created_at DESC').all(u.id)
         : q('SELECT u.* FROM follows f JOIN users u ON u.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC').all(u.id);
-      main = `<h3 class="strip">${tab === 'followers' ? `${fc.followers} ${fc.followers === 1 ? 'person follows' : 'people follow'} ${esc(u.name.split(' ')[0])}` : `${esc(u.name.split(' ')[0])} follows ${fc.following} ${fc.following === 1 ? 'person' : 'people'}`}</h3>
+      main = `<h3 class="strip">${tab === 'followers' ? `${fc.followers} ${fc.followers === 1 ? 'person follows' : 'people follow'} ${esc(u.handle)}` : `${esc(u.handle)} follows ${fc.following} ${fc.following === 1 ? 'person' : 'people'}`}</h3>
       <ul class="people">${rows.map((p) => {
         const pc = followCounts(p.id); const following = me && isFollowing(me.id, p.id);
-        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.name)}<em>${esc(p.handle)} · ${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
+        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
       }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'notes') {
@@ -528,7 +531,7 @@ const pages = {
       if (cid) { const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(cid).map((r) => r.object_id)); rows = rows.filter((o) => ids.has(o.id)); }
       if (s) rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(s.toLowerCase()));
       const tile = (id, name, count, image, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : `<span class="tile-glyph">${ICONS.lens}</span>`}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>` : ''}</div>`;
-      main = `<h3 class="strip">${esc(u.name)}'s Notes</h3>
+      main = `<h3 class="strip">${esc(u.handle)}'s Notes</h3>
       <div class="tiles-wrap">
         <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
         <div class="tiles" id="tiles">${tile(0, 'All notes', visible.length, '', !cid)}${colls.map((c) => tile(c.id, c.name, c.count, c.image, c.id === cid)).join('')}${owner ? `
@@ -585,7 +588,7 @@ const pages = {
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
   <section class="feed profile-feed">${main}</section>
 </div>`;
-    send(res, layout({ title: u.name, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
+    send(res, layout({ title: u.handle, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
   },
 
   login(req, res, me, err = '') {
@@ -604,7 +607,7 @@ const pages = {
     const unused = mine.filter((i) => !i.used_by);
     const body = `<h1>Invites</h1><p>Each member may bring in a few people they trust. Send a code, or the link directly.</p>
 <form method="post" action="/invites"><p><button class="btn btn-primary" ${unused.length >= 5 ? 'disabled' : ''}>Create an invite</button> <span class="fine">${unused.length} of 5 open</span></p></form>
-<table class="invites">${mine.map((i) => `<tr><td><code>${i.code}</code></td><td>${i.used_by ? 'Used by ' + esc(q('SELECT name FROM users WHERE id=?').get(i.used_by).name) : `<a href="/join?code=${i.code}">/join?code=${i.code}</a>`}</td></tr>`).join('')}</table>`;
+<table class="invites">${mine.map((i) => `<tr><td><code>${i.code}</code></td><td>${i.used_by ? 'Used by ' + esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle) : `<a href="/join?code=${i.code}">/join?code=${i.code}</a>`}</td></tr>`).join('')}</table>`;
     send(res, layout({ title: 'Invites', body, me }));
   },
 
