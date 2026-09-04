@@ -875,8 +875,15 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .section-rule { height: 2px; margin: 1.6rem 0;
   background: linear-gradient(var(--hr-light) 0 1px, var(--hr-light-lift) 1px 2px); }
 /* "Also noted by" reads like the members list in the signed-out rail */
-.noter-list { list-style: none; padding: 0; margin: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr)); gap: .2rem 1.2rem; }
+.noters-fold > summary { list-style: none; cursor: pointer; text-align: center; padding: .1rem 0 .2rem; }
+.noters-fold > summary::-webkit-details-marker { display: none; }
+.noters-fold > summary::after { content: "▾"; display: inline-block; margin-left: .5rem; font-size: .6rem;
+  color: var(--ink-soft); transform: translateY(-1px); }
+.noters-fold[open] > summary::after { content: "▴"; }
+.noters-title { color: var(--ink-soft); }
+.noter-list { list-style: none; padding: .6rem 0 0; margin: 0 auto; justify-content: center;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(11rem, 100%), max-content)); gap: .2rem 2rem; }
+.noter-list.is-one { grid-template-columns: max-content; }
 .noter-list li a { display: flex; align-items: center; gap: .85rem; padding: .45rem 0; font-size: .95rem;
   color: var(--ink); text-decoration: none; }
 .noter-list li a:hover { color: #000; }
@@ -890,6 +897,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* line the sections up with the note card, which sits past the avatar/date column */
 .section-rule, .comments, .noters { max-width: 42rem; margin-left: 0; margin-right: 0; }
 .comments, .noters { padding-left: calc(3.4rem + 1.2rem); }
+.comments > .lbl, .noters .lbl { display: block; text-align: center; }
 .section-rule { margin-left: calc(3.4rem + 1.2rem); max-width: calc(42rem - 3.4rem - 1.2rem); }
 
 /* mobile overrides that must sit after the article-page rules above */
@@ -906,3 +914,23 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* one avatar scale across the article page */
 .article-page-avatars { }
 .noters .avatar, .comments .avatar, .is-article .note .byline .avatar { width: 2.6rem; height: 2.6rem; }
+
+/* comment thread separator */
+.comment-rule { margin: 0 0 1.3rem; }
+@media (max-width: 52rem) {
+  /* Post a new note lives in the curtain and the tabs; the rail button is redundant */
+  .cols > .rail > .rail-post { display: none; }
+}
+
+/* breadcrumb: profile › section › note */
+.crumb-here { color: var(--ink); }
+.strip .crumb { color: inherit; }
+.strip .crumb:hover { color: var(--ink); text-decoration: underline; }
+
+/* signed-out comment CTA uses the Post Note face */
+.comment-signin { display: block; width: 100%; text-align: center; text-decoration: none; margin: 0 0 1.3rem; }
+.comment-signin:hover { text-decoration: none; }
+
+/* sign in / join sit on the dark chrome and reuse the settings form */
+.join-intro { margin: 0 0 1.2rem; }
+.settings-table .slabel a { color: var(--link-on-dark); }

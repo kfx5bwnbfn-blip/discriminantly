@@ -99,7 +99,15 @@ function send(res, html, status = 200, headers = {}) {
 }
 function redirect(res, to, extra = {}) { res.writeHead(303, { Location: to, ...extra }); res.end(); }
 function json(res, data) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data, null, 2)); }
-const timeAgo = (t) => { const d = (Date.now() - new Date(t + 'Z')) / 864e5; return d < 1 ? 'today' : d < 2 ? 'yesterday' : d < 30 ? `${Math.floor(d)} days ago` : new Date(t + 'Z').toLocaleDateString('en-CA', { month: 'long', year: 'numeric' }); };
+const timeAgo = (t) => {
+  const then = new Date(t + 'Z'), mins = (Date.now() - then) / 6e4;
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${Math.floor(mins)}m ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  if (mins < 10080) return `${Math.floor(mins / 1440)}d ago`;          // up to a week
+  const sameYear = then.getFullYear() === new Date().getFullYear();
+  return then.toLocaleDateString('en-US', sameYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+};
 
 // ---------- templates ----------
 const ICONS = {
@@ -114,7 +122,7 @@ const ICONS = {
 
 function layout({ title, body, me, flash, cls = '', nav = '' }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
@@ -216,7 +224,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var file = document.getElementById('avatar-file'), drop = document.getElementById('avatar-drop'),
       prev = document.getElementById('avatar-preview'), url = document.getElementById('avatar-url'), data = '';
   function open() { dlg.classList.add('is-open'); } function close() { dlg.classList.remove('is-open'); }
-  pick.addEventListener('click', open);
+  pick.addEventListener('click', function () { file.click(); });   // straight to the OS picker
   dlg.querySelectorAll('[data-dismiss-avatar]').forEach(function (b) { b.addEventListener('click', close); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
   document.getElementById('avatar-choose').addEventListener('click', function () { file.click(); });
@@ -231,6 +239,7 @@ document.addEventListener('DOMContentLoaded', function () {
     r.onload = function () {
       var img = new Image();
       img.onload = function () {
+        open();
         // square centre-crop, downscaled, so the stored photo stays small
         var S = 320, cv = document.createElement('canvas'); cv.width = cv.height = S;
         var n = Math.min(img.width, img.height);
@@ -448,7 +457,7 @@ const pages = {
       rail = `<p class="rail-title">Start your profile to:</p>
       <ol class="steps"><li><span>1</span>Post + Collect <i>Notes</i></li><li><span>2</span>Follow People</li></ol>
       <form class="signup" method="get" action="/join"><label class="lbl">Invite code</label><input name="code" placeholder=""><button class="btn3d block">Sign me up</button></form>
-      <form class="search" method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" value="${esc(s)}"></form>`;
+`;
     }
     const body = `
 <div class="cols">
@@ -472,23 +481,38 @@ const pages = {
   object(req, res, me, url, id) {
     const o = q(OBJ_SQL + ' WHERE o.id=?').get(id); if (!o || !canSee(o, me)) return send(res, layout({ title: 'Not found', body: '<p>No such note.</p>', me }), 404);
     const tags = tagList(o.tags);
-    const noters = q('SELECT u.handle, u.name, u.avatar FROM notes n JOIN users u ON u.id=n.user_id WHERE n.object_id=? ORDER BY n.created_at').all(id);
+    const noters = q('SELECT u.handle, u.name, u.avatar FROM notes n JOIN users u ON u.id=n.user_id WHERE n.object_id=? AND n.user_id<>? ORDER BY n.created_at').all(id, o.user_id);
     const cmts = q('SELECT c.*, u.handle, u.name, u.avatar FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? ORDER BY c.created_at').all(id);
     const ld = { '@context': 'https://schema.org', '@type': 'Product', name: o.name, url: o.url || undefined, image: o.image || undefined, description: o.why, keywords: tags.join(', ') || undefined };
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'notes')}
 <section class="feed profile-feed">
-<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}?tab=notes">${esc(author.handle)}'s Notes</a> › ${esc(o.name)}</h3>
+<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=notes">Notes</a> › <span class="crumb-here">Note</span></h3>
 <div class="grid grid-single">${objectCard(o, me, true)}</div>
-<div class="section-rule"></div>
-<section class="noters"><h3 class="lbl">Also noted by</h3>
-  <ul class="noter-list">${noters.map((n) => `<li><a href="/u/${esc(n.handle)}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('') || '<li class="empty">No one yet.</li>'}</ul></section>
+${noters.length ? `<div class="section-rule"></div>
+<section class="noters">
+  <details class="noters-fold" id="noters-fold" open>
+    <summary><span class="lbl noters-title" data-open="Also noted by" data-shut="Also noted by ${noters.length} ${noters.length === 1 ? 'person' : 'people'}">Also noted by</span></summary>
+    <ul class="noter-list ${noters.length === 1 ? 'is-one' : ''}">${noters.map((n) => `<li><a href="/u/${esc(n.handle)}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('')}</ul>
+  </details>
+</section>` : ''}
 <div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
-  ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form>` : `<p class="empty pad">Sign in to leave a comment.</p>`}
+  ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
+<script>
+(function () {
+  var f = document.getElementById('noters-fold'); if (!f) return;
+  var list = f.querySelector('.noter-list'), t = f.querySelector('.noters-title');
+  function label() { t.textContent = f.open ? t.dataset.open : t.dataset.shut; }
+  // one row stays open; more than one starts collapsed
+  var first = list.firstElementChild;
+  if (first && list.scrollHeight > first.offsetHeight * 1.6) f.open = false;
+  label(); f.addEventListener('toggle', label);
+})();
+</script>
 </section></div>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>`;
     send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
@@ -592,14 +616,39 @@ const pages = {
   },
 
   login(req, res, me, err = '') {
-    send(res, layout({ title: 'Sign in', me, body: `<h1>Sign in</h1>${err ? `<p class="err">${esc(err)}</p>` : ''}
-<form method="post" action="/login" class="form narrow">${field('email', 'Email', '', 'email', 'required autofocus')}${field('password', 'Password', '', 'password', 'required')}<p><button class="btn btn-primary">Sign in</button></p></form>
-<p class="fine">Have an invite? <a href="/join">Join</a></p>` }));
+    const body = `<h3 class="strip dark-strip">Sign in</h3>
+<div class="settings">
+  ${err ? `<p class="err">${esc(err)}</p>` : ''}
+  <form method="post" action="/login" class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      <label class="slabel">Email<input name="email" type="email" required autofocus></label>
+      <label class="slabel">Password<input name="password" type="password" required></label>
+      <button class="btn3d block">Sign in</button>
+    </div>
+    <div class="wcell wcell-wide"><p class="fine center">Have an invite code? <a href="/join">Join discriminant.ly</a></p></div>
+  </form>
+</div>`;
+    send(res, layout({ title: 'Sign in', body, me, cls: 'is-dark-page' }));
   },
 
   join(req, res, me, code = '', err = '') {
-    send(res, layout({ title: 'Join', me, body: `<h1>Join discriminant.ly</h1><p>Membership is by invitation. Enter the code a member sent you.</p>${err ? `<p class="err">${esc(err)}</p>` : ''}
-<form method="post" action="/join" class="form narrow">${field('code', 'Invite code', code, 'text', 'required')}${field('name', 'Your name', '', 'text', 'required')}${field('handle', 'Handle', '', 'text', 'required pattern="[a-z0-9]{2,24}" title="lowercase letters and numbers"')}${field('email', 'Email', '', 'email', 'required')}${field('password', 'Password', '', 'password', 'required minlength="8"')}<p><button class="btn btn-primary">Create account</button></p></form>` }));
+    const body = `<h3 class="strip dark-strip">Join discriminant.ly</h3>
+<div class="settings">
+  ${err ? `<p class="err">${esc(err)}</p>` : ''}
+  <form method="post" action="/join" class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      <p class="fine center join-intro">Membership is by invitation. Enter the code a member sent you.</p>
+      <label class="slabel">Invite code<input name="code" value="${esc(code)}" required></label>
+      <label class="slabel">Your name<input name="name" required></label>
+      <label class="slabel">Handle<input name="handle" required pattern="[a-z0-9]{2,24}" title="lowercase letters and numbers"></label>
+      <label class="slabel">Email<input name="email" type="email" required></label>
+      <label class="slabel">Password<input name="password" type="password" required minlength="8"></label>
+      <button class="btn3d block">Create account</button>
+    </div>
+    <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login">Sign in</a></p></div>
+  </form>
+</div>`;
+    send(res, layout({ title: 'Join', body, me, cls: 'is-dark-page' }));
   },
 
   invites(req, res, me) {
