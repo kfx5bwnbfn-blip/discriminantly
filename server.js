@@ -107,8 +107,9 @@ const ICONS = {
   person: '<svg viewBox="0 0 24 24" width="20" height="21" aria-hidden="true"><circle cx="12" cy="6.6" r="4.6" fill="currentColor"/><path fill="currentColor" d="M12 12.4c-4.6 0-8.2 2.9-8.2 6.6V22h16.4v-3c0-3.7-3.6-6.6-8.2-6.6z"/></svg>',
   gear: '<svg viewBox="0 0 24 24" width="16" height="17" aria-hidden="true"><path fill="currentColor" d="M21 13.6v-3.2l-2.6-.4a6.9 6.9 0 0 0-.9-2.1l1.6-2.1-2.3-2.3-2.1 1.6a6.9 6.9 0 0 0-2.1-.9L12.2 2H9l-.4 2.2a6.9 6.9 0 0 0-2.1.9L4.4 3.5 2.1 5.8l1.6 2.1a6.9 6.9 0 0 0-.9 2.1L.2 10.4v3.2l2.6.4c.2.8.5 1.5.9 2.1l-1.6 2.1 2.3 2.3 2.1-1.6c.7.4 1.4.7 2.1.9l.4 2.6h3.2l.4-2.6c.8-.2 1.5-.5 2.1-.9l2.1 1.6 2.3-2.3-1.6-2.1c.4-.7.7-1.4.9-2.1zM11 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
+  chev: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 4.5 16.5 12 9 19.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   mic: '<svg viewBox="0 0 24 24" width="17" height="19" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 17.5V21M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-  lens: '<svg viewBox="0 0 44 46" width="44" height="46" aria-hidden="true"><circle cx="19" cy="18" r="10.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M26.4 25.8 29.6 29" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.1" fill="currentColor"/><circle cx="31.8" cy="36" r="1.4" fill="currentColor"/><circle cx="31.8" cy="40.4" r="1.1" fill="currentColor"/></svg>',
+  lens: '<svg viewBox="0 0 44 48" width="44" height="48" aria-hidden="true"><defs><linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="18" cy="17" r="12.6" fill="url(%23glare)"/><circle cx="18" cy="17" r="12.6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M26.9 26.2 29.4 28.7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.3" fill="currentColor"/><circle cx="31.8" cy="36.4" r="1.7" fill="currentColor"/><circle cx="32" cy="41.4" r="1.3" fill="currentColor"/></svg>',
 };
 
 function layout({ title, body, me, flash, cls = '' }) {
@@ -116,6 +117,7 @@ function layout({ title, body, me, flash, cls = '' }) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body class="${cls}${me ? ' is-in' : ''}">
 ${me ? `<nav class="iconrail" aria-label="Main">
@@ -124,7 +126,16 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/settings" title="Account settings">${ICONS.gear}</a>
   <button type="button" class="iconrail-btn" id="dictate-btn" title="Dictate a note">${ICONS.mic}</button>
 </nav>
-<div class="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly"></form></div></div>
+<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput"></form></div></div>
+<script>
+(function () {
+  var si = document.getElementById('searchinput'), sb = document.getElementById('searchbar');
+  if (!si) return;
+  var ph = si.getAttribute('placeholder');
+  si.addEventListener('focus', function () { si.setAttribute('placeholder', ''); sb.classList.add('is-active'); });
+  si.addEventListener('blur', function () { if (!si.value) { si.setAttribute('placeholder', ph); sb.classList.remove('is-active'); } });
+})();
+</script>
 <div class="curtain" id="curtain">
   <div class="curtain-frame"><div class="curtain-body">${noteForm(me, {}, { idp: 'ct', compact: true })}</div></div>
   <div class="curtain-tail" aria-hidden="true"><span class="tail-band"></span><span class="tail-bridge"></span><span class="tail-edge"></span></div>
@@ -169,9 +180,22 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 })();
 </script>`
   : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="20" height="27"><span>discriminant.ly</span></a>
+  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="17" height="23"><span>discriminant.ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}
+${me ? `<div class="curtain dialog" id="confirm-dialog">
+  <div class="curtain-frame"><div class="curtain-body">
+    <form method="post" action="">
+      <div class="nf-box">
+        <p class="dlg-title">Delete collection</p>
+        <p class="dlg-copy">Delete “<span class="dlg-name"></span>”? The notes inside stay put — only the collection is removed.</p>
+        <button class="nf-post">Delete collection</button>
+        <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss>Cancel</button></div>
+      </div>
+    </form>
+  </div></div>
+  <div class="curtain-tail"><span class="tail-band"></span></div>
+</div>` : ''}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
 <main class="wrap">${body}</main>
 <footer class="wrap"><p>A lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods. <a href="/about">About</a> · <a href="/objects.json">Data</a></p></footer>
@@ -349,11 +373,11 @@ const pages = {
 <div class="cols">
   <aside class="rail">
     ${rail}
-    <h3 class="lbl">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ') || '<span class="empty">None yet.</span>'}</p>
-    <h3 class="lbl">About us</h3>
+    <h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ') || '<span class="empty">None yet.</span>'}</p>
+    ${me ? '' : `<h3 class="lbl ruled">About us</h3>
     <p class="about">We're a lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods from all over the web and all over the world.</p>
     <p class="about">We're serious about maintaining the integrity of this as an open and honest place to discover genuinely cool, interesting and rare things. For this reason, we don't allow any form of advertising or affiliate programs here.</p>
-    <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>
+    <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>`}
   </aside>
   <section class="feed feed-plain">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
@@ -421,13 +445,43 @@ const pages = {
       if (owner && vis === 'private') rows = rows.filter((o) => o.private);
       if (cid) { const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(cid).map((r) => r.object_id)); rows = rows.filter((o) => ids.has(o.id)); }
       if (s) rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(s.toLowerCase()));
-      const tile = (id, name, count, image, on) => `<a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : '<span class="tile-glyph">◎</span>'}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>`;
+      const tile = (id, name, count, image, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : `<span class="tile-glyph">${ICONS.lens}</span>`}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/minus.png" alt="" width="28" height="28"></button>` : ''}</div>`;
       main = `<h3 class="strip">${esc(u.name)}'s Notes</h3>
-      <div class="tiles">${tile(0, 'All notes', visible.length, '', !cid)}${colls.map((c) => tile(c.id, c.name, c.count, c.image, c.id === cid)).join('')}</div>
+      <div class="tiles-wrap">
+        <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
+        <div class="tiles" id="tiles">${tile(0, 'All notes', visible.length, '', !cid)}${colls.map((c) => tile(c.id, c.name, c.count, c.image, c.id === cid)).join('')}${owner ? `
+          <form class="tile tile-new" method="post" action="/collections/new">
+            <span class="tile-img"><img src="/plus-sm.png" alt="" width="40" height="40"></span>
+            <span class="tile-name">New collection</span>
+            <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><button class="tile-save">Save</button></span>
+          </form>` : ''}</div>
+      </div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes'], ['public', 'Public Notes'], ['private', 'Private Notes']].map(([k, l]) => `<a class="${vis === k ? 'on' : ''}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
-      <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>`;
+      <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>
+    <script>
+    (function () {
+      var t = document.getElementById('tiles');
+      if (t) document.querySelectorAll('.tiles-arrow').forEach(function (b) {
+        b.addEventListener('click', function () { t.scrollBy({ left: (+b.dataset.scroll) * Math.max(240, t.clientWidth * 0.6), behavior: 'smooth' }); });
+      });
+      var nw = document.querySelector('.tile-new');
+      if (nw) nw.addEventListener('click', function () { nw.classList.add('is-open'); nw.querySelector('input').focus(); });
+      var dlg = document.getElementById('confirm-dialog');
+      if (dlg) {
+        document.querySelectorAll('.tile-del').forEach(function (b) {
+          b.addEventListener('click', function () {
+            dlg.querySelector('.dlg-name').textContent = b.dataset.delName;
+            dlg.querySelector('form').action = '/collections/' + b.dataset.delId + '/delete';
+            dlg.classList.add('is-open');
+          });
+        });
+        dlg.querySelectorAll('[data-dismiss]').forEach(function (b) { b.addEventListener('click', function () { dlg.classList.remove('is-open'); }); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('is-open'); });
+      }
+    })();
+    </script>`;
     } else {
       const acts = [];
       for (const o of visible) acts.push({ at: o.created_at, card: o });
@@ -609,7 +663,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/plus.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -628,6 +682,18 @@ async function handle(req, res) {
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
+  if (p === '/collections/new' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req); const name = (b.name || '').trim();
+    if (name) q('INSERT OR IGNORE INTO collections(user_id,name) VALUES(?,?)').run(me.id, name);
+    return redirect(res, `/u/${me.handle}?tab=notes`);
+  }
+  if ((mt = p.match(/^\/collections\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const c = q('SELECT * FROM collections WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (c) q('DELETE FROM collections WHERE id=?').run(c.id);
+    return redirect(res, `/u/${me.handle}?tab=notes`);
+  }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
   if (p === '/about') return pages.about(req, res, me);

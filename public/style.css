@@ -8,17 +8,17 @@
   --chrome-muted: #7d7d7d;
   --paper: #dcdddd;         /* light feed area behind the cards */
   --paper-strip: #d2d4d4;   /* "Activity from the entire network" band */
-  --card: #f5f9f9;   /* sampled from the original screenshot: rgb(245,249,249) everywhere on the card */
+  --card: #f6f5f2;   /* warmed off the cold blue-grey, in line with the carousel */
   --ink: #2a2a2a;
   --ink-soft: #949494;
   --rule: #d0d0d0;
   --red: #d8302f;           /* hashtags and links (253,48,51 at screen gamma) */
   --gold: #d9b859;
-  --tile-on: #e2e0e6;       /* selected collection tile */
+  --tile-on: #e4e0ec;       /* selected collection tile */
   --tile-on-img: #968fa4;
   --btn-top: #fdfefe; --btn-bottom: #e4e8e8; --btn-border: #c9cdcd;
   --dbtn-top: #4a4a4a; --dbtn-bottom: #262626; --dbtn-border: #141414;
-  --slab: "Chaparral Pro", "ChaparralPro-Regular", "Rokkitt", "Roboto Slab", "Rockwell", "Zilla Slab", Georgia, serif;
+  --slab: "chaparral-pro", "Chaparral Pro", "ChaparralPro-Regular", "Rokkitt", "Roboto Slab", "Rockwell", "Zilla Slab", Georgia, serif;
   /* fine vertical stripe, ~2px period, over a soft mottle — matches the dark chrome */
   --stripe: repeating-linear-gradient(90deg, rgba(255,255,255,.050) 0 1px, rgba(0,0,0,.075) 1px 2px);
   --table-gap: 6px;
@@ -44,11 +44,14 @@
   --curtain-frame: rgba(0,0,0,.5);
   --curtain-nub: rgba(0,0,0,.75);
   --nub-gold: #dfcf87;
-  --nf-card: #dbdde0;
-  --nf-field: #f2f3f4;
-  --nf-field-soft: #dfe0e1;
+  --nf-card: #dedbd6;      /* warmed a step off cold grey */
+  --nf-field: #f5f3f0;
+  --nf-field-soft: #e3e0db;
   --nf-rule: rgba(0,0,0,.10);
-  --nf-ink: #4a4b4c;
+  --nf-ink: #4b4844;
+  --nf-input-size: .78rem;   /* placeholder/label size inside the note card */
+  --tile-face: #edeeee;
+  --tile-rule: rgba(0,0,0,.10);
   --mottle: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .45 0'/></filter><rect width='200' height='200' filter='url(%23m)'/></svg>");
   --mottle-soft: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/></filter><rect width='140' height='140' filter='url(%23s)'/></svg>");
 }
@@ -79,7 +82,9 @@ h1 { font-size: 1.8rem; }
   pointer-events: none; background: var(--masthead-shadow); }
 body:not(.is-in) { padding-top: var(--masthead-h); }
 .masthead .wrap { display: flex; align-items: center; justify-content: space-between; min-height: 4.4rem; gap: 1rem; }
-.mark { display: flex; align-items: center; gap: .95rem; color: var(--chrome-text); font-weight: 500; font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; }
+.mark { display: flex; align-items: center; gap: .9rem; color: var(--chrome-text); font-weight: 500; font-size: .7rem; letter-spacing: .22em; text-transform: uppercase; line-height: 1; }
+.mark img { display: block; position: relative; top: -1px; }   /* optical centring against the caps */
+.mark span { display: block; transform: translateY(.5px); }
 .mark:hover { text-decoration: none; color: #fff; }
 .mark img { filter: brightness(0) invert(.84); }  /* original brown mark, rendered light on the dark chrome */
 .mark:hover img { filter: brightness(0) invert(1); }
@@ -126,7 +131,7 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 /* layout: dark rail + light feed */
-.cols { display: grid; grid-template-columns: 19rem minmax(0, 1fr); align-items: stretch; margin-top: 1rem; }
+.cols { display: grid; grid-template-columns: 19rem minmax(0, 1fr); align-items: stretch; margin-top: 0; }
 .rail { background-color: var(--rail-overlay); color: var(--chrome-text); padding: 1.6rem 2rem 2rem; }   /* overlay only; texture comes from the fixed body background */
 .rail a { color: var(--chrome-text); }
 .rail-title { text-align: center; font-size: 1.2rem; font-weight: 300; margin: .4rem 0 1.1rem; color: #c8c8c8; }
@@ -202,7 +207,7 @@ footer a { color: var(--chrome-text); }
 /* light content pages (object, profile, forms) */
 main > *:not(.cols) { background-color: var(--paper); background-image: var(--mottle-soft); background-size: 140px 140px; padding: 1.2rem 1.5rem; margin: 0; }
 main > h1 { padding-bottom: 0; font-size: 1.1rem; text-align: center; color: var(--ink-soft); font-weight: 400; }
-main > :first-child { margin-top: 1rem; }
+main > :first-child { margin-top: 0; }
 main > :last-child { padding-bottom: 2rem; }
 .profile { text-align: center; }
 .profile h1 { margin-top: .8rem; }
@@ -295,15 +300,30 @@ textarea.pn-field { text-transform: none; letter-spacing: .02em; min-height: 10r
 .prail-nav a, .prail-nav .plain { display: flex; justify-content: space-between; padding: 1rem 2rem; font-size: 1rem; color: var(--chrome-text); text-decoration: none; }
 .prail-nav a:hover { color: #fff; }
 .prail-nav a span { color: var(--chrome-muted); }
-.tiles { display: flex; overflow-x: auto; gap: 1px; background: #c6c7c8; border: 1px solid #c6c7c8; margin: 0 0 1.2rem; }
-.tile { flex: 0 0 8.6rem; background: #edefef; text-decoration: none; color: var(--ink); text-align: center; display: grid; grid-template-rows: 5rem auto auto; }
+.tiles-wrap { margin: 0 0 1.2rem; }
+.tiles-nav { display: flex; justify-content: space-between; align-items: center; padding: 0 2px 7px; }
+.tiles-arrow { background: none; border: 0; padding: 0 .1rem; cursor: pointer; line-height: 0; opacity: .75; }
+.tiles-arrow:hover { opacity: 1; }
+.tiles-arrow img { width: 22px; height: 22px; display: block; }
+.tiles-arrow[data-scroll="-1"] img { transform: scaleX(-1); }
+.tiles { display: flex; overflow-x: auto; gap: 1px; background: var(--tile-rule); border: 1px solid var(--tile-rule);
+  scroll-behavior: smooth; scrollbar-width: none; }
+.tiles::-webkit-scrollbar { display: none; }
+.tile-slot { position: relative; flex: 0 0 8.6rem; display: flex; }
+.tile { flex: 1 1 auto; min-width: 0; background: var(--tile-face); text-decoration: none; color: var(--ink); text-align: center; display: grid; grid-template-rows: 5rem auto auto; }
 .tile:hover { text-decoration: none; background: #f2f2f2; }
-.tile.on { background: rgba(255,255,255,.32); box-shadow: inset 0 2px 3px rgba(0,0,0,.13), inset 2px 0 3px -1px rgba(0,0,0,.10), inset -2px 0 3px -1px rgba(0,0,0,.10); }
-.tile-img { display: block; margin: .6rem .6rem 0; background: #d9d9d9 center/cover; height: 4.2rem; display: grid; place-items: center; }
+.tile.on { background: var(--tile-on); }
+.tile-img { display: block; margin: .6rem .6rem 0; background: #d9dada center/cover; height: 4.2rem; display: grid; place-items: center; }
 .tile.on .tile-img { background-color: var(--tile-purple); }
-.tile-glyph { font-size: 2rem; color: rgba(255,255,255,.9); }
-.tile-name { font-size: .58rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: .5rem .3rem .45rem; border-bottom: 1px solid rgba(0,0,0,.09); }
-.tile-count { padding: .5rem 0 .55rem; font-size: 1.05rem; font-weight: 300; color: #8b8d8d; background: rgba(255,255,255,.55); }
+.tile.on .tile-count { background: rgba(255,255,255,.30); }
+/* the inset runs the full height of the slot, over the count band too */
+.tile-slot { position: relative; flex: 0 0 8.6rem; display: flex; }
+.tile-slot:has(.tile.on)::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  box-shadow: inset 0 3px 4px rgba(0,0,0,.15), inset 3px 0 4px -2px rgba(0,0,0,.12), inset -3px 0 4px -2px rgba(0,0,0,.12), inset 0 -3px 4px -2px rgba(0,0,0,.10); }
+.tile-glyph { display: grid; place-items: center; color: rgba(255,255,255,.92); line-height: 0; }
+.tile-glyph svg { width: 34px; height: 37px; }
+.tile-name { font-size: .58rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: .5rem .3rem .45rem; border-bottom: 1px solid rgba(0,0,0,.09); }
+.tile-count { padding: .5rem 0 .55rem; font-size: 1.05rem; font-weight: 300; color: #8b8886; background: rgba(255,255,255,.55); }
 .within input { margin: 0 0 1.2rem; border-radius: var(--radius-search); text-align: left; padding: .75rem 1.4rem;
   font-size: .82rem; font-weight: 600; letter-spacing: .06em; color: #6e7070;
   background-color: transparent;
@@ -527,12 +547,12 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .nf-lbl { font-family: var(--slab); font-weight: 700; font-size: .68rem; letter-spacing: .14em; text-transform: uppercase; color: var(--nf-ink); }
 .nf-box { background: var(--nf-card); padding: 17px 22px 25px; display: grid; gap: 11px; box-shadow: 0 2px 6px rgba(0,0,0,.28), 0 0 0 1px rgba(0,0,0,.10); }
 .nf-field { display: block; width: 100%; margin: 0; box-sizing: border-box;
-  font-family: var(--slab); font-weight: 400; font-size: .82rem; letter-spacing: .12em; text-transform: uppercase; color: #333;
+  font-family: var(--slab); font-weight: 400; font-size: var(--nf-input-size); letter-spacing: .12em; text-transform: uppercase; color: #333;
   background: var(--nf-field); border: 1px solid var(--nf-rule); box-shadow: none; padding: .78rem .85rem; }
 .nf-field::placeholder { color: #9b9c9d; letter-spacing: .12em; }
 /* title + comments carry the note card's body voice: mixed case, same ink */
 .nf-stack input[name="name"], textarea.nf-field {
-  text-transform: none; letter-spacing: .01em; font-size: .95rem; line-height: 1.45; color: #333; }
+  text-transform: none; letter-spacing: .01em; font-size: .88rem; line-height: 1.45; color: #333; }
 textarea.nf-field { resize: vertical; }
 /* collections dropdown: gradient tints give it depth over the card */
 .nf-drop { position: relative; }
@@ -558,7 +578,7 @@ textarea.nf-field { resize: vertical; }
 .nf-opt-new { flex-wrap: wrap; }
 .nf-opt-new .nf-field { flex: 1 1 100%; margin-top: .4rem; padding: .45rem .6rem; font-size: .72rem; background: #fff; }
 .nf-image { position: relative; border: 1px solid var(--nf-rule); background: var(--nf-field-soft); overflow: hidden; }
-.nf-image .nf-field { border: 0; background: transparent; text-align: center; padding: 2.6rem 1rem; font-weight: 700; font-size: .9rem; letter-spacing: .14em; color: #a9aaab; }
+.nf-image .nf-field { border: 0; background: transparent; text-align: center; padding: 2.6rem 1rem; font-weight: 700; font-size: .82rem; letter-spacing: .14em; color: #a9a7a3; }
 .nf-image-preview { display: block; width: 100%; max-height: 13rem; object-fit: contain; background: #fff; }
 .nf-image-preview[hidden] { display: none; }
 .nf-image.has-image { background: #fff; }
@@ -618,3 +638,43 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .settings-table { margin-bottom: 1.4rem; }
 .settings-table .wcell { text-align: left; padding: 1.4rem 1.5rem; }
 .set-cap { display: block; text-align: center; margin: .9rem 0 1rem; color: var(--chrome-text); }
+
+/* ---- new-collection tile + delete affordance ---- */
+.tile-new { flex: 0 0 8.6rem; display: grid; grid-template-rows: 5rem auto auto; background: var(--tile-face);
+  text-align: center; cursor: pointer; border: 0; padding: 0; transition: flex-basis .28s ease; }
+.tile-new .tile-img { background: transparent; }
+.tile-new .tile-img img { width: 2.4rem; height: 2.4rem; }
+.tile-new .tile-name { border-bottom: 0; }
+.tile-new .tile-count { display: flex; align-items: center; justify-content: center; gap: .35rem; padding: .35rem .35rem .4rem; background: transparent; }
+.tile-new input { display: none; width: 100%; margin: 0; padding: .3rem .4rem; font-family: var(--slab);
+  font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; background: #fff; border: 1px solid var(--tile-rule); box-shadow: none; }
+.tile-new .tile-save { display: none; background: none; border: 0; cursor: pointer; font-family: var(--slab);
+  font-weight: 700; font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; color: var(--red); padding: 0 .2rem; }
+.tile-new.is-open { flex-basis: 15rem; }
+.tile-new.is-open input, .tile-new.is-open .tile-save { display: block; }
+.tile-del { position: absolute; right: 6px; bottom: 6px; z-index: 2; opacity: 0; transition: opacity .15s;
+  background: none; border: 0; padding: 0; cursor: pointer; line-height: 0; }
+.tile-del img { width: 22px; height: 22px; }
+.tile-slot:hover .tile-del { opacity: 1; }
+
+/* ---- confirm dialog: the note card's shell, sliding from the fixed bar ---- */
+.dialog { --peek: 0px; width: 26rem; right: 50%; transform: translate(50%, -100%); pointer-events: none; }
+.dialog.is-open { transform: translate(50%, 0); pointer-events: auto; }
+.dialog:hover { transform: translate(50%, -100%); }
+.dialog.is-open:hover { transform: translate(50%, 0); }
+.dialog .curtain-tail { height: 29px; }
+.dlg-title { margin: 0 0 .5rem; font-family: var(--slab); font-weight: 700; font-size: .78rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--nf-ink); }
+.dlg-copy { margin: 0 0 .3rem; font-size: .9rem; line-height: 1.5; color: #4b4844; }
+
+/* ---- rail rule pattern: hairline sits above the heading ---- */
+.rail h3.lbl.ruled { border-bottom: 0; padding-bottom: 0; padding-top: .75rem; position: relative; }
+.rail h3.lbl.ruled::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
+.rail .about { color: rgba(255,255,255,.34); }
+
+/* ---- search bar active state (its own token, separate from .btn3d) ---- */
+:root { --search-active-face: linear-gradient(rgba(0,0,0,.34) 0%, rgba(0,0,0,.12) 42%, rgba(0,0,0,0) 62%, rgba(0,0,0,.06) 100%); }
+.searchbar.is-active input { background-image: var(--search-active-face);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,.5), inset 0 -1px 0 rgba(255,255,255,.06);
+  border-color: rgba(255,255,255,.10); color: #efefef; text-align: left; letter-spacing: .1em; }
