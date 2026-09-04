@@ -107,6 +107,7 @@ const ICONS = {
   person: '<svg viewBox="0 0 24 24" width="20" height="21" aria-hidden="true"><circle cx="12" cy="6.6" r="4.6" fill="currentColor"/><path fill="currentColor" d="M12 12.4c-4.6 0-8.2 2.9-8.2 6.6V22h16.4v-3c0-3.7-3.6-6.6-8.2-6.6z"/></svg>',
   gear: '<svg viewBox="0 0 24 24" width="16" height="17" aria-hidden="true"><path fill="currentColor" d="M21 13.6v-3.2l-2.6-.4a6.9 6.9 0 0 0-.9-2.1l1.6-2.1-2.3-2.3-2.1 1.6a6.9 6.9 0 0 0-2.1-.9L12.2 2H9l-.4 2.2a6.9 6.9 0 0 0-2.1.9L4.4 3.5 2.1 5.8l1.6 2.1a6.9 6.9 0 0 0-.9 2.1L.2 10.4v3.2l2.6.4c.2.8.5 1.5.9 2.1l-1.6 2.1 2.3 2.3 2.1-1.6c.7.4 1.4.7 2.1.9l.4 2.6h3.2l.4-2.6c.8-.2 1.5-.5 2.1-.9l2.1 1.6 2.3-2.3-1.6-2.1c.4-.7.7-1.4.9-2.1zM11 15.2a3.2 3.2 0 1 1 0-6.4 3.2 3.2 0 0 1 0 6.4z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
+  lens: '<svg viewBox="0 0 44 46" width="44" height="46" aria-hidden="true"><circle cx="19" cy="18" r="10.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M26.4 25.8 29.6 29" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.1" fill="currentColor"/><circle cx="31.8" cy="36" r="1.4" fill="currentColor"/><circle cx="31.8" cy="40.4" r="1.1" fill="currentColor"/></svg>',
 };
 
 function layout({ title, body, me, flash, cls = '' }) {
@@ -122,7 +123,25 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/settings" title="Account settings">${ICONS.gear}</a>
   <a href="/invites" title="Invites">${ICONS.key}</a>
 </nav>
-<div class="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly"></form></div></div>`
+<div class="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly"></form></div></div>
+<div class="curtain" id="curtain">
+  <div class="curtain-frame"><div class="curtain-body">${noteForm(me, {}, { idp: 'ct', compact: true })}</div></div>
+  <button class="curtain-nub" id="curtain-nub" aria-expanded="false" aria-controls="curtain">
+    <span class="nub-label">Create a<br>new note</span>
+    <span class="nub-icon">${ICONS.lens}</span>
+  </button>
+</div>
+<script>
+(function () {
+  var c = document.getElementById('curtain'), nub = document.getElementById('curtain-nub');
+  if (!c) return;
+  function open() { c.classList.add('is-open'); nub.setAttribute('aria-expanded', 'true'); }
+  function close() { c.classList.remove('is-open'); nub.setAttribute('aria-expanded', 'false'); }
+  nub.addEventListener('click', function () { c.classList.contains('is-open') ? close() : open(); });
+  c.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', close); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+})();
+</script>`
   : `<header class="masthead"><div class="wrap">
   <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="24" height="32"><span>discriminant.ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
@@ -131,6 +150,81 @@ ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
 <main class="wrap">${body}</main>
 <footer class="wrap"><p>A lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods. <a href="/about">About</a> · <a href="/objects.json">Data</a></p></footer>
 </body></html>`;
+}
+
+
+// The note form card. Rendered on /new and /o/:id/edit, and inside the drop-down curtain.
+// `idp` namespaces element ids so two copies can coexist on one page.
+function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = false } = {}) {
+  const editing = !!o.id;
+  const mine = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(me.id);
+  const sel = new Set(picked ? picked : editing ? objCollections(o.id).map((c) => c.name) : []);
+  const dropId = `img-drop-${idp}`, inputId = `img-input-${idp}`, prevId = `img-prev-${idp}`;
+  return `
+<form method="post" action="${editing ? `/o/${o.id}/edit` : '/new'}" class="nf${compact ? ' nf-compact' : ''}">
+  ${err ? `<p class="err">${esc(err)}</p>` : ''}
+  <div class="nf-box">
+    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
+    <details class="nf-drop" id="drop-${idp}">
+      <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
+      <div class="nf-drop-menu">
+        ${mine.map((c) => `<label class="nf-opt"><input type="checkbox" name="coll" value="${esc(c.name)}" ${sel.has(c.name) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}
+        <label class="nf-opt nf-opt-new"><span>+ New collection</span>
+          <input class="nf-field" name="newcoll" placeholder="Name it" value=""></label>
+      </div>
+    </details>
+    <div class="nf-image" id="${dropId}">
+      <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
+      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="Drag image into here" value="${esc(o.image)}" required>
+    </div>
+    <div class="nf-stack">
+      <input class="nf-field" name="name" placeholder="Title (required)" required maxlength="120" value="${esc(o.name)}">
+      <textarea class="nf-field" name="why" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="Comments">${esc(o.why)}</textarea>
+      <input class="nf-field" name="tags" placeholder="#Hashtags" value="${esc(o.tags)}">
+    </div>
+    <input class="nf-field nf-link" name="url" type="url" placeholder="Link" value="${esc(o.url)}">
+    <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
+    <div class="nf-foot">
+      ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/o/${o.id}/delete">Delete</button>` : '<span></span>'}
+      ${compact ? '<button type="button" class="nf-link-btn" data-close>Cancel</button>' : `<a class="nf-link-btn" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>`}
+    </div>
+  </div>
+</form>
+<script>
+(function () {
+  var drop = document.getElementById('${dropId}'), input = document.getElementById('${inputId}'), preview = document.getElementById('${prevId}');
+  if (!drop) return;
+  function refresh() { if (input.value) { preview.src = input.value; preview.hidden = false; drop.classList.add('has-image'); } else { preview.hidden = true; drop.classList.remove('has-image'); } }
+  input.addEventListener('input', refresh);
+  ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('dragover'); }); });
+  ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('dragover'); }); });
+  drop.addEventListener('drop', function (e) {
+    e.preventDefault();
+    var dt = e.dataTransfer, file = dt.files && dt.files[0];
+    if (file && file.type.indexOf('image/') === 0) { var r = new FileReader(); r.onload = function () { input.value = r.result; refresh(); }; r.readAsDataURL(file); return; }
+    var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
+    if (uri) { input.value = uri.trim(); refresh(); }
+  });
+  var del = drop.closest('form').querySelector('[data-delete]');
+  if (del) del.addEventListener('click', function () {
+    if (!confirm('Delete this note? This cannot be undone.')) return;
+    var f = document.createElement('form'); f.method = 'post'; f.action = del.getAttribute('data-delete');
+    document.body.appendChild(f); f.submit();
+  });
+  var det = document.getElementById('drop-${idp}');
+  if (det) {
+    var lbl = det.querySelector('.nf-drop-label');
+    function syncLabel() {
+      var on = [].slice.call(det.querySelectorAll('input[name=coll]:checked')).map(function (i) { return i.value; });
+      lbl.textContent = on.length ? on.join(', ') : 'Select a collection';
+    }
+    det.addEventListener('change', syncLabel);
+    document.addEventListener('click', function (e) { if (!det.contains(e.target)) det.removeAttribute('open'); });
+    syncLabel();
+  }
+  refresh();
+})();
+</script>`;
 }
 
 function profileRail(u, me, tab) {
@@ -267,56 +361,7 @@ const pages = {
 
   form(req, res, me, o = {}, err = '', picked = null) {
     const editing = !!o.id;
-    const mine = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(me.id);
-    const sel = new Set(picked ? picked : editing ? objCollections(o.id).map((c) => c.name) : []);
-    const body = `
-<form method="post" action="${editing ? `/o/${o.id}/edit` : '/new'}" class="postnote">
-  <div class="pn-top"><span class="lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
-  ${err ? `<p class="err">${esc(err)}</p>` : ''}
-  <div class="pn-box">
-    <fieldset class="pn-colls"><legend class="lbl">Collections</legend>
-      ${mine.map((c) => `<label class="chk"><input type="checkbox" name="coll" value="${esc(c.name)}" ${sel.has(c.name) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}
-      <input class="pn-field" name="newcoll" placeholder="+ New collection" value="">
-    </fieldset>
-    <div class="pn-image" id="pn-image-drop">
-      <img class="pn-image-preview" id="pn-image-preview" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
-      <input class="pn-field" id="pn-image-input" name="image" type="text" placeholder="Paste an image URL, or drag one here" value="${esc(o.image)}" required>
-    </div>
-    <script>
-    (function () {
-      var drop = document.getElementById('pn-image-drop'), input = document.getElementById('pn-image-input'), preview = document.getElementById('pn-image-preview');
-      function refresh() { if (input.value) { preview.src = input.value; preview.hidden = false; drop.classList.add('has-image'); } else { preview.hidden = true; drop.classList.remove('has-image'); } }
-      input.addEventListener('input', refresh);
-      ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('dragover'); }); });
-      ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('dragover'); }); });
-      drop.addEventListener('drop', function (e) {
-        e.preventDefault();
-        var dt = e.dataTransfer, file = dt.files && dt.files[0];
-        if (file && file.type.indexOf('image/') === 0) {
-          var reader = new FileReader();
-          reader.onload = function () { input.value = reader.result; refresh(); };
-          reader.readAsDataURL(file);
-          return;
-        }
-        var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
-        if (uri) { input.value = uri.trim(); refresh(); }
-      });
-      refresh();
-    })();
-    </script>
-    <div class="pn-stack">
-      <input class="pn-field" name="name" placeholder="Title (required)" required maxlength="120" value="${esc(o.name)}">
-      <textarea class="pn-field" name="why" rows="7" maxlength="1000" placeholder="Comments">${esc(o.why)}</textarea>
-      <input class="pn-field" name="tags" placeholder="#Hashtags" value="${esc(o.tags)}">
-    </div>
-    <input class="pn-field" name="url" type="url" placeholder="Link" value="${esc(o.url)}">
-    <button class="pn-post">${editing ? 'Save note' : 'Post note'}</button>
-  </div>
-</form>
-<div class="pn-foot">
-  ${editing ? `<form method="post" action="/o/${o.id}/delete" onsubmit="return confirm('Delete this note? This can\\'t be undone.');"><button class="pn-link pn-link-danger">Delete this note</button></form>` : '<span></span>'}
-  <a class="pn-link" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>
-</div>`;
+    const body = `<div class="notecard-page">${noteForm(me, o, { err, picked, idp: 'pg' })}</div>`;
     send(res, layout({ title: editing ? 'Edit note' : 'Post a new note', body, me }));
   },
 
@@ -400,30 +445,29 @@ const pages = {
     const body = `<h3 class="strip dark-strip">Your Account Settings</h3>
 <div class="settings">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
-  <form method="post" action="/settings" class="sbox">
-    <div class="sbox-inner">
-      ${avatar(me, 'avatar big')}
-      <p class="lbl center">Change profile image</p>
-      <label class="slabel">Image URL<input name="avatar" type="url" value="${esc(me.avatar)}" placeholder="https://"></label>
-    </div>
-    <div class="sbox-inner">
+  <form method="post" action="/settings" class="wtable settings-table">
+    <div class="wcell wcell-wide">${avatar(me, 'avatar big')}<p class="lbl set-cap">Change profile image</p>
+      <label class="slabel">Image URL<input name="avatar" type="url" value="${esc(me.avatar)}" placeholder="https://"></label></div>
+    <div class="wcell wcell-wide">
       <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
       <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>
       <label class="slabel">Name:<input name="name" value="${esc(me.name)}" required></label>
       <label class="slabel">City:<input name="city" value="${esc(me.city)}"></label>
       <label class="slabel">Website:<input name="site" type="url" value="${esc(me.site)}" placeholder="https://"></label>
       <label class="slabel">About you:<textarea name="bio" rows="3" maxlength="300">${esc(me.bio)}</textarea></label>
-      <button class="btn btn-dark block">Save changes</button>
+      <button class="btn3d block">Save changes</button>
     </div>
   </form>
-  <div class="sbox"><div class="sbox-inner">
-    <p class="sbox-title">The Connector</p>
-    <p class="sbox-sub">Add this URL to Claude or ChatGPT to Note things directly from any conversation</p>
-    ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
-    <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
-    <form method="post" action="/settings/token"><button class="btn block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
-  </div></div>
-  <div class="sbox"><div class="sbox-inner"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div></div>
+  <div class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      <p class="sbox-title">The Connector</p>
+      <p class="sbox-sub">Add this URL to Claude or ChatGPT to Note things directly from any conversation</p>
+      ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
+      <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
+      <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+    </div>
+    <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
+  </div>
 </div>`;
     send(res, layout({ title: 'Settings', body, me, cls: 'is-dark-page' }));
   },
@@ -539,7 +583,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
