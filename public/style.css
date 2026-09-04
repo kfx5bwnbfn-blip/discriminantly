@@ -709,8 +709,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* ---- empty states: an imprint, a rule, then suggestions ---- */
 .empty-state { display: flex; align-items: center; justify-content: center; min-height: 20rem; padding: 3.5rem 1.5rem 3rem; text-align: center; }
+.empty-line span { display: block; }
 .empty-line { margin: 0; font-family: var(--slab); font-weight: 600; font-size: 3.1rem; line-height: 1.15;
-  letter-spacing: -.005em; color: rgba(0,0,0,.13); max-width: 18ch; }
+  letter-spacing: -.005em; color: rgba(0,0,0,.13); max-width: 26ch; }
 @media (max-width: 60rem) { .empty-line { font-size: 2.1rem; } }
 .feed-plain .empty-line { color: rgba(255,255,255,.13); }
 .empty-rule { position: relative; height: 2px; margin: 0 0 1.8rem;
@@ -735,3 +736,75 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 #avatar-dialog .nf-post { margin-top: .2rem; }
 
 #avatar-file { display: none !important; }
+
+/* =========================================================================
+   MOBILE  (≤52rem).  Everything below is scoped to the breakpoint and uses
+   its own --m-* tokens, so desktop values are never touched.
+   ========================================================================= */
+@media (max-width: 52rem) {
+  :root {
+    --m-rail-w: 52px;          /* narrower fixed icon column */
+    --m-searchbar-h: 52px;   /* measured height of the mobile search bar */
+    --m-masthead-h: 100px;   /* signed-out masthead wraps to two rows on mobile */
+    --m-tab-h: 34px;
+    --m-gutter: .75rem;
+  }
+
+  /* fixed chrome stays fixed: icon rail, search bar, signed-out masthead */
+  .iconrail { width: var(--m-rail-w); top: var(--m-searchbar-h); }
+  .iconrail a, .iconrail-btn { height: 84px; }
+  .iconrail svg { transform: scale(.88); }
+  .iconrail a + a::before, .iconrail a + .iconrail-btn::before { left: 9px; right: 8px; }
+  body.is-in { padding-top: var(--m-searchbar-h); }
+  body:not(.is-in) { padding-top: var(--m-masthead-h); }
+  body.is-in main.wrap { padding-left: var(--m-rail-w); padding-right: 0; }
+  .searchbar { padding: .4rem 0 .35rem; }
+  .searchbar .wrap { padding: 0 .5rem; }
+  .searchbar input { height: 40px; font-size: .68rem; letter-spacing: .16em; }
+  .searchbar::after { left: var(--m-rail-w); right: .5rem; }   /* shadow still clears the rail */
+
+  /* home rail: welcome table and its buttons first, feed nav below as tabs */
+  .cols > .rail { display: flex; flex-direction: column; padding: 1rem var(--m-gutter) 1.2rem; }
+  .cols > .rail > .welcome  { order: 1; }
+  .cols > .rail > .wtable   { order: 2; }
+  .cols > .rail > .rail-post{ order: 3; margin: 1rem 0 1.1rem; }
+  .cols > .rail > .feednav  { order: 4; }
+  .cols > .rail > *         { order: 5; }
+
+  /* feed nav: a tab row flush to the rail's bottom edge.
+     Same logic as the notes filters — the selected tab is undressed (bare
+     texture), the others carry a soft gradient so they read as raised.      */
+  .cols > .rail { padding-bottom: 0; }
+  .feednav { display: grid; grid-template-columns: repeat(3, 1fr);
+    margin: 1.1rem calc(-1 * var(--m-gutter)) 0; border-top: 1px solid rgba(0,0,0,.4); }
+  .feednav { position: relative; }
+  .feednav::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 9px; z-index: 2;
+    pointer-events: none; background: var(--masthead-shadow); }
+  .feednav li { position: relative; }
+  .feednav li + li { border-top: 0; }
+  .feednav li + li::before { top: 14%; bottom: 14%; left: 0; right: auto; width: 2px; height: auto;
+    background: linear-gradient(90deg, var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
+  .feednav a { justify-content: center; text-align: center; height: var(--m-tab-h); padding: 0 .3rem;
+    font-weight: 600; letter-spacing: .09em; text-transform: uppercase; line-height: 1.15;
+    background-image: linear-gradient(rgba(255,255,255,.05), rgba(0,0,0,.16)); }
+  .feednav a:hover { background-image: linear-gradient(rgba(255,255,255,.08), rgba(0,0,0,.14)); }
+  /* .on keeps the shared surface-base repaint: bare page texture, no overlay */
+  .feednav a span { display: none; }
+  .feednav a::before { content: attr(data-short); font-size: .56rem; }   /* short labels on small screens */
+
+  /* note cards: centred avatar + date lockup, one date treatment throughout */
+  .note { gap: .55rem; }
+  .byline { flex-direction: column; align-items: center; gap: .4rem; padding: .2rem 0 0; }
+  .byline .avatar { width: 2.1rem; height: 2.1rem; }
+  .stackdate { flex-direction: row; gap: .3rem; margin: 0; align-items: baseline; }
+  .stackdate .mon, .stackdate .day, .stackdate .yr {
+    font-size: .58rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
+
+  .welcome .avatar.big { width: 4.6rem; height: 4.6rem; font-size: 2rem; }
+  .welcome-name { font-size: 1rem; margin: .5rem 0 .7rem; }
+  .wcell { padding: 1rem .5rem; }
+  .wcell b { font-size: 1.3rem; }
+
+  .empty-state { min-height: 12rem; padding: 2rem .75rem 1.6rem; }
+  .empty-line { font-size: 1.75rem; max-width: 20ch; }
+}

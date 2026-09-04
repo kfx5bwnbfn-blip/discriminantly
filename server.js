@@ -327,21 +327,26 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
 </script>`;
 }
 
-function emptyState(me, kind) {
-  const headline = {
-    notes: 'You have not created any notes yet',
-    following: "Perhaps it's time you made some friends",
-    followers: "Strangers are just friends you haven't met yet",
-    feed: 'Where did all the activity go? Must have been something I said',
-    tagged: 'Nothing noted under this tag yet',
-  }[kind] || 'Nothing here yet';
+function emptyState(me, kind, subject = null) {
+  const own = !subject || (me && subject.id === me.id);
+  const who = own ? null : esc(subject.handle);
+  const lines = {
+    notes: own ? ['You have not created any notes yet'] : [`${who} has not created any notes yet`],
+    following: own ? ["Perhaps it's time you made some friends"] : [`Perhaps it's time ${who} made some friends`],
+    followers: own ? ["Strangers are just friends you haven't met yet"] : [`Strangers are just friends ${who} hasn't met yet`],
+    feed: own ? ['Where did all the activity go?', 'Must have been something I said']
+              : ['Where did all the activity go?', `Must have been something ${who} said`],
+    activity: own ? ['Where did all the activity go?', 'Must have been something I said']
+                  : ['Where did all the activity go?', `Must have been something ${who} said`],
+    tagged: ['Nothing noted under this tag yet'],
+  }[kind] || ['Nothing here yet'];
 
   let suggest = '';
-  if (kind === 'notes' || kind === 'feed') {
+  if (own && (kind === 'notes' || kind === 'feed')) {
     const picks = q(OBJ_SQL + ' WHERE o.private=0' + (me ? ' AND o.user_id<>?' : '') + ' ORDER BY RANDOM() LIMIT 4').all(...(me ? [me.id] : []));
     if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
       <div class="grid">${picks.map((o) => objectCard(o, me)).join('')}</div>`;
-  } else if (kind === 'following') {
+  } else if (own && kind === 'following') {
     const picks = me ? q('SELECT * FROM users WHERE id<>? AND id NOT IN (SELECT followee_id FROM follows WHERE follower_id=?) ORDER BY RANDOM() LIMIT 5').all(me.id, me.id) : [];
     if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
       <ul class="people">${picks.map((p) => {
@@ -350,7 +355,7 @@ function emptyState(me, kind) {
         <form method="post" action="/u/${esc(p.handle)}/follow"><button class="btn">Follow</button></form></li>`;
       }).join('')}</ul>`;
   }
-  return `<div class="empty-state"><p class="empty-line">${esc(headline)}</p></div>${suggest ? `<div class="empty-rule"></div>${suggest}` : ''}`;
+  return `<div class="empty-state"><p class="empty-line">${lines.map((l) => `<span>${l}</span>`).join('')}</p></div>${suggest ? `<div class="empty-rule"></div>${suggest}` : ''}`;
 }
 
 function profileRail(u, me, tab) {
@@ -428,8 +433,8 @@ const pages = {
       const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(me.id).c;
       const colls = q('SELECT COUNT(*) c FROM collections WHERE user_id=?').get(me.id).c;
       const fc = followCounts(me.id);
-      const fl = (k, label) => `<li><a class="${feed === k ? 'on' : ''}" href="/${k === 'all' ? '' : `?feed=${k}`}">${label}${feed === k ? '' : ' <span>›</span>'}</a></li>`;
-      rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly')}${fl('following', 'From People You Follow')}${fl('followers', 'From Your Followers')}</ul>
+      const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
+      rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.name.split(' ')[0])}</p></div>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
@@ -449,7 +454,7 @@ const pages = {
 <div class="cols">
   <aside class="rail">
     ${rail}
-    <h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ') || '<span class="empty">None yet.</span>'}</p>
+    ${topTags.length ? `<h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
     ${me ? '' : `<h3 class="lbl ruled">About us</h3>
     <p class="about">We're a lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods from all over the web and all over the world.</p>
     <p class="about">We're serious about maintaining the integrity of this as an open and honest place to discover genuinely cool, interesting and rare things. For this reason, we don't allow any form of advertising or affiliate programs here.</p>
@@ -515,7 +520,7 @@ const pages = {
         const pc = followCounts(p.id); const following = me && isFollowing(me.id, p.id);
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.name)}<em>${esc(p.handle)} · ${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
-      }).join('')}</ul>${rows.length ? '' : (owner ? emptyState(me, tab) : '<p class="empty pad">No one yet.</p>')}`;
+      }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'notes') {
       let rows = visible;
       if (owner && vis === 'public') rows = rows.filter((o) => !o.private);
@@ -537,7 +542,7 @@ const pages = {
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes'], ['public', 'Public Notes'], ['private', 'Private Notes']].map(([k, l]) => `<a class="${vis === k ? 'on' : ''}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
       ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
-        : (owner ? emptyState(me, 'notes') : '<p class="empty pad">Nothing here yet.</p>')}
+        : emptyState(me, 'notes', u)}
     <script>
     (function () {
       var t = document.getElementById('tiles');
@@ -575,7 +580,7 @@ const pages = {
       main = `<h3 class="strip">All activity</h3>
       <div class="activity-feed">${acts.slice(0, 60).map((a) => a.card
         ? `<div class="act-note">${objectCard(a.card, me)}</div>`
-        : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('') || '<p class="empty pad">Nothing yet.</p>'}</div>`;
+        : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}`;
     } 
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
   <section class="feed profile-feed">${main}</section>
