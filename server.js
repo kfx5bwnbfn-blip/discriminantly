@@ -89,10 +89,10 @@ function currentUser(req) {
   return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?').get(t) || null;
 }
 function readBody(req) {
-  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); }); req.on('end', () => res(Object.fromEntries(new URLSearchParams(b)))); });
+  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => res(Object.fromEntries(new URLSearchParams(b)))); });
 }
 function readBodyMulti(req) {
-  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 1e6) req.destroy(); }); req.on('end', () => { const p = new URLSearchParams(b); const o = Object.fromEntries(p); o.coll = p.getAll('coll'); res(o); }); });
+  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => { const p = new URLSearchParams(b); const o = Object.fromEntries(p); o.coll = p.getAll('coll'); res(o); }); });
 }
 function send(res, html, status = 200, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', ...headers }); res.end(html);
@@ -195,7 +195,58 @@ ${me ? `<div class="curtain dialog" id="confirm-dialog">
     </form>
   </div></div>
   <div class="curtain-tail"><span class="tail-band"></span></div>
-</div>` : ''}
+</div>
+<div class="curtain dialog" id="avatar-dialog">
+  <div class="curtain-frame"><div class="curtain-body">
+    <div class="nf-box">
+      <p class="dlg-title">Profile photo</p>
+      <p class="dlg-copy">Choose a photo, or drop one here. It is cropped to a circle and stored with your profile.</p>
+      <div class="drop-zone" id="avatar-drop"><img id="avatar-preview" alt="" hidden><span class="drop-hint">Drag a photo here</span></div>
+      <input type="file" id="avatar-file" accept="image/*" hidden>
+      <button type="button" class="nf-post" id="avatar-choose">Choose a photo</button>
+      <div class="nf-foot"><button type="button" class="nf-link-btn" id="avatar-apply">Use photo</button><button type="button" class="nf-link-btn" data-dismiss-avatar>Cancel</button></div>
+    </div>
+  </div></div>
+  <div class="curtain-tail"><span class="tail-band"></span></div>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var dlg = document.getElementById('avatar-dialog'), pick = document.getElementById('avatar-pick');
+  if (!dlg || !pick) return;
+  var file = document.getElementById('avatar-file'), drop = document.getElementById('avatar-drop'),
+      prev = document.getElementById('avatar-preview'), url = document.getElementById('avatar-url'), data = '';
+  function open() { dlg.classList.add('is-open'); } function close() { dlg.classList.remove('is-open'); }
+  pick.addEventListener('click', open);
+  dlg.querySelectorAll('[data-dismiss-avatar]').forEach(function (b) { b.addEventListener('click', close); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+  document.getElementById('avatar-choose').addEventListener('click', function () { file.click(); });
+  file.addEventListener('change', function () { if (file.files[0]) load(file.files[0]); });
+  ['dragenter','dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('dragover'); }); });
+  ['dragleave','drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('dragover'); }); });
+  drop.addEventListener('drop', function (e) { var f = e.dataTransfer.files[0]; if (f) load(f); });
+  drop.addEventListener('click', function () { file.click(); });
+  function load(f) {
+    if (f.type.indexOf('image/') !== 0) return;
+    var r = new FileReader();
+    r.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        // square centre-crop, downscaled, so the stored photo stays small
+        var S = 320, cv = document.createElement('canvas'); cv.width = cv.height = S;
+        var n = Math.min(img.width, img.height);
+        cv.getContext('2d').drawImage(img, (img.width - n) / 2, (img.height - n) / 2, n, n, 0, 0, S, S);
+        data = cv.toDataURL('image/jpeg', 0.86);
+        prev.src = data; prev.hidden = false; drop.classList.add('has-image');
+      };
+      img.src = r.result;
+    };
+    r.readAsDataURL(f);
+  }
+  document.getElementById('avatar-apply').addEventListener('click', function () {
+    if (data) { url.value = data; close(); url.form.submit(); }
+  });
+});
+</script>` : ''}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
 <main class="wrap">${body}</main>
 </body></html>`;
@@ -274,6 +325,32 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
   refresh();
 })();
 </script>`;
+}
+
+function emptyState(me, kind) {
+  const headline = {
+    notes: 'You have not created any notes yet',
+    following: "Perhaps it's time you made some friends",
+    followers: "Strangers are just friends you haven't met yet",
+    feed: 'Where did all the activity go? Must have been something I said',
+    tagged: 'Nothing noted under this tag yet',
+  }[kind] || 'Nothing here yet';
+
+  let suggest = '';
+  if (kind === 'notes' || kind === 'feed') {
+    const picks = q(OBJ_SQL + ' WHERE o.private=0' + (me ? ' AND o.user_id<>?' : '') + ' ORDER BY RANDOM() LIMIT 4').all(...(me ? [me.id] : []));
+    if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
+      <div class="grid">${picks.map((o) => objectCard(o, me)).join('')}</div>`;
+  } else if (kind === 'following') {
+    const picks = me ? q('SELECT * FROM users WHERE id<>? AND id NOT IN (SELECT followee_id FROM follows WHERE follower_id=?) ORDER BY RANDOM() LIMIT 5').all(me.id, me.id) : [];
+    if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
+      <ul class="people">${picks.map((p) => {
+        const n = q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c;
+        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.name)}<em>${esc(p.handle)} · ${n} ${n === 1 ? 'note' : 'notes'}</em></span></a>
+        <form method="post" action="/u/${esc(p.handle)}/follow"><button class="btn">Follow</button></form></li>`;
+      }).join('')}</ul>`;
+  }
+  return `<div class="empty-state"><p class="empty-line">${esc(headline)}</p></div>${suggest ? `<div class="empty-rule"></div>${suggest}` : ''}`;
 }
 
 function profileRail(u, me, tab) {
@@ -380,7 +457,8 @@ const pages = {
   </aside>
   <section class="feed feed-plain">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
-    <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>
+    ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
+      : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
 </div>`;
     send(res, layout({ title: '', body, me, nav: 'home' }));
@@ -437,7 +515,7 @@ const pages = {
         const pc = followCounts(p.id); const following = me && isFollowing(me.id, p.id);
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.name)}<em>${esc(p.handle)} · ${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
-      }).join('') || '<li class="empty pad">No one yet.</li>'}</ul>`;
+      }).join('')}</ul>${rows.length ? '' : (owner ? emptyState(me, tab) : '<p class="empty pad">No one yet.</p>')}`;
     } else if (tab === 'notes') {
       let rows = visible;
       if (owner && vis === 'public') rows = rows.filter((o) => !o.private);
@@ -458,7 +536,8 @@ const pages = {
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes'], ['public', 'Public Notes'], ['private', 'Private Notes']].map(([k, l]) => `<a class="${vis === k ? 'on' : ''}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
-      <div class="grid">${rows.length ? rows.map((o) => objectCard(o, me)).join('') : '<p class="empty pad">Nothing here yet.</p>'}</div>
+      ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
+        : (owner ? emptyState(me, 'notes') : '<p class="empty pad">Nothing here yet.</p>')}
     <script>
     (function () {
       var t = document.getElementById('tiles');
@@ -529,8 +608,11 @@ const pages = {
 <div class="settings">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <form method="post" action="/settings" class="wtable settings-table">
-    <div class="wcell wcell-wide">${avatar(me, 'avatar big')}<p class="lbl set-cap">Change profile image</p>
-      <label class="slabel">Image URL<input name="avatar" type="url" value="${esc(me.avatar)}" placeholder="https://"></label></div>
+    <div class="wcell wcell-wide">
+      <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
+      <p class="lbl set-cap">Change profile image</p>
+      <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
+    </div>
     <div class="wcell wcell-wide">
       <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
       <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>

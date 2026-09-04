@@ -662,7 +662,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .tile-new.is-open input, .tile-new.is-open .tile-save { display: block; }
 .tile-del { position: absolute; right: 6px; bottom: 6px; z-index: 2; opacity: 0; transition: opacity .15s;
   background: none; border: 0; padding: 0; cursor: pointer; line-height: 0; }
-.tile-del img { width: 22px; height: 22px; }
+.tile-del img { width: 18px; height: 18px; }
 .tile-slot:hover .tile-del { opacity: 1; }
 
 /* ---- confirm dialog: the note card's shell, sliding from the fixed bar ---- */
@@ -706,3 +706,32 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   font-family: var(--slab); font-weight: 700; font-size: .62rem; letter-spacing: .13em; text-transform: uppercase; color: #7b7b7b; }
 .tile-cta:hover { color: #333; }
 .tile-cta-go { color: #333; }
+
+/* ---- empty states: an imprint, a rule, then suggestions ---- */
+.empty-state { display: flex; align-items: center; justify-content: center; min-height: 20rem; padding: 3.5rem 1.5rem 3rem; text-align: center; }
+.empty-line { margin: 0; font-family: var(--slab); font-weight: 600; font-size: 3.1rem; line-height: 1.15;
+  letter-spacing: -.005em; color: rgba(0,0,0,.13); max-width: 18ch; }
+@media (max-width: 60rem) { .empty-line { font-size: 2.1rem; } }
+.feed-plain .empty-line { color: rgba(255,255,255,.13); }
+.empty-rule { position: relative; height: 2px; margin: 0 0 1.8rem;
+  background: linear-gradient(var(--hr-light) 0 1px, var(--hr-light-lift) 1px 2px); }
+.feed-plain .empty-rule { background: linear-gradient(var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
+.suggest-title { margin: 0 0 1.1rem; color: var(--ink-soft); border: 0; padding: 0; }
+.feed-plain .suggest-title { color: var(--chrome-muted); }
+
+/* ---- avatar picker ---- */
+.avatar-pick { position: relative; display: block; margin: 0 auto; padding: 0; border: 0; background: none; cursor: pointer; }
+.avatar-pick-hint { position: absolute; left: 0; right: 0; bottom: 0; padding: .3rem 0; border-radius: 0 0 6rem 6rem;
+  background: rgba(0,0,0,.55); color: #fff; font-family: var(--slab); font-weight: 700; font-size: .58rem;
+  letter-spacing: .14em; text-transform: uppercase; opacity: 0; transition: opacity .15s; }
+.avatar-pick:hover .avatar-pick-hint { opacity: 1; }
+.drop-zone { display: grid; place-items: center; min-height: 9rem; margin: 0 0 .2rem; cursor: pointer;
+  border: 1px dashed rgba(255,255,255,.18); background: rgba(0,0,0,.25); overflow: hidden; }
+.drop-zone.dragover { border-color: var(--nav-active); background: rgba(0,0,0,.35); }
+.drop-zone img { max-width: 9rem; max-height: 9rem; border-radius: 50%; display: block; }
+.drop-zone.has-image .drop-hint { display: none; }
+.drop-hint { font-family: var(--slab); font-weight: 700; font-size: .72rem; letter-spacing: .14em;
+  text-transform: uppercase; color: rgba(255,255,255,.35); }
+#avatar-dialog .nf-post { margin-top: .2rem; }
+
+#avatar-file { display: none !important; }
