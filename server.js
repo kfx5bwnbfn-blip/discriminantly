@@ -256,6 +256,17 @@ const ICONS = {
 function layout({ title, body, me, flash, cls = '', nav = '' }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<script>
+/* Saved to the home screen, iOS draws the page under the status bar and the
+   island. Flag that case so the fixed bar can reserve the safe area. Runs
+   before paint, so the bar is never briefly the wrong height. */
+(function () {
+  var standalone = window.navigator.standalone === true
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    || (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches);
+  if (standalone) document.documentElement.className += ' is-app';
+})();
+</script>
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
@@ -384,22 +395,6 @@ function readImage(file, cb) {
     }, 150);
   });
 
-  // The fixed bar's height varies with font loading and device chrome, so
-  // measure it rather than trusting a constant. Prevents both a dark gap under
-  // the bar and content sliding beneath it.
-  (function () {
-    var bar = document.querySelector('.searchbar') || document.querySelector('.masthead');
-    if (!bar) return;
-    var syncBar = function () {
-      var h = Math.round(bar.getBoundingClientRect().height);
-      if (h) document.documentElement.style.setProperty('--bar-h', h + 'px');
-    };
-    syncBar();
-    window.addEventListener('resize', syncBar);
-    window.addEventListener('orientationchange', syncBar);
-    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncBar);
-  })();
-
   window.askConfirm = function (opts) {
     var dlg = document.getElementById('confirm-dialog');
     if (!dlg) return;
@@ -409,7 +404,7 @@ function readImage(file, cb) {
     dlg.querySelector('[data-dismiss]').textContent = opts.dismiss || 'Cancel';
     dlg.querySelector('form').action = opts.action || '';
     var fld = dlg.querySelector('.dlg-input');
-    if (fld) { fld.hidden = !opts.field; fld.value = ''; if (opts.field) fld.setAttribute('placeholder', opts.field); }
+    if (fld) { fld.hidden = !opts.field; fld.value = opts.value || ''; if (opts.field) fld.setAttribute('placeholder', opts.field); }
     dlg.classList.add('is-open');
   };
   document.addEventListener('DOMContentLoaded', function () {
@@ -488,6 +483,28 @@ function readImage(file, cb) {
   <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="17" height="23"><span>discriminant.ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}
+<script>
+  // The fixed bar's height varies with font loading and device chrome, so
+  // measure it rather than trusting a constant. Prevents both a dark gap under
+  // the bar and content sliding beneath it.
+  (function () {
+    var bar = document.querySelector('.searchbar') || document.querySelector('.masthead');
+    if (!bar) return;
+    var syncBar = function () {
+      var h = Math.round(bar.getBoundingClientRect().height);
+      if (h) document.documentElement.style.setProperty('--bar-h', h + 'px');
+    };
+    syncBar();
+    requestAnimationFrame(syncBar);          // after the first layout
+    setTimeout(syncBar, 300);                // and once the safe-area insets settle
+    window.addEventListener('resize', syncBar);
+    window.addEventListener('orientationchange', syncBar);
+    window.addEventListener('pageshow', syncBar);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncBar);
+    if (window.ResizeObserver) new ResizeObserver(syncBar).observe(bar);
+  })();
+
+</script>
 ${me ? `<div class="curtain dialog" id="confirm-dialog">
   <div class="curtain-frame"><div class="curtain-body">
     <form method="post" action="">
@@ -1030,7 +1047,11 @@ function objectCard(o, me, full = false) {
       <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> ${o.private ? '<span class="who-private">privately noted</span>' : 'noted'}</p>
       ${(() => { const cs = objCollections(o.id); return cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''; })()}
       <h2><a href="/o/${o.id}">${esc(o.name)}</a></h2>
-      ${o.why ? `<p class="body">${esc(o.why)}</p>` : ''}
+      ${o.why ? (() => {
+        // roughly seven lines at the card's measure, or seven typed lines
+        const long = !full && (o.why.length > 330 || o.why.split('\n').length > 7);
+        return `<p class="body${long ? ' is-clamped' : ''}">${esc(o.why)}</p>${long ? `<p class="more-inline"><a href="/o/${o.id}">…more</a></p>` : ''}`;
+      })() : ''}
       ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
       ${o.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(o.url)}" rel="noopener">${esc(shortUrl)}</a></p>` : ''}
       <div class="noteit">
@@ -1175,7 +1196,10 @@ ${noters.length ? `<div class="section-rule"></div>
     <ol class="timeline">${visits.map((v) => `<li>
       <span class="tl-date">${esc(prettyDay(v.visited_on))}</span>
       ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
-      ${owner ? `<button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(prettyDay(v.visited_on))}" aria-label="Remove this check-in">×</button>` : ''}
+      ${owner ? `<span class="tl-actions">
+        <button class="tl-edit" data-edit="/m/${m.id}/visits/${v.id}/edit" data-day="${esc(prettyDay(v.visited_on))}" data-body="${esc(v.body || '')}" aria-label="Edit this check-in">Edit</button>
+        <button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(prettyDay(v.visited_on))}" aria-label="Remove this check-in">×</button>
+      </span>` : ''}
     </li>`).join('')}</ol>
   </aside>` : ''}
 </div>
@@ -1188,6 +1212,20 @@ ${noters.length ? `<div class="section-rule"></div>
 </section>
 </section></div>
 <script>
+document.querySelectorAll('.tl-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    window.askConfirm({ title: 'Edit check-in', cta: 'Save remark', action: b.dataset.edit,
+      copy: 'Your note on <b>' + b.dataset.day + '</b>.',
+      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)', value: b.dataset.body });
+  });
+});
+document.querySelectorAll('.tl-edit').forEach(function (b) {
+  b.addEventListener('click', function () {
+    window.askConfirm({ title: 'Edit check-in', cta: 'Save', action: b.dataset.edit,
+      copy: 'Your note on <b>' + b.dataset.day + '</b>.',
+      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)', value: b.dataset.body });
+  });
+});
 document.querySelectorAll('.tl-del').forEach(function (b) {
   b.addEventListener('click', function () {
     window.askConfirm({ title: 'Remove check-in', cta: 'Remove check-in', action: b.dataset.del,
@@ -1252,7 +1290,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(c.id).map((r) => r.mark_id));
         return { ...c, count: all.filter((x) => ids.has(x.id)).length };
       });
-      const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>` : ''}</div>`;
+      const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
+  <button type="button" class="tile-ren" aria-label="Rename collection">···</button>
+  <form class="tile-edit" method="post" action="/collections/${id}/rename">
+    <input name="name" value="${esc(name)}" maxlength="40" required>
+    <span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-ren>Cancel</button></span>
+  </form>` : ''}</div>`;
       const chip = (label, href, on) => `<a class="place-chip ${on ? 'on' : ''}" href="${href}">${esc(label)}</a>`;
       main = `<h3 class="strip">${esc(u.handle)}'s Travel Marks</h3>
       <div class="tiles-wrap">
@@ -1286,6 +1329,21 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           var cx = nw.querySelector('[data-cancel-new]');
           if (cx) cx.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); nw.classList.remove('is-open'); nw.querySelector('input[name=name]').value = ''; });
         }
+        document.querySelectorAll('.tile-ren').forEach(function (b) {
+          b.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            var slot = b.closest('.tile-slot');
+            slot.classList.add('is-renaming');
+            var f = slot.querySelector('.tile-edit input');
+            if (f) { f.focus(); f.select(); }
+          });
+        });
+        document.querySelectorAll('[data-cancel-ren]').forEach(function (b) {
+          b.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            b.closest('.tile-slot').classList.remove('is-renaming');
+          });
+        });
         document.querySelectorAll('.tile-del').forEach(function (b) {
           b.addEventListener('click', function () {
             window.askConfirm({ title: 'Delete collection', cta: 'Delete collection',
@@ -1301,7 +1359,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       if (owner && vis === 'private') rows = rows.filter((o) => o.private);
       if (cid) { const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(cid).map((r) => r.object_id)); rows = rows.filter((o) => ids.has(o.id)); }
       if (s) rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(s.toLowerCase()));
-      const tile = (id, name, count, image, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : `<span class="tile-glyph">${ICONS.lens}</span>`}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>` : ''}</div>`;
+      const tile = (id, name, count, image, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : `<span class="tile-glyph">${ICONS.lens}</span>`}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
+  <button type="button" class="tile-ren" aria-label="Rename collection">···</button>
+  <form class="tile-edit" method="post" action="/collections/${id}/rename">
+    <input name="name" value="${esc(name)}" maxlength="40" required>
+    <span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-ren>Cancel</button></span>
+  </form>` : ''}</div>`;
       main = `<h3 class="strip">${esc(u.handle)}'s Notes</h3>
       <div class="tiles-wrap">
         <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
@@ -1331,6 +1394,21 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       }
       var dlg = document.getElementById('confirm-dialog');
       if (dlg) {
+        document.querySelectorAll('.tile-ren').forEach(function (b) {
+          b.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            var slot = b.closest('.tile-slot');
+            slot.classList.add('is-renaming');
+            var f = slot.querySelector('.tile-edit input');
+            if (f) { f.focus(); f.select(); }
+          });
+        });
+        document.querySelectorAll('[data-cancel-ren]').forEach(function (b) {
+          b.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            b.closest('.tile-slot').classList.remove('is-renaming');
+          });
+        });
         document.querySelectorAll('.tile-del').forEach(function (b) {
           b.addEventListener('click', function () {
             dlg.querySelector('.dlg-name').textContent = b.dataset.delName;
@@ -1676,6 +1754,17 @@ async function handle(req, res) {
       return json({ error: e.name === 'TimeoutError' ? 'timeout' : 'fetch failed' }, 200);
     }
   }
+  if ((mt = p.match(/^\/collections\/(\d+)\/rename$/)) && m === 'POST') {
+    if (!me) return need();
+    const c = q('SELECT * FROM collections WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!c) return send(res, 'Not yours', 403);
+    const b = await readBody(req); const name = (b.name || '').trim();
+    if (name && name !== c.name) {
+      const clash = q('SELECT id FROM collections WHERE user_id=? AND name=? AND kind=? AND id<>?').get(me.id, name, c.kind, c.id);
+      if (!clash) q('UPDATE collections SET name=? WHERE id=?').run(name, c.id);
+    }
+    return redirect(res, `/u/${me.handle}?tab=${c.kind === 'mark' ? 'marks' : 'notes'}&c=${c.id}`);
+  }
   if (p === '/collections/new' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req); const name = (b.name || '').trim();
@@ -1789,6 +1878,22 @@ async function handle(req, res) {
     const b = await readBody(req);
     if (b.visited_on) q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
       .run(mk.id, me.id, b.visited_on, (b.body || '').trim());
+    return redirect(res, `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/edit$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!mk) return send(res, 'Not yours', 403);
+    const b = await readBody(req);
+    q('UPDATE visits SET body=? WHERE id=? AND mark_id=?').run((b.body || '').trim(), +mt[2], mk.id);
+    return redirect(res, `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/edit$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!mk) return send(res, 'Not yours', 403);
+    const b = await readBody(req);
+    q('UPDATE visits SET body=? WHERE id=? AND mark_id=?').run((b.body || '').trim(), +mt[2], mk.id);
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/delete$/)) && m === 'POST') {

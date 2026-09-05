@@ -180,7 +180,7 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .strip::after, .edge-shadow::after { content: ""; position: absolute; left: var(--edge-inset); right: 0; top: 100%; height: 5px; pointer-events: none; background: var(--edge-shadow); }
 .grid { columns: 30rem; column-gap: 2rem; }        /* fallback; JS swaps in real columns */
 .grid > * { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid;
-  display: block; margin: 0 0 1.6rem; }
+  margin: 0 0 1.6rem; }
 footer { margin: 2rem auto; color: var(--chrome-muted); font-size: .8rem; }
 footer a { color: var(--chrome-text); }
 
@@ -192,13 +192,12 @@ img.avatar { object-fit: cover; object-position: center; box-shadow: inset 0 0 0
 .avatar.big { width: 6rem; height: 6rem; margin: 0 auto; font-size: 2.7rem;
   box-shadow: var(--avatar-shadow-big); }
 img.avatar.big { box-shadow: inset 0 0 0 1px rgba(0,0,0,.2), 0 0 0 1px rgba(255,255,255,.07); }
-.stackdate { display: flex; flex-direction: row; gap: .3rem; align-items: baseline; justify-content: center;
-  line-height: 1; margin-top: .55rem; color: var(--date-ink); font-weight: 600; white-space: nowrap; }
-.stackdate .mon, .stackdate .day, .stackdate .yr {
-  font-size: .58rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
-
-/* note cards */
-.note { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr); gap: 1.2rem; }
+.stackdate { display: flex; flex-direction: column; align-items: center; line-height: 1;
+  margin-top: .6rem; color: var(--date-ink); font-weight: 300; }
+.stackdate .mon { font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+.stackdate .day { font-size: 1.95rem; font-weight: 300; margin: .3rem 0 .28rem; letter-spacing: .01em; }
+.stackdate .yr { font-size: .92rem; font-weight: 300; letter-spacing: .04em; }
+.note { display: grid; grid-template-columns: 3.4rem minmax(0, 1fr); gap: 1.2rem; align-items: start; width: 100%; }
 .byline { display: flex; flex-direction: column; align-items: center; padding-top: .2rem; }
 .card { background: var(--card); box-shadow: 0 1px 2px rgba(0,0,0,.12), 0 0 0 1px rgba(0,0,0,.05); display: grid; grid-template-columns: minmax(0, 1fr); }
 .has-image .card { grid-template-columns: minmax(11rem, 1fr) minmax(11rem, 1.15fr); align-items: stretch; }
@@ -209,7 +208,7 @@ img.avatar.big { box-shadow: inset 0 0 0 1px rgba(0,0,0,.2), 0 0 0 1px rgba(255,
 .who a { color: var(--ink); }
 .note h2 { font-size: 1.25rem; margin: 0 0 .5rem; }
 .note h2 a { color: var(--ink); }
-.body { margin: 0 0 .8rem; font-size: .88rem; line-height: 1.45; color: #444; }
+.body { margin: 0 0 .8rem; font-size: .88rem; line-height: 1.45; color: #444; white-space: pre-line; }
 .tags { margin: 0 0 .2rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--link); }
 .tags a { color: var(--link); }
 .link { margin: 0 0 .8rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; word-break: break-all; }
@@ -331,24 +330,26 @@ textarea.pn-field { text-transform: none; letter-spacing: .02em; min-height: 10r
 .tiles-arrow:hover { opacity: 1; }
 .tiles-arrow img { width: 22px; height: 22px; display: block; }
 .tiles-arrow[data-scroll="-1"] img { transform: scaleX(-1); }
-.tiles { display: flex; overflow-x: auto; gap: 1px; background: var(--tile-rule); border: 1px solid var(--tile-rule);
+.tiles { display: flex; overflow-x: auto; overflow-y: hidden; gap: 0; background: transparent; border: 1px solid var(--tile-rule);
   scroll-behavior: smooth; scrollbar-width: none; }
 .tiles::-webkit-scrollbar { display: none; }
 .tile-slot { position: relative; flex: 0 0 8.6rem; display: flex; }
-.tile { flex: 1 1 auto; min-width: 0; background: var(--tile-face); text-decoration: none; color: var(--ink); text-align: center; display: grid; grid-template-rows: 5rem auto auto; }
-.tile:hover { text-decoration: none; background: #f2f2f2; }
+.tile-slot + .tile-slot, .tiles > .tile-new { border-left: 1px solid var(--tile-rule); }
+.tile { flex: 1 1 auto; min-width: 0; background: transparent; text-decoration: none; color: var(--ink); text-align: center; display: grid; grid-template-rows: 5rem auto auto; }
+.tile:hover { text-decoration: none; background: rgba(255,255,255,.22); }
 .tile.on { background: var(--tile-on); }
 .tile-img { display: block; margin: .6rem .6rem 0; background: #d9dada center/cover; height: 4.2rem; display: grid; place-items: center; }
 .tile.on .tile-img { background-color: var(--tile-purple); }
 .tile.on .tile-count { background: rgba(255,255,255,.30); }
 /* the inset runs the full height of the slot, over the count band too */
 .tile-slot { position: relative; flex: 0 0 8.6rem; display: flex; }
+.tile-slot + .tile-slot, .tiles > .tile-new { border-left: 1px solid var(--tile-rule); }
 .tile-slot:has(.tile.on)::after { content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 1;
   box-shadow: inset 0 3px 4px rgba(0,0,0,.15), inset 3px 0 4px -2px rgba(0,0,0,.12), inset -3px 0 4px -2px rgba(0,0,0,.12), inset 0 -3px 4px -2px rgba(0,0,0,.10); }
 .tile-glyph { display: grid; place-items: center; color: rgba(255,255,255,.92); line-height: 0; }
 .tile-glyph svg { width: 34px; height: 37px; }
 .tile-name { font-size: .58rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; padding: .5rem .3rem .45rem; border-bottom: 1px solid rgba(0,0,0,.09); }
-.tile-count { padding: .5rem 0 .55rem; font-size: 1.05rem; font-weight: 300; color: #8b8886; background: rgba(255,255,255,.55); }
+.tile-count { padding: .5rem 0 .55rem; font-size: 1.05rem; font-weight: 300; color: #8b8886; background: rgba(255,255,255,.28); }
 .within input { margin: 0 0 1.2rem; border-radius: var(--radius-search); text-align: left; padding: .75rem 1.4rem;
   font-size: .82rem; font-weight: 600; letter-spacing: .06em; color: #6e7070;
   background-color: transparent;
@@ -414,10 +415,12 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .vis-tabs a { position: relative; display: flex; align-items: center; justify-content: center; height: 31px;
   text-align: center; text-decoration: none; font-size: .7rem; font-weight: 600; letter-spacing: .05em;
   color: #2f3131;                                              /* unselected: darker, clickable */
-  background-image: linear-gradient(rgba(255,255,255,.42), rgba(255,255,255,.26)); }
-.vis-tabs a + a::before { content: ""; position: absolute; left: 0; top: 16%; bottom: 16%; width: 1px; background: rgba(0,0,0,.12); }
+  background-image: linear-gradient(to top,
+    rgba(255,255,255,.62) 0%, rgba(255,255,255,.42) 34%, rgba(255,255,255,.16) 68%, rgba(255,255,255,0) 100%); }
+.vis-tabs a + a::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
+  background: linear-gradient(to top, rgba(0,0,0,.16) 0%, rgba(0,0,0,.13) 55%, rgba(0,0,0,0) 100%); }
 .vis-tabs a:hover { color: #000; }
-.vis-tabs a.on { color: #8b8d8d; background-image: none; }       /* selected: bare texture, no wash */
+.vis-tabs a.on { color: #8b8d8d; background-image: none; }   /* selected: bare texture, no wash */
 
 /* ---- people lists (followers / following / noted by) ---- */
 .people { list-style: none; padding: 0; margin: 0; }
@@ -431,7 +434,7 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 
 /* ---- activity list ---- */
 .activity-feed { columns: 30rem; column-gap: 2rem; }   /* fallback; JS swaps in real columns */
-.activity-feed > * { break-inside: avoid; -webkit-column-break-inside: avoid; display: block; margin: 0 0 1.2rem; }
+.activity-feed > * { break-inside: avoid; -webkit-column-break-inside: avoid; margin: 0 0 1.2rem; }
 .act-line { display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
 .act-date { flex: 0 0 7rem; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
 .act-note .note { max-width: none; }
@@ -519,8 +522,8 @@ body.is-in .cols { margin-top: 0; }
 .searchbar { position: fixed; top: 0; left: 0; right: 0; z-index: 6; padding: .55rem 0 .5rem;
   background-color: var(--chrome); background-image: var(--stripe), var(--mottle); background-size: auto, 200px 200px;
   background-attachment: scroll, scroll; }   /* the bar never scrolls; fixed here mispaints in Safari */
-.searchbar::after { content: ""; position: absolute; left: 62px; right: 1.1rem; top: 100%; height: 9px; pointer-events: none;
-  background-image: var(--masthead-shadow); background-color: transparent; }
+.searchbar::after { content: ""; position: absolute; left: 62px; right: 1.1rem; top: 100%; height: 9px;
+  pointer-events: none; background: var(--masthead-shadow); }
 
 /* ---- home rail: feed nav + welcome table ---- */
 .feednav { list-style: none; padding: 0; margin: -1.6rem -2rem 1.6rem; }
@@ -567,7 +570,7 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .comment-body { flex: 1; min-width: 0; }
 .comment-meta { margin: 0 0 .25rem; font-size: .72rem; font-weight: 600; letter-spacing: .06em; color: var(--ink-soft); }
 .comment-meta a { color: var(--ink); }
-.comment-body p:last-child { margin: 0; font-size: .92rem; line-height: 1.45; }
+.comment-body p:last-child { margin: 0; font-size: .92rem; line-height: 1.45; white-space: pre-line; }
 
 /* ---- delete (edit page) ---- */
 
@@ -691,8 +694,10 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .tile-slot:hover .tile-del { opacity: 1; }
 
 /* ---- confirm dialog: the note card's shell, sliding from the fixed bar ---- */
-.dialog { --peek: 0px; width: 26rem; right: 50%; transform: translate(50%, -100%); pointer-events: none; }
-.dialog.is-open { transform: translate(50%, 0); pointer-events: auto; }
+.dialog { --peek: 0px; width: 26rem; right: 50%; transform: translate(50%, -100%); pointer-events: none;
+  visibility: hidden; transition: transform .42s cubic-bezier(.22,.61,.36,1), visibility 0s linear .42s; }
+.dialog.is-open { transform: translate(50%, 0); pointer-events: auto;
+  visibility: visible; transition: transform .42s cubic-bezier(.22,.61,.36,1), visibility 0s; }
 .dialog:hover { transform: translate(50%, -100%); }
 .dialog.is-open:hover { transform: translate(50%, 0); }
 .dialog .curtain-tail { height: 29px; }
@@ -790,7 +795,20 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .searchbar { padding: .4rem 0 .35rem; }
   .searchbar .wrap { padding: 0 .5rem; }
   .searchbar input { height: 40px; font-size: .68rem; letter-spacing: .16em; }
-  .searchbar::after { left: var(--m-rail-w); right: .5rem; }   /* shadow still clears the rail */
+  /* Safari handles background-attachment: fixed poorly on small screens, which
+     paints the strip under the fixed bar as a solid block. The texture is a fine
+     repeat, so scrolling attachment is visually the same and safe. */
+  body { background-attachment: scroll, scroll; }
+  .surface-base, .feednav a.on, .prail-nav a.on { background-attachment: scroll, scroll; }
+
+  /* Signed in, the rail's near-black panel butts straight against the bar, so the
+     shadow lands on black and reads as a hard band. A few pixels of page texture
+     under the bar gives it the same ground the signed-out masthead has. */
+  body.is-in .cols { padding-top: 10px; }
+
+  /* the signed-out masthead's shadow renders correctly, so use its exact values */
+  .searchbar::after { left: 0; right: 0; top: 100%; height: 9px;
+    pointer-events: none; background: var(--masthead-shadow); }
 
   /* home rail: welcome table and its buttons first, feed nav below as tabs */
   .cols > .rail { display: flex; flex-direction: column; padding: 1rem var(--m-gutter) 1.2rem; }
@@ -837,7 +855,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   /* profile rail nav: same tab pattern and tokens as the home feed nav */
   .profile-rail { padding-bottom: 0; }
   .prail-nav { position: relative; display: flex; flex-wrap: nowrap;
-    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    overflow-x: auto; overflow-y: hidden;          /* left and right only */
+    overscroll-behavior-x: contain; touch-action: pan-x pan-y;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
     scroll-snap-type: x proximity; max-width: 100%;
     margin: 1.1rem calc(-1 * var(--m-gutter)) 0; border-top: 1px solid rgba(0,0,0,.4); }
   .prail-nav::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 9px; z-index: 2;
@@ -1086,7 +1106,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .timeline li:first-child::before { background: #8a8f86; box-shadow: 0 0 0 2px rgba(0,0,0,.035); }
 .tl-date { display: block; font-family: var(--slab); font-size: .66rem; font-weight: 700; letter-spacing: .1em;
   text-transform: uppercase; color: var(--log-ink); }
-.tl-body { display: block; margin-top: .28rem; font-style: italic; font-size: .85rem; line-height: 1.45;
+.tl-body { display: block; margin-top: .28rem; font-style: italic; font-size: .85rem; line-height: 1.45; white-space: pre-line;
   color: #62665e; }
 .tl-del { position: absolute; right: .25rem; top: .25rem; font-weight: 600; opacity: 0; background: none; border: 0; cursor: pointer;
   font-size: .9rem; line-height: 1; color: var(--ink-soft); padding: .1rem .2rem; transition: opacity .15s; }
@@ -1184,3 +1204,55 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* real column elements, once the tiling script has run */
 .feed-col > * { break-inside: auto; margin: 0 0 1.6rem; }
 .feed-col > *:last-child { margin-bottom: 0; }
+
+/* check-in entry actions */
+.tl-actions { position: absolute; right: .25rem; top: .25rem; display: flex; align-items: center; gap: .45rem;
+  opacity: 0; transition: opacity .15s; }
+.timeline li:hover .tl-actions, .tl-actions:focus-within { opacity: 1; }
+.tl-edit { background: none; border: 0; padding: 0; cursor: pointer;
+  font-family: var(--slab); font-weight: 700; font-size: .54rem; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--log-ink); }
+.tl-edit:hover { text-decoration: underline; }
+.tl-del { position: static; opacity: 1; }
+
+/* check-in entry actions */
+.tl-actions { position: absolute; right: .25rem; top: .25rem; display: flex; align-items: center; gap: .35rem;
+  opacity: 0; transition: opacity .15s; }
+.timeline li:hover .tl-actions, .tl-actions:focus-within { opacity: 1; }
+.tl-edit { background: none; border: 0; padding: 0; cursor: pointer;
+  font-family: var(--slab); font-weight: 700; font-size: .54rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.tl-edit:hover { color: var(--log-ink); text-decoration: underline; }
+.tl-del { position: static; opacity: 1; }
+
+/* ---- clamped description in feeds ---- */
+.body.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 7;
+  overflow: hidden; margin-bottom: .25rem; }
+.more-inline { margin: 0 0 .8rem; font-size: .88rem; line-height: 1.45; }
+.more-inline a { color: var(--link); font-weight: 600; }
+
+/* ---- rename a collection from its tile ---- */
+.tile-ren { position: absolute; left: 4px; bottom: 3px; z-index: 3; background: none; border: 0;
+  cursor: pointer; padding: 0 .25rem; line-height: 1; font-size: .95rem; letter-spacing: .04em;
+  color: var(--ink-soft); opacity: 0; transition: opacity .15s; }
+.tile-slot:hover .tile-ren, .tile-ren:focus-visible { opacity: 1; }
+.tile-ren:hover { color: var(--ink); }
+.tile-edit { display: none; position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
+  padding: .45rem .5rem .5rem; background: var(--tile-face); border-top: 1px solid var(--tile-rule); }
+.tile-slot.is-renaming .tile-edit { display: block; }
+.tile-slot.is-renaming .tile-ren, .tile-slot.is-renaming .tile-del { opacity: 0; pointer-events: none; }
+.tile-edit input { width: 100%; box-sizing: border-box; margin: 0 0 .4rem; padding: .35rem .5rem;
+  font-family: var(--slab); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase;
+  color: #333; background: #fff; border: 1px solid var(--tile-rule); }
+.tile-edit .tile-ctas { display: flex; flex-direction: row; gap: .7rem; justify-content: flex-end; }
+
+/* ---- saved to the home screen: clear the status bar and the island ---- */
+/* Only in standalone. In a browser tab the chrome already handles this, and
+   adding the inset there would leave a dead band under the toolbar. */
+.is-app .searchbar { padding-top: calc(.55rem + env(safe-area-inset-top, 0px)); }
+.is-app .masthead { padding-top: env(safe-area-inset-top, 0px); }
+.is-app .iconrail { padding-left: env(safe-area-inset-left, 0px); }
+.is-app body { padding-bottom: env(safe-area-inset-bottom, 0px); }
+@media (max-width: 52rem) {
+  .is-app .searchbar { padding-top: calc(.4rem + env(safe-area-inset-top, 0px)); }
+}
