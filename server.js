@@ -666,17 +666,23 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     if (!strip) return;
     var label = document.getElementById('pick-count-${idp}');
     var list = [], at = 0;
+    var shot = document.getElementById('${prevId}');
+    var reveal = function () { strip.hidden = !(list.length > 1 && shot && !shot.hidden && shot.naturalWidth > 0); };
     var show = function () {
       if (!list.length) { strip.hidden = true; return; }
-      strip.hidden = list.length < 2;
       label.textContent = (at + 1) + ' / ' + list.length;
       input.value = list[at];
       refresh();
+      strip.hidden = true;              // stay hidden until this one paints
+      shot.addEventListener('load', reveal, { once: true });
+      shot.addEventListener('error', function () { strip.hidden = true; }, { once: true });
+      if (shot.complete && shot.naturalWidth > 0) reveal();
     };
     window.__picks = window.__picks || {};
     window.__picks['${idp}'] = function (pics, adopt) {
       list = pics; at = 0;
-      if (adopt) show(); else { strip.hidden = list.length < 2; label.textContent = '1 / ' + list.length; }
+      label.textContent = '1 / ' + list.length;
+      if (adopt) show(); else reveal();   // only reveal if a picture is already showing
     };
     var step = function (n) { if (!list.length) return; at = (at + n + list.length) % list.length; show(); };
     strip.addEventListener('click', function (e) {

@@ -259,8 +259,6 @@ code { font-family: Menlo, Consolas, monospace; font-size: .85em; }
   .note .card, .note .text { min-width: 0; }
   .link, .body, .note h2 { overflow-wrap: anywhere; }
   .note { grid-template-columns: 1fr; gap: .4rem; }
-  .byline { flex-direction: row; gap: .8rem; align-items: center; }
-  .stackdate { flex-direction: row; gap: .35rem; margin: 0; }
   .has-image .card { grid-template-columns: 1fr; }
   .note .figure { order: -1; padding: var(--img-pad); }   /* stacked above the text now, so all four sides match */
   .note .figure img { min-height: 0; max-height: 16rem; }
@@ -836,11 +834,6 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
   /* note cards: centred avatar + date lockup, one date treatment throughout */
   .note { gap: .55rem; }
-  .byline { flex-direction: column; align-items: center; gap: .4rem; padding: .2rem 0 0; }
-  .byline .avatar { width: 2.1rem; height: 2.1rem; }
-  .stackdate { flex-direction: row; gap: .3rem; margin: 0; align-items: baseline; }
-  .stackdate .mon, .stackdate .day, .stackdate .yr {
-    font-size: .58rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; margin: 0; }
 
   .welcome .avatar.big { width: 4.6rem; height: 4.6rem; font-size: 2rem; }
   .welcome-name { font-size: 1rem; margin: .5rem 0 .7rem; }
@@ -1168,9 +1161,6 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .more-link:hover { text-decoration: none; }
 
 @media (max-width: 52rem) {
-  /* the lockup stays centred; delete sits at the card's right edge */
-  .byline { flex-direction: row; justify-content: center; }
-  .byline-who { flex-direction: column; }
   .card-del { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; opacity: .7; }
   .card-del img { width: 24px; height: 24px; }
 }
@@ -1262,3 +1252,29 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .img-arrow:hover { color: #fff; }
 .img-count { font-family: var(--slab); font-size: .58rem; font-weight: 700; letter-spacing: .12em;
   color: rgba(255,255,255,.82); }
+
+/* =========================================================================
+   The byline lockup. Desktop and mobile are deliberately different shapes, so
+   each owns its own tokens rather than patching the other.
+
+   Desktop: a narrow left column — avatar, then the date stacked beneath it.
+   Mobile:  a single centred line — avatar and date side by side, one text size.
+   ========================================================================= */
+@media (max-width: 52rem) {
+  :root {
+    --m-byline-avatar: 1.6rem;   /* small enough to sit on one line with the date */
+    --m-byline-size: .58rem;     /* one size for every part of the date */
+    --m-byline-gap: .45rem;
+  }
+  .byline { flex-direction: row; align-items: center; justify-content: center;
+    gap: var(--m-byline-gap); padding: .1rem 0 .35rem; }
+  .byline-who { flex-direction: row; align-items: center; gap: var(--m-byline-gap); }
+  .byline .avatar { width: var(--m-byline-avatar); height: var(--m-byline-avatar); flex: 0 0 auto; }
+  .stackdate { flex-direction: row; align-items: baseline; gap: .28rem;
+    margin: 0; line-height: 1; white-space: nowrap; }
+  .stackdate .mon, .stackdate .day, .stackdate .yr {
+    font-size: var(--m-byline-size); font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; margin: 0; }
+  /* Edit stays pinned to the card's right edge, clear of the lockup */
+  .card-edit { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; opacity: 1; }
+}
