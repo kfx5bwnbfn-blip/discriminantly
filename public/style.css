@@ -178,6 +178,11 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .feed { background-color: var(--paper); background-image: var(--mottle-soft); background-size: 140px 140px; padding: 0 1.5rem 2rem; min-width: 0; }
 .strip { position: relative; margin: 0 -1.5rem 1.5rem; padding: .85rem 1.5rem; text-align: center; font-weight: 400; font-size: 1rem; color: #6f7070; background: transparent; border: 0; box-shadow: none; }
 .strip::after, .edge-shadow::after { content: ""; position: absolute; left: var(--edge-inset); right: 0; top: 100%; height: 5px; pointer-events: none; background: var(--edge-shadow); }
+/* On a tiled feed the divider would run across columns that have no heading
+   above them, reading as a stray rule. Cap it to the first column's width. */
+@media (min-width: 64rem) {
+  .feed > .strip::after { right: auto; width: min(30rem, 100%); }
+}
 .grid { columns: 30rem; column-gap: 2rem; }        /* masonry: columns hold, rows disappear */
 .grid > * { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid;
   display: block; margin: 0 0 1.6rem; }
@@ -1131,4 +1136,48 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
   /* profile tabs scroll sideways rather than stacking */
   .cols > .rail, .profile-rail { min-width: 0; }   /* a grid item defaults to min-content width */
+}
+
+/* ---- delete from a feed card ---- */
+.byline { position: relative; }
+.byline-who { display: flex; flex-direction: column; align-items: center; }
+.card-del { display: block; margin: .7rem auto 0; padding: 0; background: none; border: 0;
+  cursor: pointer; opacity: 0; transition: opacity .15s; line-height: 0; }
+.card-del img { width: 22px; height: 22px; display: block; }
+.note:hover .card-del, .card-del:focus-visible { opacity: .75; }
+.card-del:hover { opacity: 1; }
+
+/* ---- paging ---- */
+.more { margin: .4rem 0 2rem; }
+.more-link { display: block; text-align: center; text-decoration: none; max-width: 22rem; margin: 0 auto; }
+.more-link:hover { text-decoration: none; }
+
+@media (max-width: 52rem) {
+  /* the lockup stays centred; delete sits at the card's right edge */
+  .byline { flex-direction: row; justify-content: center; }
+  .byline-who { flex-direction: column; }
+  .card-del { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; opacity: .7; }
+  .card-del img { width: 24px; height: 24px; }
+}
+
+/* ---- Edit on a feed card: the Cancel token, sized for the byline ---- */
+.card-edit { display: block; margin: .7rem auto 0; text-align: center; text-decoration: none;
+  font-family: var(--slab); font-weight: 700; font-size: .62rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--chrome-muted); opacity: 0; transition: opacity .15s; }
+.note:hover .card-edit, .card-edit:focus-visible { opacity: 1; }
+.card-edit:hover { color: var(--chrome-text); text-decoration: underline; }
+.feed:not(.feed-plain) .card-edit { color: var(--ink-soft); }
+.feed:not(.feed-plain) .card-edit:hover { color: var(--ink); }
+
+/* Delete sits opposite the privacy toggle on an edit page */
+.nf-top { justify-content: space-between; }
+.nf-top-del { margin-right: auto; }
+.nf-top .nf-lbl { margin-left: auto; }
+
+/* the unfurl hint under the link field */
+.lookup-note { margin: .35rem 0 0; font-family: var(--slab); font-size: .66rem; letter-spacing: .06em;
+  text-transform: uppercase; color: #8b8983; }
+
+@media (max-width: 52rem) {
+  .card-edit { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; opacity: 1; }
 }

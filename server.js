@@ -332,6 +332,40 @@ function readImage(file, cb) {
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cdlg.classList.remove('is-open'); });
   });
 
+  // Show more: fetch the next page and append it, so the feed never reloads.
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('.more-link');
+    if (!link || link.dataset.busy) return;
+    e.preventDefault();
+    link.dataset.busy = '1';
+    var was = link.textContent; link.textContent = 'Loading…';
+    fetch(link.href, { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { return r.text(); })
+      .then(function (html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var grid = document.getElementById('feed-grid');
+        var next = doc.getElementById('feed-grid');
+        if (!grid || !next) { location.href = link.href; return; }
+        var have = grid.children.length;
+        Array.prototype.slice.call(next.children, have).forEach(function (n) { grid.appendChild(n); });
+        var nextMore = doc.querySelector('.more-link');
+        var wrap = link.parentNode;
+        if (nextMore) { link.href = nextMore.getAttribute('href'); link.textContent = was; delete link.dataset.busy; }
+        else wrap.remove();
+        history.replaceState(null, '', link.href);
+      })
+      .catch(function () { location.href = link.href; });
+  });
+
+  // Delete from an edit page
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('.nf-top-del');
+    if (!t) return;
+    window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
+      action: t.dataset.del,
+      copy: 'Delete <b>' + t.dataset.title + '</b>? This cannot be undone.' });
+  });
+
   // Check in asks first, and takes an optional line about the visit
   document.addEventListener('click', function (e) {
     var t = e.target.closest && e.target.closest('[data-checkin]');
@@ -462,7 +496,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
 <form method="post" action="${editing ? `/o/${o.id}/edit` : '/new'}" class="nf${compact ? ' nf-compact' : ''}">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top">${editing ? `<button type="button" class="nf-link-btn nf-danger nf-top-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : '<span></span>'}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('note') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -476,15 +510,19 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
       <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
       <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
     </div>
+    <div class="nf-lookup" id="unfurl-${idp}">
+      <input class="nf-field" name="url" id="url-${idp}" type="url" autocomplete="off"
+             placeholder="PASTE A LINK — FILLS THE FIELDS BELOW" value="${esc(o.url)}">
+      <p class="lookup-note" id="unfurl-note-${idp}" hidden></p>
+    </div>
     <div class="nf-stack">
-      <input class="nf-field" name="name" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
-      <textarea class="nf-field" name="why" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="COMMENTS">${esc(o.why)}</textarea>
+      <input class="nf-field" name="name" id="f-title-${idp}" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
+      <textarea class="nf-field" name="why" id="f-why-${idp}" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="COMMENTS">${esc(o.why)}</textarea>
       <input class="nf-field" name="tags" placeholder="#HASHTAGS" value="${esc(o.tags)}">
     </div>
-    <input class="nf-field nf-link" name="url" type="url" placeholder="LINK" value="${esc(o.url)}">
     <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
     <div class="nf-foot">
-      ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/o/${o.id}/delete">Delete</button>` : '<span></span>'}
+      <span></span>
       ${compact ? '<button type="button" class="nf-link-btn" data-close>Cancel</button>' : `<a class="nf-link-btn" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>`}
     </div>
   </div>
@@ -509,12 +547,35 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
     if (uri) { input.value = uri.trim(); refresh(); }
   });
-  var del = drop.closest('form').querySelector('[data-delete]');
-  if (del) del.addEventListener('click', function () {
-    if (!confirm('Delete this note? This cannot be undone.')) return;
-    var f = document.createElement('form'); f.method = 'post'; f.action = del.getAttribute('data-delete');
-    document.body.appendChild(f); f.submit();
-  });
+  // Paste a link and the server reads the page's Open Graph tags. Only empty
+  // fields are filled, so nothing you have already written is overwritten.
+  var urlIn = document.getElementById('url-${idp}'), unote = document.getElementById('unfurl-note-${idp}');
+  if (urlIn) {
+    var lastTried = '';
+    var tryUnfurl = function () {
+      var v = urlIn.value.trim();
+      var low = v.toLowerCase();
+      if ((low.indexOf('http:') !== 0 && low.indexOf('https:') !== 0) || v === lastTried) return;
+      lastTried = v;
+      unote.hidden = false; unote.textContent = 'Reading the page…';
+      fetch('/api/unfurl?url=' + encodeURIComponent(v))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.error) { unote.textContent = 'Could not read that page — fill the fields in yourself.'; return; }
+          var t = document.getElementById('f-title-${idp}'), w = document.getElementById('f-why-${idp}');
+          var filled = [];
+          if (t && !t.value && d.title) { t.value = d.title; filled.push('title'); }
+          if (w && !w.value && d.description) { w.value = d.description; filled.push('description'); }
+          if (input && !input.value && d.image) { input.value = d.image; refresh(); filled.push('image'); }
+          unote.textContent = filled.length ? 'Filled in the ' + filled.join(', ') + '. Edit as you like.'
+                                            : 'Nothing new found on that page.';
+        })
+        .catch(function () { unote.textContent = 'Could not read that page — fill the fields in yourself.'; });
+    };
+    urlIn.addEventListener('change', tryUnfurl);
+    urlIn.addEventListener('paste', function () { setTimeout(tryUnfurl, 60); });
+  }
+
   var det = document.getElementById('drop-${idp}');
   if (det) {
     var lbl = det.querySelector('.nf-drop-label');
@@ -589,6 +650,57 @@ function storeImage(userId, value) {
   return `/i/${r.lastInsertRowid}`;
 }
 
+// Feeds render a page at a time. The link works without JavaScript; with it,
+// the next page is fetched and appended in place.
+const PAGE = 50;
+const pageOf = (rows, url) => {
+  const off = Math.max(0, +url.searchParams.get('offset') || 0);
+  return { off, slice: rows.slice(0, off + PAGE), more: rows.length > off + PAGE, total: rows.length };
+};
+const moreLink = (url, off, more) => {
+  if (!more) return '';
+  const sp = new URLSearchParams(url.search);
+  sp.set('offset', String(off + PAGE));
+  return `<div class="more"><a class="btn3d block more-link" href="?${sp}">Show more</a></div>`;
+};
+
+// Pull title, description and image out of a page's metadata.
+function unfurl(html, base) {
+  const head = html.split(/<\/head>/i)[0] || html;
+  const metaTags = head.match(/<meta\b[^>]*>/gi) || [];
+  const attr = (tag, name) => {
+    const m = tag.match(new RegExp(name + '\\s*=\\s*"([^"]*)"', 'i'))
+           || tag.match(new RegExp(name + "\\s*=\\s*'([^']*)'", 'i'));
+    return m ? m[1] : '';
+  };
+  const meta = (...names) => {
+    for (const want of names) {
+      for (const tag of metaTags) {
+        const key = (attr(tag, 'property') || attr(tag, 'name')).toLowerCase();
+        if (key !== want) continue;
+        const content = attr(tag, 'content').trim();
+        if (content) return decodeEntities(content);
+      }
+    }
+    return '';
+  };
+  const titleTag = (head.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+  let image = meta('og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src');
+  if (image) { try { image = new URL(image, base).href; } catch { image = ''; } }
+  return {
+    title: meta('og:title', 'twitter:title') || decodeEntities(titleTag.trim()),
+    description: meta('og:description', 'twitter:description', 'description'),
+    image,
+    site: meta('og:site_name') || base.hostname.replace(/^www\./, ''),
+  };
+}
+const decodeEntities = (t) => t
+  .replace(/&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|#39|nbsp|mdash|ndash|rsquo|lsquo|ldquo|rdquo);/gi, (m0, e) => {
+    if (e[0] === '#') return String.fromCodePoint(e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : +e.slice(1));
+    return { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–',
+             rsquo: '\u2019', lsquo: '\u2018', ldquo: '\u201c', rdquo: '\u201d' }[e.toLowerCase()] || m0;
+  });
+
 const placeLine = (m) => [m.locality, m.country].filter(Boolean).join(', ');
 const mapLink = (m) => m.lat != null && m.lng != null
   ? `https://www.google.com/maps/search/?api=1&query=${m.lat},${m.lng}`
@@ -649,7 +761,7 @@ function markCard(m, me, full = false) {
   const cs = markCollections(m.id);
   const embed = mapEmbed(m);
   return `<article class="note travelmark ${full ? 'note-full' : ''}">
-  <div class="byline"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</div>
+  <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     <div class="text">
       ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
@@ -683,7 +795,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 <form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top">${editing ? `<button type="button" class="nf-link-btn nf-danger nf-top-del" data-del="/m/${m.id}/delete" data-kind="travel mark" data-title="${esc(m.name)}">Delete</button>` : '<span></span>'}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('mark') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -714,7 +826,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     </div>
     <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
     <div class="nf-foot">
-      ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/m/${m.id}/delete">Delete</button>` : '<span></span>'}
+      <span></span>
       <a class="nf-link-btn" href="${editing ? `/m/${m.id}` : '/'}">Cancel</a>
     </div>
   </div>
@@ -736,12 +848,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     if (f && f.type.indexOf('image/') === 0) { readImage(f, function (d) { input.value = d; refresh(); }); return; }
     var u = ev.dataTransfer.getData('text/uri-list') || ev.dataTransfer.getData('text/plain');
     if (u) { input.value = u.trim(); refresh(); }
-  });
-  var del = document.querySelector('[data-delete]');
-  if (del) del.addEventListener('click', function () {
-    if (!confirm('Delete this travel mark? This cannot be undone.')) return;
-    var f = document.createElement('form'); f.method = 'post'; f.action = del.getAttribute('data-delete');
-    document.body.appendChild(f); f.submit();
   });
   // Place lookup via Photon (Komoot). OSM data, no API key, built for
   // search-as-you-type. Nominatim explicitly forbids client-side autocomplete.
@@ -825,7 +931,7 @@ function objectCard(o, me, full = false) {
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
   return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
-  <div class="byline"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</div>
+  <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     <div class="text">
       <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> ${o.private ? '<span class="who-private">privately noted</span>' : 'noted'}</p>
@@ -862,16 +968,16 @@ const pages = {
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (tag) rows = rows.filter((o) => tagList(o.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(k)); }
-    rows = rows.slice(0, 60);
     // marks share the feed with notes — one journal, two kinds of entry
-    let marks = q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC LIMIT 200').all();
+    let marks = q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); marks = marks.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
     const entries = [...rows.map((o) => ({ at: o.created_at, html: objectCard(o, me) })),
-                     ...marks.slice(0, 60).map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
-      .sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 60);
+                     ...marks.map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
+      .sort((a, b) => (a.at < b.at ? 1 : -1));
+    const page = pageOf(entries, url);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
@@ -911,7 +1017,7 @@ const pages = {
   </aside>
   <section class="feed feed-plain">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
-    ${entries.length ? `<div class="grid">${entries.map((e) => e.html).join('')}</div>`
+    ${entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
 </div>`;
@@ -1072,7 +1178,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       </div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
-      <div class="grid">${rows.length ? rows.map((x) => markCard(x, me)).join('') : '<p class="empty pad">No travel marks here yet.</p>'}</div>
+      ${(() => { const pg = pageOf(rows, url); return rows.length
+        ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
+        : '<p class="empty pad">No travel marks here yet.</p>'; })()}
       <script>
       (function () {
         var t = document.getElementById('tiles');
@@ -1114,7 +1222,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes', 'All'], ['public', 'Public Notes', 'Public'], ['private', 'Private Notes', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
-      ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
+      ${rows.length ? (() => { const pg = pageOf(rows, url); return `<div class="grid" id="feed-grid">${pg.slice.map((o) => objectCard(o, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
         : emptyState(me, 'notes', u)}
     <script>
     (function () {
@@ -1153,7 +1261,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         acts.push({ at: f.created_at, html: `followed <a href="/u/${esc(f.handle)}">${esc(f.handle)}</a>` });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       main = `<h3 class="strip">All activity</h3>
-      <div class="activity-feed">${acts.slice(0, 60).map((a) => a.mark
+      <div class="activity-feed" id="feed-grid">${pageOf(acts, url).slice.map((a) => a.mark
         ? `<div class="act-note">${markCard(a.mark, me)}</div>`
         : a.card
         ? `<div class="act-note">${objectCard(a.card, me)}</div>`
@@ -1443,6 +1551,33 @@ async function handle(req, res) {
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
+  // Read a page's Open Graph tags so a pasted link can fill the form. Done on
+  // the server because the browser cannot fetch other origins.
+  if (p === '/api/unfurl' && m === 'GET') {
+    if (!me) return send(res, JSON.stringify({ error: 'auth' }), 403, 'application/json');
+    const target = url.searchParams.get('url') || '';
+    const json = (o, code = 200) => send(res, JSON.stringify(o), code, 'application/json');
+    let u;
+    try { u = new URL(target); } catch { return json({ error: 'bad url' }, 400); }
+    if (!/^https?:$/.test(u.protocol)) return json({ error: 'bad scheme' }, 400);
+    // do not let the form probe the private network
+    if (/^(localhost$|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/i.test(u.hostname))
+      return json({ error: 'blocked' }, 400);
+    try {
+      const r = await fetch(u.href, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(7000),
+        headers: { 'User-Agent': 'discriminantly/1.0 (+https://discriminantly.com)', 'Accept': 'text/html,*/*' },
+      });
+      if (!r.ok) return json({ error: 'status ' + r.status }, 200);
+      const type = r.headers.get('content-type') || '';
+      if (!/text\/html|application\/xhtml/i.test(type)) return json({ error: 'not html' }, 200);
+      const body = (await r.text()).slice(0, 400000);   // enough for <head>
+      return json(unfurl(body, u));
+    } catch (e) {
+      return json({ error: e.name === 'TimeoutError' ? 'timeout' : 'fetch failed' }, 200);
+    }
+  }
   if (p === '/collections/new' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req); const name = (b.name || '').trim();
