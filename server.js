@@ -92,6 +92,34 @@ const MIGRATIONS = [
   ['004-users-site',       addColumn('users', 'site', "TEXT DEFAULT ''")],
   ['005-objects-private',  addColumn('objects', 'private', 'INTEGER DEFAULT 0')],
   ['006-visits-rating',    addColumn('visits', 'rating', 'INTEGER')],
+  // Notes and travel marks keep separate collections. Rebuilds the table so the
+  // uniqueness is per kind, and splits any collection currently used by both.
+  ['008-collection-kinds', () => {
+    db.exec('PRAGMA foreign_keys=OFF');
+    db.exec('BEGIN');
+    db.exec(`CREATE TABLE collections_new (
+      id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'note',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, name, kind))`);
+    db.exec(`INSERT INTO collections_new(id, user_id, name, kind, created_at)
+      SELECT c.id, c.user_id, c.name,
+        CASE WHEN EXISTS(SELECT 1 FROM mark_collections mc WHERE mc.collection_id = c.id)
+              AND NOT EXISTS(SELECT 1 FROM object_collections oc WHERE oc.collection_id = c.id)
+             THEN 'mark' ELSE 'note' END,
+        c.created_at FROM collections c`);
+    // a collection used by both becomes two: the notes keep the original, the marks get a copy
+    const shared = db.prepare(`SELECT c.id, c.user_id, c.name FROM collections c
+      WHERE EXISTS(SELECT 1 FROM mark_collections mc WHERE mc.collection_id = c.id)
+        AND EXISTS(SELECT 1 FROM object_collections oc WHERE oc.collection_id = c.id)`).all();
+    for (const c of shared) {
+      const r = db.prepare(`INSERT INTO collections_new(user_id, name, kind) VALUES(?,?,'mark')`).run(c.user_id, c.name);
+      db.prepare('UPDATE mark_collections SET collection_id=? WHERE collection_id=?').run(r.lastInsertRowid, c.id);
+    }
+    db.exec('DROP TABLE collections');
+    db.exec('ALTER TABLE collections_new RENAME TO collections');
+    db.exec('COMMIT');
+    db.exec('PRAGMA foreign_keys=ON');
+  }, { ownTransaction: true }],
   ['007-mark-comments',    () => db.exec(`CREATE TABLE IF NOT EXISTS mark_comments (
       id INTEGER PRIMARY KEY, mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
@@ -118,8 +146,14 @@ function runMigrations() {
     try { console.log(`Backed up to ${backupTo(path.join(path.dirname(DB_PATH), 'backups', `pre-migration-${stamp}.db`))}`); }
     catch (e) { console.error('Backup failed, refusing to migrate:', e.message); process.exit(1); }
   }
-  for (const [id, fn] of pending) {
+  for (const [id, fn, opts] of pending) {
     try {
+      if (opts && opts.ownTransaction) {          // rebuilds toggle PRAGMAs, which a transaction forbids
+        fn();
+        db.prepare('INSERT INTO schema_migrations(id) VALUES(?)').run(id);
+        console.log(`Migration applied: ${id}`);
+        continue;
+      }
       db.exec('BEGIN');
       fn();
       db.prepare('INSERT INTO schema_migrations(id) VALUES(?)').run(id);
@@ -147,8 +181,8 @@ const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="sta
 function setCollections(userId, objectId, names) {
   q('DELETE FROM object_collections WHERE object_id=?').run(objectId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
-    q('INSERT OR IGNORE INTO collections(user_id,name) VALUES(?,?)').run(userId, n);
-    const c = q('SELECT id FROM collections WHERE user_id=? AND name=?').get(userId, n);
+    q("INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,'note')").run(userId, n);
+    const c = q("SELECT id FROM collections WHERE user_id=? AND name=? AND kind='note'").get(userId, n);
     q('INSERT OR IGNORE INTO object_collections(object_id,collection_id) VALUES(?,?)').run(objectId, c.id);
   }
 }
@@ -386,7 +420,7 @@ document.addEventListener('click', function (e) {
 // `idp` namespaces element ids so two copies can coexist on one page.
 function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = false } = {}) {
   const editing = !!o.id;
-  const mine = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(me.id);
+  const mine = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(me.id);
   const sel = new Set(picked ? picked : editing ? objCollections(o.id).map((c) => c.name) : []);
   const dropId = `img-drop-${idp}`, inputId = `img-input-${idp}`, prevId = `img-prev-${idp}`;
   return `
@@ -495,8 +529,8 @@ const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON
 function setMarkCollections(userId, markId, names) {
   q('DELETE FROM mark_collections WHERE mark_id=?').run(markId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
-    q('INSERT OR IGNORE INTO collections(user_id,name) VALUES(?,?)').run(userId, n);
-    const c = q('SELECT id FROM collections WHERE user_id=? AND name=?').get(userId, n);
+    q("INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,'mark')").run(userId, n);
+    const c = q("SELECT id FROM collections WHERE user_id=? AND name=? AND kind='mark'").get(userId, n);
     q('INSERT OR IGNORE INTO mark_collections(mark_id,collection_id) VALUES(?,?)').run(markId, c.id);
   }
 }
@@ -564,7 +598,7 @@ function markCard(m, me, full = false) {
   <div class="card">
     <div class="text">
       ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
-      <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> marked${m.private ? ' <span class="badge">Private</span>' : ''}</p>
+      <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
       ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
       <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
@@ -588,7 +622,7 @@ function markCard(m, me, full = false) {
 // The mark form, shared by /marks/new and /m/:id/edit.
 function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
   const editing = !!m.id;
-  const mine = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(me.id);
+  const mine = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(me.id);
   const sel = new Set(picked ? picked : editing ? markCollections(m.id).map((c) => c.name) : []);
   return `
 <form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
@@ -733,7 +767,7 @@ function objectCard(o, me, full = false) {
   <div class="byline"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</div>
   <div class="card">
     <div class="text">
-      <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> noted${o.private ? ' <span class="badge">Private</span>' : ''}</p>
+      <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> ${o.private ? '<span class="who-private">privately noted</span>' : 'noted'}</p>
       ${(() => { const cs = objCollections(o.id); return cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''; })()}
       <h2><a href="/o/${o.id}">${esc(o.name)}</a></h2>
       ${o.why ? `<p class="body">${esc(o.why)}</p>` : ''}
@@ -925,7 +959,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const cid = +url.searchParams.get('c') || 0; const vis = url.searchParams.get('v') || 'all'; const s = (url.searchParams.get('q') || '').trim();
     const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
-    const colls = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(u.id).map((c) => {
+    const colls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(u.id).map((c) => {
       const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(c.id).map((r) => r.object_id));
       const items = visible.filter((o) => ids.has(o.id)); return { ...c, count: items.length, image: (items.find((o) => o.image) || {}).image || '' };
     });
@@ -954,12 +988,22 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       const countries = [...new Set(all.map((x) => x.country).filter(Boolean))].sort();
       const cities = [...new Set(all.filter((x) => !country || x.country === country).map((x) => x.locality).filter(Boolean))].sort();
       const q1 = (o) => { const sp = new URLSearchParams({ tab: 'marks' }); Object.entries(o).forEach(([k, v]) => v && sp.set(k, v)); return `/u/${esc(u.handle)}?${sp}`; };
+      const mcolls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(u.id).map((c) => {
+        const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(c.id).map((r) => r.mark_id));
+        return { ...c, count: all.filter((x) => ids.has(x.id)).length };
+      });
+      const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>` : ''}</div>`;
       const chip = (label, href, on) => `<a class="place-chip ${on ? 'on' : ''}" href="${href}">${esc(label)}</a>`;
       main = `<h3 class="strip">${esc(u.handle)}'s Travel Marks</h3>
       <div class="tiles-wrap">
         <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
-        <div class="tiles" id="tiles">${[{ id: 0, name: 'All marks', count: all.length }, ...colls.map((c) => ({ ...c, count: q('SELECT COUNT(*) c FROM mark_collections WHERE collection_id=?').get(c.id).c }))]
-          .map((c) => `<div class="tile-slot"><a class="tile ${c.id === cid ? 'on' : ''}" href="${q1({ c: c.id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(c.name)}</span><span class="tile-count">${c.count}</span></a></div>`).join('')}</div>
+        <div class="tiles" id="tiles">${mtile(0, 'All marks', all.length, !cid)}${mcolls.map((c) => mtile(c.id, c.name, c.count, c.id === cid)).join('')}${owner ? `
+          <form class="tile tile-new" method="post" action="/collections/new">
+            <input type="hidden" name="kind" value="mark">
+            <span class="tile-img"><img src="/plus-sm.png" alt="" width="40" height="40"></span>
+            <span class="tile-name">New collection</span>
+            <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-new>Cancel</button></span></span>
+          </form>` : ''}</div>
       </div>
       <div class="place-filters">
         <p class="place-row"><span class="lbl">Country</span>${chip('All', q1({ c: cid || '', city }), !country)}${countries.map((c) => chip(c, q1({ c: cid || '', country: c }), c === country)).join('')}</p>
@@ -967,7 +1011,28 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       </div>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
-      <div class="grid">${rows.length ? rows.map((x) => markCard(x, me)).join('') : '<p class="empty pad">No travel marks here yet.</p>'}</div>`;
+      <div class="grid">${rows.length ? rows.map((x) => markCard(x, me)).join('') : '<p class="empty pad">No travel marks here yet.</p>'}</div>
+      <script>
+      (function () {
+        var t = document.getElementById('tiles');
+        if (t) document.querySelectorAll('.tiles-arrow').forEach(function (b) {
+          b.addEventListener('click', function () { t.scrollBy({ left: (+b.dataset.scroll) * Math.max(240, t.clientWidth * 0.6), behavior: 'smooth' }); });
+        });
+        var nw = document.querySelector('.tile-new');
+        if (nw) {
+          nw.addEventListener('click', function (e) { if (e.target.hasAttribute('data-cancel-new')) return; nw.classList.add('is-open'); nw.querySelector('input[name=name]').focus(); nw.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' }); });
+          var cx = nw.querySelector('[data-cancel-new]');
+          if (cx) cx.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); nw.classList.remove('is-open'); nw.querySelector('input[name=name]').value = ''; });
+        }
+        document.querySelectorAll('.tile-del').forEach(function (b) {
+          b.addEventListener('click', function () {
+            window.askConfirm({ title: 'Delete collection', cta: 'Delete collection',
+              action: '/collections/' + b.dataset.delId + '/delete?tab=marks',
+              copy: 'Delete “<b>' + b.dataset.delName + '</b>”? The marks inside stay put — only the collection is removed.' });
+          });
+        });
+      })();
+      </script>`;
     } else if (tab === 'notes') {
       let rows = visible;
       if (owner && vis === 'public') rows = rows.filter((o) => !o.private);
@@ -1313,14 +1378,15 @@ async function handle(req, res) {
   if (p === '/collections/new' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req); const name = (b.name || '').trim();
-    if (name) q('INSERT OR IGNORE INTO collections(user_id,name) VALUES(?,?)').run(me.id, name);
-    return redirect(res, `/u/${me.handle}?tab=notes`);
+    const kind = b.kind === 'mark' ? 'mark' : 'note';
+    if (name) q('INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,?)').run(me.id, name, kind);
+    return redirect(res, `/u/${me.handle}?tab=${kind === 'mark' ? 'marks' : 'notes'}`);
   }
   if ((mt = p.match(/^\/collections\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const c = q('SELECT * FROM collections WHERE id=? AND user_id=?').get(+mt[1], me.id);
     if (c) q('DELETE FROM collections WHERE id=?').run(c.id);
-    return redirect(res, `/u/${me.handle}?tab=notes`);
+    return redirect(res, `/u/${me.handle}?tab=${c && c.kind === 'mark' ? 'marks' : 'notes'}`);
   }
   if (p === '/admin/backup' && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
