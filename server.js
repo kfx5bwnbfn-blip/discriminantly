@@ -433,7 +433,7 @@ ${me ? `<div class="curtain dialog" id="confirm-dialog">
       <div class="nf-box">
         <p class="dlg-title">Delete collection</p>
         <p class="dlg-copy">Delete “<span class="dlg-name"></span>”? The notes inside stay put — only the collection is removed.</p>
-        <input class="nf-field dlg-input" name="body" maxlength="600" hidden>
+        <textarea class="nf-field dlg-input" name="body" rows="3" maxlength="600" hidden></textarea>
         <button class="nf-post">Delete collection</button>
         <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss>Cancel</button></div>
       </div>

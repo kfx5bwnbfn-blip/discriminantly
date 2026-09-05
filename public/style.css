@@ -702,7 +702,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   text-transform: uppercase; color: var(--nf-ink); }
 .dlg-copy { margin: 0 0 1.1rem; font-size: .92rem; line-height: 1.5; color: #4b4844; }
 .dlg-input { margin-bottom: 1rem; text-transform: none; letter-spacing: .01em;
-  font-size: .92rem; color: var(--ink); }
+  font-size: .92rem; line-height: 1.45; color: var(--ink); min-height: 5.2rem; resize: vertical; }
 .dlg-input::placeholder { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; }
 .dlg-input[hidden], .nf-field[hidden] { display: none; }   /* .nf-field's display would otherwise win */
 .dialog .nf-foot { margin-top: 24px; }
