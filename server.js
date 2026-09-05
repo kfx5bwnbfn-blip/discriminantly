@@ -1361,22 +1361,27 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       if (cid) { const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(cid).map((r) => r.mark_id)); rows = rows.filter((x) => ids.has(x.id)); }
       if (s) { const k = s.toLowerCase(); rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
       const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
-      const country = url.searchParams.get('country') || '', city = url.searchParams.get('city') || '';
-      if (country) rows = rows.filter((x) => x.country === country);
-      if (city) rows = rows.filter((x) => x.locality === city);
+      const countrySel = url.searchParams.getAll('country').filter(Boolean);
+      const citySel = url.searchParams.getAll('city').filter(Boolean);
+      if (countrySel.length) rows = rows.filter((x) => countrySel.includes(x.country));
+      if (citySel.length) rows = rows.filter((x) => citySel.includes(x.locality));
       const countries = [...new Set(all.map((x) => x.country).filter(Boolean))].sort();
-      const cities = [...new Set(all.filter((x) => !country || x.country === country).map((x) => x.locality).filter(Boolean))].sort();
+      // the city list follows whichever countries are chosen
+      const cities = [...new Set(all.filter((x) => !countrySel.length || countrySel.includes(x.country))
+        .map((x) => x.locality).filter(Boolean))].sort();
       const q1 = (o) => {
         const sp = new URLSearchParams({ tab: 'marks' });
         if (vis !== 'all' && !('v' in o)) o = { ...o, v: vis };
         Object.entries(o).forEach(([k, v]) => v && sp.set(k, v));
+        if (!('country' in o)) countrySel.forEach((c) => sp.append('country', c));
+        if (!('city' in o)) citySel.forEach((c) => sp.append('city', c));
         return `/u/${esc(u.handle)}?${sp}`;
       };
       const mcolls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(u.id).map((c) => {
         const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(c.id).map((r) => r.mark_id));
         return { ...c, count: all.filter((x) => ids.has(x.id)).length };
       });
-      const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
+      const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '' })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
   <button type="button" class="tile-ren" aria-label="Rename collection">···</button>
   <form class="tile-edit" method="post" action="/collections/${id}/rename">
     <input name="name" value="${esc(name)}" maxlength="40" required>
@@ -1394,12 +1399,26 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-new>Cancel</button></span></span>
           </form>` : ''}</div>
       </div>
-      <div class="place-filters">
-        <p class="place-row"><span class="lbl">Country</span>${chip('All', q1({ c: cid || '', city }), !country)}${countries.map((c) => chip(c, q1({ c: cid || '', country: c }), c === country)).join('')}</p>
-        ${cities.length ? `<p class="place-row"><span class="lbl">City</span>${chip('All', q1({ c: cid || '', country }), !city)}${cities.map((c) => chip(c, q1({ c: cid || '', country, city: c }), c === city)).join('')}</p>` : ''}
-      </div>
+      <form class="place-filters" method="get" action="/u/${esc(u.handle)}" id="place-form">
+        <input type="hidden" name="tab" value="marks">
+        ${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}
+        ${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}
+        ${s ? `<input type="hidden" name="q" value="${esc(s)}">` : ''}
+        <details class="nf-drop place-drop">
+          <summary><span class="nf-drop-label">${countrySel.length ? esc(countrySel.join(', ')) : 'All countries'}</span></summary>
+          <div class="nf-drop-menu">
+            ${countries.map((c) => `<label class="nf-opt"><input type="checkbox" name="country" value="${esc(c)}" ${countrySel.includes(c) ? 'checked' : ''}><span>${esc(c)}</span></label>`).join('') || '<span class="nf-opt is-empty">No countries yet</span>'}
+          </div>
+        </details>
+        <details class="nf-drop place-drop"${cities.length ? '' : ' data-empty'}>
+          <summary><span class="nf-drop-label">${citySel.length ? esc(citySel.join(', ')) : 'All cities'}</span></summary>
+          <div class="nf-drop-menu">
+            ${cities.map((c) => `<label class="nf-opt"><input type="checkbox" name="city" value="${esc(c)}" ${citySel.includes(c) ? 'checked' : ''}><span>${esc(c)}</span></label>`).join('') || '<span class="nf-opt is-empty">No cities yet</span>'}
+          </div>
+        </details>
+      </form>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
-      ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', country, city, v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
+      ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
       ${(() => { const pg = pageOf(rows, url); return rows.length
         ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
@@ -1415,6 +1434,20 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           nw.addEventListener('click', function (e) { if (e.target.hasAttribute('data-cancel-new')) return; nw.classList.add('is-open'); nw.querySelector('input[name=name]').focus(); nw.scrollIntoView({ behavior: 'smooth', inline: 'end', block: 'nearest' }); });
           var cx = nw.querySelector('[data-cancel-new]');
           if (cx) cx.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); nw.classList.remove('is-open'); nw.querySelector('input[name=name]').value = ''; });
+        }
+        var placeForm = document.getElementById('place-form');
+        var placeDirty = false;
+        if (placeForm) {
+          placeForm.addEventListener('change', function () { placeDirty = true; });
+          var applyPlaces = function () { if (placeDirty) { placeDirty = false; placeForm.submit(); } };
+          document.addEventListener('click', function (e) {
+            document.querySelectorAll('.place-drop[open]').forEach(function (d) {
+              if (!d.contains(e.target)) { d.removeAttribute('open'); applyPlaces(); }
+            });
+          });
+          placeForm.querySelectorAll('.place-drop').forEach(function (d) {
+            d.addEventListener('toggle', function () { if (!d.open) applyPlaces(); });
+          });
         }
         document.querySelectorAll('.tile-ren').forEach(function (b) {
           b.addEventListener('click', function (e) {
@@ -1481,6 +1514,20 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       }
       var dlg = document.getElementById('confirm-dialog');
       if (dlg) {
+        var placeForm = document.getElementById('place-form');
+        var placeDirty = false;
+        if (placeForm) {
+          placeForm.addEventListener('change', function () { placeDirty = true; });
+          var applyPlaces = function () { if (placeDirty) { placeDirty = false; placeForm.submit(); } };
+          document.addEventListener('click', function (e) {
+            document.querySelectorAll('.place-drop[open]').forEach(function (d) {
+              if (!d.contains(e.target)) { d.removeAttribute('open'); applyPlaces(); }
+            });
+          });
+          placeForm.querySelectorAll('.place-drop').forEach(function (d) {
+            d.addEventListener('toggle', function () { if (!d.open) applyPlaces(); });
+          });
+        }
         document.querySelectorAll('.tile-ren').forEach(function (b) {
           b.addEventListener('click', function (e) {
             e.preventDefault(); e.stopPropagation();
