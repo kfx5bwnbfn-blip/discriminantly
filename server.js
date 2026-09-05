@@ -1015,7 +1015,7 @@ const pages = {
     <p class="about">We're serious about maintaining the integrity of this as an open and honest place to discover genuinely cool, interesting and rare things. For this reason, we don't allow any form of advertising or affiliate programs here.</p>
     <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>`}
   </aside>
-  <section class="feed feed-plain">
+  <section class="feed feed-plain is-tiled">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
     ${entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
@@ -1268,7 +1268,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}`;
     } 
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
-  <section class="feed profile-feed">${main}</section>
+  <section class="feed profile-feed is-tiled">${main}</section>
 </div>`;
     send(res, layout({ title: u.handle, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
   },
