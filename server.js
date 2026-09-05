@@ -261,6 +261,9 @@ function layout({ title, body, me, flash, cls = '', nav = '' }) {
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="icon" sizes="192x192" href="/icon-192.png">
+<link rel="icon" sizes="512x512" href="/icon-512.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="discriminant.ly">
@@ -325,6 +328,62 @@ function readImage(file, cb) {
 
   // Any page can raise the confirm curtain: title, copy, button label, an
   // optional text field, and the form action it posts to.
+  // Tile the feed into real column elements rather than CSS multi-column.
+  // Safari paints fragmentation seams at column boundaries — a stray rule above
+  // the first card in the second column — and real columns cannot do that.
+  window.layoutFeed = function () {
+    document.querySelectorAll('.grid, .activity-feed').forEach(function (grid) {
+      if (!grid.__items) grid.__items = [];
+      // gather anything not already parked in a column
+      [].slice.call(grid.children).forEach(function (child) {
+        if (!child.classList.contains('feed-col')) grid.__items.push(child);
+        else [].slice.call(child.children).forEach(function (g) { if (grid.__items.indexOf(g) < 0) grid.__items.push(g); });
+      });
+      var MIN = 480, GAP = 32;
+      var n = Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN + GAP)));
+      if (grid.__cols === n && grid.__built) {
+        // same shape: just place any newly added items
+        var cols = grid.querySelectorAll('.feed-col');
+        grid.__items.forEach(function (it) {
+          if (it.parentNode && it.parentNode.classList.contains('feed-col')) return;
+          var shortest = cols[0];
+          for (var i = 1; i < cols.length; i++) if (cols[i].offsetHeight < shortest.offsetHeight) shortest = cols[i];
+          shortest.appendChild(it);
+        });
+        return;
+      }
+      grid.__cols = n; grid.__built = true;
+      grid.innerHTML = '';
+      grid.style.display = 'flex';
+      grid.style.alignItems = 'flex-start';
+      grid.style.gap = GAP + 'px';
+      var cols = [];
+      for (var i = 0; i < n; i++) {
+        var c = document.createElement('div');
+        c.className = 'feed-col';
+        c.style.flex = '1 1 0'; c.style.minWidth = '0';
+        grid.appendChild(c); cols.push(c);
+      }
+      grid.__items.forEach(function (it, i) {
+        if (n === 1) { cols[0].appendChild(it); return; }
+        var shortest = cols[0];
+        for (var k = 1; k < cols.length; k++) if (cols[k].offsetHeight < shortest.offsetHeight) shortest = cols[k];
+        shortest.appendChild(it);
+      });
+    });
+  };
+  // the grid is further down the page than this script, so wait for parse
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { layoutFeed(); });
+  else layoutFeed();
+  var relayoutTimer;
+  window.addEventListener('resize', function () {
+    clearTimeout(relayoutTimer);
+    relayoutTimer = setTimeout(function () {
+      document.querySelectorAll('.grid, .activity-feed').forEach(function (g) { g.__built = false; });
+      layoutFeed();
+    }, 150);
+  });
+
   // The fixed bar's height varies with font loading and device chrome, so
   // measure it rather than trusting a constant. Prevents both a dark gap under
   // the bar and content sliding beneath it.
@@ -376,8 +435,10 @@ function readImage(file, cb) {
         var grid = document.getElementById('feed-grid');
         var next = doc.getElementById('feed-grid');
         if (!grid || !next) { location.href = link.href; return; }
-        var have = grid.children.length;
-        Array.prototype.slice.call(next.children, have).forEach(function (n) { grid.appendChild(n); });
+
+        var existing = grid.__items ? grid.__items.length : grid.children.length;
+        Array.prototype.slice.call(next.children, existing).forEach(function (n) { grid.appendChild(n); });
+        if (window.layoutFeed) window.layoutFeed();
         var nextMore = doc.querySelector('.more-link');
         var wrap = link.parentNode;
         if (nextMore) { link.href = nextMore.getAttribute('href'); link.textContent = was; delete link.dataset.busy; }
@@ -536,14 +597,14 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
           <input class="nf-field" name="newcoll" placeholder="Name it" value=""></label>
       </div>
     </details>
-    <div class="nf-image" id="${dropId}">
-      <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
-      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
-    </div>
     <div class="nf-lookup" id="unfurl-${idp}">
       <input class="nf-field" name="url" id="url-${idp}" type="url" autocomplete="off"
              placeholder="PASTE A LINK — FILLS THE FIELDS BELOW" value="${esc(o.url)}">
       <p class="lookup-note" id="unfurl-note-${idp}" hidden></p>
+    </div>
+    <div class="nf-image" id="${dropId}">
+      <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
+      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
     </div>
     <div class="nf-stack">
       <input class="nf-field" name="name" id="f-title-${idp}" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
@@ -834,6 +895,9 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
         <label class="nf-opt nf-opt-new"><span>+ New collection</span><input class="nf-field" name="newcoll" placeholder="Name it" value=""></label>
       </div>
     </details>
+    <div class="nf-stack">
+      <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
+    </div>
     <div class="nf-image" id="img-drop-${idp}">
       <img class="nf-image-preview" id="img-prev-${idp}" src="${esc(m.image || '')}" alt="" ${m.image ? '' : 'hidden'}>
       <input class="nf-field" id="img-input-${idp}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(m.image || '')}">
@@ -852,7 +916,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     </div>
     <div class="nf-stack">
       <input class="nf-field" name="latlng" id="f-latlng-${idp}" placeholder="LAT, LNG (OPTIONAL)" value="${m.lat != null ? `${m.lat}, ${m.lng}` : ''}">
-      <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
     </div>
     <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
     <div class="nf-foot">
@@ -1544,7 +1607,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
