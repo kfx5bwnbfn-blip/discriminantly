@@ -1356,6 +1356,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     } else if (tab === 'marks') {
       let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
         .filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
+      if (owner && vis === 'public') rows = rows.filter((x) => !x.private);
+      if (owner && vis === 'private') rows = rows.filter((x) => x.private);
       if (cid) { const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(cid).map((r) => r.mark_id)); rows = rows.filter((x) => ids.has(x.id)); }
       if (s) { const k = s.toLowerCase(); rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
       const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
@@ -1364,7 +1366,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       if (city) rows = rows.filter((x) => x.locality === city);
       const countries = [...new Set(all.map((x) => x.country).filter(Boolean))].sort();
       const cities = [...new Set(all.filter((x) => !country || x.country === country).map((x) => x.locality).filter(Boolean))].sort();
-      const q1 = (o) => { const sp = new URLSearchParams({ tab: 'marks' }); Object.entries(o).forEach(([k, v]) => v && sp.set(k, v)); return `/u/${esc(u.handle)}?${sp}`; };
+      const q1 = (o) => {
+        const sp = new URLSearchParams({ tab: 'marks' });
+        if (vis !== 'all' && !('v' in o)) o = { ...o, v: vis };
+        Object.entries(o).forEach(([k, v]) => v && sp.set(k, v));
+        return `/u/${esc(u.handle)}?${sp}`;
+      };
       const mcolls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(u.id).map((c) => {
         const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(c.id).map((r) => r.mark_id));
         return { ...c, count: all.filter((x) => ids.has(x.id)).length };
@@ -1391,8 +1398,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         <p class="place-row"><span class="lbl">Country</span>${chip('All', q1({ c: cid || '', city }), !country)}${countries.map((c) => chip(c, q1({ c: cid || '', country: c }), c === country)).join('')}</p>
         ${cities.length ? `<p class="place-row"><span class="lbl">City</span>${chip('All', q1({ c: cid || '', country }), !city)}${cities.map((c) => chip(c, q1({ c: cid || '', country, city: c }), c === city)).join('')}</p>` : ''}
       </div>
-      <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
-      ${owner ? `<a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
+      <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
+      ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', country, city, v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
+      <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
       ${(() => { const pg = pageOf(rows, url); return rows.length
         ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
         : '<p class="empty pad">No travel marks here yet.</p>'; })()}
