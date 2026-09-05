@@ -248,6 +248,19 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   c.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', close); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
 
+  // Any page can raise the confirm curtain: title, copy, button label and the
+  // form action it posts to.
+  window.askConfirm = function (opts) {
+    var dlg = document.getElementById('confirm-dialog');
+    if (!dlg) return;
+    dlg.querySelector('.dlg-title').textContent = opts.title || 'Are you sure?';
+    dlg.querySelector('.dlg-copy').innerHTML = opts.copy || '';
+    dlg.querySelector('.nf-post').textContent = opts.cta || 'Confirm';
+    dlg.querySelector('[data-dismiss]').textContent = opts.dismiss || 'Cancel';
+    dlg.querySelector('form').action = opts.action || '';
+    dlg.classList.add('is-open');
+  };
+
   // voice dictation into the note form (browser speech recognition; no data leaves the browser except to the speech service)
   var dictate = document.getElementById('dictate-btn');
   if (!dictate) return;
@@ -599,7 +612,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
       <input class="nf-field" name="latlng" id="f-latlng-${idp}" placeholder="LAT, LNG (OPTIONAL)" value="${m.lat != null ? `${m.lat}, ${m.lng}` : ''}">
       <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
     </div>
-    ${editing ? '' : `<div class="nf-stack"><input class="nf-field" name="visited_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>`}
     <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
     <div class="nf-foot">
       ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/m/${m.id}/delete">Delete</button>` : '<span></span>'}
@@ -847,6 +859,7 @@ ${noters.length ? `<div class="section-rule"></div>
     const owner = me && me.id === m.user_id;
     const visits = markVisits(m.id);
     const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
+    const ask = url.searchParams.get('ask') && owner && !visits.length;
     const author = q('SELECT * FROM users WHERE id=?').get(m.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
 <section class="feed profile-feed">
@@ -858,7 +871,7 @@ ${noters.length ? `<div class="section-rule"></div>
     <ol class="timeline">${visits.map((v) => `<li>
       <span class="tl-date">${esc(prettyDay(v.visited_on))}</span>
       ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
-      ${owner ? `<button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" aria-label="Remove this check-in">×</button>` : ''}
+      ${owner ? `<button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(prettyDay(v.visited_on))}" aria-label="Remove this check-in">×</button>` : ''}
     </li>`).join('')}</ol>
   </aside>` : ''}
 </div>
@@ -873,11 +886,13 @@ ${noters.length ? `<div class="section-rule"></div>
 <script>
 document.querySelectorAll('.tl-del').forEach(function (b) {
   b.addEventListener('click', function () {
-    if (!confirm('Remove this check-in?')) return;
-    var f = document.createElement('form'); f.method = 'post'; f.action = b.dataset.del;
-    document.body.appendChild(f); f.submit();
+    window.askConfirm({ title: 'Remove check-in', cta: 'Remove check-in', action: b.dataset.del,
+      copy: 'Remove the check-in on <b>' + b.dataset.day + '</b>? The mark itself stays.' });
   });
 });
+${ask ? `window.askConfirm({ title: 'Were you there today?',
+  copy: 'Log today as your first visit to <b>${esc(m.name)}</b>? You can check in any time from the card.',
+  cta: 'Log today', dismiss: 'Not now', action: '/m/${m.id}/checkin' });` : ''}
 </script>`;
     send(res, layout({ title: m.name, body, me }));
   },
@@ -1350,8 +1365,7 @@ async function handle(req, res) {
            isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
            tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0);
     setMarkCollections(me.id, r.lastInsertRowid, colls);
-    if (b.visited_on) q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, me.id, b.visited_on, '');
-    return redirect(res, `/m/${r.lastInsertRowid}`);
+    return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
   }
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/m\/(\d+)\/edit$/))) {

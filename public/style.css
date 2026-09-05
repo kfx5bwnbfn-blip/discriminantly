@@ -172,7 +172,9 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .feed { background-color: var(--paper); background-image: var(--mottle-soft); background-size: 140px 140px; padding: 0 1.5rem 2rem; min-width: 0; }
 .strip { position: relative; margin: 0 -1.5rem 1.5rem; padding: .85rem 1.5rem; text-align: center; font-weight: 400; font-size: 1rem; color: #6f7070; background: transparent; border: 0; box-shadow: none; }
 .strip::after, .edge-shadow::after { content: ""; position: absolute; left: var(--edge-inset); right: 0; top: 100%; height: 5px; pointer-events: none; background: var(--edge-shadow); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr)); gap: 1.6rem 2rem; align-items: start; }
+.grid { columns: 30rem; column-gap: 2rem; }        /* masonry: columns hold, rows disappear */
+.grid > * { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid;
+  display: block; margin: 0 0 1.6rem; }
 footer { margin: 2rem auto; color: var(--chrome-muted); font-size: .8rem; }
 footer a { color: var(--chrome-text); }
 
@@ -247,7 +249,7 @@ code { font-family: Menlo, Consolas, monospace; font-size: .85em; }
   .cols { grid-template-columns: 1fr; }
   .rail { padding: 1.2rem; }
   .rail h3.lbl, .rail .about, .rail .members, .rail .rail-tags { display: none; }
-  .grid, .activity-feed { grid-template-columns: 1fr; gap: 1.2rem; }
+  .grid, .activity-feed { columns: 1; column-gap: 0; }
   .act-note .note, .grid .note { min-width: 0; }
   .note .card, .note .text { min-width: 0; }
   .link, .body, .note h2 { overflow-wrap: anywhere; }
@@ -423,8 +425,9 @@ main > .settings { max-width: 30rem; margin: 0 auto !important; padding: 0 !impo
 .pad { padding: 1rem 0; }
 
 /* ---- activity list ---- */
-.activity-feed { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(30rem, 100%), 1fr)); gap: 1.2rem 2rem; align-items: start; }
-.act-line { grid-column: 1 / -1; display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
+.activity-feed { columns: 30rem; column-gap: 2rem; }
+.activity-feed > * { break-inside: avoid; -webkit-column-break-inside: avoid; display: block; margin: 0 0 1.2rem; }
+.act-line { display: flex; gap: 1rem; align-items: baseline; background: rgba(255,255,255,.55); border: 1px solid rgba(0,0,0,.06); padding: .7rem 1.1rem; font-size: .98rem; }
 .act-date { flex: 0 0 7rem; font-size: .68rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
 .act-note .note { max-width: none; }
 
@@ -545,7 +548,7 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .feed-plain .empty { color: var(--chrome-muted); }
 
 /* ---- article page: exact feed card, plus comments ---- */
-.grid-single { grid-template-columns: 1fr; max-width: 42rem; margin: 0 0 1.6rem; }
+.grid-single { columns: 1; max-width: 42rem; margin: 0 0 1.6rem; }
 .comments { margin-top: 1.8rem; }
 .comment-form { display: grid; grid-template-columns: auto 1fr; gap: .8rem; align-items: start; margin: 0 0 1.4rem; }
 .comment-form textarea { grid-column: 2; margin: 0; resize: vertical; font-size: .92rem; }
@@ -1009,6 +1012,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* map: wide and shallow, tinted to the palette */
 .mark-map { margin: .2rem auto .35rem; max-width: var(--mark-measure); border: 1px solid var(--mark-rule); background: #e6e4dc; overflow: hidden; }
 .mark-map iframe { display: block; width: 100%; height: 8.5rem; border: 0; filter: var(--map-tone); }
+.travelmark:not(.note-full) .mark-map { pointer-events: none; }   /* no stray zooming while scrolling a feed */
 .note-full .mark-map iframe { height: 11rem; }
 .map-credit { margin: 0 0 .9rem; font-family: var(--slab); font-size: .58rem; letter-spacing: .08em;
   text-transform: uppercase; color: #97968c; }
@@ -1050,7 +1054,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* ---- mark page: card beside the check-in timeline ---- */
 .mark-layout { display: grid; grid-template-columns: 1fr; gap: 1.4rem; align-items: start; }
-.mark-layout.has-log { grid-template-columns: minmax(0, 1fr) 16.5rem; gap: 1rem; }
+.mark-layout.has-log { grid-template-columns: minmax(0, 42rem) 16.5rem; gap: 1rem; justify-content: start; }
 .mark-main { min-width: 0; }
 .mark-main .grid-single { margin-bottom: 0; }
 
@@ -1072,10 +1076,10 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   text-transform: uppercase; color: var(--log-ink); }
 .tl-body { display: block; margin-top: .28rem; font-style: italic; font-size: .85rem; line-height: 1.45;
   color: #62665e; }
-.tl-del { position: absolute; right: .3rem; top: .45rem; opacity: 0; background: none; border: 0; cursor: pointer;
+.tl-del { position: absolute; right: .25rem; top: .25rem; font-weight: 600; opacity: 0; background: none; border: 0; cursor: pointer;
   font-size: .9rem; line-height: 1; color: var(--ink-soft); padding: .1rem .2rem; transition: opacity .15s; }
 .timeline li:hover .tl-del { opacity: 1; }
-.tl-del:hover { color: #a4433c; }
+.tl-del:hover { color: #4c504a; }
 
 @media (max-width: 52rem) {
   /* stacked: card, then check-ins, then comments */
