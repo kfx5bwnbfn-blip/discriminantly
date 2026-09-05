@@ -1266,15 +1266,20 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
     --m-byline-size: .58rem;     /* one size for every part of the date */
     --m-byline-gap: .45rem;
   }
-  .byline { flex-direction: row; align-items: center; justify-content: center;
-    gap: var(--m-byline-gap); padding: .1rem 0 .35rem; }
-  .byline-who { flex-direction: row; align-items: center; gap: var(--m-byline-gap); }
-  .byline .avatar { width: var(--m-byline-avatar); height: var(--m-byline-avatar); flex: 0 0 auto; }
+  /* three tracks: a spacer, the centred lockup, then Edit at the right. Grid
+     rather than absolute positioning, so the date and Edit share a baseline. */
+  .byline { display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline;
+    justify-content: center; padding: .1rem 0 .35rem; }
+  .byline-who { grid-column: 2; display: flex; flex-direction: row; align-items: baseline;
+    gap: var(--m-byline-gap); }
+  .byline .avatar { width: var(--m-byline-avatar); height: var(--m-byline-avatar); flex: 0 0 auto;
+    align-self: center; }
   .stackdate { flex-direction: row; align-items: baseline; gap: .28rem;
     margin: 0; line-height: 1; white-space: nowrap; }
   .stackdate .mon, .stackdate .day, .stackdate .yr {
     font-size: var(--m-byline-size); font-weight: 600; letter-spacing: .12em;
     text-transform: uppercase; margin: 0; }
-  /* Edit stays pinned to the card's right edge, clear of the lockup */
-  .card-edit { position: absolute; right: 0; top: 50%; transform: translateY(-50%); margin: 0; opacity: 1; }
+  /* Edit sits in the third track, its baseline level with the date */
+  .card-edit { position: static; grid-column: 3; justify-self: end; align-self: baseline;
+    transform: none; margin: 0; opacity: 1; }
 }
