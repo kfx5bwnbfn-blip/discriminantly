@@ -620,6 +620,11 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
       <p class="lookup-note" id="unfurl-note-${idp}" hidden></p>
     </div>
     <div class="nf-image" id="${dropId}">
+      <div class="img-pick" id="pick-${idp}" hidden>
+        <button type="button" class="img-arrow" data-step="-1" aria-label="Previous image">‹</button>
+        <span class="img-count" id="pick-count-${idp}"></span>
+        <button type="button" class="img-arrow" data-step="1" aria-label="Next image">›</button>
+      </div>
       <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
       <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
     </div>
@@ -655,11 +660,55 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
     if (uri) { input.value = uri.trim(); refresh(); }
   });
+  // Flip through the images a page offered: arrows, swipe, or arrow keys.
+  (function () {
+    var strip = document.getElementById('pick-${idp}');
+    if (!strip) return;
+    var label = document.getElementById('pick-count-${idp}');
+    var list = [], at = 0;
+    var show = function () {
+      if (!list.length) { strip.hidden = true; return; }
+      strip.hidden = list.length < 2;
+      label.textContent = (at + 1) + ' / ' + list.length;
+      input.value = list[at];
+      refresh();
+    };
+    window.__picks = window.__picks || {};
+    window.__picks['${idp}'] = function (pics, adopt) {
+      list = pics; at = 0;
+      if (adopt) show(); else { strip.hidden = list.length < 2; label.textContent = '1 / ' + list.length; }
+    };
+    var step = function (n) { if (!list.length) return; at = (at + n + list.length) % list.length; show(); };
+    strip.addEventListener('click', function (e) {
+      var btn = e.target.closest('.img-arrow'); if (!btn) return;
+      e.preventDefault(); e.stopPropagation(); step(+btn.dataset.step);
+    });
+    // swipe across the box
+    var x0 = null;
+    drop.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+    drop.addEventListener('touchend', function (e) {
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0; x0 = null;
+      if (Math.abs(dx) > 40) { e.preventDefault(); step(dx < 0 ? 1 : -1); }
+    });
+    // and with a pointer, for the desktop
+    var px = null;
+    drop.addEventListener('pointerdown', function (e) { if (e.pointerType === 'mouse') px = e.clientX; });
+    drop.addEventListener('pointerup', function (e) {
+      if (px === null) return; var dx = e.clientX - px; px = null;
+      if (Math.abs(dx) > 60) { e.preventDefault(); e.stopPropagation(); step(dx < 0 ? 1 : -1); }
+    });
+    drop.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    });
+  })();
+
   // Paste a link and the server reads the page's Open Graph tags. Only empty
   // fields are filled, so nothing you have already written is overwritten.
   var urlIn = document.getElementById('url-${idp}'), unote = document.getElementById('unfurl-note-${idp}');
   if (urlIn) {
-    var lastTried = '';
+    var lastTried = ${editing ? "urlIn.value.trim()" : "''"};   // editing: never refill from the link
     var tryUnfurl = function () {
       var v = urlIn.value.trim();
       var low = v.toLowerCase();
@@ -674,6 +723,8 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
           var filled = [];
           if (t && !t.value && d.title) { t.value = d.title; filled.push('title'); }
           if (w && !w.value && d.description) { w.value = d.description; filled.push('description'); }
+          var pics = (d.images && d.images.length) ? d.images : (d.image ? [d.image] : []);
+          if (pics.length && window.__picks && window.__picks['${idp}']) window.__picks['${idp}'](pics, !input.value);
           if (input && !input.value && d.image) { input.value = d.image; refresh(); filled.push('image'); }
           unote.textContent = filled.length ? 'Filled in the ' + filled.join(', ') + '. Edit as you like.'
                                             : 'Nothing new found on that page.';
@@ -793,12 +844,34 @@ function unfurl(html, base) {
     return '';
   };
   const titleTag = (head.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
-  let image = meta('og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src');
-  if (image) { try { image = new URL(image, base).href; } catch { image = ''; } }
+  // Gather every image the page offers, best first, so the member can flip
+  // through them rather than being handed whichever one came first.
+  const candidates = [];
+  const push = (v) => {
+    if (!v) return;
+    let abs; try { abs = new URL(v, base).href; } catch { return; }
+    if (!/^https?:/i.test(abs)) return;
+    if (/\.svg($|\?)/i.test(abs)) return;             // logos and sprites, rarely the subject
+    if (!candidates.includes(abs)) candidates.push(abs);
+  };
+  for (const tag of metaTags) {
+    const key = (attr(tag, 'property') || attr(tag, 'name')).toLowerCase();
+    if (/^(og:image(:secure_url|:url)?|twitter:image(:src)?)$/.test(key)) push(attr(tag, 'content'));
+  }
+  const linkImg = head.match(/<link[^>]+rel\s*=\s*["']image_src["'][^>]*>/i);
+  if (linkImg) push((linkImg[0].match(/href\s*=\s*["']([^"']+)["']/i) || [])[1]);
+  // then the body's own pictures, skipping obvious chrome
+  for (const m2 of html.matchAll(/<img\b[^>]*>/gi)) {
+    if (candidates.length >= 8) break;
+    const tag = m2[0];
+    if (/class\s*=\s*["'][^"']*(logo|icon|avatar|sprite|badge)/i.test(tag)) continue;
+    push(attr(tag, 'src') || attr(tag, 'data-src'));
+  }
   return {
     title: meta('og:title', 'twitter:title') || decodeEntities(titleTag.trim()),
     description: meta('og:description', 'twitter:description', 'description'),
-    image,
+    image: candidates[0] || '',
+    images: candidates.slice(0, 8),
     site: meta('og:site_name') || base.hostname.replace(/^www\./, ''),
   };
 }
