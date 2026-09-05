@@ -663,7 +663,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   border-radius: 50%; background: rgba(255,255,255,.10); color: #fff; }
 .nub-icon svg { width: 30px; height: 32px; }
 .curtain-nub:focus-visible { outline: 2px solid var(--nub-gold); outline-offset: -6px; }
-@media (max-width: 60rem) { .curtain { display: none; } }
+@media (max-width: 60rem) { .curtain:not(.dialog) { display: none; } }   /* dialogs still needed on mobile */
 
 /* settings reuses the ruled table */
 .settings-table { margin-bottom: 1.4rem; }
@@ -694,19 +694,14 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .dialog:hover { transform: translate(50%, -100%); }
 .dialog.is-open:hover { transform: translate(50%, 0); }
 .dialog .curtain-tail { height: 29px; }
-.dialog .nf-box { background-color: #2c2c2c; background-image: var(--stripe), var(--mottle);
-  background-size: auto, 200px 200px; background-attachment: fixed, fixed;
-  box-shadow: 0 0 0 1px var(--table-rule), 0 6px 18px rgba(0,0,0,.55); }
-.dialog .curtain-frame { background: rgba(0,0,0,.62); }
-.dialog .tail-band { background: rgba(0,0,0,.62); }
+/* dialogs use the note card's stock, buttons and spacing */
+.dialog .nf-box { padding: 17px 22px 25px; }
 .dlg-title { margin: 0 0 .5rem; font-family: var(--slab); font-weight: 700; font-size: .78rem; letter-spacing: .14em;
-  text-transform: uppercase; color: var(--chrome-text); }
-.dlg-copy { margin: 0 0 1.1rem; font-size: .92rem; line-height: 1.5; color: rgba(255,255,255,.68); }
-.dialog .nf-post { color: var(--chrome-text); border: var(--cta-border); background-color: transparent;
-  background-image: var(--btn3d-face); box-shadow: 0 1px 0 rgba(255,255,255,.05) inset; text-shadow: none; }
-.dialog .nf-post:hover { background-image: var(--btn3d-face-hover); color: #fff; }
-.dialog .nf-link-btn { color: var(--chrome-muted); }
-.dialog .nf-link-btn:hover { color: #fff; }
+  text-transform: uppercase; color: var(--nf-ink); }
+.dlg-copy { margin: 0 0 1.1rem; font-size: .92rem; line-height: 1.5; color: #4b4844; }
+.dlg-input { margin-bottom: 1rem; }
+.dlg-input[hidden], .nf-field[hidden] { display: none; }   /* .nf-field's display would otherwise win */
+.dialog .nf-foot { margin-top: 24px; }
 
 /* ---- rail rule pattern: hairline sits above the heading ---- */
 .rail h3.lbl.ruled { border-bottom: 0; padding-bottom: 0; padding-top: .75rem; position: relative; }
@@ -836,11 +831,15 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
   /* profile rail nav: same tab pattern and tokens as the home feed nav */
   .profile-rail { padding-bottom: 0; }
-  .prail-nav { position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
+  .prail-nav { position: relative; display: flex; flex-wrap: nowrap;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity; max-width: 100%;
     margin: 1.1rem calc(-1 * var(--m-gutter)) 0; border-top: 1px solid rgba(0,0,0,.4); }
   .prail-nav::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 9px; z-index: 2;
     pointer-events: none; background: var(--masthead-shadow); }
-  .prail-nav li { position: relative; border-bottom: 0; }
+  .prail-nav::-webkit-scrollbar { display: none; }
+  .prail-nav li { position: relative; border-bottom: 0;
+    flex: 0 0 25%; scroll-snap-align: start; }   /* four fill the width, the rest swipe in */
   .prail-nav li::after { display: none; }
   .prail-nav li + li::before { content: ""; position: absolute; top: 14%; bottom: 14%; left: 0; width: 2px;
     background: linear-gradient(90deg, var(--hr-dark) 0 1px, var(--hr-dark-lift) 1px 2px); }
@@ -1049,7 +1048,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* directions beside check in; share sits bottom right like Cancel */
 .mark-buttons { display: grid; grid-template-columns: 1fr; gap: .5rem; }
-.mark-buttons:has(form) { grid-template-columns: 1fr 1fr; }
+.mark-buttons:has(.checkin-btn), .mark-buttons:has(form), .mark-buttons:has([data-checkin]) { grid-template-columns: 1fr 1fr; }
 .mark-buttons form { margin: 0; }
 .mark-buttons .btn-note { text-decoration: none; }
 .mark-foot { display: flex; justify-content: flex-end; max-width: var(--mark-measure); margin: .9rem auto 0; }
@@ -1098,3 +1097,38 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* a private entry says so in the byline rather than wearing a badge */
 .who-private { color: var(--private-ink); }
 .travelmark .who-private { color: var(--private-ink); }
+
+/* ---- segmented control: Note / Travel Mark ---- */
+.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 3px;
+  background-image: linear-gradient(rgba(0,0,0,.09), rgba(0,0,0,.03));
+  border: 1px solid var(--nf-rule); border-radius: 999px; }
+.seg-btn { border: 0; cursor: pointer; padding: .5rem .4rem; border-radius: 999px; background: transparent;
+  font-family: var(--slab); font-weight: 700; font-size: .68rem; letter-spacing: .13em;
+  text-transform: uppercase; color: #8b8983; transition: color .15s; }
+.seg-btn:hover { color: var(--nf-ink); }
+.seg-btn.on { color: var(--nf-ink);
+  background-image: linear-gradient(#fff, #f2f1ee);
+  box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 0 0 1px rgba(0,0,0,.06); }
+
+/* panels swap with an eased height so the curtain does not jump */
+.seg-panels { overflow: hidden; transition: height .34s cubic-bezier(.22,.61,.36,1); }
+.seg-panel { display: none; }
+.seg-panel.is-on { display: block; }
+
+
+
+.seg { margin: 0 0 2px; }
+
+/* ---- dialogs on small screens ---- */
+@media (max-width: 52rem) {
+  .dialog { width: auto; left: var(--m-gutter); right: var(--m-gutter);
+    transform: translateY(-100%); }
+  .dialog.is-open, .dialog.is-open:hover { transform: translateY(0); }
+  .dialog:hover { transform: translateY(-100%); }
+  .dialog .curtain-frame { padding: 0 12px; }
+  .dialog .nf-box { padding: 14px 16px 20px; }
+  .dialog .nf-foot { margin-top: 18px; }
+
+  /* profile tabs scroll sideways rather than stacking */
+  .cols > .rail, .profile-rail { min-width: 0; }   /* a grid item defaults to min-content width */
+}

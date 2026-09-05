@@ -28,6 +28,18 @@ in the Docker image). A deploy replaces the container, never the volume, so
 mounting a Railway volume at `/app/data` is what keeps your content. Without a
 volume the file lives on the container's ephemeral disk and is lost on redeploy.
 
+### "My seed data keeps coming back"
+
+That is the symptom of a missing volume, not of seeding. Seed data only runs
+when the users table is empty. If you see the six demo notes again after a
+deploy, the database was empty again — the file was on the container's disk and
+the deploy replaced it. In production the server now prints a loud warning when
+it creates a database from scratch.
+
+Fix it in Railway: service → **Variables** confirm `DB_PATH=/app/data/discriminantly.db`,
+then service → **Volumes** → add a volume mounted at `/app/data`. Redeploy once;
+after that your content persists and the warning stops.
+
 **Check the boot log after every deploy.** The server prints:
 
     Database: /app/data/discriminantly.db (412 KB) — users 3, objects 48, marks 12, visits 30, comments 9
@@ -50,6 +62,17 @@ runs once, and is recorded in `schema_migrations`. Rules:
 Adding a column looks like this:
 
     ['008-marks-neighbourhood', addColumn('marks', 'neighbourhood', "TEXT DEFAULT ''")],
+
+### Images
+
+Uploaded pictures are stored as bytes in the `images` table and served from
+`/i/<id>` with a one-year immutable cache. Two consequences worth knowing:
+
+- They are inside the database, so a snapshot backs up the pictures too.
+- The browser downscales to 1600px and re-encodes as JPEG before upload, so a
+  phone photo arrives as a few hundred KB rather than several MB.
+
+Pasted `https://` image URLs are stored as-is and never copied.
 
 ### Backups
 

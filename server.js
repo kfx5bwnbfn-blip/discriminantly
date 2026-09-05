@@ -120,6 +120,9 @@ const MIGRATIONS = [
     db.exec('COMMIT');
     db.exec('PRAGMA foreign_keys=ON');
   }, { ownTransaction: true }],
+  ['009-images', () => db.exec(`CREATE TABLE IF NOT EXISTS images (
+      id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      mime TEXT NOT NULL, bytes BLOB NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)`)],
   ['007-mark-comments',    () => db.exec(`CREATE TABLE IF NOT EXISTS mark_comments (
       id INTEGER PRIMARY KEY, mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
@@ -265,7 +268,12 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 })();
 </script>
 <div class="curtain" id="curtain">
-  <div class="curtain-frame"><div class="curtain-body">${noteForm(me, {}, { idp: 'ct', compact: true })}</div></div>
+  <div class="curtain-frame"><div class="curtain-body">
+    <div class="seg-panels" id="seg-panels">
+      <div class="seg-panel is-on" data-kind="note">${noteForm(me, {}, { idp: 'ct', compact: true, seg: true })}</div>
+      <div class="seg-panel" data-kind="mark">${markForm(me, {}, { idp: 'ctm', seg: true })}</div>
+    </div>
+  </div></div>
   <div class="curtain-tail" aria-hidden="true"><span class="tail-band"></span><span class="tail-bridge"></span><span class="tail-edge"></span></div>
   <button class="curtain-nub" id="curtain-nub" aria-expanded="false" aria-controls="curtain">
     <span class="nub-label">Create a<br>new note</span>
@@ -273,6 +281,26 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   </button>
 </div>
 <script>
+
+// Downscale in the browser before upload: a phone photo is 4000px and several
+// megabytes, which is wasteful to store and slow to send.
+function readImage(file, cb) {
+  if (!file || file.type.indexOf('image/') !== 0) return;
+  var r = new FileReader();
+  r.onload = function () {
+    var img = new Image();
+    img.onload = function () {
+      var MAX = 1600, w = img.width, h = img.height;
+      if (Math.max(w, h) > MAX) { var k = MAX / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+      var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      cb(cv.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = function () { cb(r.result); };   // svg and the like pass through
+    img.src = r.result;
+  };
+  r.readAsDataURL(file);
+}
 (function () {
   var c = document.getElementById('curtain'), nub = document.getElementById('curtain-nub');
   if (!c) return;
@@ -280,10 +308,9 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   function close() { c.classList.remove('is-open'); nub.setAttribute('aria-expanded', 'false'); }
   nub.addEventListener('click', function () { c.classList.contains('is-open') ? close() : open(); });
   c.querySelectorAll('[data-close]').forEach(function (b) { b.addEventListener('click', close); });
-  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
 
-  // Any page can raise the confirm curtain: title, copy, button label and the
-  // form action it posts to.
+  // Any page can raise the confirm curtain: title, copy, button label, an
+  // optional text field, and the form action it posts to.
   window.askConfirm = function (opts) {
     var dlg = document.getElementById('confirm-dialog');
     if (!dlg) return;
@@ -292,10 +319,10 @@ ${me ? `<nav class="iconrail" aria-label="Main">
     dlg.querySelector('.nf-post').textContent = opts.cta || 'Confirm';
     dlg.querySelector('[data-dismiss]').textContent = opts.dismiss || 'Cancel';
     dlg.querySelector('form').action = opts.action || '';
+    var fld = dlg.querySelector('.dlg-input');
+    if (fld) { fld.hidden = !opts.field; fld.value = ''; if (opts.field) fld.setAttribute('placeholder', opts.field); }
     dlg.classList.add('is-open');
   };
-  // One binding for every use of the confirm curtain. Deferred: this script is
-  // parsed before the dialog markup further down the page exists.
   document.addEventListener('DOMContentLoaded', function () {
     var cdlg = document.getElementById('confirm-dialog');
     if (!cdlg) return;
@@ -305,29 +332,31 @@ ${me ? `<nav class="iconrail" aria-label="Main">
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cdlg.classList.remove('is-open'); });
   });
 
-  // voice dictation into the note form (browser speech recognition; no data leaves the browser except to the speech service)
-  var dictate = document.getElementById('dictate-btn');
-  if (!dictate) return;
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  dictate.addEventListener('click', function () {
-    open();
-    var title = c.querySelector('input[name=name]'), why = c.querySelector('textarea[name=why]');
-    if (!SR) { why.setAttribute('placeholder', 'DICTATION NEEDS A BROWSER WITH SPEECH RECOGNITION (CHROME OR SAFARI) — OR SPEAK TO CLAUDE VIA THE CONNECTOR'); why.focus(); return; }
-    var rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
-    var target = document.activeElement === title ? title : why;
-    target.focus(); dictate.classList.add('is-listening');
-    var base = target.value ? target.value + ' ' : '';
-    rec.onresult = function (e) {
-      var txt = '';
-      for (var i = e.resultIndex; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      target.value = base + txt;
-      if (target.value && e.results[e.results.length - 1].isFinal) base = target.value + ' ';
-    };
-    rec.onend = function () { dictate.classList.remove('is-listening'); };
-    rec.onerror = function () { dictate.classList.remove('is-listening'); };
-    rec.start();
-    dictate.addEventListener('click', function stop() { rec.stop(); dictate.removeEventListener('click', stop); }, { once: true });
+  // Check in asks first, and takes an optional line about the visit
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-checkin]');
+    if (!t) return;
+    window.askConfirm({ title: 'Check in', cta: 'Log this visit', dismiss: 'Cancel',
+      action: t.dataset.checkin, copy: 'Log today as a visit to <b>' + t.dataset.place + '</b>.',
+      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });
   });
+
+  // Note / Travel Mark: swap the panel, easing the height so the curtain does not jump
+  var panels = document.getElementById('seg-panels');
+  if (panels) panels.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.seg-btn');
+    if (!btn) return;
+    var kind = btn.dataset.seg;
+    var from = panels.querySelector('.seg-panel.is-on');
+    var to = panels.querySelector('.seg-panel[data-kind="' + kind + '"]');
+    if (!to || from === to) return;
+    panels.style.height = from.offsetHeight + 'px';
+    from.classList.remove('is-on'); to.classList.add('is-on');
+    var target = to.offsetHeight;
+    requestAnimationFrame(function () { panels.style.height = target + 'px'; });
+    setTimeout(function () { panels.style.height = ''; }, 380);
+  });
+
 })();
 </script>`
   : `<header class="masthead"><div class="wrap">
@@ -340,6 +369,7 @@ ${me ? `<div class="curtain dialog" id="confirm-dialog">
       <div class="nf-box">
         <p class="dlg-title">Delete collection</p>
         <p class="dlg-copy">Delete “<span class="dlg-name"></span>”? The notes inside stay put — only the collection is removed.</p>
+        <input class="nf-field dlg-input" name="body" maxlength="600" hidden>
         <button class="nf-post">Delete collection</button>
         <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss>Cancel</button></div>
       </div>
@@ -418,7 +448,12 @@ document.addEventListener('click', function (e) {
 
 // The note form card. Rendered on /new and /o/:id/edit, and inside the drop-down curtain.
 // `idp` namespaces element ids so two copies can coexist on one page.
-function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = false } = {}) {
+const segControl = (active) => `<div class="seg" role="tablist">
+  <button type="button" class="seg-btn ${active === 'note' ? 'on' : ''}" data-seg="note" role="tab" aria-selected="${active === 'note'}">Note</button>
+  <button type="button" class="seg-btn ${active === 'mark' ? 'on' : ''}" data-seg="mark" role="tab" aria-selected="${active === 'mark'}">Travel Mark</button>
+</div>`;
+
+function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = false, seg = false } = {}) {
   const editing = !!o.id;
   const mine = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(me.id);
   const sel = new Set(picked ? picked : editing ? objCollections(o.id).map((c) => c.name) : []);
@@ -428,6 +463,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
     <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
+    ${seg ? segControl('note') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
       <div class="nf-drop-menu">
@@ -438,7 +474,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     </details>
     <div class="nf-image" id="${dropId}">
       <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
-      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="DRAG IMAGE INTO HERE" value="${esc(o.image)}" required>
+      <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
     </div>
     <div class="nf-stack">
       <input class="nf-field" name="name" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
@@ -459,12 +495,17 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
   if (!drop) return;
   function refresh() { if (input.value) { preview.src = input.value; preview.hidden = false; drop.classList.add('has-image'); } else { preview.hidden = true; drop.classList.remove('has-image'); } }
   input.addEventListener('input', refresh);
+  var pick = document.createElement('input');
+  pick.type = 'file'; pick.accept = 'image/*'; pick.style.display = 'none';
+  drop.appendChild(pick);
+  drop.addEventListener('click', function (e) { if (e.target === input) return; pick.click(); });
+  pick.addEventListener('change', function () { readImage(pick.files[0], function (d) { input.value = d; refresh(); }); });
   ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('dragover'); }); });
   ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('dragover'); }); });
   drop.addEventListener('drop', function (e) {
     e.preventDefault();
     var dt = e.dataTransfer, file = dt.files && dt.files[0];
-    if (file && file.type.indexOf('image/') === 0) { var r = new FileReader(); r.onload = function () { input.value = r.result; refresh(); }; r.readAsDataURL(file); return; }
+    if (file && file.type.indexOf('image/') === 0) { readImage(file, function (d) { input.value = d; refresh(); }); return; }
     var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
     if (uri) { input.value = uri.trim(); refresh(); }
   });
@@ -534,6 +575,20 @@ function setMarkCollections(userId, markId, names) {
     q('INSERT OR IGNORE INTO mark_collections(mark_id,collection_id) VALUES(?,?)').run(markId, c.id);
   }
 }
+// A pasted https:// URL is kept as-is. A data: URL from the uploader is decoded
+// and stored as bytes, so pages reference /i/<id> and the browser can cache it
+// instead of re-downloading the picture inside every HTML response.
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+function storeImage(userId, value) {
+  const v = (value || '').trim();
+  const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(v);
+  if (!m) return v;
+  const bytes = Buffer.from(m[2], 'base64');
+  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return '';
+  const r = q('INSERT INTO images(user_id,mime,bytes) VALUES(?,?,?)').run(userId, m[1], bytes);
+  return `/i/${r.lastInsertRowid}`;
+}
+
 const placeLine = (m) => [m.locality, m.country].filter(Boolean).join(', ');
 const mapLink = (m) => m.lat != null && m.lng != null
   ? `https://www.google.com/maps/search/?api=1&query=${m.lat},${m.lng}`
@@ -611,7 +666,7 @@ function markCard(m, me, full = false) {
       <div class="noteit mark-visits">
         <div class="mark-buttons">
           <a class="btn-note" href="${mapLink(m)}" rel="noopener">Directions</a>
-          ${me && me.id === m.user_id ? `<form method="post" action="/m/${m.id}/checkin"><button class="btn-note">Check in</button></form>` : ''}
+          ${me && me.id === m.user_id ? `<button type="button" class="btn-note" data-checkin="/m/${m.id}/checkin" data-place="${esc(m.name)}">Check in</button>` : ''}
         </div>
       </div>
       <div class="mark-foot"><button type="button" class="nf-link-btn share-mark" data-share="/m/${m.id}" data-title="${esc(m.name)}">Share</button></div>
@@ -620,7 +675,7 @@ function markCard(m, me, full = false) {
 }
 
 // The mark form, shared by /marks/new and /m/:id/edit.
-function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
+function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false } = {}) {
   const editing = !!m.id;
   const mine = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(me.id);
   const sel = new Set(picked ? picked : editing ? markCollections(m.id).map((c) => c.name) : []);
@@ -629,6 +684,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
     <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
+    ${seg ? segControl('mark') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
       <div class="nf-drop-menu">
@@ -638,7 +694,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
     </details>
     <div class="nf-image" id="img-drop-${idp}">
       <img class="nf-image-preview" id="img-prev-${idp}" src="${esc(m.image || '')}" alt="" ${m.image ? '' : 'hidden'}>
-      <input class="nf-field" id="img-input-${idp}" name="image" type="text" placeholder="DRAG IMAGE INTO HERE" value="${esc(m.image || '')}">
+      <input class="nf-field" id="img-input-${idp}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(m.image || '')}">
     </div>
     <div class="nf-lookup" id="lookup-${idp}">
       <input class="nf-field" id="lookup-input-${idp}" type="text" autocomplete="off" placeholder="SEARCH FOR A PLACE — FILLS THE FIELDS BELOW">
@@ -668,11 +724,16 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
   var drop = document.getElementById('img-drop-${idp}'), input = document.getElementById('img-input-${idp}'), prev = document.getElementById('img-prev-${idp}');
   function refresh() { if (input.value) { prev.src = input.value; prev.hidden = false; drop.classList.add('has-image'); } else { prev.hidden = true; drop.classList.remove('has-image'); } }
   input.addEventListener('input', refresh);
+  var pick = document.createElement('input');
+  pick.type = 'file'; pick.accept = 'image/*'; pick.style.display = 'none';
+  drop.appendChild(pick);
+  drop.addEventListener('click', function (e) { if (e.target === input) return; pick.click(); });
+  pick.addEventListener('change', function () { readImage(pick.files[0], function (d) { input.value = d; refresh(); }); });
   ['dragenter','dragover'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('dragover'); }); });
   ['dragleave','drop'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.remove('dragover'); }); });
   drop.addEventListener('drop', function (ev) {
     ev.preventDefault(); var f = ev.dataTransfer.files && ev.dataTransfer.files[0];
-    if (f && f.type.indexOf('image/') === 0) { var r = new FileReader(); r.onload = function () { input.value = r.result; refresh(); }; r.readAsDataURL(f); return; }
+    if (f && f.type.indexOf('image/') === 0) { readImage(f, function (d) { input.value = d; refresh(); }); return; }
     var u = ev.dataTransfer.getData('text/uri-list') || ev.dataTransfer.getData('text/plain');
     if (u) { input.value = u.trim(); refresh(); }
   });
@@ -936,7 +997,7 @@ document.querySelectorAll('.tl-del').forEach(function (b) {
 });
 ${ask ? `window.askConfirm({ title: 'Were you there today?',
   copy: 'Log today as your first visit to <b>${esc(m.name)}</b>? You can check in any time from the card.',
-  cta: 'Log today', dismiss: 'Not now', action: '/m/${m.id}/checkin' });` : ''}
+  cta: 'Log today', dismiss: 'Not now', action: '/m/${m.id}/checkin', field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });` : ''}
 </script>`;
     send(res, layout({ title: m.name, body, me }));
   },
@@ -1359,6 +1420,13 @@ async function handle(req, res) {
   const need = () => { redirect(res, '/login'); return true; };
   let mt;
 
+  if ((mt = p.match(/^\/i\/(\d+)$/))) {
+    const img = q('SELECT mime, bytes FROM images WHERE id=?').get(+mt[1]);
+    if (!img) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': img.mime, 'Content-Length': img.bytes.length,
+      'Cache-Control': 'public, max-age=31536000, immutable' });
+    return res.end(Buffer.from(img.bytes));
+  }
   if ((mt = p.match(/^\/avatars\/([a-z0-9_-]+\.png)$/))) {
     const f = path.join(__dirname, 'public', 'avatars', mt[1]);
     if (!fs.existsSync(f)) return send(res, 'Not found', 404);
@@ -1439,7 +1507,7 @@ async function handle(req, res) {
     const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(me.id, b.name.trim(), b.locality || '', b.country || '', b.address || '',
            isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
-           tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0);
+           tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
     setMarkCollections(me.id, r.lastInsertRowid, colls);
     return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
   }
@@ -1454,7 +1522,7 @@ async function handle(req, res) {
     q('UPDATE marks SET name=?,locality=?,country=?,address=?,lat=?,lng=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
       .run((b.name || mk.name).trim(), b.locality || '', b.country || '', b.address || '',
            isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
-           tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0, mk.id);
+           tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, mk.id);
     setMarkCollections(mk.user_id, mk.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     return redirect(res, `/m/${mk.id}`);
   }
@@ -1476,8 +1544,10 @@ async function handle(req, res) {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
     if (!mk) return send(res, 'Not yours', 403);
-    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, me.id, new Date().toISOString().slice(0, 10), '');
-    return redirect(res, req.headers.referer || `/m/${mk.id}`);
+    const b = await readBody(req);
+    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
+      .run(mk.id, me.id, new Date().toISOString().slice(0, 10), (b.body || '').trim());
+    return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits$/)) && m === 'POST') {
     if (!me) return need();
@@ -1501,7 +1571,7 @@ async function handle(req, res) {
     if (!(b.name || '').trim()) return pages.form(req, res, me, b, 'A note needs a title.', colls);
     if (!(b.image || '').trim()) return pages.form(req, res, me, b, 'Every note needs an image.', colls);
     const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)')
-      .run(me.id, b.name.trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0);
+      .run(me.id, b.name.trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)').run(me.id, r.lastInsertRowid, '');
     setCollections(me.id, r.lastInsertRowid, colls);
     return redirect(res, `/o/${r.lastInsertRowid}`);
@@ -1526,7 +1596,7 @@ async function handle(req, res) {
     if (m === 'GET') return pages.form(req, res, me, o);
     const b = await readBodyMulti(req);
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
-      .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0, o.id);
+      .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, o.id);
     setCollections(o.user_id, o.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     return redirect(res, `/o/${o.id}`);
   }
@@ -1560,7 +1630,18 @@ async function handle(req, res) {
 }
 
 // ---------- bootstrap admin + optional seed ----------
-if (q('SELECT COUNT(*) c FROM users').get().c === 0) {
+const freshInstall = q('SELECT COUNT(*) c FROM users').get().c === 0;
+if (freshInstall && process.env.NODE_ENV === 'production') {
+  console.warn('');
+  console.warn('  ****************************************************************');
+  console.warn('  *  EMPTY DATABASE at ' + DB_PATH);
+  console.warn('  *  A new one is being created. If this service had content, the');
+  console.warn('  *  volume is NOT mounted and the previous data is gone.');
+  console.warn('  *  Mount a volume at ' + path.dirname(DB_PATH) + ' before adding more.');
+  console.warn('  ****************************************************************');
+  console.warn('');
+}
+if (freshInstall) {
   const email = process.env.ADMIN_EMAIL || 'admin@discriminant.ly', pass = process.env.ADMIN_PASSWORD || 'changeme1';
   q('INSERT INTO users(handle,name,email,pass,is_admin,avatar) VALUES(?,?,?,?,1,?)').run(process.env.ADMIN_HANDLE || 'elicierto', process.env.ADMIN_NAME || 'Brian Elicierto', email, hashPass(pass), '/avatars/elicierto.png');
   const code = token(6); q('INSERT INTO invites(code,from_user) VALUES(?,1)').run(code);
