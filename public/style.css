@@ -178,11 +178,6 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .feed { background-color: var(--paper); background-image: var(--mottle-soft); background-size: 140px 140px; padding: 0 1.5rem 2rem; min-width: 0; }
 .strip { position: relative; margin: 0 -1.5rem 1.5rem; padding: .85rem 1.5rem; text-align: center; font-weight: 400; font-size: 1rem; color: #6f7070; background: transparent; border: 0; box-shadow: none; }
 .strip::after, .edge-shadow::after { content: ""; position: absolute; left: var(--edge-inset); right: 0; top: 100%; height: 5px; pointer-events: none; background: var(--edge-shadow); }
-/* On a tiled feed the divider would run across columns that have no heading
-   above them, reading as a stray rule. Drop it there; article pages keep it. */
-@media (min-width: 64rem) {
-  .feed.is-tiled > .strip::after { display: none; }
-}
 .grid { columns: 30rem; column-gap: 2rem; }        /* masonry: columns hold, rows disappear */
 .grid > * { break-inside: avoid; -webkit-column-break-inside: avoid; page-break-inside: avoid;
   display: block; margin: 0 0 1.6rem; }
@@ -633,6 +628,8 @@ textarea.nf-field { resize: vertical; }
   font-family: var(--slab); font-weight: 700; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--nf-ink); }
 .nf-link-btn:hover { text-decoration: underline; }
 .nf-danger { color: #a4433c; }
+.nf-del { color: var(--nf-ink); }          /* same ink as Cancel */
+.nf-del:hover { text-decoration: underline; }
 main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important; background: transparent; padding: 0 1rem !important; }
 
 /* ================= the curtain ================= */
@@ -704,7 +701,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .dlg-title { margin: 0 0 .5rem; font-family: var(--slab); font-weight: 700; font-size: .78rem; letter-spacing: .14em;
   text-transform: uppercase; color: var(--nf-ink); }
 .dlg-copy { margin: 0 0 1.1rem; font-size: .92rem; line-height: 1.5; color: #4b4844; }
-.dlg-input { margin-bottom: 1rem; }
+.dlg-input { margin-bottom: 1rem; text-transform: none; letter-spacing: .01em;
+  font-size: .92rem; color: var(--ink); }
+.dlg-input::placeholder { text-transform: uppercase; letter-spacing: .12em; font-size: .78rem; }
 .dlg-input[hidden], .nf-field[hidden] { display: none; }   /* .nf-field's display would otherwise win */
 .dialog .nf-foot { margin-top: 24px; }
 
@@ -781,8 +780,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .iconrail a, .iconrail-btn { height: 84px; }
   .iconrail svg { transform: scale(.88); }
   .iconrail a + a::before, .iconrail a + .iconrail-btn::before { left: 9px; right: 8px; }
-  body.is-in { padding-top: var(--m-searchbar-h); }
-  body:not(.is-in) { padding-top: var(--m-masthead-h); }
+  body.is-in { padding-top: var(--bar-h, var(--m-searchbar-h)); }
+  body:not(.is-in) { padding-top: var(--bar-h, var(--m-masthead-h)); }
+  .iconrail { top: var(--bar-h, var(--m-searchbar-h)); }
   body.is-in main.wrap { padding-left: var(--m-rail-w); padding-right: 0; }
   body.is-dark-page main.wrap { padding-right: var(--m-page-pad); }
   main > .settings { padding: 0 var(--m-page-pad) !important; }
@@ -1171,7 +1171,6 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* Delete sits opposite the privacy toggle on an edit page */
 .nf-top { justify-content: space-between; }
-.nf-top-del { margin-right: auto; }
 .nf-top .nf-lbl { margin-left: auto; }
 
 /* the unfurl hint under the link field */

@@ -7,6 +7,16 @@ const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const PORT = process.env.PORT || 3000;
+// The stylesheet is fingerprinted by content: a deploy changes the URL, so a
+// browser can never serve a stale copy while the markup has moved on.
+const assetHash = (rel) => {
+  try {
+    return crypto.createHash('sha1')
+      .update(fs.readFileSync(path.join(__dirname, 'public', rel))).digest('hex').slice(0, 10);
+  } catch { return String(Date.now()); }
+};
+const CSS_V = assetHash('style.css');
+
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'discriminantly.db');
 const SECURE = process.env.NODE_ENV === 'production';
 
@@ -250,7 +260,11 @@ function layout({ title, body, me, flash, cls = '', nav = '' }) {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="icon" type="image/png" href="/favicon.png"><link rel="stylesheet" href="/style.css"></head><body class="${cls}${me ? ' is-in' : ''}">
+<link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="discriminant.ly">
+<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}"></head><body class="${cls}${me ? ' is-in' : ''}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -311,6 +325,22 @@ function readImage(file, cb) {
 
   // Any page can raise the confirm curtain: title, copy, button label, an
   // optional text field, and the form action it posts to.
+  // The fixed bar's height varies with font loading and device chrome, so
+  // measure it rather than trusting a constant. Prevents both a dark gap under
+  // the bar and content sliding beneath it.
+  (function () {
+    var bar = document.querySelector('.searchbar') || document.querySelector('.masthead');
+    if (!bar) return;
+    var syncBar = function () {
+      var h = Math.round(bar.getBoundingClientRect().height);
+      if (h) document.documentElement.style.setProperty('--bar-h', h + 'px');
+    };
+    syncBar();
+    window.addEventListener('resize', syncBar);
+    window.addEventListener('orientationchange', syncBar);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncBar);
+  })();
+
   window.askConfirm = function (opts) {
     var dlg = document.getElementById('confirm-dialog');
     if (!dlg) return;
@@ -359,7 +389,7 @@ function readImage(file, cb) {
 
   // Delete from an edit page
   document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('.nf-top-del');
+    var t = e.target.closest && e.target.closest('.nf-del');
     if (!t) return;
     window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
       action: t.dataset.del,
@@ -496,7 +526,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
 <form method="post" action="${editing ? `/o/${o.id}/edit` : '/new'}" class="nf${compact ? ' nf-compact' : ''}">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top">${editing ? `<button type="button" class="nf-link-btn nf-danger nf-top-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : '<span></span>'}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('note') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -522,7 +552,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     </div>
     <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
     <div class="nf-foot">
-      <span></span>
+      ${editing ? `<button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : '<span></span>'}
       ${compact ? '<button type="button" class="nf-link-btn" data-close>Cancel</button>' : `<a class="nf-link-btn" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>`}
     </div>
   </div>
@@ -795,7 +825,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 <form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top">${editing ? `<button type="button" class="nf-link-btn nf-danger nf-top-del" data-del="/m/${m.id}/delete" data-kind="travel mark" data-title="${esc(m.name)}">Delete</button>` : '<span></span>'}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('mark') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -826,7 +856,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     </div>
     <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
     <div class="nf-foot">
-      <span></span>
+      ${editing ? `<button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/delete" data-kind="travel mark" data-title="${esc(m.name)}">Delete</button>` : '<span></span>'}
       <a class="nf-link-btn" href="${editing ? `/m/${m.id}` : '/'}">Cancel</a>
     </div>
   </div>
@@ -1514,7 +1544,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -1547,7 +1577,12 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
     return fs.createReadStream(f).pipe(res);
   }
-  if (STATIC[p]) { res.writeHead(200, { 'Content-Type': STATIC[p], 'Cache-Control': 'public, max-age=3600' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
+  if (STATIC[p]) {
+    const versioned = url.searchParams.has('v');
+    res.writeHead(200, { 'Content-Type': STATIC[p],
+      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300' });
+    return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res);
+  }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
