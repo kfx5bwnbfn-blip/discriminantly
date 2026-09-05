@@ -55,6 +55,13 @@
   --nf-ink: #4b4844;
   --nf-input-size: .78rem;   /* placeholder/label size inside the note card */
   --tile-face: #edeeee;
+  /* travel marks sit on paper: warm stock with a fibrous grain */
+  --mark-card: #eeece5;
+  --mark-ink: #474640;
+  --mark-rule: rgba(70,68,56,.15);
+  --paper-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='p'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .34 0 0 0 0 .32 0 0 0 0 .24 0 0 0 .08 0'/></filter><rect width='180' height='180' filter='url(%23p)'/></svg>");
+  /* the OSM embed is recoloured to sit with the rest of the palette */
+  --map-tone: sepia(.22) saturate(.6) contrast(.94) brightness(1.03) hue-rotate(-4deg);
   --tile-rule: rgba(0,0,0,.10);
   --mottle: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='.55' numOctaves='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .45 0'/></filter><rect width='200' height='200' filter='url(%23m)'/></svg>");
   --mottle-soft: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .07 0'/></filter><rect width='140' height='140' filter='url(%23s)'/></svg>");
@@ -934,3 +941,144 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* sign in / join sit on the dark chrome and reuse the settings form */
 .join-intro { margin: 0 0 1.2rem; }
 .settings-table .slabel a { color: var(--link-on-dark); }
+
+/* ---- travel marks ---- */
+.travelmark .mark-where { margin: 0 0 .55rem; font-size: .8rem; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.mark-visits { display: flex; flex-direction: column; gap: .5rem; }
+.visit-count { margin: 0; font-family: var(--slab); font-size: .68rem; font-weight: 600; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-soft); text-align: center; }
+.visit-del { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: var(--link); }
+.visit-del:hover { text-decoration: underline; }
+.visits .comment-list li { padding-left: 0; }
+.visits .comment-list li:first-child { border-top: 0; }
+.visits .comment-body p:last-child { margin: 0; }
+
+/* ---- travel marks: map media, lookup, ratings, location filters ---- */
+.mark-map { background: #e9e9e7; }
+.mark-map iframe { display: block; width: 100%; height: 100%; min-height: 15rem; border: 0; }
+.mark-address { margin: 0 0 .6rem; font-size: .82rem; color: var(--ink-soft); }
+.share-mark { cursor: pointer; }
+
+/* place lookup */
+.nf-lookup { position: relative; }
+.lookup-list { position: absolute; z-index: 4; left: 0; right: 0; top: 100%; margin: -1px 0 0; padding: 0; list-style: none;
+  background: #eceded; border: 1px solid var(--nf-rule); box-shadow: 0 6px 14px rgba(0,0,0,.28); max-height: 15rem; overflow-y: auto; }
+.lookup-list li { padding: .55rem .8rem; cursor: pointer; border-top: 1px solid rgba(255,255,255,.6); }
+.lookup-list li:first-child { border-top: 0; }
+.lookup-list li:hover { background: rgba(255,255,255,.55); }
+.lookup-list b { display: block; font-weight: 600; font-size: .82rem; color: #333; }
+.lookup-list em { display: block; font-style: normal; font-size: .7rem; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-soft); margin-top: .1rem; }
+
+/* visit log */
+
+/* country / city filters */
+.place-filters { margin: 0 0 1.2rem; }
+.place-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem .8rem; margin: 0 0 .5rem; }
+.place-row .lbl { color: var(--ink-soft); flex: 0 0 3.6rem; }
+.place-chip { font-family: var(--slab); font-size: .72rem; font-weight: 600; letter-spacing: .06em;
+  color: var(--ink-soft); text-decoration: none; padding: .2rem .5rem; border: 1px solid rgba(0,0,0,.1);
+  background-image: linear-gradient(rgba(255,255,255,.5), rgba(255,255,255,.15)); }
+.place-chip:hover { color: var(--ink); text-decoration: none; }
+.place-chip.on { color: var(--ink); background-image: none; box-shadow: inset 0 1px 3px rgba(0,0,0,.14); }
+
+/* ================= travel mark card ================= */
+.travelmark .card { grid-template-columns: 1fr; background-color: var(--mark-card);
+  background-image: var(--paper-grain); background-size: 180px 180px; }
+.travelmark .text { background: transparent; text-align: center; padding: 1.3rem 1.3rem 1.4rem;
+  display: flex; flex-direction: column; align-items: center; }
+/* a readable measure — long lines across a wide card read as a wall of text */
+.travelmark .who, .travelmark .colls, .travelmark h2, .travelmark .mark-where,
+.travelmark .mark-address, .travelmark .body, .travelmark .tags, .travelmark .link {
+  max-width: 34rem; width: 100%; }
+.travelmark .body { max-width: 30rem; }
+.travelmark .mark-map, .travelmark .map-credit, .travelmark .noteit { width: 100%; max-width: 34rem; }
+.travelmark .who { color: var(--mark-ink); }
+.travelmark .who a { color: var(--mark-ink); }
+.travelmark h2 a { color: #35342e; }
+.travelmark .body { color: #52514a; }
+.travelmark .mark-where { color: #767468; }
+.travelmark .mark-address { color: #85847a; }
+.travelmark .colls, .travelmark .colls a { color: #85847a; }
+.travelmark .tags, .travelmark .link { text-align: center; }
+.travelmark .link .lbl { color: var(--mark-ink); }
+.mark-photo { display: block; margin: 0 0 1rem; }
+.mark-photo img { display: block; width: 100%; max-height: 13rem; object-fit: cover; }
+
+/* map: wide and shallow, tinted to the palette */
+.mark-map { margin: .2rem auto .35rem; max-width: var(--mark-measure); border: 1px solid var(--mark-rule); background: #e6e4dc; overflow: hidden; }
+.mark-map iframe { display: block; width: 100%; height: 8.5rem; border: 0; filter: var(--map-tone); }
+.note-full .mark-map iframe { height: 11rem; }
+.map-credit { margin: 0 0 .9rem; font-family: var(--slab); font-size: .58rem; letter-spacing: .08em;
+  text-transform: uppercase; color: #97968c; }
+.travelmark .noteit { background: rgba(255,255,255,.5); border-color: var(--mark-rule); }
+.travelmark .btn-note { background: linear-gradient(#fcfcfa, #e9e8df); border-color: #cccabd; color: #423f38; }
+.travelmark .btn-note:hover { background: linear-gradient(#fff, #e2e1d6); }
+@media (max-width: 52rem) {
+  .mark-map iframe { height: 7.5rem; }
+  .travelmark .text { padding: 1rem 1rem 1.1rem; }
+}
+
+/* 1. a readable measure: the card can be wide, the text should not be */
+:root { --mark-measure: 34rem; }
+.travelmark .text > * { max-width: var(--mark-measure); margin-left: auto; margin-right: auto; }
+.travelmark .body { max-width: 30rem; }
+.travelmark h2 { max-width: none; }
+.travelmark .mark-photo { max-width: var(--mark-measure); }
+
+/* arc-set place name */
+.mark-title { margin: .1rem 0 .2rem; max-width: none; }
+.mark-title a { display: block; text-decoration: none; }
+.arc-title { display: block; width: 100%; max-width: 30rem; margin: 0 auto; overflow: visible; }
+.arc-title text { font-family: var(--slab); font-weight: 400; fill: #35332d; letter-spacing: .02em; }
+.mark-title a:hover .arc-title text { fill: #000; }
+.note-full .arc-title { max-width: 33rem; }
+
+/* directions beside check in; share sits bottom right like Cancel */
+.mark-buttons { display: grid; grid-template-columns: 1fr; gap: .5rem; }
+.mark-buttons:has(form) { grid-template-columns: 1fr 1fr; }
+.mark-buttons form { margin: 0; }
+.mark-buttons .btn-note { text-decoration: none; }
+.mark-foot { display: flex; justify-content: flex-end; max-width: var(--mark-measure); margin: .9rem auto 0; }
+.mark-foot .share-mark {
+  background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none;
+  font-family: var(--slab); font-weight: 700; font-size: .74rem; letter-spacing: .16em;
+  text-transform: uppercase; line-height: 1; color: var(--nf-ink);          /* same token as Cancel */
+}
+.mark-foot .share-mark:hover { text-decoration: underline; }
+
+/* ---- mark page: card beside the check-in timeline ---- */
+.mark-layout { display: grid; grid-template-columns: 1fr; gap: 1.4rem; align-items: start; }
+.mark-layout.has-log { grid-template-columns: minmax(0, 1fr) 16.5rem; gap: 1rem; }
+.mark-main { min-width: 0; }
+.mark-main .grid-single { margin-bottom: 0; }
+
+/* the log reads as a timeline; each entry is its own small card of linen stock */
+.visit-log { background: rgba(0,0,0,.035); padding: 1rem .9rem 1.15rem; }
+.visit-log .lbl { display: block; text-align: center; margin: 0 0 1rem; color: var(--ink-soft); }
+.timeline { list-style: none; margin: 0; padding: 0 0 0 1.15rem; position: relative; }
+.timeline::before { content: ""; position: absolute; left: 3px; top: .5rem; bottom: .5rem; width: 1px;
+  background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.15) 10%, rgba(0,0,0,.15) 90%, rgba(0,0,0,0)); }
+.timeline li { position: relative; margin-bottom: 1.25rem;            /* room to breathe between entries */
+  background-color: var(--log-card); background-image: var(--linen-grain); background-size: 140px 140px;
+  border: 1px solid var(--log-rule); box-shadow: 0 1px 2px rgba(0,0,0,.07);
+  padding: .62rem .7rem .66rem; }
+.timeline li:last-child { margin-bottom: 0; }
+.timeline li::before { content: ""; position: absolute; left: -1.15rem; top: .78rem; width: 7px; height: 7px;
+  border-radius: 50%; background: #fafaf8; box-shadow: inset 0 0 0 1px rgba(0,0,0,.28), 0 0 0 2px rgba(0,0,0,.035); }
+.timeline li:first-child::before { background: #8a8f86; box-shadow: 0 0 0 2px rgba(0,0,0,.035); }
+.tl-date { display: block; font-family: var(--slab); font-size: .66rem; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--log-ink); }
+.tl-body { display: block; margin-top: .28rem; font-style: italic; font-size: .85rem; line-height: 1.45;
+  color: #62665e; }
+.tl-del { position: absolute; right: .3rem; top: .45rem; opacity: 0; background: none; border: 0; cursor: pointer;
+  font-size: .9rem; line-height: 1; color: var(--ink-soft); padding: .1rem .2rem; transition: opacity .15s; }
+.timeline li:hover .tl-del { opacity: 1; }
+.tl-del:hover { color: #a4433c; }
+
+@media (max-width: 52rem) {
+  /* stacked: card, then check-ins, then comments */
+  .mark-layout.has-log { grid-template-columns: 1fr; }
+  .visit-log { padding: .9rem .9rem 1rem; }
+}

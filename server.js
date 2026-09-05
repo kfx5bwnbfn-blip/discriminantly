@@ -31,6 +31,27 @@ CREATE TABLE IF NOT EXISTS objects (
   name TEXT NOT NULL, maker TEXT DEFAULT '', origin TEXT DEFAULT '', material TEXT DEFAULT '',
   category TEXT DEFAULT '', tier TEXT DEFAULT '', url TEXT DEFAULT '', image TEXT DEFAULT '',
   why TEXT DEFAULT '', tags TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+-- Travel marks: places worth returning to. Distinct from notes (objects):
+-- a mark has a location and accumulates visits over time.
+CREATE TABLE IF NOT EXISTS marks (
+  id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,            -- the place
+  locality TEXT DEFAULT '',      -- city / region, shown under the name
+  country TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  lat REAL, lng REAL,
+  why TEXT DEFAULT '',           -- why it is worth remembering
+  tags TEXT DEFAULT '', url TEXT DEFAULT '', image TEXT DEFAULT '',
+  private INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS visits (
+  id INTEGER PRIMARY KEY, mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  visited_on TEXT NOT NULL,      -- YYYY-MM-DD, the day itself rather than when it was logged
+  body TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS mark_collections (
+  mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
+  collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  PRIMARY KEY (mark_id, collection_id));
 CREATE TABLE IF NOT EXISTS follows (
   follower_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   followee_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -50,11 +71,76 @@ CREATE TABLE IF NOT EXISTS notes (
   object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
   why TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (user_id, object_id));
 `);
-try { db.exec("ALTER TABLE objects ADD COLUMN tags TEXT DEFAULT ''"); } catch {}
-try { db.exec("ALTER TABLE users ADD COLUMN api_token TEXT"); } catch {}
-try { db.exec("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''"); } catch {}
-try { db.exec("ALTER TABLE users ADD COLUMN site TEXT DEFAULT ''"); } catch {}
-try { db.exec("ALTER TABLE objects ADD COLUMN private INTEGER DEFAULT 0"); } catch {}
+// ---------- migrations ----------
+// Every schema change lives here, runs once, and is recorded. Nothing is ever
+// dropped or rewritten: migrations only add. The file on the volume is the
+// source of truth, so a deploy changes code, never data.
+db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+  id TEXT PRIMARY KEY, applied_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+
+const hasColumn = (table, col) => {
+  try { return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col); }
+  catch { return false; }
+};
+const addColumn = (table, col, decl) => () => { if (!hasColumn(table, col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${decl}`); };
+
+// Append only. Never edit or renumber an entry that has shipped.
+const MIGRATIONS = [
+  ['001-objects-tags',     addColumn('objects', 'tags', "TEXT DEFAULT ''")],
+  ['002-users-api-token',  addColumn('users', 'api_token', 'TEXT')],
+  ['003-users-avatar',     addColumn('users', 'avatar', "TEXT DEFAULT ''")],
+  ['004-users-site',       addColumn('users', 'site', "TEXT DEFAULT ''")],
+  ['005-objects-private',  addColumn('objects', 'private', 'INTEGER DEFAULT 0')],
+  ['006-visits-rating',    addColumn('visits', 'rating', 'INTEGER')],
+  ['007-mark-comments',    () => db.exec(`CREATE TABLE IF NOT EXISTS mark_comments (
+      id INTEGER PRIMARY KEY, mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP)`)],
+];
+
+function backupTo(file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);   // a consistent snapshot, safe while running
+  return file;
+}
+
+function runMigrations() {
+  const done = new Set(db.prepare('SELECT id FROM schema_migrations').all().map((r) => r.id));
+  const pending = MIGRATIONS.filter(([id]) => !done.has(id));
+  if (!pending.length) return;
+
+  // Take a snapshot before touching the schema, so any change is reversible.
+  // A fresh install has nothing to protect, so skip the noise.
+  let hasData = false;
+  try { hasData = db.prepare('SELECT COUNT(*) c FROM users').get().c > 0; } catch {}
+  if (hasData) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    try { console.log(`Backed up to ${backupTo(path.join(path.dirname(DB_PATH), 'backups', `pre-migration-${stamp}.db`))}`); }
+    catch (e) { console.error('Backup failed, refusing to migrate:', e.message); process.exit(1); }
+  }
+  for (const [id, fn] of pending) {
+    try {
+      db.exec('BEGIN');
+      fn();
+      db.prepare('INSERT INTO schema_migrations(id) VALUES(?)').run(id);
+      db.exec('COMMIT');
+      console.log(`Migration applied: ${id}`);
+    } catch (e) {
+      db.exec('ROLLBACK');
+      console.error(`Migration ${id} failed, nothing was changed:`, e.message);
+      process.exit(1);
+    }
+  }
+}
+runMigrations();
+
+// `node server.js --backup [file]` for an on-demand snapshot
+if (process.argv.includes('--backup')) {
+  const target = process.argv[process.argv.indexOf('--backup') + 1]
+    || path.join(path.dirname(DB_PATH), 'backups', `manual-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
+  console.log(`Wrote ${backupTo(target)}`);
+  process.exit(0);
+}
 const q = (sql) => db.prepare(sql);
 const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
@@ -258,6 +344,17 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>` : ''}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
 <main class="wrap">${body}</main>
+<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('.share-mark');
+  if (!b) return;
+  var url = location.origin + b.dataset.share, title = b.dataset.title;
+  if (navigator.share) { navigator.share({ title: title, url: url }).catch(function () {}); return; }
+  navigator.clipboard.writeText(url).then(function () {
+    var t = b.textContent; b.textContent = 'Link copied'; setTimeout(function () { b.textContent = t; }, 1600);
+  });
+});
+</script>
 </body></html>`;
 }
 
@@ -367,10 +464,226 @@ function emptyState(me, kind, subject = null) {
   return `<div class="empty-state"><p class="empty-line">${lines.map((l) => `<span>${l}</span>`).join('')}</p></div>${suggest ? `<div class="empty-rule"></div>${suggest}` : ''}`;
 }
 
+
+// ---------- travel marks ----------
+const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM marks m JOIN users u ON u.id=m.user_id';
+const markCollections = (id) => q('SELECT c.id, c.name FROM mark_collections mc JOIN collections c ON c.id=mc.collection_id WHERE mc.mark_id=? ORDER BY c.name').all(id);
+const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON u.id=v.user_id WHERE v.mark_id=? ORDER BY v.visited_on DESC, v.id DESC').all(id);
+function setMarkCollections(userId, markId, names) {
+  q('DELETE FROM mark_collections WHERE mark_id=?').run(markId);
+  for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
+    q('INSERT OR IGNORE INTO collections(user_id,name) VALUES(?,?)').run(userId, n);
+    const c = q('SELECT id FROM collections WHERE user_id=? AND name=?').get(userId, n);
+    q('INSERT OR IGNORE INTO mark_collections(mark_id,collection_id) VALUES(?,?)').run(markId, c.id);
+  }
+}
+const placeLine = (m) => [m.locality, m.country].filter(Boolean).join(', ');
+const mapLink = (m) => m.lat != null && m.lng != null
+  ? `https://www.google.com/maps/search/?api=1&query=${m.lat},${m.lng}`
+  : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([m.name, m.address, placeLine(m)].filter(Boolean).join(' '))}`;
+const mapEmbed = (m) => {
+  if (m.lat == null || m.lng == null) return '';
+  const d = 0.004, [la, ln] = [m.lat, m.lng];
+  const bbox = [ln - d, la - d / 2, ln + d, la + d / 2].join('%2C');
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${la}%2C${ln}`;
+};
+// The place name set on concentric arcs, in the manner of an apothecary label.
+// Type size stays constant; long names wrap onto further lines, each on a
+// tighter radius than the one above so the block nests like a seal.
+function arcTitle(text, id) {
+  const SIZE = 29, EM = 0.53, W = 460, MAX_CHORD = 432;
+  const TOP = SIZE * 0.88;                       // room for ascenders on the top line
+  const width = (t) => t.length * SIZE * EM;
+
+  // wrap on words to whatever fits the widest chord
+  const lines = [];
+  let line = '';
+  for (const word of String(text).split(/\s+/).filter(Boolean)) {
+    const next = line ? line + ' ' + word : word;
+    if (width(next) > MAX_CHORD && line) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+
+  const gap = SIZE * 1.34;                       // the ends of a wide arc dip, so lines need air
+  const r0 = lines.length === 1 ? 175 : 138 + gap * (lines.length - 1);   // a single line curves gently
+  const cy = TOP + r0;
+  const paths = [], texts = [];
+  let lowest = 0;
+  lines.forEach((ln, i) => {
+    const r = r0 - i * gap;                                  // each line sits inside the last
+    const half = Math.min(width(ln) / (2 * r), Math.asin(Math.min(MAX_CHORD / 2 / r, 1)));
+    const [x0, y0] = [W / 2 - r * Math.sin(half), cy - r * Math.cos(half)];
+    const [x1, y1] = [W / 2 + r * Math.sin(half), cy - r * Math.cos(half)];
+    paths.push(`<path id="arc-${id}-${i}" fill="none" d="M ${x0.toFixed(1)},${y0.toFixed(1)} A ${r.toFixed(1)},${r.toFixed(1)} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}"/>`);
+    texts.push(`<text><textPath href="#arc-${id}-${i}" startOffset="50%" text-anchor="middle">${esc(ln)}</textPath></text>`);
+    lowest = Math.max(lowest, y0 + SIZE * 0.34);   // the arc's ends sit lower than its apex
+  });
+  return `<svg class="arc-title" viewBox="0 0 ${W} ${Math.ceil(lowest + 6)}" role="img" aria-label="${esc(text)}">
+    <defs>${paths.join('')}</defs>
+    <g font-size="${SIZE}">${texts.join('')}</g>
+  </svg>`;
+}
+
+const prettyDay = (d) => {
+  const dt = new Date(d + 'T00:00:00Z');
+  return isNaN(dt) ? d : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+};
+
+// A mark card. Single column and centred, on paper rather than the note card's
+// cool grey — a place should not read like an object.
+function markCard(m, me, full = false) {
+  const visits = markVisits(m.id);
+  const tags = tagList(m.tags);
+  const cs = markCollections(m.id);
+  const embed = mapEmbed(m);
+  return `<article class="note travelmark ${full ? 'note-full' : ''}">
+  <div class="byline"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</div>
+  <div class="card">
+    <div class="text">
+      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
+      <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> marked${m.private ? ' <span class="badge">Private</span>' : ''}</p>
+      ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
+      <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
+      ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
+      ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
+      ${m.why ? `<p class="body">${esc(m.why)}</p>` : ''}
+      ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
+      ${m.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(m.url)}" rel="noopener">${esc(m.url.length > 34 ? m.url.slice(0, 34) + '…' : m.url)}</a></p>` : ''}
+      ${embed ? `<div class="mark-map"><iframe src="${embed}" loading="lazy" title="Map of ${esc(m.name)}"></iframe></div>
+      <p class="map-credit">© OpenStreetMap contributors</p>` : ''}
+      <div class="noteit mark-visits">
+        <div class="mark-buttons">
+          <a class="btn-note" href="${mapLink(m)}" rel="noopener">Directions</a>
+          ${me && me.id === m.user_id ? `<form method="post" action="/m/${m.id}/checkin"><button class="btn-note">Check in</button></form>` : ''}
+        </div>
+      </div>
+      <div class="mark-foot"><button type="button" class="nf-link-btn share-mark" data-share="/m/${m.id}" data-title="${esc(m.name)}">Share</button></div>
+    </div>
+  </div></article>`;
+}
+
+// The mark form, shared by /marks/new and /m/:id/edit.
+function markForm(me, m = {}, { err = '', picked = null, idp = 'mk' } = {}) {
+  const editing = !!m.id;
+  const mine = q('SELECT id, name FROM collections WHERE user_id=? ORDER BY name').all(me.id);
+  const sel = new Set(picked ? picked : editing ? markCollections(m.id).map((c) => c.name) : []);
+  return `
+<form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
+  ${err ? `<p class="err">${esc(err)}</p>` : ''}
+  <div class="nf-box">
+    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
+    <details class="nf-drop" id="drop-${idp}">
+      <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
+      <div class="nf-drop-menu">
+        ${mine.map((c) => `<label class="nf-opt"><input type="checkbox" name="coll" value="${esc(c.name)}" ${sel.has(c.name) ? 'checked' : ''}><span>${esc(c.name)}</span></label>`).join('')}
+        <label class="nf-opt nf-opt-new"><span>+ New collection</span><input class="nf-field" name="newcoll" placeholder="Name it" value=""></label>
+      </div>
+    </details>
+    <div class="nf-image" id="img-drop-${idp}">
+      <img class="nf-image-preview" id="img-prev-${idp}" src="${esc(m.image || '')}" alt="" ${m.image ? '' : 'hidden'}>
+      <input class="nf-field" id="img-input-${idp}" name="image" type="text" placeholder="DRAG IMAGE INTO HERE" value="${esc(m.image || '')}">
+    </div>
+    <div class="nf-lookup" id="lookup-${idp}">
+      <input class="nf-field" id="lookup-input-${idp}" type="text" autocomplete="off" placeholder="SEARCH FOR A PLACE — FILLS THE FIELDS BELOW">
+      <ul class="lookup-list" id="lookup-list-${idp}" hidden></ul>
+    </div>
+    <div class="nf-stack">
+      <input class="nf-field" name="name" id="f-name-${idp}" placeholder="PLACE (REQUIRED)" required maxlength="120" value="${esc(m.name || '')}">
+      <input class="nf-field" name="locality" id="f-locality-${idp}" placeholder="CITY" maxlength="80" value="${esc(m.locality || '')}">
+      <input class="nf-field" name="country" id="f-country-${idp}" placeholder="COUNTRY" maxlength="80" value="${esc(m.country || '')}">
+      <input class="nf-field" name="address" id="f-address-${idp}" placeholder="ADDRESS" maxlength="200" value="${esc(m.address || '')}">
+      <textarea class="nf-field" name="why" rows="5" maxlength="1000" placeholder="WHY IT IS WORTH RETURNING TO">${esc(m.why || '')}</textarea>
+      <input class="nf-field" name="tags" placeholder="#HASHTAGS" value="${esc(m.tags || '')}">
+    </div>
+    <div class="nf-stack">
+      <input class="nf-field" name="latlng" id="f-latlng-${idp}" placeholder="LAT, LNG (OPTIONAL)" value="${m.lat != null ? `${m.lat}, ${m.lng}` : ''}">
+      <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
+    </div>
+    ${editing ? '' : `<div class="nf-stack"><input class="nf-field" name="visited_on" type="date" value="${new Date().toISOString().slice(0, 10)}"></div>`}
+    <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
+    <div class="nf-foot">
+      ${editing ? `<button type="button" class="nf-link-btn nf-danger" data-delete="/m/${m.id}/delete">Delete</button>` : '<span></span>'}
+      <a class="nf-link-btn" href="${editing ? `/m/${m.id}` : '/'}">Cancel</a>
+    </div>
+  </div>
+</form>
+<script>
+(function () {
+  var drop = document.getElementById('img-drop-${idp}'), input = document.getElementById('img-input-${idp}'), prev = document.getElementById('img-prev-${idp}');
+  function refresh() { if (input.value) { prev.src = input.value; prev.hidden = false; drop.classList.add('has-image'); } else { prev.hidden = true; drop.classList.remove('has-image'); } }
+  input.addEventListener('input', refresh);
+  ['dragenter','dragover'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('dragover'); }); });
+  ['dragleave','drop'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.remove('dragover'); }); });
+  drop.addEventListener('drop', function (ev) {
+    ev.preventDefault(); var f = ev.dataTransfer.files && ev.dataTransfer.files[0];
+    if (f && f.type.indexOf('image/') === 0) { var r = new FileReader(); r.onload = function () { input.value = r.result; refresh(); }; r.readAsDataURL(f); return; }
+    var u = ev.dataTransfer.getData('text/uri-list') || ev.dataTransfer.getData('text/plain');
+    if (u) { input.value = u.trim(); refresh(); }
+  });
+  var del = document.querySelector('[data-delete]');
+  if (del) del.addEventListener('click', function () {
+    if (!confirm('Delete this travel mark? This cannot be undone.')) return;
+    var f = document.createElement('form'); f.method = 'post'; f.action = del.getAttribute('data-delete');
+    document.body.appendChild(f); f.submit();
+  });
+  // Place lookup via Photon (Komoot). OSM data, no API key, built for
+  // search-as-you-type. Nominatim explicitly forbids client-side autocomplete.
+  var lk = document.getElementById('lookup-input-${idp}'), list = document.getElementById('lookup-list-${idp}');
+  if (lk) {
+    var timer, controller;
+    lk.addEventListener('input', function () {
+      clearTimeout(timer);
+      var term = lk.value.trim();
+      if (term.length < 3) { list.hidden = true; return; }
+      timer = setTimeout(function () {          // debounced: one request per pause, not per keystroke
+        if (controller) controller.abort();
+        controller = new AbortController();
+        fetch('https://photon.komoot.io/api/?limit=6&q=' + encodeURIComponent(term), { signal: controller.signal })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            list.innerHTML = '';
+            (d.features || []).forEach(function (f) {
+              var pr = f.properties || {};
+              var where = [pr.city || pr.town || pr.village || pr.county, pr.country].filter(Boolean).join(', ');
+              var li = document.createElement('li');
+              li.innerHTML = '<b></b><em></em>';
+              li.querySelector('b').textContent = pr.name || pr.street || term;
+              li.querySelector('em').textContent = where;
+              li.addEventListener('click', function () {
+                var set = function (id, v) { var el = document.getElementById(id); if (el && v != null) el.value = v; };
+                set('f-name-${idp}', pr.name || '');
+                set('f-locality-${idp}', pr.city || pr.town || pr.village || pr.county || '');
+                set('f-country-${idp}', pr.country || '');
+                set('f-address-${idp}', [pr.housenumber, pr.street, pr.postcode].filter(Boolean).join(' '));
+                if (f.geometry && f.geometry.coordinates)
+                  set('f-latlng-${idp}', f.geometry.coordinates[1].toFixed(5) + ', ' + f.geometry.coordinates[0].toFixed(5));
+                list.hidden = true; lk.value = '';
+              });
+              list.appendChild(li);
+            });
+            list.hidden = !list.children.length;
+          }).catch(function () { list.hidden = true; });
+      }, 320);
+    });
+    document.addEventListener('click', function (e) { if (!lk.parentNode.contains(e.target)) list.hidden = true; });
+  }
+  var det = document.getElementById('drop-${idp}');
+  if (det) { var lbl = det.querySelector('.nf-drop-label');
+    function sync() { var on = [].slice.call(det.querySelectorAll('input[name=coll]:checked')).map(function (i) { return i.value; });
+      lbl.textContent = on.length ? on.join(', ') : 'Select a collection'; }
+    det.addEventListener('change', sync);
+    document.addEventListener('click', function (e) { if (!det.contains(e.target)) det.removeAttribute('open'); });
+  }
+  refresh();
+})();
+</script>`;
+}
+
 function profileRail(u, me, tab) {
   const owner = me && me.id === u.id;
   const visible = q(OBJ_SQL + ' WHERE o.user_id=?').all(u.id).filter((o) => canSee(o, me));
   const fc = followCounts(u.id);
+  const markCount = q('SELECT COUNT(*) c FROM marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
   const link = (t) => `/u/${esc(u.handle)}?tab=${t}`;
   return `<aside class="rail profile-rail">
@@ -380,6 +693,7 @@ function profileRail(u, me, tab) {
     <ul class="prail-nav">
       <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" href="${link('activity')}">All Activity <span>›</span></a></li>
       <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
+      <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
       <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
@@ -432,6 +746,15 @@ const pages = {
     if (tag) rows = rows.filter((o) => tagList(o.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(k)); }
     rows = rows.slice(0, 60);
+    // marks share the feed with notes — one journal, two kinds of entry
+    let marks = q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC LIMIT 200').all();
+    if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
+    if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
+    if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
+    if (s) { const k = s.toLowerCase(); marks = marks.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
+    const entries = [...rows.map((o) => ({ at: o.created_at, html: objectCard(o, me) })),
+                     ...marks.slice(0, 60).map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
+      .sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, 60);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
@@ -440,14 +763,14 @@ const pages = {
     let rail;
     if (me) {
       const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(me.id).c;
-      const colls = q('SELECT COUNT(*) c FROM collections WHERE user_id=?').get(me.id).c;
+      const markTally = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(me.id).c;
       const fc = followCounts(me.id);
       const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
       rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${colls}</b><span>Collections</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Marks</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=followers"><b>${fc.followers}</b><span>Followers</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=following"><b>${fc.following}</b><span>Following</span></a>
         <form class="wcell wcell-wide wcell-btn" method="post" action="/logout"><button class="btn3d block">Logout</button></form>
@@ -471,7 +794,7 @@ const pages = {
   </aside>
   <section class="feed feed-plain">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
-    ${rows.length ? `<div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div>`
+    ${entries.length ? `<div class="grid">${entries.map((e) => e.html).join('')}</div>`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
 </div>`;
@@ -518,6 +841,52 @@ ${noters.length ? `<div class="section-rule"></div>
     send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
   },
 
+  mark(req, res, me, url, id) {
+    const m = q(MARK_SQL + ' WHERE m.id=?').get(id);
+    if (!m || (m.private && !(me && (me.id === m.user_id || me.is_admin)))) return send(res, layout({ title: 'Not found', body: '<p>No such mark.</p>', me }), 404);
+    const owner = me && me.id === m.user_id;
+    const visits = markVisits(m.id);
+    const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
+    const author = q('SELECT * FROM users WHERE id=?').get(m.user_id);
+    const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
+<section class="feed profile-feed">
+<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=marks">Travel Marks</a> › <span class="crumb-here">Mark</span></h3>
+<div class="mark-layout ${visits.length ? 'has-log' : ''}">
+  <div class="mark-main"><div class="grid grid-single">${markCard(m, me, true)}</div></div>
+  ${visits.length ? `<aside class="visit-log">
+    <h3 class="lbl">Check-ins</h3>
+    <ol class="timeline">${visits.map((v) => `<li>
+      <span class="tl-date">${esc(prettyDay(v.visited_on))}</span>
+      ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
+      ${owner ? `<button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" aria-label="Remove this check-in">×</button>` : ''}
+    </li>`).join('')}</ol>
+  </aside>` : ''}
+</div>
+<div class="section-rule"></div>
+<section class="comments">
+  <h3 class="lbl">Comments</h3>
+  ${me ? `<form method="post" action="/m/${m.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>`
+       : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+</section>
+</section></div>
+<script>
+document.querySelectorAll('.tl-del').forEach(function (b) {
+  b.addEventListener('click', function () {
+    if (!confirm('Remove this check-in?')) return;
+    var f = document.createElement('form'); f.method = 'post'; f.action = b.dataset.del;
+    document.body.appendChild(f); f.submit();
+  });
+});
+</script>`;
+    send(res, layout({ title: m.name, body, me }));
+  },
+
+  markForm(req, res, me, m = {}, err = '', picked = null) {
+    const body = `<div class="notecard-page">${markForm(me, m, { err, picked })}</div>`;
+    send(res, layout({ title: m.id ? 'Edit mark' : 'Add a travel mark', body, me }));
+  },
+
   form(req, res, me, o = {}, err = '', picked = null) {
     const editing = !!o.id;
     const body = `<div class="notecard-page">${noteForm(me, o, { err, picked, idp: 'pg' })}</div>`;
@@ -527,7 +896,7 @@ ${noters.length ? `<div class="section-rule"></div>
   user(req, res, me, handle, url) {
     const u = q('SELECT * FROM users WHERE handle=?').get(handle); if (!u) return send(res, layout({ title: 'Not found', body: '<p>No such member.</p>', me }), 404);
     const owner = me && me.id === u.id;
-    const tab = ['activity', 'notes', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
+    const tab = ['activity', 'notes', 'marks', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
     const cid = +url.searchParams.get('c') || 0; const vis = url.searchParams.get('v') || 'all'; const s = (url.searchParams.get('q') || '').trim();
     const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
@@ -548,6 +917,32 @@ ${noters.length ? `<div class="section-rule"></div>
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
       }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
+    } else if (tab === 'marks') {
+      let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
+        .filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
+      if (cid) { const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(cid).map((r) => r.mark_id)); rows = rows.filter((x) => ids.has(x.id)); }
+      if (s) { const k = s.toLowerCase(); rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
+      const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
+      const country = url.searchParams.get('country') || '', city = url.searchParams.get('city') || '';
+      if (country) rows = rows.filter((x) => x.country === country);
+      if (city) rows = rows.filter((x) => x.locality === city);
+      const countries = [...new Set(all.map((x) => x.country).filter(Boolean))].sort();
+      const cities = [...new Set(all.filter((x) => !country || x.country === country).map((x) => x.locality).filter(Boolean))].sort();
+      const q1 = (o) => { const sp = new URLSearchParams({ tab: 'marks' }); Object.entries(o).forEach(([k, v]) => v && sp.set(k, v)); return `/u/${esc(u.handle)}?${sp}`; };
+      const chip = (label, href, on) => `<a class="place-chip ${on ? 'on' : ''}" href="${href}">${esc(label)}</a>`;
+      main = `<h3 class="strip">${esc(u.handle)}'s Travel Marks</h3>
+      <div class="tiles-wrap">
+        <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
+        <div class="tiles" id="tiles">${[{ id: 0, name: 'All marks', count: all.length }, ...colls.map((c) => ({ ...c, count: q('SELECT COUNT(*) c FROM mark_collections WHERE collection_id=?').get(c.id).c }))]
+          .map((c) => `<div class="tile-slot"><a class="tile ${c.id === cid ? 'on' : ''}" href="${q1({ c: c.id || '', country, city })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(c.name)}</span><span class="tile-count">${c.count}</span></a></div>`).join('')}</div>
+      </div>
+      <div class="place-filters">
+        <p class="place-row"><span class="lbl">Country</span>${chip('All', q1({ c: cid || '', city }), !country)}${countries.map((c) => chip(c, q1({ c: cid || '', country: c }), c === country)).join('')}</p>
+        ${cities.length ? `<p class="place-row"><span class="lbl">City</span>${chip('All', q1({ c: cid || '', country }), !city)}${cities.map((c) => chip(c, q1({ c: cid || '', country, city: c }), c === city)).join('')}</p>` : ''}
+      </div>
+      <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
+      ${owner ? `<a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
+      <div class="grid">${rows.length ? rows.map((x) => markCard(x, me)).join('') : '<p class="empty pad">No travel marks here yet.</p>'}</div>`;
     } else if (tab === 'notes') {
       let rows = visible;
       if (owner && vis === 'public') rows = rows.filter((o) => !o.private);
@@ -601,11 +996,15 @@ ${noters.length ? `<div class="section-rule"></div>
       for (const o of visible) acts.push({ at: o.created_at, card: o });
       for (const n of q('SELECT n.created_at, o.id, o.name, o.private, o.user_id FROM notes n JOIN objects o ON o.id=n.object_id WHERE n.user_id=? AND o.user_id<>? ORDER BY n.created_at DESC LIMIT 30').all(u.id, u.id))
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
+      for (const x of q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
+        if (!x.private || owner) acts.push({ at: x.created_at, card: null, html: null, mark: x });
       for (const f of q('SELECT f.created_at, u2.handle FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
         acts.push({ at: f.created_at, html: `followed <a href="/u/${esc(f.handle)}">${esc(f.handle)}</a>` });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       main = `<h3 class="strip">All activity</h3>
-      <div class="activity-feed">${acts.slice(0, 60).map((a) => a.card
+      <div class="activity-feed">${acts.slice(0, 60).map((a) => a.mark
+        ? `<div class="act-note">${markCard(a.mark, me)}</div>`
+        : a.card
         ? `<div class="act-note">${objectCard(a.card, me)}</div>`
         : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}`;
     } 
@@ -744,6 +1143,27 @@ const TOOLS = [
       private: { type: 'boolean' } } } },
   { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+  { name: 'add_travel_mark', description: 'Record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own.',
+    inputSchema: { type: 'object', required: ['place'], properties: {
+      place: { type: 'string', description: 'Name of the place' },
+      locality: { type: 'string', description: 'City or region. Fill this in yourself if you know the place — do not make the member supply it.' },
+      country: { type: 'string', description: 'Fill in from your own knowledge of the place where possible.' },
+      address: { type: 'string', description: 'Street address if known.' },
+      lat: { type: 'number', description: 'Latitude if known; enables the map on the card.' },
+      lng: { type: 'number' },
+      why: { type: 'string', description: 'Why it is worth returning to, written in the member\'s voice from what they said. If they were vague, draw on the conversation and on what you know of the place to write two useful sentences — what it is, what to order or do, what makes it worth the return.' },
+      tags: { type: 'array', items: { type: 'string' } },
+      link: { type: 'string' }, image: { type: 'string' },
+      collections: { type: 'array', items: { type: 'string' } },
+      visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
+      private: { type: 'boolean' } } } },
+  { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough; a rating and a line are optional.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer' },
+      visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
+      body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
+  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } } },
 ];
 function mcpCall(user, name, a = {}) {
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
@@ -777,6 +1197,36 @@ function mcpCall(user, name, a = {}) {
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     return `Updated #${o.id}: ${name_}`;
   }
+  if (name === 'add_travel_mark') {
+    if (!a.place) throw new Error('place is required');
+    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(user.id, String(a.place).trim(), a.locality || '', a.country || '', a.address || '',
+           a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
+           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
+    if (Array.isArray(a.collections)) setMarkCollections(user.id, r.lastInsertRowid, a.collections);
+    const day = a.visited_on || new Date().toISOString().slice(0, 10);
+    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, user.id, day, '');
+    return `Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})`;
+  }
+  if (name === 'log_visit') {
+    if (!a.id) throw new Error('id is required');
+    const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
+    if (!mk) throw new Error(`No travel mark #${a.id}`);
+    if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
+    const day = a.visited_on || new Date().toISOString().slice(0, 10);
+    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, user.id, day, String(a.body || '').trim());
+    const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
+    return `Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`;
+  }
+  if (name === 'my_travel_marks') {
+    const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
+    let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(user.id);
+    if (k) rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k));
+    return rows.slice(0, lim).map((x) => {
+      const vs = markVisits(x.id);
+      return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
+    }).join('\n') || 'No travel marks yet.';
+  }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
@@ -797,7 +1247,7 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.0' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.1' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
@@ -809,7 +1259,12 @@ const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png':
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
-  const p = url.pathname; const m = req.method;
+  const p = url.pathname;
+  // HEAD is routed as GET, with the body suppressed — uptime checks and link
+  // checkers use it, and it should answer like the GET it mirrors.
+  const isHead = req.method === 'HEAD';
+  const m = isHead ? 'GET' : req.method;
+  if (isHead) { const end = res.end.bind(res); res.end = () => end(); }
   const me = currentUser(req);
   const need = () => { redirect(res, '/login'); return true; };
   let mt;
@@ -842,6 +1297,19 @@ async function handle(req, res) {
     if (c) q('DELETE FROM collections WHERE id=?').run(c.id);
     return redirect(res, `/u/${me.handle}?tab=notes`);
   }
+  if (p === '/admin/backup' && m === 'GET') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const tmp = path.join(path.dirname(DB_PATH), 'backups', `download-${Date.now()}.db`);
+    try {
+      backupTo(tmp);
+      res.writeHead(200, { 'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="discriminantly-${new Date().toISOString().slice(0, 10)}.db"` });
+      const stream = fs.createReadStream(tmp);
+      stream.pipe(res);
+      stream.on('close', () => { try { fs.unlinkSync(tmp); } catch {} });
+      return;
+    } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
+  }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
   if (p === '/about') return pages.about(req, res, me);
@@ -871,6 +1339,71 @@ async function handle(req, res) {
     return redirect(res, '/new', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
   }
 
+  if (p === '/marks/new') {
+    if (!me) return need();
+    if (m === 'GET') return pages.markForm(req, res, me);
+    const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
+    if (!(b.name || '').trim()) return pages.markForm(req, res, me, b, 'A mark needs a place name.', colls);
+    const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
+    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(me.id, b.name.trim(), b.locality || '', b.country || '', b.address || '',
+           isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
+           tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0);
+    setMarkCollections(me.id, r.lastInsertRowid, colls);
+    if (b.visited_on) q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, me.id, b.visited_on, '');
+    return redirect(res, `/m/${r.lastInsertRowid}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
+  if ((mt = p.match(/^\/m\/(\d+)\/edit$/))) {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
+    if (!mk) return send(res, 'Not yours', 403);
+    if (m === 'GET') return pages.markForm(req, res, me, mk);
+    const b = await readBodyMulti(req);
+    const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
+    q('UPDATE marks SET name=?,locality=?,country=?,address=?,lat=?,lng=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
+      .run((b.name || mk.name).trim(), b.locality || '', b.country || '', b.address || '',
+           isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
+           tagList(b.tags).join(', '), b.url || '', b.image || '', b.private ? 1 : 0, mk.id);
+    setMarkCollections(mk.user_id, mk.id, [...b.coll, ...(b.newcoll || '').split(',')]);
+    return redirect(res, `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
+    if (!mk) return send(res, 'Not yours', 403);
+    q('DELETE FROM marks WHERE id=?').run(mk.id);
+    return redirect(res, `/u/${me.handle}?tab=marks`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/comments$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT id FROM marks WHERE id=?').get(+mt[1]); if (!mk) return send(res, 'Not found', 404);
+    const b = await readBody(req); const t = (b.body || '').trim();
+    if (t) q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
+    return redirect(res, `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/checkin$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!mk) return send(res, 'Not yours', 403);
+    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, me.id, new Date().toISOString().slice(0, 10), '');
+    return redirect(res, req.headers.referer || `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/visits$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!mk) return send(res, 'Not yours', 403);
+    const b = await readBody(req);
+    if (b.visited_on) q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
+      .run(mk.id, me.id, b.visited_on, (b.body || '').trim());
+    return redirect(res, `/m/${mk.id}`);
+  }
+  if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (mk) q('DELETE FROM visits WHERE id=? AND mark_id=?').run(+mt[2], mk.id);
+    return redirect(res, `/m/${mt[1]}`);
+  }
   if (p === '/new') {
     if (!me) return need();
     if (m === 'GET') return pages.form(req, res, me);
@@ -944,5 +1477,9 @@ if (q('SELECT COUNT(*) c FROM users').get().c === 0) {
   console.log(`First run: admin ${email} / ${pass}. One invite code: ${code}`);
   if (process.env.SEED) require('./seed')(db);
 }
+
+const counts = ['users', 'objects', 'marks', 'visits', 'comments']
+  .map((t) => `${t} ${q(`SELECT COUNT(*) c FROM ${t}`).get().c}`).join(', ');
+console.log(`Database: ${DB_PATH} (${(fs.statSync(DB_PATH).size / 1024).toFixed(0)} KB) — ${counts}`);
 
 http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e); send(res, 'Something went wrong.', 500); })).listen(PORT, () => console.log(`discriminant.ly on http://localhost:${PORT}`));
