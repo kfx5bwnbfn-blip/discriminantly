@@ -1012,7 +1012,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* map: wide and shallow, tinted to the palette */
 .mark-map { margin: .2rem auto .35rem; max-width: var(--mark-measure); border: 1px solid var(--mark-rule); background: #e6e4dc; overflow: hidden; }
 .mark-map iframe { display: block; width: 100%; height: 8.5rem; border: 0; filter: var(--map-tone); }
-.travelmark:not(.note-full) .mark-map { pointer-events: none; }   /* no stray zooming while scrolling a feed */
+.travelmark:not(.note-full) .mark-map { pointer-events: none; overflow: hidden; }
+.travelmark:not(.note-full) .mark-map iframe {          /* widen and crop so the zoom buttons fall outside */
+  width: calc(100% + 96px); margin-left: -48px; }
 .note-full .mark-map iframe { height: 11rem; }
 .map-credit { margin: 0 0 .9rem; font-family: var(--slab); font-size: .58rem; letter-spacing: .08em;
   text-transform: uppercase; color: #97968c; }
@@ -1035,7 +1037,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .mark-title { margin: .1rem 0 .2rem; max-width: none; }
 .mark-title a { display: block; text-decoration: none; }
 .arc-title { display: block; width: 100%; max-width: 30rem; margin: 0 auto; overflow: visible; }
-.arc-title text { font-family: var(--slab); font-weight: 400; fill: #35332d; letter-spacing: .02em; }
+.arc-title text { font-family: var(--slab); font-weight: 400; fill: #35332d; letter-spacing: -.012em; }
 .mark-title a:hover .arc-title text { fill: #000; }
 .note-full .arc-title { max-width: 33rem; }
 

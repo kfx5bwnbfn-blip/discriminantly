@@ -260,6 +260,16 @@ ${me ? `<nav class="iconrail" aria-label="Main">
     dlg.querySelector('form').action = opts.action || '';
     dlg.classList.add('is-open');
   };
+  // One binding for every use of the confirm curtain. Deferred: this script is
+  // parsed before the dialog markup further down the page exists.
+  document.addEventListener('DOMContentLoaded', function () {
+    var cdlg = document.getElementById('confirm-dialog');
+    if (!cdlg) return;
+    cdlg.querySelectorAll('[data-dismiss]').forEach(function (x) {
+      x.addEventListener('click', function () { cdlg.classList.remove('is-open'); });
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cdlg.classList.remove('is-open'); });
+  });
 
   // voice dictation into the note form (browser speech recognition; no data leaves the browser except to the speech service)
   var dictate = document.getElementById('dictate-btn');
@@ -782,7 +792,7 @@ const pages = {
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Marks</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Travel Marks</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=followers"><b>${fc.followers}</b><span>Followers</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=following"><b>${fc.following}</b><span>Following</span></a>
         <form class="wcell wcell-wide wcell-btn" method="post" action="/logout"><button class="btn3d block">Logout</button></form>
