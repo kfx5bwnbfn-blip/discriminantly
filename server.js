@@ -850,6 +850,36 @@ const moreLink = (url, off, more) => {
   return `<div class="more"><a class="btn3d block more-link" href="?${sp}">Show more</a></div>`;
 };
 
+// Structured data (schema.org via JSON-LD). Where a page has it, it's often
+// more complete than Open Graph — full image galleries rather than one
+// share-crop, and the literal product name/description rather than a blurb
+// written for a social card. We read it when present and prefer it, but every
+// site still gets a full answer from meta tags when it's absent.
+function collectJsonLd(html) {
+  const nodes = [];
+  for (const m of html.matchAll(/<script[^>]+type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    let data;
+    try { data = JSON.parse(m[1].trim()); } catch { continue; }   // some sites ship invalid JSON-LD; skip rather than fail
+    for (const item of Array.isArray(data) ? data : [data]) {
+      if (!item || typeof item !== 'object') continue;
+      if (Array.isArray(item['@graph'])) nodes.push(...item['@graph']);
+      else nodes.push(item);
+    }
+  }
+  return nodes;
+}
+const ldTypeIs = (node, want) => {
+  const t = node && node['@type'];
+  return !!t && (Array.isArray(t) ? t : [t]).some((x) => String(x).toLowerCase() === want);
+};
+const ldImages = (val) => {
+  const out = [];
+  const add = (v) => { if (typeof v === 'string') out.push(v); else if (v && v.url) out.push(v.url); };
+  (Array.isArray(val) ? val : [val]).forEach(add);
+  return out;
+};
+const stripTags = (t) => String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
 // Pull title, description and image out of a page's metadata.
 function unfurl(html, base) {
   const head = html.split(/<\/head>/i)[0] || html;
@@ -881,6 +911,14 @@ function unfurl(html, base) {
     if (/\.svg($|\?)/i.test(abs)) return;             // logos and sprites, rarely the subject
     if (!candidates.includes(abs)) candidates.push(abs);
   };
+  // Structured data first: a Product node's image array is usually the real
+  // gallery, so it goes ahead of the single social-share image below.
+  const ldNodes = collectJsonLd(html);
+  const ldProduct = ldNodes.find((n) => ldTypeIs(n, 'product'));
+  const ldItem = ldProduct || ldNodes.find((n) =>
+    ['article', 'newsarticle', 'blogposting', 'recipe', 'event'].some((t) => ldTypeIs(n, t)));
+  if (ldItem && ldItem.image) ldImages(ldItem.image).forEach(push);
+
   for (const tag of metaTags) {
     const key = (attr(tag, 'property') || attr(tag, 'name')).toLowerCase();
     if (/^(og:image(:secure_url|:url)?|twitter:image(:src)?)$/.test(key)) push(attr(tag, 'content'));
@@ -894,9 +932,15 @@ function unfurl(html, base) {
     if (/class\s*=\s*["'][^"']*(logo|icon|avatar|sprite|badge)/i.test(tag)) continue;
     push(attr(tag, 'src') || attr(tag, 'data-src'));
   }
+  const ldTitle = ldItem && ldItem.name ? decodeEntities(stripTags(ldItem.name)) : '';
+  let ldDesc = '';
+  if (ldItem && ldItem.description) {
+    ldDesc = decodeEntities(stripTags(ldItem.description));
+    if (ldDesc.length > 600) ldDesc = ldDesc.slice(0, 599).replace(/\s+\S*$/, '') + '…';   // trim at a word, not mid-word
+  }
   return {
-    title: meta('og:title', 'twitter:title') || decodeEntities(titleTag.trim()),
-    description: meta('og:description', 'twitter:description', 'description'),
+    title: ldTitle || meta('og:title', 'twitter:title') || decodeEntities(titleTag.trim()),
+    description: ldDesc || meta('og:description', 'twitter:description', 'description'),
     image: candidates[0] || '',
     images: candidates.slice(0, 8),
     site: meta('og:site_name') || base.hostname.replace(/^www\./, ''),
@@ -1744,7 +1788,8 @@ const TOOLS = [
       link: { type: 'string', description: 'URL where the object can be found' },
       image: { type: 'string', description: 'Image URL for the object. Required — every note carries an image.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
-      private: { type: 'boolean', description: 'True to keep the note visible only to the member' } } } },
+      private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
+      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } },
   { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} } },
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 10 } } } },
@@ -1774,7 +1819,8 @@ const TOOLS = [
       link: { type: 'string' }, image: { type: 'string' },
       collections: { type: 'array', items: { type: 'string' } },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
-      private: { type: 'boolean' } } } },
+      private: { type: 'boolean' },
+      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } },
   { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough; a rating and a line are optional.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer' },
@@ -1782,12 +1828,48 @@ const TOOLS = [
       body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
   { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } } },
+  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description.',
+    inputSchema: { type: 'object', required: ['query'], properties: {
+      query: { type: 'string', description: 'Keywords to search for, e.g. "copper pan" or "bangkok"' },
+      kind: { type: 'string', enum: ['note', 'mark', 'both'], default: 'both', description: 'Restrict to notes, travel marks, or search both.' },
+      limit: { type: 'integer', default: 15 } } } },
+  { name: 'catalogue_stats', description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
+    inputSchema: { type: 'object', properties: {} } },
 ];
+// Duplicate detection: a cheap normalized-string match rather than a new
+// dependency. Catches "de Buyer Mineral B" vs "de Buyer Mineral B Pro, 28cm"
+// — the common way a catalogue quietly forks the same object into two rows.
+const normTitle = (s) => String(s || '').toLowerCase()
+  .replace(/['’]/g, '')                // apostrophes vanish rather than splitting the word: M'250 and M250 must match
+  .replace(/[^a-z0-9]+/g, ' ').trim();
+function findSimilarNote(userId, title) {
+  const norm = normTitle(title);
+  if (!norm) return null;
+  for (const r of q('SELECT id, name FROM objects WHERE user_id=?').all(userId)) {
+    const rn = normTitle(r.name);
+    if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
+  }
+  return null;
+}
+function findSimilarMark(userId, place) {
+  const norm = normTitle(place);
+  if (!norm) return null;
+  for (const r of q('SELECT id, name FROM marks WHERE user_id=?').all(userId)) {
+    const rn = normTitle(r.name);
+    if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
+  }
+  return null;
+}
+
 function mcpCall(user, name, a = {}) {
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
     if (!a.image) throw new Error('image is required: every note carries an image');
+    if (!a.allow_duplicate) {
+      const dup = findSimilarNote(user.id, a.headline);
+      if (dup) return `This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`;
+    }
     const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(user.id, r.lastInsertRowid);
     if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
@@ -1817,6 +1899,10 @@ function mcpCall(user, name, a = {}) {
   }
   if (name === 'add_travel_mark') {
     if (!a.place) throw new Error('place is required');
+    if (!a.allow_duplicate) {
+      const dup = findSimilarMark(user.id, a.place);
+      if (dup) return `This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`;
+    }
     const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(user.id, String(a.place).trim(), a.locality || '', a.country || '', a.address || '',
            a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
@@ -1845,6 +1931,40 @@ function mcpCall(user, name, a = {}) {
       return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
     }).join('\n') || 'No travel marks yet.';
   }
+  if (name === 'search_catalogue') {
+    const k = String(a.query || '').trim();
+    if (!k) throw new Error('query is required');
+    const lim = Math.min(+a.limit || 15, 50);
+    const kind = a.kind === 'note' || a.kind === 'mark' ? a.kind : 'both';
+    const kl = k.toLowerCase();
+    const hits = [];
+    if (kind !== 'mark') {
+      q(OBJ_SQL + ' WHERE o.user_id=? AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC')
+        .all(user.id, `%${k}%`, `%${k}%`, `%${k}%`)
+        .forEach((o) => hits.push({ at: o.created_at, line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}` }));
+    }
+    if (kind !== 'note') {
+      q(MARK_SQL + ' WHERE m.user_id=?').all(user.id)
+        .filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(kl))
+        .forEach((x) => hits.push({ at: x.created_at, line: `MARK #${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''}` }));
+    }
+    hits.sort((x, y) => (x.at < y.at ? 1 : -1));
+    return hits.slice(0, lim).map((h) => h.line).join('\n') || `Nothing in the catalogue matches "${k}".`;
+  }
+  if (name === 'catalogue_stats') {
+    const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(user.id).c;
+    const marks = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(user.id).c;
+    const noImage = q("SELECT COUNT(*) c FROM objects WHERE user_id=? AND (image IS NULL OR image='')").get(user.id).c;
+    const byColl = q(`SELECT c.name, COUNT(*) n FROM object_collections oc
+      JOIN collections c ON c.id=oc.collection_id JOIN objects o ON o.id=oc.object_id
+      WHERE o.user_id=? GROUP BY c.id ORDER BY n DESC`).all(user.id);
+    const byCountry = q("SELECT country, COUNT(*) n FROM marks WHERE user_id=? AND country<>'' GROUP BY country ORDER BY n DESC").all(user.id);
+    const lines = [`${notes} notes, ${marks} travel marks.`];
+    if (noImage) lines.push(`${noImage} note${noImage === 1 ? '' : 's'} with no image.`);
+    if (byColl.length) lines.push('Notes by collection: ' + byColl.map((r) => `${r.name} (${r.n})`).join(', '));
+    if (byCountry.length) lines.push('Marks by country: ' + byCountry.map((r) => `${r.country} (${r.n})`).join(', '));
+    return lines.join('\n');
+  }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
@@ -1865,7 +1985,7 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.1' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.2' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those. Both note_object and add_travel_mark check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
