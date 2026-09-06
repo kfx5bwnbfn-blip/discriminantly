@@ -249,6 +249,7 @@ const ICONS = {
   gear: '<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M22.77 9.77 L22.77 14.23 L20.36 14.01 L19.33 16.49 L21.19 18.04 L18.04 21.19 L16.49 19.33 L14.01 20.36 L14.23 22.77 L9.77 22.77 L9.99 20.36 L7.51 19.33 L5.96 21.19 L2.81 18.04 L4.67 16.49 L3.64 14.01 L1.23 14.23 L1.23 9.77 L3.64 9.99 L4.67 7.51 L2.81 5.96 L5.96 2.81 L7.51 4.67 L9.99 3.64 L9.77 1.23 L14.23 1.23 L14.01 3.64 L16.49 4.67 L18.04 2.81 L21.19 5.96 L19.33 7.51 L20.36 9.99 Z M12 15.4a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8z"/></svg>',
   key: '<svg viewBox="0 0 24 24" width="10" height="23" aria-hidden="true"><circle cx="12" cy="5.4" r="4.4" fill="currentColor"/><path fill="currentColor" d="M10.6 9.2h2.8v13.4l-1.4 1.4-1.4-1.4z"/><path fill="currentColor" d="M13.4 13.4h4v2.2h-4zM13.4 17.4h3v2.2h-3z"/></svg>',
   chev: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 4.5 16.5 12 9 19.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  compose: '<svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><circle cx="12" cy="12" r="9.1" fill="none" stroke="currentColor" stroke-width="1.9"/><path d="M12 7.3v9.4M7.3 12h9.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>',
   mic: '<svg viewBox="0 0 24 24" width="17" height="19" aria-hidden="true"><rect x="9" y="2" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 17.5V21M9 21h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
   lens: '<svg viewBox="0 0 44 48" width="44" height="48" aria-hidden="true"><defs><linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="18" cy="17" r="12.6" fill="url(%23glare)"/><circle cx="18" cy="17" r="12.6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M26.9 26.2 29.4 28.7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.3" fill="currentColor"/><circle cx="31.8" cy="36.4" r="1.7" fill="currentColor"/><circle cx="32" cy="41.4" r="1.3" fill="currentColor"/></svg>',
 };
@@ -283,7 +284,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
   <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
-  <button type="button" class="iconrail-btn" id="dictate-btn" title="Dictate a note">${ICONS.mic}</button>
+  <a class="iconrail-btn" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.compose}</a>
 </nav>
 <div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
 <script>
@@ -297,7 +298,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 </script>
 <div class="curtain" id="curtain">
   <div class="curtain-frame"><div class="curtain-body">
-    <div class="seg-panels" id="seg-panels">
+    <div class="seg-panels">
       <div class="seg-panel is-on" data-kind="note">${noteForm(me, {}, { idp: 'ct', compact: true, seg: true })}</div>
       <div class="seg-panel" data-kind="mark">${markForm(me, {}, { idp: 'ctm', seg: true })}</div>
     </div>
@@ -339,6 +340,19 @@ function readImage(file, cb) {
 
   // Any page can raise the confirm curtain: title, copy, button label, an
   // optional text field, and the form action it posts to.
+  // The rail's compose control opens the curtain where there is one, and
+  // otherwise just follows through to the form page.
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('#compose-btn');
+    if (!t) return;
+    var c = document.getElementById('curtain');
+    if (!c || getComputedStyle(c).display === 'none') return;   // mobile: let the link work
+    e.preventDefault();
+    c.classList.add('is-open');
+    var f = c.querySelector('.seg-panel.is-on input[name="url"], .seg-panel.is-on input[name="name"]');
+    if (f) setTimeout(function () { f.focus(); }, 380);
+  });
+
   // Tile the feed into real column elements rather than CSS multi-column.
   // Safari paints fragmentation seams at column boundaries — a stray rule above
   // the first card in the second column — and real columns cannot do that.
@@ -461,17 +475,23 @@ function readImage(file, cb) {
       field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });
   });
 
-  // Note / Travel Mark: swap the panel, easing the height so the curtain does not jump
-  var panels = document.getElementById('seg-panels');
-  if (panels) panels.addEventListener('click', function (e) {
+  // Note / Travel Mark: swap the panel, easing the height so nothing jumps.
+  // Delegated, so it serves the curtain and the post page alike.
+  document.addEventListener('click', function (e) {
     var btn = e.target.closest && e.target.closest('.seg-btn');
     if (!btn) return;
+    var panels = btn.closest('.seg-panels');
+    if (!panels) return;
     var kind = btn.dataset.seg;
     var from = panels.querySelector('.seg-panel.is-on');
     var to = panels.querySelector('.seg-panel[data-kind="' + kind + '"]');
     if (!to || from === to) return;
     panels.style.height = from.offsetHeight + 'px';
     from.classList.remove('is-on'); to.classList.add('is-on');
+    panels.querySelectorAll('.seg-btn').forEach(function (x) {
+      var on = x.dataset.seg === kind;
+      x.classList.toggle('on', on); x.setAttribute('aria-selected', on);
+    });
     var target = to.offsetHeight;
     requestAnimationFrame(function () { panels.style.height = target + 'px'; });
     setTimeout(function () { panels.style.height = ''; }, 380);
@@ -739,6 +759,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     };
     urlIn.addEventListener('change', tryUnfurl);
     urlIn.addEventListener('paste', function () { setTimeout(tryUnfurl, 60); });
+    if (urlIn.value) setTimeout(tryUnfurl, 120);   // arrived pre-filled (e.g. the iOS Shortcut)
   }
 
   var det = document.getElementById('drop-${idp}');
@@ -994,10 +1015,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     <div class="nf-stack">
       <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
     </div>
-    <div class="nf-image" id="img-drop-${idp}">
-      <img class="nf-image-preview" id="img-prev-${idp}" src="${esc(m.image || '')}" alt="" ${m.image ? '' : 'hidden'}>
-      <input class="nf-field" id="img-input-${idp}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(m.image || '')}">
-    </div>
+    <input type="hidden" name="image" value="${esc(m.image || '')}">
     <div class="nf-lookup" id="lookup-${idp}">
       <input class="nf-field" id="lookup-input-${idp}" type="text" autocomplete="off" placeholder="SEARCH FOR A PLACE — FILLS THE FIELDS BELOW">
       <ul class="lookup-list" id="lookup-list-${idp}" hidden></ul>
@@ -1321,6 +1339,18 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   markForm(req, res, me, m = {}, err = '', picked = null) {
     const body = `<div class="notecard-page">${markForm(me, m, { err, picked })}</div>`;
     send(res, layout({ title: m.id ? 'Edit mark' : 'Add a travel mark', body, me }));
+  },
+
+  // Both post pages render the same pair of panels as the curtain, so the
+  // selector behaves identically wherever you start from.
+  composePage(req, res, me, which, { o = {}, m = {}, err = '', picked = null } = {}) {
+    const body = `<div class="notecard-page">
+      <div class="seg-panels">
+        <div class="seg-panel ${which === 'note' ? 'is-on' : ''}" data-kind="note">${noteForm(me, o, { idp: 'pg', err: which === 'note' ? err : '', picked: which === 'note' ? picked : null, seg: true })}</div>
+        <div class="seg-panel ${which === 'mark' ? 'is-on' : ''}" data-kind="mark">${markForm(me, m, { idp: 'pgm', err: which === 'mark' ? err : '', picked: which === 'mark' ? picked : null, seg: true })}</div>
+      </div>
+    </div>`;
+    send(res, layout({ title: which === 'mark' ? 'Add a travel mark' : 'Post a note', body, me }));
   },
 
   form(req, res, me, o = {}, err = '', picked = null) {
@@ -1956,7 +1986,7 @@ async function handle(req, res) {
 
   if (p === '/marks/new') {
     if (!me) return need();
-    if (m === 'GET') return pages.markForm(req, res, me);
+    if (m === 'GET') return pages.composePage(req, res, me, 'mark');
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.markForm(req, res, me, b, 'A mark needs a place name.', colls);
     const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
@@ -2038,7 +2068,7 @@ async function handle(req, res) {
   }
   if (p === '/new') {
     if (!me) return need();
-    if (m === 'GET') return pages.form(req, res, me);
+    if (m === 'GET') return pages.composePage(req, res, me, 'note', { o: { url: url.searchParams.get('url') || '' } });
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.form(req, res, me, b, 'A note needs a title.', colls);
     if (!(b.image || '').trim()) return pages.form(req, res, me, b, 'Every note needs an image.', colls);

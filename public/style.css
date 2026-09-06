@@ -1245,14 +1245,14 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* ---- choosing among the images a page offered ---- */
 .nf-image { position: relative; }
-.img-pick { position: absolute; z-index: 3; left: 8px; right: 8px; bottom: 8px;
+.img-pick { position: absolute; z-index: 3; left: 0; right: 0; bottom: 6px;
   display: flex; align-items: center; justify-content: space-between;
-  background: rgba(0,0,0,.55); border-radius: 999px; padding: .1rem .25rem; }
-.img-arrow { background: none; border: 0; cursor: pointer; padding: 0 .5rem; line-height: 1;
-  font-size: 1.1rem; color: rgba(255,255,255,.9); }
-.img-arrow:hover { color: #fff; }
-.img-count { font-family: var(--slab); font-size: .58rem; font-weight: 700; letter-spacing: .12em;
-  color: rgba(255,255,255,.82); }
+  background: none; padding: 0 .35rem; pointer-events: none; }
+.img-arrow { pointer-events: auto; background: none; border: 0; cursor: pointer; padding: 0 .45rem;
+  line-height: 1; font-size: 1.5rem; color: var(--nf-ink); opacity: .45; transition: opacity .15s; }
+.img-arrow:hover { opacity: .9; }
+.img-count { font-family: var(--slab); font-size: .56rem; font-weight: 700; letter-spacing: .14em;
+  color: var(--nf-ink); opacity: .55; }
 
 /* =========================================================================
    The byline lockup. Desktop and mobile are deliberately different shapes, so
@@ -1263,26 +1263,33 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
    ========================================================================= */
 @media (max-width: 52rem) {
   :root {
-    --m-byline-avatar: 1.6rem;   /* small enough to sit on one line with the date */
-    --m-byline-size: .58rem;     /* one size for every part of the date */
+    --m-byline-avatar: 2.1rem;   /* large enough to read, still on one line */
+    --m-byline-size: .62rem;     /* matches .card-edit exactly */
     --m-byline-gap: .45rem;
   }
   /* three tracks: a spacer, the centred lockup, then Edit at the right. Grid
      rather than absolute positioning, so the date and Edit share a baseline. */
   .byline { display: grid; grid-template-columns: 1fr auto 1fr; align-items: baseline;
     justify-content: center; padding: .1rem 0 .35rem; }
+  /* align-items: baseline here, not center — so the row's own baseline (what
+     the outer grid aligns Edit against) is the date's text baseline, not the
+     tall avatar's bottom edge. The avatar opts itself out with align-self,
+     so it still centres visually without setting the row's baseline. */
   .byline-who { grid-column: 2; display: flex; flex-direction: row; align-items: baseline;
     gap: var(--m-byline-gap); }
   .byline .avatar { width: var(--m-byline-avatar); height: var(--m-byline-avatar); flex: 0 0 auto;
-    align-self: center; }
+    align-self: center; position: relative; top: .82rem; }   /* recentres on the date visually;
+    a relative offset paints only — it does not alter what the row exposes as its baseline */
   .stackdate { flex-direction: row; align-items: baseline; gap: .28rem;
     margin: 0; line-height: 1; white-space: nowrap; }
   .stackdate .mon, .stackdate .day, .stackdate .yr {
     font-size: var(--m-byline-size); font-weight: 600; letter-spacing: .12em;
     text-transform: uppercase; margin: 0; }
-  /* Edit sits in the third track, its baseline level with the date */
+  /* Edit sits in the third track. Reset every desktop property that could
+     shift its box off the grid's baseline: margin, size, weight, tracking. */
   .card-edit { position: static; grid-column: 3; justify-self: end; align-self: baseline;
-    transform: none; margin: 0; opacity: 1; }
+    transform: none; margin: 0; opacity: 1;
+    font-size: var(--m-byline-size); font-weight: 600; letter-spacing: .12em; line-height: 1; }
 }
 
 @media (max-width: 52rem) {
