@@ -137,6 +137,7 @@ const MIGRATIONS = [
       id INTEGER PRIMARY KEY, mark_id INTEGER NOT NULL REFERENCES marks(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP)`)],
+  ['010-marks-verified',   addColumn('marks', 'verified', 'INTEGER DEFAULT 0')],
 ];
 
 function backupTo(file) {
@@ -1806,7 +1807,26 @@ const TOOLS = [
       private: { type: 'boolean' } } } },
   { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
-  { name: 'add_travel_mark', description: 'Record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own.',
+  { name: 'edit_travel_mark', description: 'Edit a travel mark the connected member owns. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
+      place: { type: 'string' },
+      locality: { type: 'string' },
+      country: { type: 'string' },
+      address: { type: 'string' },
+      lat: { type: 'number' }, lng: { type: 'number' },
+      why: { type: 'string' },
+      tags: { type: 'array', items: { type: 'string' } },
+      link: { type: 'string' }, image: { type: 'string' },
+      collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
+      private: { type: 'boolean' } } } },
+  { name: 'delete_travel_mark', description: 'Permanently delete a travel mark the connected member owns, including its visit history. Cannot be undone.',
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+  { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
+    inputSchema: { type: 'object', required: ['query'], properties: {
+      query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
+      limit: { type: 'integer', default: 5 } } } },
+  { name: 'add_travel_mark', description: 'Record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
     inputSchema: { type: 'object', required: ['place'], properties: {
       place: { type: 'string', description: 'Name of the place' },
       locality: { type: 'string', description: 'City or region. Fill this in yourself if you know the place — do not make the member supply it.' },
@@ -1861,7 +1881,7 @@ function findSimilarMark(userId, place) {
   return null;
 }
 
-function mcpCall(user, name, a = {}) {
+async function mcpCall(user, name, a = {}) {
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
@@ -1897,20 +1917,72 @@ function mcpCall(user, name, a = {}) {
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     return `Updated #${o.id}: ${name_}`;
   }
+  if (name === 'verify_place') {
+    const q_ = String(a.query || '').trim();
+    if (!q_) throw new Error('query is required');
+    const lim = Math.min(+a.limit || 5, 10);
+    try {
+      const r = await fetch(`https://photon.komoot.io/api/?limit=${lim}&q=${encodeURIComponent(q_)}`,
+        { signal: AbortSignal.timeout(6000) });
+      if (!r.ok) return `Could not reach the mapping service (status ${r.status}). Tell the member verification failed and ask whether to add the mark anyway.`;
+      const data = await r.json();
+      const feats = Array.isArray(data.features) ? data.features : [];
+      if (!feats.length) return `No match found for "${q_}" in mapping data. This does not mean the place is wrong — small or new places are often missing from OpenStreetMap. Tell the member plainly and ask whether to add it anyway without verification, or to try again with a more precise name or city.`;
+      return feats.map((f, i) => {
+        const p = f.properties || {};
+        const where = [p.street, p.housenumber, p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(', ');
+        const [lng, lat] = (f.geometry && f.geometry.coordinates) || [];
+        return `${i + 1}. ${p.name || q_}${where ? ' — ' + where : ''}${lat != null ? ` (${lat.toFixed(5)}, ${lng.toFixed(5)})` : ''}`;
+      }).join('\n') + '\n\nShow these to the member and confirm which one (if any) is correct before calling add_travel_mark with its address and coordinates.';
+    } catch (e) {
+      return `Could not reach the mapping service (${e.name === 'TimeoutError' ? 'timed out' : 'network error'}). Tell the member verification failed and ask whether to add the mark anyway.`;
+    }
+  }
   if (name === 'add_travel_mark') {
     if (!a.place) throw new Error('place is required');
     if (!a.allow_duplicate) {
       const dup = findSimilarMark(user.id, a.place);
       if (dup) return `This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`;
     }
-    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,verified) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(user.id, String(a.place).trim(), a.locality || '', a.country || '', a.address || '',
            a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
-           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
+           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0,
+           a.lat != null && a.lng != null ? 1 : 0);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, r.lastInsertRowid, a.collections);
     const day = a.visited_on || new Date().toISOString().slice(0, 10);
     q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, user.id, day, '');
-    return `Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})`;
+    const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
+    return `Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})${verifiedNote}`;
+  }
+  if (name === 'edit_travel_mark') {
+    if (!a.id) throw new Error('id is required');
+    const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
+    if (!mk) throw new Error(`No travel mark #${a.id}`);
+    if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
+    const name_ = a.place !== undefined ? String(a.place).trim() : mk.name;
+    const locality = a.locality !== undefined ? a.locality : mk.locality;
+    const country = a.country !== undefined ? a.country : mk.country;
+    const address = a.address !== undefined ? a.address : mk.address;
+    const lat = a.lat !== undefined ? a.lat : mk.lat;
+    const lng = a.lng !== undefined ? a.lng : mk.lng;
+    const why = a.why !== undefined ? String(a.why).trim() : mk.why;
+    const tags = a.tags !== undefined ? tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', ') : mk.tags;
+    const url = a.link !== undefined ? a.link : mk.url;
+    const image = a.image !== undefined ? a.image : mk.image;
+    const priv = a.private !== undefined ? (a.private ? 1 : 0) : mk.private;
+    q('UPDATE marks SET name=?,locality=?,country=?,address=?,lat=?,lng=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
+      .run(name_, locality, country, address, lat, lng, why, tags, url, image, priv, mk.id);
+    if (Array.isArray(a.collections)) setMarkCollections(user.id, mk.id, a.collections);
+    return `Updated #${mk.id}: ${name_}`;
+  }
+  if (name === 'delete_travel_mark') {
+    if (!a.id) throw new Error('id is required');
+    const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
+    if (!mk) throw new Error(`No travel mark #${a.id}`);
+    if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
+    q('DELETE FROM marks WHERE id=?').run(mk.id);
+    return `Deleted #${mk.id}: ${mk.name}`;
   }
   if (name === 'log_visit') {
     if (!a.id) throw new Error('id is required');
@@ -1985,10 +2057,10 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.2' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those. Both note_object and add_travel_mark check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those, and edit_travel_mark/delete_travel_mark to change or remove one. Before adding a travel mark, call verify_place unless you already have a precise address — show the member the match (or the fact that nothing was found) and get their confirmation before writing; never invent coordinates. Both note_object and add_travel_mark also check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting anything.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
-  if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
+  if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: await mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
   return reply(id, null, { code: -32601, message: 'Method not found' });
 }
 
