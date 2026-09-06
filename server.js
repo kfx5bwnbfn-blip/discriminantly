@@ -1456,6 +1456,18 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <script>
       (function () {
         var t = document.getElementById('tiles');
+        // land on the active collection already in view — centred where a
+        // centred scroll is possible, simply visible where it is not (the
+        // strip can't centre a tile flush against either end).
+        if (t) {
+          var on = t.querySelector('.tile.on');
+          if (on) {
+            var slot = on.closest('.tile-slot') || on;
+            var target = slot.offsetLeft - (t.clientWidth - slot.offsetWidth) / 2;
+            target = Math.max(0, Math.min(target, t.scrollWidth - t.clientWidth));
+            t.scrollLeft = target;
+          }
+        }
         if (t) document.querySelectorAll('.tiles-arrow').forEach(function (b) {
           b.addEventListener('click', function () { t.scrollBy({ left: (+b.dataset.scroll) * Math.max(240, t.clientWidth * 0.6), behavior: 'smooth' }); });
         });
@@ -1533,6 +1545,18 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <script>
     (function () {
       var t = document.getElementById('tiles');
+      // land on the active collection already in view — centred where a
+      // centred scroll is possible, simply visible where it is not (the
+      // strip can't centre a tile flush against either end).
+      if (t) {
+        var on = t.querySelector('.tile.on');
+        if (on) {
+          var slot = on.closest('.tile-slot') || on;
+          var target = slot.offsetLeft - (t.clientWidth - slot.offsetWidth) / 2;
+          target = Math.max(0, Math.min(target, t.scrollWidth - t.clientWidth));
+          t.scrollLeft = target;
+        }
+      }
       if (t) document.querySelectorAll('.tiles-arrow').forEach(function (b) {
         b.addEventListener('click', function () { t.scrollBy({ left: (+b.dataset.scroll) * Math.max(240, t.clientWidth * 0.6), behavior: 'smooth' }); });
       });

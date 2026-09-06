@@ -1295,3 +1295,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 @media (max-width: 52rem) {
   .place-filters { grid-template-columns: 1fr; gap: .7rem; }
 }
+
+/* the rail's compose glyph is drawn at 44x48 for the curtain nub — scale it
+   down to match the other rail icons rather than dominate the stack */
+.iconrail-compose svg { width: 19px; height: 19px; }
