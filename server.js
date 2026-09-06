@@ -847,7 +847,7 @@ const moreLink = (url, off, more) => {
   if (!more) return '';
   const sp = new URLSearchParams(url.search);
   sp.set('offset', String(off + PAGE));
-  return `<div class="more"><a class="btn3d block more-link" href="?${sp}">Show more</a></div>`;
+  return `<div class="more"><a class="nf-post more-link" href="?${sp}">Show more</a></div>`;
 };
 
 // Structured data (schema.org via JSON-LD). Where a page has it, it's often
