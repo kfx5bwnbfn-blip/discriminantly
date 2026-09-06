@@ -284,7 +284,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
   <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
-  <a class="iconrail-btn" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.compose}</a>
+  <a class="iconrail-btn iconrail-compose" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.lens}</a>
 </nav>
 <div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
 <script>
