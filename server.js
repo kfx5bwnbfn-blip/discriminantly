@@ -2028,6 +2028,68 @@ const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.
 // later, with no error at creation time to catch it.
 const IMAGE_FIELD_DESC = 'An image reference: either a real https:// URL to an existing picture, or a /i/<id> reference returned by upload_image. If you have the image\'s actual bytes rather than a public URL — a file the member shared with you, or one you generated — call upload_image first and use its returned reference here. Never pass a local file path from your own environment (anything starting with /mnt/ or similar); that path only exists in this conversation and the image will not load once the note is saved.';
 
+// ---- MCP output schemas -----------------------------------------------
+// Written from the actual runtime shapes verified in the v1.14 audit, not
+// from an idealized version of them. Where two tools return "the same"
+// entity type with different fields (notes: recent_notes has handle+url,
+// my_notes has url only, search_catalogue has neither; marks: my_travel_marks
+// has verified+visit_count, search_catalogue has neither) — that difference
+// is documented per-tool on purpose. Unifying those shapes is a runtime
+// change, out of scope here; this only describes what already exists.
+const OS_PROVENANCE = { type: ['object', 'null'], additionalProperties: false,
+  required: ['action', 'assertion', 'actor_type', 'agent', 'created_at'],
+  properties: { action: { type: 'string' }, assertion: { type: 'string' }, actor_type: { type: 'string' },
+    agent: { type: 'string' }, created_at: { type: 'string' } } };
+const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false, required: ['items'],
+  properties: { items: { type: 'array', items: itemSchema } } });
+
+const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'provenance'],
+  properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
+    name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
+    handle: { type: 'string' }, private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+const OS_MY_NOTE = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'provenance'],
+  properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
+    name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
+    private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'provenance'],
+  properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
+    name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' },
+    private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'provenance'],
+  properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
+    name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
+    tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
+    provenance: OS_PROVENANCE } };
+const OS_MARK = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'provenance'],
+  properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
+    name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
+    tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
+    remarked_from_uid: { type: ['string', 'null'] }, visit_count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_COLLECTION = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'name', 'kind', 'count', 'provenance'],   // no integer id — collections genuinely have none today
+  properties: { type: { const: 'collection' }, uid: { type: 'string' }, name: { type: 'string' },
+    kind: { type: 'string' }, count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_VISIT = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'visited_on', 'body', 'provenance'],
+  properties: { type: { const: 'visit' }, uid: { type: 'string' }, id: { type: 'integer' },
+    visited_on: { type: 'string' }, body: { type: 'string' }, provenance: OS_PROVENANCE } };
+const OS_IMAGE = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'ref', 'mime', 'bytes', 'provenance'],
+  properties: { type: { const: 'image' }, uid: { type: 'string' }, id: { type: 'integer' },
+    ref: { type: 'string' }, mime: { type: 'string' }, bytes: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_STATS = { type: 'object', additionalProperties: false,
+  required: ['notes', 'marks', 'notes_without_image', 'notes_by_collection', 'marks_by_country'],
+  properties: { notes: { type: 'integer' }, marks: { type: 'integer' }, notes_without_image: { type: 'integer' },
+    notes_by_collection: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['name', 'count'], properties: { name: { type: 'string' }, count: { type: 'integer' } } } },
+    marks_by_country: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['country', 'count'], properties: { country: { type: 'string' }, count: { type: 'integer' } } } } } };
+
 const TOOLS = [
   { name: 'note_object', description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
     inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
@@ -2039,10 +2101,13 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } },
-  { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} },
+    outputSchema: OS_ITEMS(OS_COLLECTION) },
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 10 } } } },
-  { name: 'my_notes', description: 'List the connected member\'s own notes.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20 } } } },
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 10 } } },
+    outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
+  { name: 'my_notes', description: 'List the connected member\'s own notes.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20 } } },
+    outputSchema: OS_ITEMS(OS_MY_NOTE) },
   { name: 'edit_note', description: 'Edit a note the connected member owns. Only pass the fields being changed — anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id, e.g. from note_object\'s "Noted as #7" or from recent_notes/my_notes.' },
@@ -2072,7 +2137,8 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
   { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
     inputSchema: { type: 'object', required: ['image'], properties: {
-      image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } } },
+      image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } },
+    outputSchema: OS_IMAGE },
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
@@ -2092,14 +2158,15 @@ const TOOLS = [
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
       private: { type: 'boolean' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } },
-  { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough; a rating and a line are optional.',
+  { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough, and a line about it is optional.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer' },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
       body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
   { name: 'list_checkins', description: 'List the check-ins on a travel mark the member owns, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
-      mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } } },
+      mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
+    outputSchema: OS_ITEMS(OS_VISIT) },
   { name: 'edit_checkin', description: 'Edit a check-in the member owns, identified by its own id (from list_checkins). Only pass the fields being changed — visited_on, body, or both. Anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
@@ -2109,14 +2176,17 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer' } } } },
   { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } } },
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } },
+    outputSchema: OS_ITEMS(OS_MARK) },
   { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'Keywords to search for, e.g. "copper pan" or "bangkok"' },
       kind: { type: 'string', enum: ['note', 'mark', 'both'], default: 'both', description: 'Restrict to notes, travel marks, or search both.' },
-      limit: { type: 'integer', default: 15 } } } },
+      limit: { type: 'integer', default: 15 } } },
+    outputSchema: OS_ITEMS({ oneOf: [OS_SEARCH_NOTE, OS_SEARCH_MARK] }) },
   { name: 'catalogue_stats', description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
-    inputSchema: { type: 'object', properties: {} } },
+    inputSchema: { type: 'object', properties: {} },
+    outputSchema: OS_STATS },
 ];
 // Duplicate detection: a cheap normalized-string match rather than a new
 // dependency. Catches "de Buyer Mineral B" vs "de Buyer Mineral B Pro, 28cm"
