@@ -138,6 +138,142 @@ const MIGRATIONS = [
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP)`)],
   ['010-marks-verified',   addColumn('marks', 'verified', 'INTEGER DEFAULT 0')],
+
+  // ---- v1.11 foundation ----------------------------------------------------
+  // UIDs identify the durable thing; provenance records the durable history of
+  // what happened to it. Integer ids stay as internal join keys and as the
+  // human-facing short form in URLs — uids are for export, provenance
+  // references, and anything outside this database.
+  ['011-entity-uids', () => {
+    // A UUIDv4 built in pure SQL, so the trigger below needs no JS.
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    for (const t of ['users', 'objects', 'marks', 'visits', 'collections']) {
+      if (!hasColumn(t, 'uid')) db.exec(`ALTER TABLE ${t} ADD COLUMN uid TEXT`);
+      // SQLite cannot add a UNIQUE column, so: add nullable, backfill, then index.
+      for (const r of db.prepare(`SELECT id FROM ${t} WHERE uid IS NULL OR uid=''`).all()) {
+        db.prepare(`UPDATE ${t} SET uid=? WHERE id=?`).run(crypto.randomUUID(), r.id);
+      }
+      // A trigger rather than instrumenting every INSERT: the invariant then
+      // holds for seed data, migrations, and any future write path that forgets.
+      db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_uid AFTER INSERT ON ${t}
+        WHEN NEW.uid IS NULL OR NEW.uid = ''
+        BEGIN UPDATE ${t} SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${t}_uid ON ${t}(uid)`);
+    }
+  }],
+
+  // An append-only log of assertions. Rows are never updated or deleted, so the
+  // sequence of creation and material edits stays reconstructible. This is
+  // parallel history — the entity tables still hold current state.
+  ['012-provenance', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS provenance (
+      id            INTEGER PRIMARY KEY,
+      entity_type   TEXT NOT NULL,
+      entity_uid    TEXT NOT NULL,
+      action        TEXT NOT NULL,          -- created | edited | enriched | deleted
+      assertion     TEXT NOT NULL,          -- explicit | observed | derived | inferred | unknown
+      actor_type    TEXT NOT NULL,          -- user | ai_on_behalf | system | unknown
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      agent         TEXT NOT NULL,          -- web | mcp:claude | migration | legacy
+      auth_method   TEXT,                   -- session | mcp_token | system | unknown
+      source_kind   TEXT,                   -- manual | unfurl | photon | remark
+      source_ref    TEXT,
+      fields        TEXT,
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_prov_entity ON provenance(entity_type, entity_uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_prov_actor ON provenance(actor_user_id)');
+
+    // Legacy backfill. We cannot know whether these were created by the member,
+    // by an AI through MCP, or by seeding — so we record 'unknown' rather than
+    // inventing an actor. Timestamps are copied so ordering stays truthful.
+    for (const [type, table] of [['object', 'objects'], ['mark', 'marks'],
+                                 ['visit', 'visits'], ['collection', 'collections']]) {
+      for (const r of db.prepare(`SELECT uid, user_id, created_at FROM ${table}`).all()) {
+        db.prepare(`INSERT INTO provenance
+          (entity_type, entity_uid, action, assertion, actor_type, actor_user_id,
+           agent, auth_method, source_kind, created_at)
+          VALUES (?,?,'created','unknown','unknown',?,'legacy','unknown',NULL,?)`)
+          .run(type, r.uid, r.user_id ?? null, r.created_at);
+      }
+    }
+  }],
+
+  // The derived layer. Created empty and stays empty in v1.11 — nothing is
+  // inferred yet. Its existence is the point: when derivation arrives it has a
+  // home that carries confidence and cites its evidence, so it can never be
+  // mistaken for something the member asserted. Dropping this table must never
+  // lose anything that cannot be recomputed.
+  ['013-derived-relations', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS derived_relations (
+      id           INTEGER PRIMARY KEY,
+      subject_type TEXT NOT NULL, subject_uid TEXT NOT NULL,
+      predicate    TEXT NOT NULL,
+      object_type  TEXT NOT NULL, object_uid  TEXT NOT NULL,
+      assertion    TEXT NOT NULL,        -- derived | inferred
+      confidence   REAL,
+      method       TEXT,
+      evidence     TEXT,                 -- JSON array of the evidence uids used
+      computed_at  TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_derived_subject ON derived_relations(subject_type, subject_uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_derived_object ON derived_relations(object_type, object_uid)');
+  }],
+
+  // marks.verified previously meant "coordinates were supplied", which is not
+  // the same claim as "checked against mapping data". The column keeps its
+  // values untouched; what changes is that a verification claim now requires a
+  // provenance row naming what was actually checked. Legacy rows say 'unknown'
+  // because the evidence does not establish that Photon was ever consulted.
+  // Re-marking. A user encountered another user's Mark and deliberately created
+  // their own from it. The new Mark is wholly theirs — this is adoption of
+  // judgment, not shared ownership. The lineage is kept twice on purpose: this
+  // column answers "where did this come from", the provenance row answers
+  // "when and how did that happen".
+  //
+  // What this records is precise: THIS USER'S JUDGMENT WAS USEFUL ENOUGH TO
+  // THAT USER THAT THEY ADOPTED THE MARK. It is not a claim of similar taste.
+  // Any such inference belongs in derived_relations, citing this evidence.
+  ['014-verification-semantics', () => {
+    for (const r of db.prepare('SELECT uid, user_id, created_at FROM marks WHERE verified=1').all()) {
+      db.prepare(`INSERT INTO provenance
+        (entity_type, entity_uid, action, assertion, actor_type, actor_user_id,
+         agent, auth_method, source_kind, source_ref, created_at)
+        VALUES ('mark',?,'enriched','unknown','unknown',?,'legacy','unknown','unknown',NULL,?)`)
+        .run(r.uid, r.user_id ?? null, r.created_at);
+    }
+  }],
+  ['015-remark-lineage', () => {
+    if (!hasColumn('marks', 'remarked_from_uid')) db.exec('ALTER TABLE marks ADD COLUMN remarked_from_uid TEXT');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_marks_remarked_from ON marks(remarked_from_uid)');
+  }],
+
+  // Scope is recorded but not enforced in v1.11. Its presence is what allows
+  // Retrieve/Interpret/Propose/Execute to be separated later without reissuing
+  // every existing connector URL.
+  ['016-token-scope', addColumn('users', 'api_token_scope', "TEXT DEFAULT 'full'")],
+
+  // Comments and follows are canonical evidence but were never given a uid —
+  // they only have an integer id (comments) or no id at all (follows, a
+  // composite-key join table). Provenance needs entity_uid, so this extends
+  // the exact mechanism 011 established to three more tables. Not a redesign
+  // of comments or follows: no new fields, no new capability, same pattern.
+  ['017-secondary-uids', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    for (const t of ['comments', 'mark_comments', 'follows']) {
+      if (!hasColumn(t, 'uid')) db.exec(`ALTER TABLE ${t} ADD COLUMN uid TEXT`);
+      for (const r of db.prepare(`SELECT rowid FROM ${t} WHERE uid IS NULL OR uid=''`).all()) {
+        db.prepare(`UPDATE ${t} SET uid=? WHERE rowid=?`).run(crypto.randomUUID(), r.rowid);
+      }
+      db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_uid AFTER INSERT ON ${t}
+        WHEN NEW.uid IS NULL OR NEW.uid = ''
+        BEGIN UPDATE ${t} SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${t}_uid ON ${t}(uid)`);
+    }
+  }],
+
 ];
 
 function backupTo(file) {
@@ -210,6 +346,47 @@ const CATEGORIES_UNUSED = ['Table', 'Kitchen', 'Wardrobe', 'Study', 'Workshop', 
 const TIERS = ['Under $100', '$100–500', '$500–2,000', '$2,000–10,000', '$10,000 and up'];
 
 // ---------- helpers ----------
+// ---- provenance ------------------------------------------------------------
+// Append-only. Every create and material edit adds a row; nothing is ever
+// updated or deleted, so the sequence of assertions stays reconstructible.
+//
+// The actor is derived from HOW the request authenticated, never passed by the
+// caller — a route cannot accidentally (or deliberately) misattribute a write.
+// `ctx` comes from actorFor(): a session cookie yields a user, an MCP token
+// yields ai_on_behalf.
+function recordProvenance(entity_type, entity_uid, action, ctx, extra = {}) {
+  if (!entity_uid) return;                       // nothing to attach history to
+  q(`INSERT INTO provenance
+      (entity_type, entity_uid, action, assertion, actor_type, actor_user_id,
+       agent, auth_method, source_kind, source_ref, fields)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(entity_type, entity_uid, action,
+         extra.assertion || ctx.assertion || 'explicit',
+         ctx.actor_type, ctx.actor_user_id ?? null, ctx.agent, ctx.auth_method,
+         extra.source_kind || null, extra.source_ref || null,
+         extra.fields ? (Array.isArray(extra.fields) ? extra.fields.join(',') : extra.fields) : null);
+}
+// The web surface: a signed-in member acting directly.
+const webActor = (me) => ({ actor_type: 'user', actor_user_id: me ? me.id : null,
+  agent: 'web', auth_method: 'session', assertion: 'explicit' });
+// The MCP surface: an AI acting on the member's behalf. Canonical evidence —
+// something really did happen — but attributed so it can never be mistaken for
+// the member typing it themselves.
+const mcpActor = (user) => ({ actor_type: 'ai_on_behalf', actor_user_id: user.id,
+  agent: 'mcp:claude', auth_method: 'mcp_token', assertion: 'explicit' });
+// A system process contributing information from an external source.
+const systemActor = (me) => ({ actor_type: 'system', actor_user_id: me ? me.id : null,
+  agent: 'system', auth_method: 'system', assertion: 'derived' });
+// The most recent assertion about an entity, so an AI consuming a tool result
+// can say how the record came to exist rather than guessing.
+function provenanceOf(entity_type, entity_uid) {
+  if (!entity_uid) return null;
+  const r = q(`SELECT action, assertion, actor_type, agent, created_at FROM provenance
+    WHERE entity_type=? AND entity_uid=? ORDER BY id DESC LIMIT 1`).get(entity_type, entity_uid);
+  return r || null;
+}
+const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid=?`).get(id); return r ? r.uid : null; };
+
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const acc = (id) => 'Nº ' + String(id).padStart(4, '0');
 const hashPass = (p) => { const s = crypto.randomBytes(16).toString('hex'); return s + ':' + crypto.scryptSync(p, s, 32).toString('hex'); };
@@ -1038,6 +1215,7 @@ function markCard(m, me, full = false) {
         <div class="mark-buttons">
           <a class="btn-note" href="${mapLink(m)}" rel="noopener">Directions</a>
           ${me && me.id === m.user_id ? `<button type="button" class="btn-note" data-checkin="/m/${m.id}/checkin" data-place="${esc(m.name)}">Check in</button>` : ''}
+          ${me && me.id !== m.user_id ? `<form method="post" action="/m/${m.id}/remark"><button class="btn-note">Mark this</button></form>` : ''}
         </div>
       </div>
       <div class="mark-foot"><button type="button" class="nf-link-btn share-mark" data-share="/m/${m.id}" data-title="${esc(m.name)}">Share</button></div>
@@ -1334,6 +1512,13 @@ ${noters.length ? `<div class="section-rule"></div>
     const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
     const ask = url.searchParams.get('ask') && owner && !visits.length;
     const author = q('SELECT * FROM users WHERE id=?').get(m.user_id);
+    // Lineage. Both directions are explicit evidence, not inference: who this
+    // Mark was adopted from, and who has since adopted it.
+    const source = m.remarked_from_uid
+      ? q('SELECT mk.id, mk.name, u.handle FROM marks mk JOIN users u ON u.id=mk.user_id WHERE mk.uid=?').get(m.remarked_from_uid)
+      : null;
+    const remarkers = q(`SELECT mk.id, u.handle, u.name, u.avatar FROM marks mk
+      JOIN users u ON u.id=mk.user_id WHERE mk.remarked_from_uid=? ORDER BY mk.created_at`).all(m.uid);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
 <section class="feed profile-feed">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=marks">Travel Marks</a> › <span class="crumb-here">Mark</span></h3>
@@ -1351,6 +1536,16 @@ ${noters.length ? `<div class="section-rule"></div>
     </li>`).join('')}</ol>
   </aside>` : ''}
 </div>
+${source
+  ? `<p class="remark-source">Marked from <a href="/m/${source.id}">@${esc(source.handle)}’s mark</a></p>`
+  : (m.remarked_from_uid ? `<p class="remark-source remark-source-gone">Marked from a place since removed.</p>` : '')}
+${remarkers.length ? `<div class="section-rule"></div>
+<section class="noters">
+  <details class="noters-fold" open>
+    <summary><span class="lbl noters-title" data-open="Also marked by" data-shut="Also marked by ${remarkers.length} ${remarkers.length === 1 ? 'person' : 'people'}">Also marked by</span></summary>
+    <ul class="noter-list ${remarkers.length === 1 ? 'is-one' : ''}">${remarkers.map((n) => `<li><a href="/m/${n.id}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('')}</ul>
+  </details>
+</section>` : ''}
 <div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
@@ -1899,15 +2094,31 @@ async function mcpCall(user, name, a = {}) {
     const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(user.id, r.lastInsertRowid);
     if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
+    recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', mcpActor(user),
+      { source_kind: a.link ? 'unfurl' : 'manual', source_ref: a.link || null });
     return `Noted as #${r.lastInsertRowid}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`;
   }
   if (name === 'recent_notes') {
-    const lim = Math.min(+a.limit || 10, 50); const s = (a.query || '').trim();
-    const rows = s ? q(OBJ_SQL + ' WHERE o.private=0 AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC LIMIT ?').all(`%${s}%`, `%${s}%`, `%${s}%`, lim) : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT ?').all(lim);
-    return rows.map(fmt).join('\n') || 'No notes yet.';
+    const lim = Math.min(+a.limit || 10, 50); const sq = (a.query || '').trim();
+    const rows = sq ? q(OBJ_SQL + ' WHERE o.private=0 AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC LIMIT ?').all(`%${sq}%`, `%${sq}%`, `%${sq}%`, lim) : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT ?').all(lim);
+    return { text: rows.map(fmt).join('\n') || 'No notes yet.',
+      structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
+        tags: o.tags, url: o.url, handle: o.handle, private: !!o.private, provenance: provenanceOf('object', o.uid) })) } };
   }
-  if (name === 'my_collections') return q('SELECT c.name, (SELECT COUNT(*) FROM object_collections oc WHERE oc.collection_id=c.id) n FROM collections c WHERE c.user_id=? ORDER BY c.name').all(user.id).map((c) => `${c.name} (${c.n})`).join('\n') || 'No collections yet.';
-  if (name === 'my_notes') return q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50)).map(fmt).join('\n') || 'No notes yet.';
+  if (name === 'my_collections') {
+    const rows = q(`SELECT c.uid, c.name, c.kind,
+        (SELECT COUNT(*) FROM object_collections oc WHERE oc.collection_id=c.id) n
+      FROM collections c WHERE c.user_id=? ORDER BY c.name`).all(user.id);
+    return { text: rows.map((c) => `${c.name} (${c.n})`).join('\n') || 'No collections yet.',
+      structured: { items: rows.map((c) => ({ type: 'collection', uid: c.uid, name: c.name, kind: c.kind || 'note',
+        count: c.n, provenance: provenanceOf('collection', c.uid) })) } };
+  }
+  if (name === 'my_notes') {
+    const rows = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50));
+    return { text: rows.map(fmt).join('\n') || 'No notes yet.',
+      structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
+        tags: o.tags, url: o.url, private: !!o.private, provenance: provenanceOf('object', o.uid) })) } };
+  }
   if (name === 'edit_note') {
     if (!a.id) throw new Error('id is required');
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
@@ -1921,6 +2132,7 @@ async function mcpCall(user, name, a = {}) {
     const priv = a.private !== undefined ? (a.private ? 1 : 0) : o.private;
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?').run(name_, why, tags, url, image, priv, o.id);
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
+    recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return `Updated #${o.id}: ${name_}`;
   }
   if (name === 'verify_place') {
@@ -1950,14 +2162,31 @@ async function mcpCall(user, name, a = {}) {
       const dup = findSimilarMark(user.id, a.place);
       if (dup) return `This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`;
     }
+    // Coordinates being supplied is not the same claim as "this was checked
+    // against mapping data" — verified defaults to 0 here exactly as it does
+    // on the web path. Provenance records the coordinates honestly below,
+    // without asserting a verification that did not happen.
     const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,verified) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(user.id, String(a.place).trim(), a.locality || '', a.country || '', a.address || '',
            a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
-           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0,
-           a.lat != null && a.lng != null ? 1 : 0);
+           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0, 0);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, r.lastInsertRowid, a.collections);
     const day = a.visited_on || new Date().toISOString().slice(0, 10);
     q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, user.id, day, '');
+    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', mcpActor(user),
+      { source_kind: 'manual' });
+    // A verification claim must name what it rests on. Coordinates supplied by
+    // the caller are evidence of coordinates, not proof a lookup happened — so
+    // the source is recorded as 'coordinates_supplied', never 'photon', unless
+    // a lookup is what actually produced them.
+    if (a.lat != null && a.lng != null) {
+      recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'enriched',
+        { actor_type: 'system', actor_user_id: user.id, agent: 'mcp:claude',
+          auth_method: 'mcp_token', assertion: 'derived' },
+        { source_kind: 'coordinates_supplied', source_ref: `${a.lat},${a.lng}` });
+    }
+    recordProvenance('visit', uidOf('visits', q('SELECT MAX(id) i FROM visits').get().i), 'created', mcpActor(user),
+      { source_kind: 'manual' });
     const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
     return `Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})${verifiedNote}`;
   }
@@ -1980,6 +2209,7 @@ async function mcpCall(user, name, a = {}) {
     q('UPDATE marks SET name=?,locality=?,country=?,address=?,lat=?,lng=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
       .run(name_, locality, country, address, lat, lng, why, tags, url, image, priv, mk.id);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, mk.id, a.collections);
+    recordProvenance('mark', mk.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return `Updated #${mk.id}: ${name_}`;
   }
   if (name === 'delete_travel_mark') {
@@ -1987,6 +2217,7 @@ async function mcpCall(user, name, a = {}) {
     const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
     if (!mk) throw new Error(`No travel mark #${a.id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
+    recordProvenance('mark', mk.uid, 'deleted', mcpActor(user));
     q('DELETE FROM marks WHERE id=?').run(mk.id);
     return `Deleted #${mk.id}: ${mk.name}`;
   }
@@ -1996,7 +2227,8 @@ async function mcpCall(user, name, a = {}) {
     if (!mk) throw new Error(`No travel mark #${a.id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
     const day = a.visited_on || new Date().toISOString().slice(0, 10);
-    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, user.id, day, String(a.body || '').trim());
+    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, user.id, day, String(a.body || '').trim());
+    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user), { source_kind: 'manual' });
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
     return `Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`;
   }
@@ -2004,10 +2236,15 @@ async function mcpCall(user, name, a = {}) {
     const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
     let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(user.id);
     if (k) rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k));
-    return rows.slice(0, lim).map((x) => {
-      const vs = markVisits(x.id);
-      return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
-    }).join('\n') || 'No travel marks yet.';
+    const top = rows.slice(0, lim);
+    return { text: top.map((x) => {
+        const vs = markVisits(x.id);
+        return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
+      }).join('\n') || 'No travel marks yet.',
+      structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
+        country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
+        remarked_from_uid: x.remarked_from_uid || null, visit_count: markVisits(x.id).length,
+        provenance: provenanceOf('mark', x.uid) })) } };
   }
   if (name === 'search_catalogue') {
     const k = String(a.query || '').trim();
@@ -2019,15 +2256,24 @@ async function mcpCall(user, name, a = {}) {
     if (kind !== 'mark') {
       q(OBJ_SQL + ' WHERE o.user_id=? AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC')
         .all(user.id, `%${k}%`, `%${k}%`, `%${k}%`)
-        .forEach((o) => hits.push({ at: o.created_at, line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}` }));
+        .forEach((o) => hits.push({ at: o.created_at,
+          line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
+          item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private } }));
     }
     if (kind !== 'note') {
       q(MARK_SQL + ' WHERE m.user_id=?').all(user.id)
         .filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(kl))
-        .forEach((x) => hits.push({ at: x.created_at, line: `MARK #${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''}` }));
+        .forEach((x) => hits.push({ at: x.created_at,
+          line: `MARK #${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''}`,
+          item: { type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality, country: x.country,
+                  why: x.why, tags: x.tags, private: !!x.private, remarked_from_uid: x.remarked_from_uid || null } }));
     }
     hits.sort((x, y) => (x.at < y.at ? 1 : -1));
-    return hits.slice(0, lim).map((h) => h.line).join('\n') || `Nothing in the catalogue matches "${k}".`;
+    const top = hits.slice(0, lim);
+    return {
+      text: top.map((h) => h.line).join('\n') || `Nothing in the catalogue matches "${k}".`,
+      structured: { items: top.map((h) => ({ ...h.item, provenance: provenanceOf(h.item.type, h.item.uid) })) },
+    };
   }
   if (name === 'catalogue_stats') {
     const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(user.id).c;
@@ -2041,13 +2287,19 @@ async function mcpCall(user, name, a = {}) {
     if (noImage) lines.push(`${noImage} note${noImage === 1 ? '' : 's'} with no image.`);
     if (byColl.length) lines.push('Notes by collection: ' + byColl.map((r) => `${r.name} (${r.n})`).join(', '));
     if (byCountry.length) lines.push('Marks by country: ' + byCountry.map((r) => `${r.country} (${r.n})`).join(', '));
-    return lines.join('\n');
+    // An aggregate has no single provenance — it summarises many rows, not one.
+    // Structured form carries the counts as data rather than only as prose.
+    return { text: lines.join('\n'),
+      structured: { notes, marks, notes_without_image: noImage,
+        notes_by_collection: byColl.map((r) => ({ name: r.name, count: r.n })),
+        marks_by_country: byCountry.map((r) => ({ country: r.country, count: r.n })) } };
   }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
     if (!o) throw new Error(`No note #${a.id}`);
     if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
+    recordProvenance('object', o.uid, 'deleted', mcpActor(user));
     q('DELETE FROM objects WHERE id=?').run(o.id);
     return `Deleted #${a.id}: ${o.name}`;
   }
@@ -2066,7 +2318,18 @@ async function mcp(req, res, tok) {
   if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those, and edit_travel_mark/delete_travel_mark to change or remove one. Before adding a travel mark, call verify_place unless you already have a precise address — show the member the match (or the fact that nothing was found) and get their confirmation before writing; never invent coordinates. Both note_object and add_travel_mark also check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting anything.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
-  if (method === 'tools/call') { try { return reply(id, { content: [{ type: 'text', text: await mcpCall(user, params.name, params.arguments) }] }); } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); } }
+  if (method === 'tools/call') {
+    try {
+      const out = await mcpCall(user, params.name, params.arguments);
+      // Text stays exactly as it was, so existing clients are unaffected.
+      // structuredContent is additive and carries provenance, so the six
+      // questions in the MCP Policy remain answerable inside the AI's context
+      // rather than only inside our database.
+      const payload = { content: [{ type: 'text', text: typeof out === 'string' ? out : out.text }] };
+      if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
+      return reply(id, payload);
+    } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); }
+  }
   return reply(id, null, { code: -32601, message: 'Method not found' });
 }
 
@@ -2147,7 +2410,10 @@ async function handle(req, res) {
     const b = await readBody(req); const name = (b.name || '').trim();
     if (name && name !== c.name) {
       const clash = q('SELECT id FROM collections WHERE user_id=? AND name=? AND kind=? AND id<>?').get(me.id, name, c.kind, c.id);
-      if (!clash) q('UPDATE collections SET name=? WHERE id=?').run(name, c.id);
+      if (!clash) {
+        q('UPDATE collections SET name=? WHERE id=?').run(name, c.id);
+        recordProvenance('collection', c.uid, 'edited', webActor(me), { source_kind: 'manual', fields: 'name' });
+      }
     }
     return redirect(res, `/u/${me.handle}?tab=${c.kind === 'mark' ? 'marks' : 'notes'}&c=${c.id}`);
   }
@@ -2155,13 +2421,19 @@ async function handle(req, res) {
     if (!me) return need();
     const b = await readBody(req); const name = (b.name || '').trim();
     const kind = b.kind === 'mark' ? 'mark' : 'note';
-    if (name) q('INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,?)').run(me.id, name, kind);
+    if (name) {
+      const r = q('INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,?)').run(me.id, name, kind);
+      if (r.changes) recordProvenance('collection', uidOf('collections', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    }
     return redirect(res, `/u/${me.handle}?tab=${kind === 'mark' ? 'marks' : 'notes'}`);
   }
   if ((mt = p.match(/^\/collections\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const c = q('SELECT * FROM collections WHERE id=? AND user_id=?').get(+mt[1], me.id);
-    if (c) q('DELETE FROM collections WHERE id=?').run(c.id);
+    if (c) {
+      recordProvenance('collection', c.uid, 'deleted', webActor(me));
+      q('DELETE FROM collections WHERE id=?').run(c.id);
+    }
     return redirect(res, `/u/${me.handle}?tab=${c && c.kind === 'mark' ? 'marks' : 'notes'}`);
   }
   if (p === '/admin/backup' && m === 'GET') {
@@ -2217,6 +2489,7 @@ async function handle(req, res) {
            isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
            tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
     setMarkCollections(me.id, r.lastInsertRowid, colls);
+    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
   }
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
@@ -2232,12 +2505,38 @@ async function handle(req, res) {
            isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
            tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, mk.id);
     setMarkCollections(mk.user_id, mk.id, [...b.coll, ...(b.newcoll || '').split(',')]);
+    recordProvenance('mark', mk.uid, 'edited', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/m/${mk.id}`);
+  }
+  // Re-mark: create my own Mark from someone else's. The new Mark is wholly
+  // mine; theirs is untouched. What carries over are facts about the place.
+  // What does not is anything they authored — `why` is their reasoning in their
+  // own voice, and copying it would silently put their words in my mouth.
+  if ((mt = p.match(/^\/m\/(\d+)\/remark$/)) && m === 'POST') {
+    if (!me) return need();
+    const src = q('SELECT * FROM marks WHERE id=?').get(+mt[1]);
+    if (!src) return send(res, 'No such travel mark', 404);
+    if (src.private && src.user_id !== me.id) return send(res, 'Not yours', 403);
+    // Re-marking your own Mark is duplication, not adoption of another's
+    // judgment, and would contaminate the directional signal.
+    if (src.user_id === me.id) return send(res, 'You cannot re-mark your own travel mark', 400);
+    const r = q(`INSERT INTO marks
+        (user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,verified,remarked_from_uid)
+        VALUES (?,?,?,?,?,?,?,'','',?,?,0,0,?)`)
+      .run(me.id, src.name, src.locality, src.country, src.address, src.lat, src.lng,
+           src.url || '', src.image || '', src.uid);
+    //  copied: name, locality, country, address, lat/lng, image, url
+    //  empty : why (theirs), tags (authored), collections, verified, private
+    //  never : visits — experience is personal and not transferable
+    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', webActor(me),
+      { source_kind: 'remark', source_ref: src.uid });
+    return redirect(res, `/m/${r.lastInsertRowid}/edit`);   // they write their own why
   }
   if ((mt = p.match(/^\/m\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
     if (!mk) return send(res, 'Not yours', 403);
+    recordProvenance('mark', mk.uid, 'deleted', webActor(me));
     q('DELETE FROM marks WHERE id=?').run(mk.id);
     return redirect(res, `/u/${me.handle}?tab=marks`);
   }
@@ -2245,7 +2544,10 @@ async function handle(req, res) {
     if (!me) return need();
     const mk = q('SELECT id FROM marks WHERE id=?').get(+mt[1]); if (!mk) return send(res, 'Not found', 404);
     const b = await readBody(req); const t = (b.body || '').trim();
-    if (t) q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
+    if (t) {
+      const r = q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
+      recordProvenance('mark_comment', uidOf('mark_comments', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    }
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/checkin$/)) && m === 'POST') {
@@ -2253,8 +2555,9 @@ async function handle(req, res) {
     const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
     if (!mk) return send(res, 'Not yours', 403);
     const b = await readBody(req);
-    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
+    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
       .run(mk.id, me.id, new Date().toISOString().slice(0, 10), (b.body || '').trim());
+    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits$/)) && m === 'POST') {
@@ -2262,8 +2565,11 @@ async function handle(req, res) {
     const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
     if (!mk) return send(res, 'Not yours', 403);
     const b = await readBody(req);
-    if (b.visited_on) q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
-      .run(mk.id, me.id, b.visited_on, (b.body || '').trim());
+    if (b.visited_on) {
+      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
+        .run(mk.id, me.id, b.visited_on, (b.body || '').trim());
+      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    }
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/edit$/)) && m === 'POST') {
@@ -2272,20 +2578,17 @@ async function handle(req, res) {
     if (!mk) return send(res, 'Not yours', 403);
     const b = await readBody(req);
     q('UPDATE visits SET body=? WHERE id=? AND mark_id=?').run((b.body || '').trim(), +mt[2], mk.id);
-    return redirect(res, `/m/${mk.id}`);
-  }
-  if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/edit$/)) && m === 'POST') {
-    if (!me) return need();
-    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
-    if (!mk) return send(res, 'Not yours', 403);
-    const b = await readBody(req);
-    q('UPDATE visits SET body=? WHERE id=? AND mark_id=?').run((b.body || '').trim(), +mt[2], mk.id);
+    recordProvenance('visit', uidOf('visits', +mt[2]), 'edited', webActor(me), { source_kind: 'manual', fields: 'body' });
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
-    if (mk) q('DELETE FROM visits WHERE id=? AND mark_id=?').run(+mt[2], mk.id);
+    if (mk) {
+      const vu = uidOf('visits', +mt[2]);
+      const r = q('DELETE FROM visits WHERE id=? AND mark_id=?').run(+mt[2], mk.id);
+      if (r.changes && vu) recordProvenance('visit', vu, 'deleted', webActor(me));
+    }
     return redirect(res, `/m/${mt[1]}`);
   }
   if (p === '/new') {
@@ -2298,20 +2601,31 @@ async function handle(req, res) {
       .run(me.id, b.name.trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
     q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)').run(me.id, r.lastInsertRowid, '');
     setCollections(me.id, r.lastInsertRowid, colls);
+    recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/o/${r.lastInsertRowid}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)$/))) return pages.object(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/o\/(\d+)\/(note|unnote)$/)) && m === 'POST') {
     if (!me) return need();
-    if (mt[2] === 'note') q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(me.id, +mt[1]);
-    else if (!q('SELECT 1 FROM objects WHERE id=? AND user_id=?').get(+mt[1], me.id)) q('DELETE FROM notes WHERE user_id=? AND object_id=?').run(me.id, +mt[1]);
+    if (mt[2] === 'note') {
+      // A re-note is explicit evidence: this member adopted another's record.
+      // INSERT OR IGNORE no-ops if it already exists — log nothing in that case.
+      const r = q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(me.id, +mt[1]);
+      if (r.changes) recordProvenance('object', uidOf('objects', +mt[1]), 'renoted', webActor(me), { source_kind: 'renote' });
+    } else if (!q('SELECT 1 FROM objects WHERE id=? AND user_id=?').get(+mt[1], me.id)) {
+      const r = q('DELETE FROM notes WHERE user_id=? AND object_id=?').run(me.id, +mt[1]);
+      if (r.changes) recordProvenance('object', uidOf('objects', +mt[1]), 'unrenoted', webActor(me), { source_kind: 'renote' });
+    }
     return redirect(res, req.headers.referer || `/o/${mt[1]}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
     const o = q('SELECT id FROM objects WHERE id=?').get(+mt[1]); if (!o) return send(res, 'Not found', 404);
     const b = await readBody(req); const body = (b.body || '').trim();
-    if (body) q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
+    if (body) {
+      const r = q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
+      recordProvenance('comment', uidOf('comments', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    }
     return redirect(res, `/o/${o.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/edit$/))) {
@@ -2322,11 +2636,13 @@ async function handle(req, res) {
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
       .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, o.id);
     setCollections(o.user_id, o.id, [...b.coll, ...(b.newcoll || '').split(',')]);
+    recordProvenance('object', o.uid, 'edited', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/o/${o.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
+    recordProvenance('object', o.uid, 'deleted', webActor(me));
     q('DELETE FROM objects WHERE id=?').run(o.id);
     return redirect(res, `/u/${me.handle}?tab=notes`);
   }
@@ -2334,8 +2650,17 @@ async function handle(req, res) {
     if (!me) return need();
     const t = q('SELECT id FROM users WHERE handle=?').get(mt[1]); if (!t || t.id === me.id) return redirect(res, '/');
     const b = await readBody(req);
-    if (mt[2] === 'follow') q('INSERT OR IGNORE INTO follows(follower_id,followee_id) VALUES(?,?)').run(me.id, t.id);
-    else q('DELETE FROM follows WHERE follower_id=? AND followee_id=?').run(me.id, t.id);
+    // Explicit, directional attention evidence — never interpreted here as
+    // similarity or preference. Guarded by r.changes so a no-op (already
+    // following, or not following) writes no provenance.
+    if (mt[2] === 'follow') {
+      const r = q('INSERT OR IGNORE INTO follows(follower_id,followee_id) VALUES(?,?)').run(me.id, t.id);
+      if (r.changes) recordProvenance('follow', uidOf('follows', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    } else {
+      const fu = q('SELECT uid FROM follows WHERE follower_id=? AND followee_id=?').get(me.id, t.id);
+      const r = q('DELETE FROM follows WHERE follower_id=? AND followee_id=?').run(me.id, t.id);
+      if (r.changes && fu) recordProvenance('follow', fu.uid, 'deleted', webActor(me));
+    }
     return redirect(res, b.back || `/u/${mt[1]}`);
   }
   if ((mt = p.match(/^\/u\/([a-z0-9]+)$/))) return pages.user(req, res, me, mt[1], url);

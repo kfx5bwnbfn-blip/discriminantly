@@ -1299,3 +1299,11 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* the rail's compose glyph is drawn at 44x48 for the curtain nub — scale it
    down to match the other rail icons rather than dominate the stack */
 .iconrail-compose svg { width: 19px; height: 19px; }
+
+/* re-mark lineage: where this mark was adopted from */
+.remark-source { margin: .6rem 0 0; text-align: center; font-family: var(--slab);
+  font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.remark-source a { color: var(--link); }
+
+/* re-mark lineage: the source no longer exists, but the relationship still happened */
+.remark-source-gone { color: var(--ink-soft); opacity: .75; }
