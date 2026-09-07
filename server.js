@@ -264,14 +264,34 @@ const MIGRATIONS = [
       substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
     for (const t of ['comments', 'mark_comments', 'follows']) {
       if (!hasColumn(t, 'uid')) db.exec(`ALTER TABLE ${t} ADD COLUMN uid TEXT`);
-      for (const r of db.prepare(`SELECT rowid FROM ${t} WHERE uid IS NULL OR uid=''`).all()) {
-        db.prepare(`UPDATE ${t} SET uid=? WHERE rowid=?`).run(crypto.randomUUID(), r.rowid);
+      // Explicit alias: on a table with `id INTEGER PRIMARY KEY`, id is a
+      // rowid alias, and SELECT rowid otherwise comes back keyed as "id" —
+      // aliasing it to _rid makes the property name predictable either way.
+      for (const r of db.prepare(`SELECT rowid AS _rid FROM ${t} WHERE uid IS NULL OR uid=''`).all()) {
+        db.prepare(`UPDATE ${t} SET uid=? WHERE rowid=?`).run(crypto.randomUUID(), r._rid);
       }
       db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_uid AFTER INSERT ON ${t}
         WHEN NEW.uid IS NULL OR NEW.uid = ''
         BEGIN UPDATE ${t} SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${t}_uid ON ${t}(uid)`);
     }
+  }],
+
+  // Images predate the v1.11 foundation and were out of scope for 011/017.
+  // Same mechanism, same reasoning: a stable uid is required before an image
+  // can carry provenance, and every other entity in the evidence graph has one.
+  ['018-image-uids', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    if (!hasColumn('images', 'uid')) db.exec('ALTER TABLE images ADD COLUMN uid TEXT');
+    for (const r of db.prepare("SELECT rowid AS _rid FROM images WHERE uid IS NULL OR uid=''").all()) {
+      db.prepare('UPDATE images SET uid=? WHERE rowid=?').run(crypto.randomUUID(), r._rid);
+    }
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_images_uid AFTER INSERT ON images
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE images SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_images_uid ON images(uid)');
   }],
 
 ];
@@ -1010,13 +1030,36 @@ function setMarkCollections(userId, markId, names) {
 // and stored as bytes, so pages reference /i/<id> and the browser can cache it
 // instead of re-downloading the picture inside every HTML response.
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-function storeImage(userId, value) {
+// Only these four are accepted. SVG is deliberately excluded — it can carry
+// script and is already excluded from unfurl image candidates for that reason.
+const IMAGE_MIME_ALLOW = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+// The declared mime is only ever a client-supplied string. Check the actual
+// bytes start with the right signature before trusting it, since MCP exposes
+// this to a wider input surface than a browser's own file picker.
+function imageBytesMatchMime(bytes, mime) {
+  const b = bytes;
+  if (mime === 'image/png') return b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47;
+  if (mime === 'image/jpeg') return b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  if (mime === 'image/gif') return b.length >= 6 && b.toString('ascii', 0, 4) === 'GIF8';
+  if (mime === 'image/webp') return b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP';
+  return false;
+}
+// Every image gets exactly one 'created' provenance row, regardless of which
+// of the five call sites reached it — actorCtx defaults to a web session, so
+// the four existing web-form callers get provenance with no change on their
+// part; the MCP upload tool passes mcpActor(user) explicitly.
+function storeImage(userId, value, actorCtx) {
   const v = (value || '').trim();
   const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(v);
-  if (!m) return v;
+  if (!m) return v;                                  // not a data: URL — an external link passes through unchanged
+  const mime = m[1].toLowerCase();
+  if (!IMAGE_MIME_ALLOW.has(mime)) return '';
   const bytes = Buffer.from(m[2], 'base64');
   if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return '';
-  const r = q('INSERT INTO images(user_id,mime,bytes) VALUES(?,?,?)').run(userId, m[1], bytes);
+  if (!imageBytesMatchMime(bytes, mime)) return '';   // declared type does not match the actual bytes
+  const r = q('INSERT INTO images(user_id,mime,bytes) VALUES(?,?,?)').run(userId, mime, bytes);
+  const uid = uidOf('images', r.lastInsertRowid);
+  recordProvenance('image', uid, 'created', actorCtx || webActor({ id: userId }), { source_kind: 'manual' });
   return `/i/${r.lastInsertRowid}`;
 }
 
@@ -2023,6 +2066,9 @@ const TOOLS = [
       private: { type: 'boolean' } } } },
   { name: 'delete_travel_mark', description: 'Permanently delete a travel mark the connected member owns, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+  { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
+    inputSchema: { type: 'object', required: ['image'], properties: {
+      image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } } },
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
@@ -2134,6 +2180,16 @@ async function mcpCall(user, name, a = {}) {
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return `Updated #${o.id}: ${name_}`;
+  }
+  if (name === 'upload_image') {
+    if (!a.image) throw new Error('image is required');
+    const ref = storeImage(user.id, a.image, mcpActor(user));
+    if (!ref) throw new Error('Could not store that image — check it is PNG, JPEG, WEBP, or GIF, matches its declared type, and is under 6 MB.');
+    const idNum = +ref.split('/')[2];
+    const img = q('SELECT uid, mime, length(bytes) AS bytes FROM images WHERE id=?').get(idNum);
+    return { text: `Uploaded: ${ref} (${img.mime}, ${Math.round(img.bytes / 1024)} KB)`,
+      structured: { type: 'image', uid: img.uid, id: idNum, ref, mime: img.mime, bytes: img.bytes,
+        provenance: provenanceOf('image', img.uid) } };
   }
   if (name === 'verify_place') {
     const q_ = String(a.query || '').trim();
