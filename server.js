@@ -2024,6 +2024,15 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
+// One shared description for every `image` parameter, so the warning can't
+// drift out of sync across tools. The failure this exists to prevent: an AI
+// holds real image bytes (a file the member shared, or one it generated) and
+// passes its own local file path straight through as if it were already a
+// stored reference. That path only means something inside the AI's own
+// environment — the resulting note renders a broken image, silently, days
+// later, with no error at creation time to catch it.
+const IMAGE_FIELD_DESC = 'An image reference: either a real https:// URL to an existing picture, or a /i/<id> reference returned by upload_image. If you have the image\'s actual bytes rather than a public URL — a file the member shared with you, or one you generated — call upload_image first and use its returned reference here. Never pass a local file path from your own environment (anything starting with /mnt/ or similar); that path only exists in this conversation and the image will not load once the note is saved.';
+
 const TOOLS = [
   { name: 'note_object', description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
     inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
@@ -2031,7 +2040,7 @@ const TOOLS = [
       description: { type: 'string', description: 'One to three sentences: what it is and why it is worth noting, in the member\'s voice' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["kitchen","copper","france"]' },
       link: { type: 'string', description: 'URL where the object can be found' },
-      image: { type: 'string', description: 'Image URL for the object. Required — every note carries an image.' },
+      image: { type: 'string', description: IMAGE_FIELD_DESC + ' Required — every note carries an image.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } },
@@ -2046,7 +2055,7 @@ const TOOLS = [
       description: { type: 'string' },
       tags: { type: 'array', items: { type: 'string' } },
       link: { type: 'string' },
-      image: { type: 'string' },
+      image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean' } } } },
   { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
@@ -2061,7 +2070,7 @@ const TOOLS = [
       lat: { type: 'number' }, lng: { type: 'number' },
       why: { type: 'string' },
       tags: { type: 'array', items: { type: 'string' } },
-      link: { type: 'string' }, image: { type: 'string' },
+      link: { type: 'string' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
       private: { type: 'boolean' } } } },
   { name: 'delete_travel_mark', description: 'Permanently delete a travel mark the connected member owns, including its visit history. Cannot be undone.',
@@ -2083,7 +2092,7 @@ const TOOLS = [
       lng: { type: 'number' },
       why: { type: 'string', description: 'Why it is worth returning to, written in the member\'s voice from what they said. If they were vague, draw on the conversation and on what you know of the place to write two useful sentences — what it is, what to order or do, what makes it worth the return.' },
       tags: { type: 'array', items: { type: 'string' } },
-      link: { type: 'string' }, image: { type: 'string' },
+      link: { type: 'string' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' } },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
       private: { type: 'boolean' },
