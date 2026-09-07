@@ -1312,22 +1312,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 </form>
 <script>
 (function () {
-  var drop = document.getElementById('img-drop-${idp}'), input = document.getElementById('img-input-${idp}'), prev = document.getElementById('img-prev-${idp}');
-  function refresh() { if (input.value) { prev.src = input.value; prev.hidden = false; drop.classList.add('has-image'); } else { prev.hidden = true; drop.classList.remove('has-image'); } }
-  input.addEventListener('input', refresh);
-  var pick = document.createElement('input');
-  pick.type = 'file'; pick.accept = 'image/*'; pick.style.display = 'none';
-  drop.appendChild(pick);
-  drop.addEventListener('click', function (e) { if (e.target === input) return; pick.click(); });
-  pick.addEventListener('change', function () { readImage(pick.files[0], function (d) { input.value = d; refresh(); }); });
-  ['dragenter','dragover'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.add('dragover'); }); });
-  ['dragleave','drop'].forEach(function (e) { drop.addEventListener(e, function (ev) { ev.preventDefault(); drop.classList.remove('dragover'); }); });
-  drop.addEventListener('drop', function (ev) {
-    ev.preventDefault(); var f = ev.dataTransfer.files && ev.dataTransfer.files[0];
-    if (f && f.type.indexOf('image/') === 0) { readImage(f, function (d) { input.value = d; refresh(); }); return; }
-    var u = ev.dataTransfer.getData('text/uri-list') || ev.dataTransfer.getData('text/plain');
-    if (u) { input.value = u.trim(); refresh(); }
-  });
   // Place lookup via Photon (Komoot). OSM data, no API key, built for
   // search-as-you-type. Nominatim explicitly forbids client-side autocomplete.
   var lk = document.getElementById('lookup-input-${idp}'), list = document.getElementById('lookup-list-${idp}');
@@ -1376,7 +1360,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     det.addEventListener('change', sync);
     document.addEventListener('click', function (e) { if (!det.contains(e.target)) det.removeAttribute('open'); });
   }
-  refresh();
 })();
 </script>`;
 }
