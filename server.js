@@ -406,6 +406,18 @@ function provenanceOf(entity_type, entity_uid) {
   return r || null;
 }
 const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid=?`).get(id); return r ? r.uid : null; };
+// Rejects strings that merely look like YYYY-MM-DD but aren't a real calendar
+// date (2026-02-30, month 13, non-leap Feb 29). Date's own constructor is too
+// forgiving for this — it silently rolls 2026-02-30 into March 2 — so validity
+// is checked by round-tripping through Date.UTC and comparing every field.
+function isValidCalendarDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+  if (!m) return false;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const acc = (id) => 'Nº ' + String(id).padStart(4, '0');
@@ -2085,6 +2097,17 @@ const TOOLS = [
       id: { type: 'integer' },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
       body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
+  { name: 'list_checkins', description: 'List the check-ins on a travel mark the member owns, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
+    inputSchema: { type: 'object', required: ['mark_id'], properties: {
+      mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } } },
+  { name: 'edit_checkin', description: 'Edit a check-in the member owns, identified by its own id (from list_checkins). Only pass the fields being changed — visited_on, body, or both. Anything omitted is left as is.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
+      visited_on: { type: 'string', description: 'YYYY-MM-DD. Must be a real calendar date.' },
+      body: { type: 'string' } } } },
+  { name: 'delete_checkin', description: 'Permanently delete a single check-in the member owns. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer' } } } },
   { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags.',
     inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } } },
   { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description.',
@@ -2279,6 +2302,48 @@ async function mcpCall(user, name, a = {}) {
     recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user), { source_kind: 'manual' });
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
     return `Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`;
+  }
+  if (name === 'list_checkins') {
+    if (!a.mark_id) throw new Error('mark_id is required');
+    const mk = q('SELECT * FROM marks WHERE id=?').get(a.mark_id);
+    if (!mk) throw new Error(`No travel mark #${a.mark_id}`);
+    if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.mark_id} does not belong to this member`);
+    const vs = markVisits(mk.id);   // already ordered visited_on DESC, id DESC — reused as-is
+    return { text: vs.map((v) => `#${v.id} ${v.visited_on}${v.body ? ` — ${v.body}` : ''}`).join('\n')
+        || 'No check-ins yet.',
+      structured: { items: vs.map((v) => ({ type: 'visit', uid: v.uid, id: v.id,
+        visited_on: v.visited_on, body: v.body, provenance: provenanceOf('visit', v.uid) })) } };
+  }
+  if (name === 'edit_checkin') {
+    if (!a.id) throw new Error('id is required');
+    // Ownership runs through the parent mark, not visits.user_id, so a
+    // check-in can never be edited by anyone but the mark's owner.
+    const v = q(`SELECT v.*, m.user_id AS mark_owner FROM visits v
+      JOIN marks m ON m.id = v.mark_id WHERE v.id = ?`).get(a.id);
+    if (!v) throw new Error(`No such check-in #${a.id}`);
+    if (v.mark_owner !== user.id) throw new Error(`Check-in #${a.id} does not belong to this member`);
+    if (a.visited_on !== undefined && !isValidCalendarDate(a.visited_on))
+      throw new Error(`"${a.visited_on}" is not a real calendar date — use YYYY-MM-DD.`);
+    const changed = [];
+    const visited_on = a.visited_on !== undefined ? a.visited_on : v.visited_on;
+    const body = a.body !== undefined ? String(a.body).trim() : v.body;
+    if (visited_on !== v.visited_on) changed.push('visited_on');
+    if (body !== v.body) changed.push('body');
+    if (changed.length) {
+      q('UPDATE visits SET visited_on=?, body=? WHERE id=?').run(visited_on, body, v.id);
+      recordProvenance('visit', v.uid, 'edited', mcpActor(user), { source_kind: 'manual', fields: changed.join(',') });
+    }
+    return `Updated check-in #${v.id}: ${visited_on}${body ? ` — ${body}` : ''}`;
+  }
+  if (name === 'delete_checkin') {
+    if (!a.id) throw new Error('id is required');
+    const v = q(`SELECT v.*, m.user_id AS mark_owner FROM visits v
+      JOIN marks m ON m.id = v.mark_id WHERE v.id = ?`).get(a.id);
+    if (!v) throw new Error(`No such check-in #${a.id}`);
+    if (v.mark_owner !== user.id) throw new Error(`Check-in #${a.id} does not belong to this member`);
+    recordProvenance('visit', v.uid, 'deleted', mcpActor(user));
+    q('DELETE FROM visits WHERE id=?').run(v.id);
+    return `Deleted check-in #${v.id}`;
   }
   if (name === 'my_travel_marks') {
     const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
