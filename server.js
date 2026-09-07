@@ -760,6 +760,12 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     };
     urlIn.addEventListener('change', tryUnfurl);
     urlIn.addEventListener('paste', function () { setTimeout(tryUnfurl, 60); });
+    // iOS has no Cmd+V — pasting is only ever the long-press menu, and WebKit
+    // has a history of firing 'paste' inconsistently for that path. 'input'
+    // fires on every value change regardless of how the text arrived (typing,
+    // any paste method, dictation), so it is the reliable fallback trigger.
+    var inputTimer;
+    urlIn.addEventListener('input', function () { clearTimeout(inputTimer); inputTimer = setTimeout(tryUnfurl, 500); });
     if (urlIn.value) setTimeout(tryUnfurl, 120);   // arrived pre-filled (e.g. the iOS Shortcut)
   }
 
