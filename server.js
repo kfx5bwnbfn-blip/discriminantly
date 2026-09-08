@@ -2545,6 +2545,25 @@ const OS_PROVENANCE = { type: ['object', 'null'], additionalProperties: false,
   required: ['action', 'assertion', 'actor_type', 'agent', 'created_at'],
   properties: { action: { type: 'string' }, assertion: { type: 'string' }, actor_type: { type: 'string' },
     agent: { type: 'string' }, created_at: { type: 'string' } } };
+// Every mutating tool returns this same shape, so a caller can chain on the
+// result (take `id`, feed it to the next call) instead of parsing prose.
+// `action` names the semantic act, matching the provenance vocabulary.
+const wr = (text, action, subject, id, uid, name, detail) => ({ text, structured: { ok: true, action, subject, id: id ?? null, uid: uid ?? null, name: name || '', ...(detail ? { detail } : {}) } });
+const OS_WRITE = { type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'id', 'uid', 'name'],
+  properties: {
+    ok: { type: 'boolean' },
+    action: { type: 'string', enum: ['created', 'edited', 'deleted', 'asserted', 'released', 'revoked', 'corrected', 'unchanged'] },
+    subject: { type: 'string', enum: ['note', 'mark', 'visit', 'ownership', 'warrant', 'image'] },
+    id: { type: ['integer', 'null'], description: 'Integer id of the affected note, mark or check-in, where one applies.' },
+    uid: { type: ['string', 'null'] },
+    name: { type: 'string' },
+    detail: { type: 'string' } } };
+const OS_PLACE_CANDIDATES = { type: 'object', additionalProperties: false, required: ['items'],
+  properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false,
+    required: ['name', 'lat', 'lng'],
+    properties: { name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' },
+      address: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' } } } } } };
 const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false, required: ['items'],
   properties: { items: { type: 'array', items: itemSchema } } });
 
@@ -2616,7 +2635,8 @@ const TOOLS = [
       image: { type: 'string', description: IMAGE_FIELD_DESC + ' Required — every note carries an image.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
-      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } },
+      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
@@ -2633,29 +2653,36 @@ const TOOLS = [
       link: { type: 'string', description: 'Replaces the URL where the object can be found.' },
       image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
-      private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } },
+      private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'delete_note', description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } },
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } ,
+    outputSchema: OS_WRITE },
 
-  { name: 'mark_owned', description: 'Record that the member owns the thing in one of their notes — "I own this". Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
+  { name: 'record_note_ownership', description: 'Record that the member owns the thing recorded in one of their NOTES — "I own this". Ownership applies to notes only; a travel mark is a place and cannot be owned. Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer', description: 'The note\'s id.' } } } },
-  { name: 'mark_no_longer_owned', description: 'Record that the member USED TO own this and no longer does — sold, given away, lost, replaced. This preserves the fact that they owned it for a period. If instead the ownership mark was simply a mistake and they never owned it, use correct_ownership_mistake — do not use this tool, because it would leave a false record of them having owned it.',
+      id: { type: 'integer', description: 'The note\'s id.' } } } ,
+    outputSchema: OS_WRITE },
+  { name: 'release_note_ownership', description: 'Record that the member USED TO own the thing in one of their NOTES and no longer does — sold, given away, lost, replaced. Notes only; a travel mark is a place and cannot be owned. This preserves the fact that they owned it for a period. If instead the ownership record was simply an error and they never owned it, use correct_note_ownership_mistake — do not use this tool, because it would leave a false record of them having owned it for a while.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer', description: 'The note\'s id.' } } } },
-  { name: 'correct_ownership_mistake', description: 'Correct an ownership mark that should never have been made — the member did not own this and the earlier mark was an error. This removes the false ownership period from their record while keeping an honest note that a correction happened. This is NOT for things sold, given away, or no longer owned: for those use mark_no_longer_owned. If it is unclear which the member means, ask before calling either.',
+      id: { type: 'integer', description: 'The note\'s id.' } } } ,
+    outputSchema: OS_WRITE },
+  { name: 'correct_note_ownership_mistake', description: 'Withdraw an ownership record on one of the member\'s NOTES that should never have been made — they did not own the thing and the earlier entry was an error. This removes the false ownership period from their record while keeping an honest trace that a correction happened. This is NOT for things sold, given away, or no longer owned: for those use release_note_ownership. If it is unclear which the member means, ask before calling either.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer', description: 'The note\'s id.' } } } },
+      id: { type: 'integer', description: 'The note\'s id.' } } } ,
+    outputSchema: OS_WRITE },
 
   { name: 'warrant', description: 'Record that the member stands behind something — their personal seal of approval on a note or a travel mark. Only call this when the member has explicitly said they want to warrant, endorse or stand behind it. Never infer a warrant from praise, from ownership, from repeat visits, from a positive description, or from sentiment of any kind. On a public note or mark this is announced to the feed by default; pass announce:false to warrant quietly. Private notes and marks are never announced.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
       id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." },
-      announce: { type: 'boolean', description: 'Announce to the feed. Defaults to true for public subjects; forced off for private ones.' } } } },
+      announce: { type: 'boolean', description: 'Announce to the feed. Defaults to true for public subjects; forced off for private ones.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'revoke_warrant', description: 'Withdraw the member\'s warrant from a note or travel mark — they no longer stand behind it. The public endorsement and any feed appearance disappear; no "revoked" announcement is made. Their private history still records that they warranted it and later withdrew.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
-      id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." } } } },
+      id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." } } } ,
+    outputSchema: OS_WRITE },
   { name: 'edit_travel_mark', description: 'Edit one of the connected member\'s own travel marks. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
@@ -2668,9 +2695,11 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["thai","bangkok"].' },
       link: { type: 'string', description: 'Replaces the URL for the place.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
-      private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } },
+      private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } },
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
+    outputSchema: OS_WRITE },
   { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } },
@@ -2678,7 +2707,8 @@ const TOOLS = [
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
-      limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } },
+      limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } ,
+    outputSchema: OS_PLACE_CANDIDATES },
   { name: 'add_travel_mark', description: 'Add or create a new travel mark: record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
     inputSchema: { type: 'object', required: ['place'], properties: {
       place: { type: 'string', description: 'Name of the place' },
@@ -2693,12 +2723,14 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: "Names of the member's mark collections to file this under (created if new). Must be set now — there is no way to change them later." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
-      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } },
+      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough, and a line about it is optional.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
-      body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
+      body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'list_checkins', description: 'List the check-ins on one of the member\'s own travel marks, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
       mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
@@ -2707,10 +2739,12 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Must be a real calendar date.' },
-      body: { type: 'string', description: 'Replaces the line about the visit. Pass an empty string to clear it.' } } } },
+      body: { type: 'string', description: 'Replaces the line about the visit. Pass an empty string to clear it.' } } } ,
+    outputSchema: OS_WRITE },
   { name: 'delete_checkin', description: 'Permanently delete one of the member\'s own check-ins. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } },
+      id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } ,
+    outputSchema: OS_WRITE },
   { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across place, city, country and tags.' }, limit: { type: 'integer', default: 20, description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MARK) },
@@ -2763,7 +2797,8 @@ async function mcpCall(user, name, a = {}) {
     if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
     recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', mcpActor(user),
       { source_kind: a.link ? 'unfurl' : 'manual', source_ref: a.link || null });
-    return `Noted as #${r.lastInsertRowid}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`;
+    return wr(`Noted as #${r.lastInsertRowid}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`,
+      'created', 'note', r.lastInsertRowid, uidOf('objects', r.lastInsertRowid), a.headline);
   }
   if (name === 'recent_notes') {
     const lim = Math.min(+a.limit || 10, 50); const sq = (a.query || '').trim();
@@ -2802,7 +2837,7 @@ async function mcpCall(user, name, a = {}) {
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?').run(name_, why, tags, url, image, priv, o.id);
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
-    return `Updated #${o.id}: ${name_}`;
+    return wr(`Updated #${o.id}: ${name_}`, 'edited', 'note', o.id, o.uid, name_);
   }
   if (name === 'upload_image') {
     if (!a.image) throw new Error('image is required');
@@ -2821,18 +2856,27 @@ async function mcpCall(user, name, a = {}) {
     try {
       const r = await fetch(`https://photon.komoot.io/api/?limit=${lim}&q=${encodeURIComponent(q_)}`,
         { signal: AbortSignal.timeout(6000) });
-      if (!r.ok) return `Could not reach the mapping service (status ${r.status}). Tell the member verification failed and ask whether to add the mark anyway.`;
+      if (!r.ok) return { text: `Could not reach the mapping service (status ${r.status}). Tell the member verification failed and ask whether to add the mark anyway.`, structured: { items: [] } };
       const data = await r.json();
       const feats = Array.isArray(data.features) ? data.features : [];
-      if (!feats.length) return `No match found for "${q_}" in mapping data. This does not mean the place is wrong — small or new places are often missing from OpenStreetMap. Tell the member plainly and ask whether to add it anyway without verification, or to try again with a more precise name or city.`;
-      return feats.map((f, i) => {
+      if (!feats.length) return { text: `No match found for "${q_}" in mapping data. This does not mean the place is wrong — small or new places are often missing from OpenStreetMap. Tell the member plainly and ask whether to add it anyway without verification, or to try again with a more precise name or city.`, structured: { items: [] } };
+      const text = feats.map((f, i) => {
         const p = f.properties || {};
         const where = [p.street, p.housenumber, p.city || p.town || p.village, p.state, p.country].filter(Boolean).join(', ');
         const [lng, lat] = (f.geometry && f.geometry.coordinates) || [];
         return `${i + 1}. ${p.name || q_}${where ? ' — ' + where : ''}${lat != null ? ` (${lat.toFixed(5)}, ${lng.toFixed(5)})` : ''}`;
       }).join('\n') + '\n\nShow these to the member and confirm which one (if any) is correct before calling add_travel_mark with its address and coordinates.';
+      const cands = feats.map((f) => {
+        const p = f.properties || {};
+        const [lng, lat] = (f.geometry && f.geometry.coordinates) || [];
+        return { name: p.name || q_,
+          locality: p.city || p.town || p.village || '', country: p.country || '',
+          address: [p.housenumber, p.street].filter(Boolean).join(' '),
+          lat: lat == null ? null : +lat, lng: lng == null ? null : +lng };
+      }).filter((c) => c.lat != null && c.lng != null);
+      return { text, structured: { items: cands } };
     } catch (e) {
-      return `Could not reach the mapping service (${e.name === 'TimeoutError' ? 'timed out' : 'network error'}). Tell the member verification failed and ask whether to add the mark anyway.`;
+      return { text: `Could not reach the mapping service (${e.name === 'TimeoutError' ? 'timed out' : 'network error'}). Tell the member verification failed and ask whether to add the mark anyway.`, structured: { items: [] } };
     }
   }
   if (name === 'add_travel_mark') {
@@ -2867,7 +2911,8 @@ async function mcpCall(user, name, a = {}) {
     recordProvenance('visit', uidOf('visits', q('SELECT MAX(id) i FROM visits').get().i), 'created', mcpActor(user),
       { source_kind: 'manual' });
     const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
-    return `Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})${verifiedNote}`;
+    return wr(`Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})${verifiedNote}`,
+      'created', 'mark', r.lastInsertRowid, uidOf('marks', r.lastInsertRowid), a.place);
   }
   if (name === 'edit_travel_mark') {
     if (!a.id) throw new Error('id is required');
@@ -2889,7 +2934,7 @@ async function mcpCall(user, name, a = {}) {
       .run(name_, locality, country, address, lat, lng, why, tags, url, image, priv, mk.id);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, mk.id, a.collections);
     recordProvenance('mark', mk.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
-    return `Updated #${mk.id}: ${name_}`;
+    return wr(`Updated #${mk.id}: ${name_}`, 'edited', 'mark', mk.id, mk.uid, name_);
   }
   if (name === 'delete_travel_mark') {
     if (!a.id) throw new Error('id is required');
@@ -2899,7 +2944,7 @@ async function mcpCall(user, name, a = {}) {
     recordProvenance('mark', mk.uid, 'deleted', mcpActor(user));
     dropWarrantsFor('mark', mk.uid);
     q('DELETE FROM marks WHERE id=?').run(mk.id);
-    return `Deleted #${mk.id}: ${mk.name}`;
+    return wr(`Deleted #${mk.id}: ${mk.name}`, 'deleted', 'mark', mk.id, mk.uid, mk.name);
   }
   if (name === 'log_visit') {
     if (!a.id) throw new Error('id is required');
@@ -2910,7 +2955,8 @@ async function mcpCall(user, name, a = {}) {
     const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, user.id, day, String(a.body || '').trim());
     recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user), { source_kind: 'manual' });
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
-    return `Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`;
+    return wr(`Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+      'created', 'visit', mk.id, mk.uid, mk.name, `${n} total`);
   }
   if (name === 'list_checkins') {
     if (!a.mark_id) throw new Error('mark_id is required');
@@ -2942,7 +2988,8 @@ async function mcpCall(user, name, a = {}) {
       q('UPDATE visits SET visited_on=?, body=? WHERE id=?').run(visited_on, body, v.id);
       recordProvenance('visit', v.uid, 'edited', mcpActor(user), { source_kind: 'manual', fields: changed.join(',') });
     }
-    return `Updated check-in #${v.id}: ${visited_on}${body ? ` — ${body}` : ''}`;
+    return wr(`Updated check-in #${v.id}: ${visited_on}${body ? ` — ${body}` : ''}`,
+      'edited', 'visit', v.id, v.uid, visited_on);
   }
   if (name === 'delete_checkin') {
     if (!a.id) throw new Error('id is required');
@@ -2952,7 +2999,7 @@ async function mcpCall(user, name, a = {}) {
     if (v.mark_owner !== user.id) throw new Error(`Check-in #${a.id} does not belong to this member`);
     recordProvenance('visit', v.uid, 'deleted', mcpActor(user));
     q('DELETE FROM visits WHERE id=?').run(v.id);
-    return `Deleted check-in #${v.id}`;
+    return wr(`Deleted check-in #${v.id}`, 'deleted', 'visit', v.id, v.uid, String(v.visited_on || ''));
   }
   if (name === 'my_travel_marks') {
     const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
@@ -3019,7 +3066,7 @@ async function mcpCall(user, name, a = {}) {
         notes_by_collection: byColl.map((r) => ({ name: r.name, count: r.n })),
         marks_by_country: byCountry.map((r) => ({ country: r.country, count: r.n })) } };
   }
-  if (name === 'mark_owned' || name === 'mark_no_longer_owned' || name === 'correct_ownership_mistake') {
+  if (name === 'record_note_ownership' || name === 'release_note_ownership' || name === 'correct_note_ownership_mistake') {
     if (!a.id) throw new Error('id is required');
     // Note and mark ids are independent sequences, so note #1 and mark #1 both
     // exist. A caller that thinks it is addressing a mark would otherwise
@@ -3036,19 +3083,22 @@ async function mcpCall(user, name, a = {}) {
     // object. Objects are shared, so anyone who has noted it may assert.
     const mine = o.user_id === user.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(user.id, o.id);
     if (!mine) throw new Error(`Note #${a.id} is not in this member's catalogue`);
-    if (name === 'mark_owned') {
+    if (name === 'record_note_ownership') {
       assertOwned(user.id, o.id, mcpActor(user));
-      return `Marked as owned: ${o.name}. This is private — only the member and their own AI can see it.`;
+      return wr(`Marked as owned: ${o.name}. This is private — only the member and their own AI can see it.`,
+        'asserted', 'ownership', o.id, o.uid, o.name);
     }
-    if (name === 'mark_no_longer_owned') {
+    if (name === 'release_note_ownership') {
       const cur = ownedState(user.id, o.id);
       if (cur.state !== 'owned') throw new Error(`${o.name} is not currently marked as owned, so there is nothing to release.`);
       releaseOwned(user.id, o.id, mcpActor(user));
-      return `Recorded as no longer owned: ${o.name}. The earlier period of ownership is preserved.`;
+      return wr(`Recorded as no longer owned: ${o.name}. The earlier period of ownership is preserved.`,
+        'released', 'ownership', o.id, o.uid, o.name);
     }
     const corrected = correctOwned(user.id, o.id, mcpActor(user));
     if (!corrected) throw new Error(`${o.name} has no current ownership mark to correct.`);
-    return `Corrected: the ownership mark on ${o.name} has been withdrawn as an error, leaving no record of it having been owned.`;
+    return wr(`Corrected: the ownership record on ${o.name} has been withdrawn as an error, leaving no record of it having been owned.`,
+      'corrected', 'ownership', o.id, o.uid, o.name);
   }
   if (name === 'warrant' || name === 'revoke_warrant') {
     if (!a.id) throw new Error('id is required');
@@ -3060,18 +3110,20 @@ async function mcpCall(user, name, a = {}) {
     const stype = isNote ? 'object' : 'mark';
     if (name === 'warrant') {
       const cur = warrantState(user.id, stype, row.uid);
-      if (cur.state === 'active') return `${row.name} is already warranted.`;
+      if (cur.state === 'active') return wr(`${row.name} is already warranted.`, 'unchanged', 'warrant', row.id, row.uid, row.name);
       // A private subject can never publish. Not a filter at read time —
       // the publication flag is never set in the first place.
       const publish = row.private ? false : (a.announce === undefined ? true : !!a.announce);
       assertWarrant(user.id, stype, row.uid, publish, mcpActor(user));
-      return `Warranted: ${row.name}.` + (row.private ? ' The note is private, so nothing was announced.'
-        : publish ? ' Shared to the feed.' : ' Warranted quietly — no feed announcement.');
+      return wr(`Warranted: ${row.name}.` + (row.private ? ' The note is private, so nothing was announced.'
+        : publish ? ' Shared to the feed.' : ' Warranted quietly — no feed announcement.'),
+        'asserted', 'warrant', row.id, row.uid, row.name, publish ? 'published' : 'quiet');
     }
     const cur = warrantState(user.id, stype, row.uid);
     if (cur.state !== 'active') throw new Error(`${row.name} is not currently warranted.`);
     revokeWarrant(user.id, stype, row.uid, mcpActor(user));
-    return `Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`;
+    return wr(`Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`,
+      'revoked', 'warrant', row.id, row.uid, row.name);
   }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
@@ -3081,7 +3133,7 @@ async function mcpCall(user, name, a = {}) {
     recordProvenance('object', o.uid, 'deleted', mcpActor(user));
     dropWarrantsFor('object', o.uid);
     q('DELETE FROM objects WHERE id=?').run(o.id);
-    return `Deleted #${a.id}: ${o.name}`;
+    return wr(`Deleted #${a.id}: ${o.name}`, 'deleted', 'note', o.id, o.uid, o.name);
   }
   throw new Error('Unknown tool ' + name);
 }
