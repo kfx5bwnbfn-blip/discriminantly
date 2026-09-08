@@ -1307,3 +1307,9 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 
 /* re-mark lineage: the source no longer exists, but the relationship still happened */
 .remark-source-gone { color: var(--ink-soft); opacity: .75; }
+
+/* PWA install — reuses .sbox-title/.sbox-sub (settings box) and .dlg-copy's
+   type treatment (dialog), rather than introducing new list styling. */
+.install-steps { margin: 0 0 1.1rem; padding-left: 1.3rem; font-size: .92rem; line-height: 1.6; color: #4b4844; }
+.install-steps li { margin-bottom: .3rem; }
+.is-app .install-box { display: none; }   /* belt-and-braces alongside the JS check — never show once already standalone */

@@ -478,6 +478,26 @@ function layout({ title, body, me, flash, cls = '', nav = '' }) {
   if (standalone) document.documentElement.className += ' is-app';
 })();
 </script>
+<script>
+// Registered mainly so Chrome's installability check sees a fetch handler —
+// see /sw.js for why. Deferred to load so it never competes with paint.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
+}
+// Captured globally (not only on /settings) because Chrome can fire this on
+// any eligible page, and the member might land on Settings afterward rather
+// than on the page where it actually fired.
+window.__installPrompt = null;
+window.addEventListener('beforeinstallprompt', function (e) {
+  e.preventDefault();
+  window.__installPrompt = e;
+  document.dispatchEvent(new Event('discriminantly:install-available'));
+});
+window.addEventListener('appinstalled', function () {
+  window.__installPrompt = null;
+  document.dispatchEvent(new Event('discriminantly:installed'));
+});
+</script>
 <title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
@@ -486,9 +506,10 @@ function layout({ title, body, me, flash, cls = '', nav = '' }) {
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" sizes="192x192" href="/icon-192.png">
 <link rel="icon" sizes="512x512" href="/icon-512.png">
+<link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="discriminant.ly">
+<meta name="apple-mobile-web-app-title" content="Discriminantly">
 <meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}"></head><body class="${cls}${me ? ' is-in' : ''}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
@@ -1990,8 +2011,56 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
     </div>
     <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
+    <div class="wcell wcell-wide install-box" id="install-box" hidden>
+      <p class="sbox-title">Install Discriminantly</p>
+      <p class="sbox-sub">Keep it on your Home Screen and open it like an app.</p>
+      <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
+    </div>
   </div>
-</div>`;
+</div>
+<div class="curtain dialog" id="install-dialog">
+  <div class="curtain-frame"><div class="curtain-body">
+    <div class="nf-box">
+      <p class="dlg-title">Install Discriminantly</p>
+      <p class="dlg-copy">Keep Discriminantly on your Home Screen and open it like an app.</p>
+      <ol class="install-steps">
+        <li>Tap the Share button</li>
+        <li>Choose "Add to Home Screen"</li>
+        <li>Tap "Add"</li>
+      </ol>
+      <button type="button" class="nf-post" data-dismiss-install>Got it</button>
+      <p class="fine center">Once installed, Discriminantly opens without Safari's browser controls.</p>
+    </div>
+  </div></div>
+  <div class="curtain-tail"><span class="tail-band"></span></div>
+</div>
+<script>
+(function () {
+  var box = document.getElementById('install-box');
+  if (!box) return;
+  var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  function reveal() { if (!document.documentElement.classList.contains('is-app')) box.hidden = false; }
+  if (isIOS || window.__installPrompt) reveal();
+  document.addEventListener('discriminantly:install-available', reveal);
+  document.addEventListener('discriminantly:installed', function () { box.hidden = true; });
+
+  document.getElementById('install-btn').addEventListener('click', async function () {
+    if (window.__installPrompt) {
+      window.__installPrompt.prompt();
+      await window.__installPrompt.userChoice;
+      window.__installPrompt = null;
+      box.hidden = true;
+    } else if (isIOS) {
+      document.getElementById('install-dialog').classList.add('is-open');
+    }
+  });
+  var dlg = document.getElementById('install-dialog');
+  dlg.querySelectorAll('[data-dismiss-install]').forEach(function (b) {
+    b.addEventListener('click', function () { dlg.classList.remove('is-open'); });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('is-open'); });
+})();
+</script>`;
     send(res, layout({ title: 'Settings', body, me, cls: 'is-dark-page', nav: 'settings' }));
   },
 
@@ -2517,7 +2586,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
