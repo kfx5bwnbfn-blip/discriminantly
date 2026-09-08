@@ -892,22 +892,74 @@ function readImage(file, cb) {
   // OFF is genuinely ambiguous, so it asks the one question that resolves it:
   // a lifecycle release ("sold it") and a correction ("wrong button") mean
   // different things and must not both be recorded as a release.
-  document.addEventListener('click', function (e) {
-    var t = e.target.closest && e.target.closest('[data-owned]');
-    if (!t) return;
-    var post = function (intent) {
-      var f = document.createElement('form');
-      f.method = 'post'; f.action = t.dataset.owned;
-      var i = document.createElement('input'); i.type = 'hidden'; i.name = 'intent'; i.value = intent;
-      f.appendChild(i); document.body.appendChild(f); f.submit();
+  document.addEventListener('change', function (e) {
+    var box = e.target;
+    var t = box.closest && box.closest('[data-owned]');
+    if (!t || box.type !== 'checkbox') return;
+    // Posts in the background so the feed never reloads and the reader keeps
+    // their scroll position. The switch moves immediately; if the request
+    // fails it snaps back rather than showing a state that was never saved.
+    var send = function (intent, shouldEnd) {
+      t.classList.add('is-saving');
+      fetch(t.dataset.owned, {
+        method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-quiet': '1' },
+        body: 'intent=' + intent, credentials: 'same-origin',
+      }).then(function (r) {
+        if (!r.ok) throw new Error(r.status);
+        box.checked = shouldEnd; t.dataset.on = shouldEnd ? '1' : '0';
+      }).catch(function () {
+        box.checked = !shouldEnd;                   // put it back, nothing was saved
+        t.classList.add('is-failed');
+        setTimeout(function () { t.classList.remove('is-failed'); }, 1200);
+      }).then(function () { t.classList.remove('is-saving'); });
     };
-    if (t.dataset.on !== '1') return post('own');
+    if (box.checked) return send('own', true);
+    box.checked = true;                             // hold until the meaning is resolved
     window.askConfirm({
       title: 'Owned', cta: 'I no longer own it', dismiss: 'It was marked by mistake',
       copy: 'Are you saying you no longer own <b>' + t.dataset.title + '</b>, or that the ownership mark was a mistake?',
-      onConfirm: function () { post('release'); },
-      onDismiss: function () { post('correct'); },
+      onConfirm: function () { send('release', false); },
+      onDismiss: function () { send('correct', false); },
     });
+  });
+
+  // Post-form Warrant control. Clicking the CTA slides the seal down in its
+  // place and records the intent; clicking the seal asks before withdrawing.
+  // Nothing is written until the form is saved.
+  document.addEventListener('click', function (e) {
+    var cta = e.target.closest && e.target.closest('.nf-warrant-cta');
+    var seal = e.target.closest && e.target.closest('.nf-warrant.is-warranted .warrant-seal-form');
+    var wrap = (cta || seal) && (cta || seal).closest('.nf-warrant');
+    if (!wrap) return;
+    var intent = wrap.querySelector('input[name="warrant_intent"]');
+    if (cta) {
+      // announce by default on a public subject — the Private toggle on the
+      // same form decides; the server refuses to publish a private one anyway
+      var priv = wrap.closest('form').querySelector('input[name="private"]');
+      intent.value = priv && priv.checked ? 'warrant_quiet' : 'warrant';
+      wrap.classList.add('is-warranted');
+      return;
+    }
+    e.preventDefault();
+    window.askConfirm({ title: 'Warrant', cta: 'Remove my Warrant', dismiss: 'Keep it',
+      copy: 'Remove your Warrant from <b>' + wrap.dataset.title + '</b>? Your private history will still show you warranted it.',
+      onConfirm: function () { intent.value = 'revoke'; wrap.classList.remove('is-warranted'); },
+      onDismiss: function () {} });
+  });
+  // Post-form Owned toggle. ON is one action. OFF asks release-vs-correction
+  // and stores the resolved intent — the server never sees the ambiguity.
+  document.addEventListener('change', function (e) {
+    var box = e.target, wrap = box.closest && box.closest('[data-owned-ctl]');
+    if (!wrap || box.name !== 'owned_now') return;
+    var intent = wrap.querySelector('input[name="owned_intent"]');
+    var was = box.dataset.was === '1';
+    if (box.checked) { intent.value = was ? '' : 'own'; return; }
+    if (!was) { intent.value = ''; return; }          // never asserted, nothing to resolve
+    box.checked = true;
+    window.askConfirm({ title: 'Owned', cta: 'I no longer own it', dismiss: 'It was marked by mistake',
+      copy: 'Are you saying you no longer own <b>' + wrap.dataset.title + '</b>, or that the ownership mark was a mistake?',
+      onConfirm: function () { intent.value = 'release'; box.checked = false; },
+      onDismiss: function () { intent.value = 'correct'; box.checked = false; } });
   });
 
   // Feed-card maps don't load until asked for. They're non-interactive here
@@ -1072,7 +1124,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
 <form method="post" action="${editing ? `/o/${o.id}/edit` : '/new'}" class="nf${compact ? ' nf-compact' : ''}">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top">${formWarrantControl('object', o, me)}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${o.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('note') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -1103,7 +1155,7 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     </div>
     <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
     <div class="nf-foot">
-      ${editing ? `<button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : '<span></span>'}
+      <span class="nf-foot-left">${formOwnedControl(o, me)}${editing ? `<button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : ''}</span>
       ${compact ? '<button type="button" class="nf-link-btn" data-close>Cancel</button>' : `<a class="nf-link-btn" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>`}
     </div>
   </div>
@@ -1490,9 +1542,9 @@ function markCard(m, me, full = false) {
   const cs = markCollections(m.id);
   const embed = mapEmbed(m);
   return `<article class="note travelmark ${full ? 'note-full' : ''}">
-  ${warrantSeal(m, 'mark', me)}
   <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
+    ${warrantSeal(m, 'mark', me)}
     <div class="text">
       ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
       <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
@@ -1528,7 +1580,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 <form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
-    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-top">${formWarrantControl('mark', m, me)}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
     ${seg ? segControl('mark') : ''}
     <details class="nf-drop" id="drop-${idp}">
       <summary><span class="nf-drop-label">${sel.size ? esc([...sel].join(', ')) : 'Select a collection'}</span></summary>
@@ -1639,26 +1691,83 @@ function profileRail(u, me, tab) {
   </aside>`;
 }
 
+// The Warrant control on a post form: a CTA that, once clicked, slides the
+// seal down in its place. Both the CTA and the seal are always in the markup;
+// `is-warranted` on the wrapper decides which shows. The member's choice is
+// carried as a hidden `warrant_intent` and applied by the server after save —
+// on a NEW note there is no id to assert against until then, and on an edit
+// this keeps the two controls consistent with each other.
+function formWarrantControl(subjectType, row, me) {
+  const active = row.uid ? warrantState(me.id, subjectType, row.uid).state === 'active' : false;
+  return `<div class="nf-warrant ${active ? 'is-warranted' : ''}" data-warrant-ctl data-title="${esc(row.name || '')}">
+    <input type="hidden" name="warrant_intent" value="">
+    <button type="button" class="nf-link-btn nf-warrant-cta">Warrant</button>
+    <span class="warrant-seal warrant-seal-form" aria-label="Warranted" title="Warranted">${warrantSealSvg()}</span>
+  </div>`;
+}
+function formOwnedControl(row, me) {
+  const on = row.id ? ownedState(me.id, row.id).state === 'owned' : false;
+  return `<div class="nf-owned" data-owned-ctl data-title="${esc(row.name || '')}">
+    <input type="hidden" name="owned_intent" value="">
+    <span class="nf-lbl">Owned</span>
+    <label class="switch"><input type="checkbox" name="owned_now" value="1" ${on ? 'checked' : ''} data-was="${on ? '1' : '0'}" aria-label="Owned"><span></span></label>
+  </div>`;
+}
+// Applies the post form's pending Owned/Warrant intents once the row exists.
+// The form has already resolved any ambiguity client-side (release vs
+// correction; announce vs quiet), so every intent arriving here is
+// unambiguous. Empty intent = leave alone. Never called from the re-note or
+// re-mark paths: those must not inherit either primitive.
+function applyFormIntents(b, subjectType, row, me) {
+  const ctx = webActor(me);
+  if (subjectType === 'object') {
+    const oi = b.owned_intent || '';
+    if (oi === 'own' && ownedState(me.id, row.id).state !== 'owned') assertOwned(me.id, row.id, ctx);
+    else if (oi === 'release' && ownedState(me.id, row.id).state === 'owned') releaseOwned(me.id, row.id, ctx);
+    else if (oi === 'correct') correctOwned(me.id, row.id, ctx);
+  }
+  const wi = b.warrant_intent || '';
+  const cur = warrantState(me.id, subjectType, row.uid).state;
+  if ((wi === 'warrant' || wi === 'warrant_quiet') && cur !== 'active') {
+    // a private subject can never publish — the flag is simply never set
+    assertWarrant(me.id, subjectType, row.uid, !row.private && wi === 'warrant', ctx);
+  } else if (wi === 'revoke' && cur === 'active') {
+    revokeWarrant(me.id, subjectType, row.uid, ctx);
+  }
+}
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
 // is social metadata about the announcement, not part of what a warrant means.
 // A public subject's warrant is visible to everyone; a private subject's is
 // visible only to its owner, because the subject itself already is.
+function warrantSealSvg() {
+  return `<svg viewBox="0 0 34 52" width="34" height="52" role="img" focusable="false">
+      <rect class="wsl-ribbon" x="9" y="0" width="16" height="30"/>
+      <g transform="translate(0,18) scale(0.265625)">
+        <circle cx="64" cy="64" r="60" fill="#FFC400"/>
+        <g fill="none" stroke="#FFFFFF" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M64 20 C57 20 52 25 52 31 C52 37 57 41 60 45 C55 42 50 38 48 33 C46 38 47 44 52 48 C48 47 44 45 41 42 C42 50 47 55 53 59 C57 62 60 67 61 73 L64 86 L67 73 C68 67 71 62 75 59 C81 55 86 50 87 42 C84 45 80 47 76 48 C81 44 82 38 80 33 C78 38 73 42 68 45 C71 41 76 37 76 31 C76 25 71 20 64 20 Z"/>
+          <path d="M34 41 C26 41 21 46 21 53 C21 59 25 63 31 66 C27 66 23 65 20 62 C21 68 25 73 31 76 C36 79 42 83 46 89 L52 96 L55 91 C52 80 47 69 42 61 C39 56 37 49 34 41 Z"/>
+          <path d="M94 41 C102 41 107 46 107 53 C107 59 103 63 97 66 C101 66 105 65 108 62 C107 68 103 73 97 76 C92 79 86 83 82 89 L76 96 L73 91 C76 80 81 69 86 61 C89 56 91 49 94 41 Z"/>
+          <path d="M64 27 L64 80"/>
+          <path d="M60 40 C57 43 55 46 53 49"/>
+          <path d="M68 40 C71 43 73 46 75 49"/>
+          <path d="M39 50 C38 57 41 66 47 77"/>
+          <path d="M89 50 C90 57 87 66 81 77"/>
+          <path d="M47 92 C43 91 40 89 37 86 C36 91 39 95 44 99 C48 102 52 103 56 101"/>
+          <path d="M81 92 C85 91 88 89 91 86 C92 91 89 95 84 99 C80 102 76 103 72 101"/>
+          <rect x="49" y="89" width="30" height="6.5" rx="3.25"/>
+          <rect x="49" y="96.5" width="30" height="6.5" rx="3.25"/>
+        </g>
+      </g>
+    </svg>`;
+}
 function warrantSeal(row, subjectType, me) {
   const w = warrantState(row.user_id, subjectType, row.uid);
   if (w.state !== 'active') return '';
   if (row.private && (!me || me.id !== row.user_id)) return '';
-  return `<span class="warrant-seal" title="${esc(row.handle || '')} stands behind this" aria-label="Warranted">
-    <svg viewBox="0 0 40 52" width="26" height="34" role="img" focusable="false">
-      <path class="wsl-ribbon" d="M18 0h4v9h-4z"/>
-      <g class="wsl-crest">
-        <path class="wsl-plume" d="M20 8c-4 0-7 2-8 5 2-1 4-1 5 0-2 1-3 3-3 5 2-2 4-3 6-2 2-1 4 0 6 2 0-2-1-4-3-5 1-1 3-1 5 0-1-3-4-5-8-5z"/>
-        <path class="wsl-shield" d="M20 17c-5 0-9 1-9 1v14c0 7 5 12 9 14 4-2 9-7 9-14V18s-4-1-9-1z"/>
-        <path class="wsl-mark" d="M20 23l5 4-5 4-3-2 2-2-4-2z"/>
-      </g>
-    </svg>
-  </span>`;
+  return `<span class="warrant-seal" title="Warranted" aria-label="Warranted">${warrantSealSvg()}</span>`;
 }
 
 function objectCard(o, me, full = false) {
@@ -1666,9 +1775,9 @@ function objectCard(o, me, full = false) {
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
   return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
-  ${warrantSeal(o, 'object', me)}
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
+    ${warrantSeal(o, 'object', me)}
     <div class="card-head">
       <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> ${o.private ? '<span class="who-private">privately noted</span>' : 'noted'}</p>
       ${(() => { const cs = objCollections(o.id); return cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''; })()}
@@ -1695,11 +1804,11 @@ function objectCard(o, me, full = false) {
         if (!mine) return '';
         const own = ownedState(me.id, o.id);
         const on = own.state === 'owned';
+        // The exact .switch token used by the "Private?" toggle on the post form.
         return `<div class="owned-row">
-          <span class="owned-label">Owned</span>
-          <button type="button" class="switch owned-switch ${on ? 'is-on' : ''}"
-            data-owned="/o/${o.id}/owned" data-on="${on ? '1' : '0'}" data-title="${esc(o.name)}"
-            role="switch" aria-checked="${on}" aria-label="Owned"><span class="knob"></span></button>
+          <span class="nf-lbl owned-label">Owned</span>
+          <label class="switch" data-owned="/o/${o.id}/owned" data-on="${on ? '1' : '0'}" data-title="${esc(o.name)}">
+            <input type="checkbox" ${on ? 'checked' : ''} aria-label="Owned"><span></span></label>
         </div>`;
       })()}
     </div>
@@ -2511,22 +2620,22 @@ const TOOLS = [
   { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 10 } } },
+    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
     outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
-  { name: 'my_notes', description: 'List the connected member\'s own notes.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20 } } },
+  { name: 'my_notes', description: 'List the connected member\'s own notes. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MY_NOTE) },
   { name: 'edit_note', description: 'Edit a note the connected member owns. Only pass the fields being changed — anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id, e.g. from note_object\'s "Noted as #7" or from recent_notes/my_notes.' },
-      headline: { type: 'string' },
-      description: { type: 'string' },
-      tags: { type: 'array', items: { type: 'string' } },
-      link: { type: 'string' },
+      headline: { type: 'string', description: "Replaces the note's headline." },
+      description: { type: 'string', description: "Replaces the note's description, in the member's voice." },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["kitchen","copper"].' },
+      link: { type: 'string', description: 'Replaces the URL where the object can be found.' },
       image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
-      private: { type: 'boolean' } } } },
+      private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } },
   { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } },
 
   { name: 'mark_owned', description: 'Record that the member owns the thing in one of their notes — "I own this". Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -2541,27 +2650,27 @@ const TOOLS = [
   { name: 'warrant', description: 'Record that the member stands behind something — their personal seal of approval on a note or a travel mark. Only call this when the member has explicitly said they want to warrant, endorse or stand behind it. Never infer a warrant from praise, from ownership, from repeat visits, from a positive description, or from sentiment of any kind. On a public note or mark this is announced to the feed by default; pass announce:false to warrant quietly. Private notes and marks are never announced.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
-      id: { type: 'integer' },
+      id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." },
       announce: { type: 'boolean', description: 'Announce to the feed. Defaults to true for public subjects; forced off for private ones.' } } } },
   { name: 'revoke_warrant', description: 'Withdraw the member\'s warrant from a note or travel mark — they no longer stand behind it. The public endorsement and any feed appearance disappear; no "revoked" announcement is made. Their private history still records that they warranted it and later withdrew.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
-      subject_type: { type: 'string', enum: ['note', 'mark'] },
-      id: { type: 'integer' } } } },
+      subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
+      id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." } } } },
   { name: 'edit_travel_mark', description: 'Edit a travel mark the connected member owns. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
-      place: { type: 'string' },
-      locality: { type: 'string' },
-      country: { type: 'string' },
-      address: { type: 'string' },
-      lat: { type: 'number' }, lng: { type: 'number' },
-      why: { type: 'string' },
-      tags: { type: 'array', items: { type: 'string' } },
-      link: { type: 'string' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
+      place: { type: 'string', description: "Replaces the place's name." },
+      locality: { type: 'string', description: 'Replaces the city or region.' },
+      country: { type: 'string', description: 'Replaces the country.' },
+      address: { type: 'string', description: 'Replaces the street address.' },
+      lat: { type: 'number', description: 'Replaces the latitude; together with lng this positions the map on the card.' }, lng: { type: 'number', description: 'Replaces the longitude; together with lat this positions the map on the card.' },
+      why: { type: 'string', description: "Replaces why it is worth returning to, in the member's voice." },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["thai","bangkok"].' },
+      link: { type: 'string', description: 'Replaces the URL for the place.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
-      private: { type: 'boolean' } } } },
+      private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } },
   { name: 'delete_travel_mark', description: 'Permanently delete a travel mark the connected member owns, including its visit history. Cannot be undone.',
-    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+    inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } },
   { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } },
@@ -2569,7 +2678,7 @@ const TOOLS = [
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
-      limit: { type: 'integer', default: 5 } } } },
+      limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } },
   { name: 'add_travel_mark', description: 'Add or create a new travel mark: record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
     inputSchema: { type: 'object', required: ['place'], properties: {
       place: { type: 'string', description: 'Name of the place' },
@@ -2577,17 +2686,17 @@ const TOOLS = [
       country: { type: 'string', description: 'Fill in from your own knowledge of the place where possible.' },
       address: { type: 'string', description: 'Street address if known.' },
       lat: { type: 'number', description: 'Latitude if known; enables the map on the card.' },
-      lng: { type: 'number' },
+      lng: { type: 'number', description: 'Longitude if known; together with lat it enables the map on the card.' },
       why: { type: 'string', description: 'Why it is worth returning to, written in the member\'s voice from what they said. If they were vague, draw on the conversation and on what you know of the place to write two useful sentences — what it is, what to order or do, what makes it worth the return.' },
-      tags: { type: 'array', items: { type: 'string' } },
-      link: { type: 'string' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
-      collections: { type: 'array', items: { type: 'string' } },
+      tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["thai","bangkok","dinner"].' },
+      link: { type: 'string', description: 'URL for the place, if there is one.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
+      collections: { type: 'array', items: { type: 'string' }, description: "Names of the member's mark collections to file this under (created if new). Must be set now — there is no way to change them later." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
-      private: { type: 'boolean' },
+      private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } },
   { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough, and a line about it is optional.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer' },
+      id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
       body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
   { name: 'list_checkins', description: 'List the check-ins on a travel mark the member owns, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
@@ -2598,18 +2707,18 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Must be a real calendar date.' },
-      body: { type: 'string' } } } },
+      body: { type: 'string', description: 'Replaces the line about the visit. Pass an empty string to clear it.' } } } },
   { name: 'delete_checkin', description: 'Permanently delete a single check-in the member owns. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: {
-      id: { type: 'integer' } } } },
-  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'integer', default: 20 } } },
+      id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } },
+  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across place, city, country and tags.' }, limit: { type: 'integer', default: 20, description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MARK) },
-  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description.',
+  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'Keywords to search for, e.g. "copper pan" or "bangkok"' },
       kind: { type: 'string', enum: ['note', 'mark', 'both'], default: 'both', description: 'Restrict to notes, travel marks, or search both.' },
-      limit: { type: 'integer', default: 15 } } },
+      limit: { type: 'integer', default: 15, description: 'How many results to return. Defaults to 15.' } } },
     outputSchema: OS_ITEMS({ oneOf: [OS_SEARCH_NOTE, OS_SEARCH_MARK] }) },
   { name: 'catalogue_stats', description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
     inputSchema: { type: 'object', properties: {} },
@@ -3152,6 +3261,7 @@ async function handle(req, res) {
            tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
     setMarkCollections(me.id, r.lastInsertRowid, colls);
     recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(r.lastInsertRowid), me);
     return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
   }
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
@@ -3168,6 +3278,7 @@ async function handle(req, res) {
            tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, mk.id);
     setMarkCollections(mk.user_id, mk.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     recordProvenance('mark', mk.uid, 'edited', webActor(me), { source_kind: 'manual' });
+    applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(mk.id), me);
     return redirect(res, `/m/${mk.id}`);
   }
   // Re-mark: create my own Mark from someone else's. The new Mark is wholly
@@ -3265,6 +3376,7 @@ async function handle(req, res) {
     q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)').run(me.id, r.lastInsertRowid, '');
     setCollections(me.id, r.lastInsertRowid, colls);
     recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(r.lastInsertRowid), me);
     return redirect(res, `/o/${r.lastInsertRowid}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/owned$/)) && m === 'POST') {
@@ -3280,6 +3392,9 @@ async function handle(req, res) {
     if (intent === 'own') assertOwned(me.id, o.id, webActor(me));
     else if (intent === 'release') { if (ownedState(me.id, o.id).state === 'owned') releaseOwned(me.id, o.id, webActor(me)); }
     else if (intent === 'correct') correctOwned(me.id, o.id, webActor(me));
+    // Toggling from a card is a background request: answer 204 so the page
+    // stays exactly where it is. A plain form post (no JS) still redirects.
+    if (req.headers['x-quiet'] === '1') { res.writeHead(204); return res.end(); }
     return redirect(res, req.headers.referer || `/o/${o.id}`);
   }
   if ((mt = p.match(/^\/(o|m)\/(\d+)\/warrant$/)) && m === 'POST') {
@@ -3333,6 +3448,7 @@ async function handle(req, res) {
       .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, o.id);
     setCollections(o.user_id, o.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     recordProvenance('object', o.uid, 'edited', webActor(me), { source_kind: 'manual' });
+    applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(o.id), me);
     return redirect(res, `/o/${o.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/delete$/)) && m === 'POST') {

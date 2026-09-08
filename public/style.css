@@ -1459,27 +1459,59 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
    notes — a viewer looking at someone else's note gets no element at all. */
 .owned-row { display: flex; align-items: center; justify-content: flex-end; gap: .6rem;
   margin: .7rem 0 0; padding-top: .7rem; border-top: 1px solid var(--rule); }
-.owned-label { font-family: var(--slab); font-size: .62rem; font-weight: 600;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
-.owned-switch { position: relative; width: 2.6rem; height: 1.35rem; flex: none; cursor: pointer;
-  border: 1px solid var(--btn-border); border-radius: 1rem; background: linear-gradient(#e8e8e8, #f4f4f4);
-  padding: 0; transition: background .18s; }
-.owned-switch .knob { position: absolute; top: 1px; left: 1px; width: 1.1rem; height: 1.1rem;
-  border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .18s; }
-.owned-switch.is-on { background: linear-gradient(#6f7d6a, #5d6a58); border-color: #4d584a; }
-.owned-switch.is-on .knob { transform: translateX(1.2rem); }
-/* mobile: the toggle sits at the top-right of the card head instead */
-@media (max-width: 52rem) {
-  .owned-row { justify-content: center; }
-}
+/* stays bottom-right on mobile too */
+.owned-row .nf-lbl { color: var(--ink-soft); }
 
 /* The Warrant seal hangs from the top edge, near the left corner, on both
    note and mark cards. Rendered only when a warrant is currently active. */
-.note { position: relative; }
-.warrant-seal { position: absolute; top: -2px; left: 1.4rem; z-index: 3; line-height: 0;
-  pointer-events: none; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
-.warrant-seal .wsl-ribbon { fill: #b9982f; }
-.warrant-seal .wsl-crest .wsl-plume { fill: #e3bb3a; }
-.warrant-seal .wsl-crest .wsl-shield { fill: #e3bb3a; stroke: #fff; stroke-width: 1.6; }
-.warrant-seal .wsl-crest .wsl-mark { fill: #fff; }
-@media (max-width: 52rem) { .warrant-seal { left: .9rem; } }
+.card { position: relative; }   /* anchor for the warrant seal */
+/* Hangs off the card's top edge, near the left corner. The ribbon tucks
+   behind the disc; the disc itself carries the drop shadow so the seal reads
+   as sitting proud of the card rather than printed on it. */
+/* Sits at the card's own top edge, indented .8rem to align with the text
+   paragraph beneath it. The ribbon is a light warm grey strip running from
+   the top edge down behind the disc, so the seal reads as draped over the
+   card's corner. The drop shadow is on the disc, not the ribbon. */
+.warrant-seal { position: absolute; top: 0; left: .8rem; z-index: 3; line-height: 0; pointer-events: none; }
+/* mark cards inset their text further, so the seal follows to stay aligned
+   with the paragraph beneath it (1.3rem desktop, 1rem mobile) */
+.travelmark .card > .warrant-seal { left: 1.3rem; }
+@media (max-width: 52rem) { .travelmark .card > .warrant-seal { left: 1rem; } }
+.warrant-seal .wsl-ribbon { fill: #d8d3c8; }
+.warrant-seal circle:first-of-type { filter: drop-shadow(0 2px 3px rgba(0,0,0,.30)); }
+/* Warranted cards push their head/text down to clear the hanging seal.
+   :has() scopes this to warranted cards only — an unwarranted card keeps its
+   original spacing exactly. */
+.card:has(.warrant-seal) .card-head,
+.travelmark .card:has(.warrant-seal) .text { padding-top: 3.4rem; }
+@media (max-width: 52rem) {
+  /* Centred head text on mobile: inset both sides equally so the centred
+     "who noted" line can never run under the seal, while staying centred. */
+  .card:has(.warrant-seal) .card-head .who,
+  .card:has(.warrant-seal) .card-head .colls,
+  .travelmark .card:has(.warrant-seal) .who,
+  .travelmark .card:has(.warrant-seal) .colls { padding-left: 3rem; padding-right: 3rem; box-sizing: border-box; }
+}
+
+/* ---- post-form Warrant + Owned controls (v1.16) --------------------------
+   Warrant sits top-left in .nf-top, opposite the Private toggle. The CTA and
+   the seal occupy the same slot; .is-warranted swaps which one is shown, and
+   the seal slides down into place from above the box edge. */
+.nf-top { position: relative; }
+.nf-warrant { position: relative; min-width: 3.2rem; min-height: 1.6rem; margin-right: auto; }
+.nf-warrant .warrant-seal-form { position: absolute; left: 0; top: -.45rem; pointer-events: auto; cursor: pointer;
+  opacity: 0; transform: translateY(-1.4rem); transition: transform .38s cubic-bezier(.22,.61,.36,1), opacity .25s; }
+.nf-warrant .nf-warrant-cta { transition: opacity .15s; }
+.nf-warrant.is-warranted .nf-warrant-cta { opacity: 0; pointer-events: none; }
+.nf-warrant.is-warranted .warrant-seal-form { opacity: 1; transform: translateY(0); }
+.nf-warrant.is-warranted { min-height: 3rem; }
+
+/* Owned sits bottom-left in .nf-foot, opposite Cancel. Same .switch token as
+   Private; Delete joins it on the left when editing. */
+.nf-foot-left { display: flex; align-items: center; gap: 1.1rem; }
+.nf-owned { display: flex; align-items: center; gap: .6rem; }
+
+/* the owned switch dims briefly while its background request is in flight,
+   and flashes if it failed and had to snap back */
+.owned-row.is-saving .switch { opacity: .55; }
+.owned-row.is-failed .switch span { background: linear-gradient(#c98b8b, #b06a6a); }
