@@ -1794,25 +1794,27 @@ function objectCard(o, me, full = false) {
       <div class="noteit">
         ${me ? `<form method="post" action="/o/${o.id}/${noted ? 'unnote' : 'note'}"><button class="btn-note ${noted ? 'is-noted' : ''}">${noted ? 'Noted' : 'Note this'}</button></form>` : `<a class="btn-note" href="/login">Note this</a>`}
       </div>
-      ${(() => {
-        // Owned is private evidence: rendered only for the member themselves,
-        // and only where they actually have a relationship to the object.
-        // A viewer looking at someone else's note gets nothing at all here —
-        // not a disabled control, not an empty element.
-        if (!me) return '';
-        const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
-        if (!mine) return '';
-        const own = ownedState(me.id, o.id);
-        const on = own.state === 'owned';
-        // The exact .switch token used by the "Private?" toggle on the post form.
-        return `<div class="owned-row">
-          <span class="nf-lbl owned-label">Owned</span>
-          <label class="switch" data-owned="/o/${o.id}/owned" data-on="${on ? '1' : '0'}" data-title="${esc(o.name)}">
-            <input type="checkbox" ${on ? 'checked' : ''} aria-label="Owned"><span></span></label>
-        </div>`;
-      })()}
     </div>
     ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
+    ${(() => {
+      // Owned is private evidence: rendered only for the member themselves,
+      // and only where they actually have a relationship to the object.
+      // A viewer looking at someone else's note gets nothing at all here —
+      // not a disabled control, not an empty element.
+      // It is a sibling of .text and .figure, not a child of .text, so it can
+      // span the full card width and sit below the image.
+      if (!me) return '';
+      const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
+      if (!mine) return '';
+      const own = ownedState(me.id, o.id);
+      const on = own.state === 'owned';
+      // The exact .switch token used by the "Private?" toggle on the post form.
+      return `<div class="owned-row">
+        <span class="nf-lbl owned-label">Owned</span>
+        <label class="switch" data-owned="/o/${o.id}/owned" data-on="${on ? '1' : '0'}" data-title="${esc(o.name)}">
+          <input type="checkbox" ${on ? 'checked' : ''} aria-label="Owned"><span></span></label>
+      </div>`;
+    })()}
   </div></article>`;
 }
 
