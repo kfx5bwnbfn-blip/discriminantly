@@ -1428,9 +1428,11 @@ function objectCard(o, me, full = false) {
   return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
-    <div class="text">
+    <div class="card-head">
       <p class="who"><a href="/u/${esc(o.handle)}">${esc(o.handle)}</a> ${o.private ? '<span class="who-private">privately noted</span>' : 'noted'}</p>
       ${(() => { const cs = objCollections(o.id); return cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''; })()}
+    </div>
+    <div class="text">
       <h2><a href="/o/${o.id}">${esc(o.name)}</a></h2>
       ${o.why ? (() => {
         // roughly seven lines at the card's measure, or seven typed lines
@@ -1511,7 +1513,7 @@ const pages = {
     ${topTags.length ? `<h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
     ${me ? '' : `<h3 class="lbl ruled">About us</h3>
     <p class="about">Discriminantly is an independent, personal and portable memory for your taste—the things you notice, the places you go, and the experiences worth remembering.</p>
-    <p class="about">Keep it for yourself, share what you choose, and connect your taste to your AI— ChatGPT or Claude.</p>
+    <p class="about">Keep it for yourself, share what you choose, and connect your taste to AI— ChatGPT or Claude.</p>
     <p class="about">Your taste is yours. Keep it private when you choose, connect it on your terms, and put it to use wherever you go.</p>
     <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>`}
   </aside>

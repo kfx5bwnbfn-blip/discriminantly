@@ -1410,3 +1410,26 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
   .cols > .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
   .cols > .rail::-webkit-scrollbar-track { background: transparent; }
 }
+
+/* ---- note card head (v1.15) ---------------------------------------------
+   "who noted" + collections now live in .card-head, a sibling of .text, so
+   the mobile layout can put them above the image (mirroring the travel mark
+   card). On desktop, grid areas keep the head visually inside the text column
+   exactly where it was — same background, same combined padding — so the
+   desktop card is unchanged. */
+.note .card-head { grid-area: head; background: var(--card); padding: .9rem .8rem 0; }
+.note .card-head + .text { padding-top: 0; }
+.note .text { grid-area: text; }
+.note .figure { grid-area: figure; }
+.note:not(.travelmark) .card { grid-template-areas: "head" "text"; grid-template-rows: auto 1fr; }
+.note.has-image .card { grid-template-areas: "head figure" "text figure"; grid-template-rows: auto 1fr; }
+
+@media (max-width: 52rem) {
+  /* head → image → text, all centered, matching the travel mark card */
+  .note.has-image .card { grid-template-areas: "head" "figure" "text"; grid-template-rows: auto auto 1fr; }
+  .note .figure { order: 0; }                     /* order:-1 no longer needed — grid areas place it */
+  .note:not(.travelmark) .card-head { text-align: center; padding-bottom: .1rem; }
+  .note:not(.travelmark) .text { text-align: center; display: flex; flex-direction: column; align-items: center; }
+  .note:not(.travelmark) .text > * { width: 100%; }
+  .note:not(.travelmark) .text .noteit { width: 100%; }
+}
