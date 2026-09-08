@@ -1464,17 +1464,27 @@ const pages = {
     const s = (url.searchParams.get('q') || '').trim();
     const tag = (url.searchParams.get('t') || '').trim().toLowerCase();
     const feed = me && ['following', 'followers'].includes(url.searchParams.get('feed')) ? url.searchParams.get('feed') : 'all';
-    let rows = q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
+    // Searching looks through the member's own private entries too — the point
+    // of a search is to find your own things. Browsing the feed unsearched is
+    // unchanged: it stays the public network view it has always been.
+    const mineToo = !!(me && s);
+    let rows = mineToo
+      ? q(OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id)
+      : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (tag) rows = rows.filter((o) => tagList(o.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(k)); }
+    rows = rows.filter((o) => canSee(o, me));   // belt and braces: never leak another member's private note
     // marks share the feed with notes — one journal, two kinds of entry
-    let marks = q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC').all();
+    let marks = mineToo
+      ? q(MARK_SQL + ' WHERE m.private=0 OR m.user_id=? ORDER BY m.id DESC').all(me.id)
+      : q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); marks = marks.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
+    marks = marks.filter((x) => canSee(x, me));
     const entries = [...rows.map((o) => ({ at: o.created_at, html: objectCard(o, me) })),
                      ...marks.map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
