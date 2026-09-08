@@ -1313,3 +1313,8 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .install-steps { margin: 0 0 1.1rem; padding-left: 1.3rem; font-size: .92rem; line-height: 1.6; color: #4b4844; }
 .install-steps li { margin-bottom: .3rem; }
 .is-app .install-box { display: none; }   /* belt-and-braces alongside the JS check — never show once already standalone */
+
+/* invites list — reuses the settings box's own dark-scheme divider token */
+.invite-row { padding: .9rem 0; border-top: var(--table-gap) solid var(--table-rule); }
+.invite-row:first-child { border-top: 0; padding-top: 0; }
+.invite-row .conn-url { margin: 0; }

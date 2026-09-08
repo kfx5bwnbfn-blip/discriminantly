@@ -1976,10 +1976,28 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   invites(req, res, me) {
     const mine = q('SELECT * FROM invites WHERE from_user=? ORDER BY created_at DESC').all(me.id);
     const unused = mine.filter((i) => !i.used_by);
-    const body = `<h1>Invites</h1><p>Each member may bring in a few people they trust. Send a code, or the link directly.</p>
-<form method="post" action="/invites"><p><button class="btn btn-primary" ${unused.length >= 5 ? 'disabled' : ''}>Create an invite</button> <span class="fine">${unused.length} of 5 open</span></p></form>
-<table class="invites">${mine.map((i) => `<tr><td><code>${i.code}</code></td><td>${i.used_by ? 'Used by ' + esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle) : `<a href="/join?code=${i.code}">/join?code=${i.code}</a>`}</td></tr>`).join('')}</table>`;
-    send(res, layout({ title: 'Invites', body, me }));
+    const body = `<h3 class="strip dark-strip">Invites</h3>
+<div class="settings">
+  <div class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      <p class="sbox-title">Bring someone in</p>
+      <p class="sbox-sub">Each member may hold a few open invites at a time.</p>
+      <form method="post" action="/invites"><button class="btn3d block" ${unused.length >= 5 ? 'disabled' : ''}>Create an invite</button></form>
+      <p class="fine center">${unused.length} of 5 open</p>
+    </div>
+  </div>
+  ${mine.length ? `<div class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      <p class="sbox-title">Your invites</p>
+      ${mine.map((i) => `<div class="invite-row">
+        ${i.used_by
+          ? `<p class="fine center">Used by @${esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle)}</p>`
+          : `<p class="conn-url"><code>${esc(baseUrl(req))}/join?code=${i.code}</code></p>`}
+      </div>`).join('')}
+    </div>
+  </div>` : ''}
+</div>`;
+    send(res, layout({ title: 'Invites', body, me, cls: 'is-dark-page' }));
   },
 
   settings(req, res, me, err = '') {
@@ -2010,6 +2028,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
       <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
     </div>
+    <div class="wcell wcell-wide"><a class="btn3d block" href="/invites">Invites</a></div>
     <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
     <div class="wcell wcell-wide install-box" id="install-box" hidden>
       <p class="sbox-title">Install Discriminantly</p>
