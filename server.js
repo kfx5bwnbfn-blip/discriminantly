@@ -2084,18 +2084,54 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   },
 
   welcome(req, res, me) {
-    const rows = q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 4').all();
     const body = `
 <section class="splash">
   <img class="splash-mark" src="/mark.png" alt="" width="60" height="80">
   <p class="splash-word">discriminant.ly</p>
-  <h1 class="splash-h">Capture. Discover. Share.</h1>
-  <p class="splash-sub">the world's fine and beautiful things</p>
-  ${me ? `<a class="btn btn-dark" href="/">Enter</a>` : `<form class="splash-form" method="get" action="/join"><input name="code" placeholder="Your invite code" required><button class="btn">Sign me up</button></form>`}
+  <h1 class="splash-h">Your taste. Remembered.</h1>
+  <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Discriminantly builds a personal, portable memory of your taste—one that grows richer over time and travels with you.</p>
+  ${me ? `<a class="btn splash-enter" href="/">Enter</a>` : `<form class="splash-form" method="get" action="/join"><input name="code" placeholder="Your invite code" required><button class="btn">Sign me up</button></form>`}
+  <div class="splash-install" id="splash-install" hidden>
+    <button type="button" class="nf-post" id="splash-install-btn">Install Discriminantly</button>
+  </div>
 </section>
-<section class="preview"><div class="preview-chrome"><span></span><span></span><span></span></div>
-  <div class="feed preview-feed"><h3 class="strip">Activity from the entire network</h3><div class="grid">${rows.map((o) => objectCard(o, me)).join('')}</div></div>
-</section>`;
+<div class="shot-wrap">
+  <div class="shot-frame">
+    <div class="shot-chrome"><span></span><span></span><span></span></div>
+    <img src="/welcome-shot.jpg" alt="Discriminantly on the desktop" width="1800" height="1055">
+  </div>
+</div>
+<div class="curtain dialog" id="splash-install-dialog">
+  <div class="curtain-frame"><div class="curtain-body">
+    <div class="nf-box">
+      <p class="dlg-title">Install Discriminantly</p>
+      <p class="dlg-copy">Keep Discriminantly on your Home Screen and open it like an app.</p>
+      <ol class="install-steps">
+        <li>Tap the Share button</li>
+        <li>Choose "Add to Home Screen"</li>
+        <li>Tap "Add"</li>
+      </ol>
+      <button type="button" class="nf-post" data-dismiss-splash-install>Got it</button>
+      <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss-splash-install>Close</button></div>
+    </div>
+  </div></div>
+  <div class="curtain-tail"><span class="tail-band"></span></div>
+</div>
+<script>
+(function () {
+  var box = document.getElementById('splash-install'), dlg = document.getElementById('splash-install-dialog');
+  if (!box || !dlg) return;
+  // Only offered on a phone or tablet, and never once already installed —
+  // the demo shot below already makes the case on a desktop.
+  var isMobile = /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
+  if (isMobile && !document.documentElement.classList.contains('is-app')) box.hidden = false;
+  document.getElementById('splash-install-btn').addEventListener('click', function () { dlg.classList.add('is-open'); });
+  dlg.querySelectorAll('[data-dismiss-splash-install]').forEach(function (b) {
+    b.addEventListener('click', function () { dlg.classList.remove('is-open'); });
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('is-open'); });
+})();
+</script>`;
     send(res, layout({ title: 'Welcome', body, me, cls: 'is-welcome' }));
   },
 
@@ -2605,7 +2641,7 @@ async function mcp(req, res, tok) {
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json' };
+const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');

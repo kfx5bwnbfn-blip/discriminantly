@@ -1318,3 +1318,63 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .invite-row { padding: .9rem 0; border-top: var(--table-gap) solid var(--table-rule); }
 .invite-row:first-child { border-top: 0; padding-top: 0; }
 .invite-row .conn-url { margin: 0; }
+
+/* ---- welcome page (v1.14) ------------------------------------------------
+   Every rule here is scoped to .is-welcome so the signed-out splash can carry
+   its own light treatment without touching the dark chrome used everywhere
+   else. The masthead's .signin stays dark on every other page. */
+/* the splash sits on light stock edge to edge, rather than the app's dark
+   chrome showing around a light block — main > * would otherwise tint only
+   each child, leaving the surround dark. */
+body.is-welcome { background-color: var(--paper); background-image: var(--paper-grain);
+  background-size: 180px 180px; }
+.is-welcome main > *:not(.cols) { background-color: transparent; background-image: none; }
+.is-welcome main { padding-bottom: 3rem; }
+.is-welcome .masthead { position: static; background: none; box-shadow: none; }
+.is-welcome .masthead::after { display: none; }
+.is-welcome .masthead .wrap { justify-content: flex-end; min-height: 0; padding-top: 1.6rem; }
+.is-welcome .masthead .mark { display: none; }        /* the splash lockup below is the wordmark */
+.is-welcome .signin { align-items: center; gap: .4rem; }
+.is-welcome .signin input { width: 7rem; background: #f1f1f1; border: 1px solid #d4d4d4; color: #6d6d6d;
+  font-size: .66rem; font-weight: 400; letter-spacing: .04em; text-transform: none; padding: .45rem .6rem; }
+.is-welcome .signin input::placeholder { color: #a5a5a5; text-transform: none; letter-spacing: .04em; }
+.is-welcome .signin button.caps { color: #3b1d00; font-size: .66rem; letter-spacing: .06em; }
+.is-welcome .signin button.caps:hover { color: #000; }
+
+.is-welcome main > .splash { max-width: 42rem; margin: 0 auto; padding: .5rem 1.5rem 2.5rem; }
+.is-welcome .splash-h { font-size: 1.9rem; margin-bottom: .5rem; }
+.is-welcome .splash-sub { font-size: 1rem; line-height: 1.55; max-width: 34rem; margin: 0 auto 1.6rem; }
+.splash-enter { padding: .9rem 3.2rem; }
+.splash-install { margin-top: 1.1rem; }
+/* the install CTA is the curtain's own "Post note" button, not a new token */
+.splash-install .nf-post { max-width: 20rem; margin: 0 auto; }
+
+/* the demo shot, with the concave "lifted corners" shadow: two counter-rotated
+   slabs, so the shadow pools under the bottom corners and pulls away toward the
+   middle. A single ellipse bulges the wrong way and cannot do this. */
+.shot-wrap { position: relative; width: 56rem; max-width: 100%; margin: 0 auto 2.5rem; }
+.shot-wrap::before, .shot-wrap::after {
+  content: ""; position: absolute; z-index: -1; bottom: 10px; width: 48%; height: 50px;
+  box-shadow: 0 26px 18px rgba(0,0,0,.55); }
+.shot-wrap::before { left: 6px; transform: rotate(-5deg); transform-origin: 0 100%; }
+.shot-wrap::after { right: 6px; transform: rotate(5deg); transform-origin: 100% 100%; }
+.shot-frame { position: relative; z-index: 1; border-radius: 8px; overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 8px 20px rgba(0,0,0,.18); }
+.shot-chrome { display: flex; align-items: center; gap: 7px; padding: 10px 14px;
+  background: linear-gradient(#d6d6d6, #cfcfcf); }
+.shot-chrome span { width: 10px; height: 10px; border-radius: 50%; background: #b5b5b5; }
+.shot-chrome span:nth-child(1) { background: #ff5f57; }
+.shot-chrome span:nth-child(2) { background: #febc2e; }
+.shot-chrome span:nth-child(3) { background: #28c840; }
+/* height:auto is load-bearing — the img carries width/height attributes for
+   layout stability, and without this the intrinsic height wins at narrow
+   widths and the shot renders squashed. */
+.shot-frame img { display: block; width: 100%; height: auto; }
+
+@media (max-width: 40rem) {
+  .is-welcome .masthead .wrap { justify-content: center; padding-top: 1.2rem; }
+  .is-welcome .signin { flex-wrap: wrap; justify-content: center; }
+  .is-welcome .splash-h { font-size: 1.45rem; }
+  .is-welcome .splash-sub { font-size: .92rem; }
+  .shot-wrap { width: auto; margin-left: 1.1rem; margin-right: 1.1rem; }
+}
