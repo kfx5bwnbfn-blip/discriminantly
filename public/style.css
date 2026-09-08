@@ -1432,10 +1432,14 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
    card). On desktop, grid areas keep the head visually inside the text column
    exactly where it was — same background, same combined padding — so the
    desktop card is unchanged. */
-.note .card-head { grid-area: head; background: var(--card); padding: .9rem .8rem 0; }
-.note .card-head + .text { padding-top: 0; }
-.note .text { grid-area: text; }
-.note .figure { grid-area: figure; }
+/* Scoped away from .travelmark on purpose. A travel mark card declares only
+   grid-template-columns:1fr and no named areas, so a bare `grid-area: text`
+   there points at an area that does not exist — grid then invents implicit
+   tracks and the content lands off-centre with a phantom gap on the left. */
+.note:not(.travelmark) .card-head { grid-area: head; background: var(--card); padding: .9rem .8rem 0; }
+.note:not(.travelmark) .card-head + .text { padding-top: 0; }
+.note:not(.travelmark) .text { grid-area: text; }
+.note:not(.travelmark) .figure { grid-area: figure; }
 .note:not(.travelmark) .card { grid-template-areas: "head" "text"; grid-template-rows: auto 1fr; }
 .note.has-image .card { grid-template-areas: "head figure" "text figure"; grid-template-rows: auto 1fr; }
 
