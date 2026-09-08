@@ -1031,9 +1031,18 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 /* map: wide and shallow, tinted to the palette */
 .mark-map { margin: .2rem auto .35rem; max-width: var(--mark-measure); border: 1px solid var(--mark-rule); background: #e6e4dc; overflow: hidden; }
 .mark-map iframe { display: block; width: 100%; height: 8.5rem; border: 0; filter: var(--map-tone); }
-.travelmark:not(.note-full) .mark-map { pointer-events: none; overflow: hidden; }
+/* Feed cards: the map is a placeholder — clickable — until loaded on demand.
+   Once loaded it stays non-interactive (pointer-events:none on the iframe
+   itself, not the container, so the click that revealed it isn't blocked by
+   the same rule that then keeps it from being pannable in a scrolling feed).
+   The real, pannable map lives on the mark's own page (.note-full). */
+.travelmark:not(.note-full) .mark-map { overflow: hidden; cursor: pointer; }
 .travelmark:not(.note-full) .mark-map iframe {          /* widen and crop so the zoom buttons fall outside */
-  width: calc(100% + 96px); margin-left: -48px; }
+  width: calc(100% + 96px); margin-left: -48px; pointer-events: none; }
+.mark-map-placeholder { display: flex; align-items: center; justify-content: center; height: 8.5rem;
+  font-family: var(--slab); font-size: .68rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--mark-ink); opacity: .55; }
+.travelmark:not(.note-full) .mark-map:hover .mark-map-placeholder { opacity: .8; }
 .note-full .mark-map iframe { height: 11rem; }
 .map-credit { margin: 0 0 .9rem; font-family: var(--slab); font-size: .58rem; letter-spacing: .08em;
   text-transform: uppercase; color: #97968c; }

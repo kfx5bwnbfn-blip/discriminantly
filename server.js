@@ -706,6 +706,19 @@ function readImage(file, cb) {
       field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });
   });
 
+  // Feed-card maps don't load until asked for. They're non-interactive here
+  // regardless (pointer-events: none — the real, pannable map lives on the
+  // mark's own page), so nothing is lost by not paying for an OpenStreetMap
+  // embed load — a full HTML/CSS/JS page per card — until someone actually
+  // wants to see it.
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-map-src]');
+    if (!t || t.querySelector('iframe')) return;
+    var f = document.createElement('iframe');
+    f.src = t.dataset.mapSrc; f.title = t.dataset.mapTitle || 'Map'; f.loading = 'lazy';
+    t.replaceChildren(f);
+  });
+
   // Note / Travel Mark: swap the panel, easing the height so nothing jumps.
   // Delegated, so it serves the curtain and the post page alike.
   document.addEventListener('click', function (e) {
@@ -1098,7 +1111,7 @@ function storeImage(userId, value, actorCtx) {
 
 // Feeds render a page at a time. The link works without JavaScript; with it,
 // the next page is fetched and appended in place.
-const PAGE = 50;
+const PAGE = 25;
 const pageOf = (rows, url) => {
   const off = Math.max(0, +url.searchParams.get('offset') || 0);
   return { off, slice: rows.slice(0, off + PAGE), more: rows.length > off + PAGE, total: rows.length };
@@ -1285,7 +1298,9 @@ function markCard(m, me, full = false) {
       ${m.why ? `<p class="body">${esc(m.why)}</p>` : ''}
       ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
       ${m.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(m.url)}" rel="noopener">${esc(m.url.length > 34 ? m.url.slice(0, 34) + '…' : m.url)}</a></p>` : ''}
-      ${embed ? `<div class="mark-map"><iframe src="${embed}" loading="lazy" title="Map of ${esc(m.name)}"></iframe></div>
+      ${embed ? `${full
+        ? `<div class="mark-map"><iframe src="${embed}" loading="lazy" title="Map of ${esc(m.name)}"></iframe></div>`
+        : `<div class="mark-map" data-map-src="${esc(embed)}" data-map-title="Map of ${esc(m.name)}"><div class="mark-map-placeholder">Show map</div></div>`}
       <p class="map-credit">© OpenStreetMap contributors</p>` : ''}
       <div class="noteit mark-visits">
         <div class="mark-buttons">
