@@ -173,6 +173,11 @@ const MIGRATIONS = [
       entity_type   TEXT NOT NULL,
       entity_uid    TEXT NOT NULL,
       action        TEXT NOT NULL,          -- created | edited | enriched | deleted
+                                            -- renoted | unrenoted            (v1.11)
+                                            -- asserted | released | revoked | corrected (v1.15)
+                                            -- Actions name the member's act, not the SQL used
+                                            -- to persist it: an ownership release or a warrant
+                                            -- revocation appends a row, it deletes nothing.
       assertion     TEXT NOT NULL,          -- explicit | observed | derived | inferred | unknown
       actor_type    TEXT NOT NULL,          -- user | ai_on_behalf | system | unknown
       actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -294,6 +299,74 @@ const MIGRATIONS = [
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_images_uid ON images(uid)');
   }],
 
+  // Owned. An append-only log of ownership assertions, never a boolean.
+  //
+  // Keyed on (user_id, object_id) because objects are SHARED: a re-note adds a
+  // row to `notes`, it does not copy the object. A column on `objects` would
+  // therefore make one member's ownership visible as everyone's — and would
+  // also ride along in OBJ_SQL's `SELECT o.*` to eleven read paths, including
+  // the public unauthenticated /objects.json. A separate table makes the
+  // privacy rule structural rather than a template convention.
+  //
+  // state: 'owned'     — I own this
+  //        'released'  — I no longer own this (a real lifecycle transition)
+  //        'retracted' — the earlier assertion was a mistake (a correction)
+  // supersedes: uid of the row this corrects. A retracted row's target is
+  // excluded when computing ownership periods, so a correction never leaves a
+  // false period behind, while both rows remain visible as history.
+  ['019-ownership-assertions', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS ownership_assertions (
+      id         INTEGER PRIMARY KEY,
+      uid        TEXT,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      object_id  INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+      state      TEXT NOT NULL,
+      supersedes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ownership_uid AFTER INSERT ON ownership_assertions
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE ownership_assertions SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_ownership_uid ON ownership_assertions(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ownership_subject ON ownership_assertions(user_id, object_id, id)');
+  }],
+
+  // Warrant. Same append-only shape, but polymorphic over notes and marks.
+  //
+  // Deliberately a separate table from ownership rather than one shared
+  // "assertion" table: `published` must not exist anywhere near Owned rows,
+  // where publication is forbidden. Keeping them apart makes that structural.
+  //
+  // subject_uid is polymorphic (objects.uid | marks.uid), so SQLite cannot
+  // give it a foreign key — integrity is enforced in the delete paths instead.
+  // published applies ONLY to state='active' rows: it records whether that
+  // particular act of warranting was announced. Nothing that computes
+  // endorsement ever reads it, so publication stays social metadata rather
+  // than part of what a Warrant means.
+  ['020-warrants', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS warrants (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject_type TEXT NOT NULL,
+      subject_uid  TEXT NOT NULL,
+      state        TEXT NOT NULL,
+      published    INTEGER NOT NULL DEFAULT 0,
+      supersedes   TEXT,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_warrants_uid AFTER INSERT ON warrants
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE warrants SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_warrants_uid ON warrants(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_warrants_subject ON warrants(user_id, subject_type, subject_uid, id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_warrants_feed ON warrants(subject_type, subject_uid, state)');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -406,6 +479,91 @@ function provenanceOf(entity_type, entity_uid) {
   return r || null;
 }
 const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid=?`).get(id); return r ? r.uid : null; };
+
+// ---------- Owned + Warrant (v1.15) ----------
+// Both are append-only assertion logs. Current state is the newest row that has
+// not been superseded by a later correction. There is deliberately one function
+// per primitive that computes this, so the supersession rule cannot drift
+// between the web, MCP and export paths.
+//
+// Three-valued on purpose: null means NEVER ASSERTED, which is not the same as
+// 'released'/'revoked' and is emphatically not negative evidence. Nothing
+// downstream may collapse these.
+function ownedState(userId, objectId) {
+  const rows = q(`SELECT * FROM ownership_assertions
+    WHERE user_id=? AND object_id=? ORDER BY id`).all(userId, objectId);
+  if (!rows.length) return { state: null, since: null, history_count: 0 };
+  const corrected = new Set(rows.filter((r) => r.supersedes).map((r) => r.supersedes));
+  const live = rows.filter((r) => r.state !== 'retracted' && !corrected.has(r.uid));
+  const last = live[live.length - 1];
+  return { state: last ? last.state : null,
+           since: last ? last.created_at : null,
+           history_count: rows.length };
+}
+function warrantState(userId, subjectType, subjectUid) {
+  const rows = q(`SELECT * FROM warrants
+    WHERE user_id=? AND subject_type=? AND subject_uid=? ORDER BY id`).all(userId, subjectType, subjectUid);
+  if (!rows.length) return { state: null, since: null, published: false, history_count: 0 };
+  const corrected = new Set(rows.filter((r) => r.supersedes).map((r) => r.supersedes));
+  const live = rows.filter((r) => r.state !== 'retracted' && !corrected.has(r.uid));
+  const last = live[live.length - 1];
+  return { state: last ? last.state : null,
+           since: last ? last.created_at : null,
+           // published is meaningful only while a warrant is active
+           published: !!(last && last.state === 'active' && last.published),
+           history_count: rows.length };
+}
+// Is this subject publicly warranted by its owner? Drives the seal on a card.
+// Reads state only — never `published`, which is social metadata.
+const publicWarrant = (userId, subjectType, subjectUid) =>
+  warrantState(userId, subjectType, subjectUid).state === 'active';
+
+function assertOwned(userId, objectId, ctx) {
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state) VALUES(?,?,\'owned\')').run(userId, objectId);
+  recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'asserted', ctx, { source_kind: 'manual' });
+  return uidOf('ownership_assertions', r.lastInsertRowid);
+}
+function releaseOwned(userId, objectId, ctx) {
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state) VALUES(?,?,\'released\')').run(userId, objectId);
+  recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'released', ctx, { source_kind: 'manual' });
+  return uidOf('ownership_assertions', r.lastInsertRowid);
+}
+// A correction, not a lifecycle transition: it must not leave a period during
+// which the member is recorded as having owned the thing. The superseded row
+// stays visible as "what was asserted"; ownedState() excludes it from periods.
+function correctOwned(userId, objectId, ctx) {
+  const rows = q(`SELECT * FROM ownership_assertions
+    WHERE user_id=? AND object_id=? ORDER BY id`).all(userId, objectId);
+  const corrected = new Set(rows.filter((r) => r.supersedes).map((r) => r.supersedes));
+  const live = rows.filter((r) => r.state !== 'retracted' && !corrected.has(r.uid));
+  const target = live[live.length - 1];
+  if (!target || target.state !== 'owned') return null;   // nothing to correct
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state,supersedes) VALUES(?,?,\'retracted\',?)')
+    .run(userId, objectId, target.uid);
+  recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'corrected', ctx,
+    { source_kind: 'correction', source_ref: target.uid });
+  return uidOf('ownership_assertions', r.lastInsertRowid);
+}
+function assertWarrant(userId, subjectType, subjectUid, publish, ctx) {
+  const r = q('INSERT INTO warrants(user_id,subject_type,subject_uid,state,published) VALUES(?,?,?,\'active\',?)')
+    .run(userId, subjectType, subjectUid, publish ? 1 : 0);
+  recordProvenance('warrant', uidOf('warrants', r.lastInsertRowid), 'asserted', ctx,
+    { source_kind: 'manual', fields: publish ? 'published' : 'quiet' });
+  return uidOf('warrants', r.lastInsertRowid);
+}
+function revokeWarrant(userId, subjectType, subjectUid, ctx) {
+  const r = q('INSERT INTO warrants(user_id,subject_type,subject_uid,state,published) VALUES(?,?,?,\'revoked\',0)')
+    .run(userId, subjectType, subjectUid);
+  recordProvenance('warrant', uidOf('warrants', r.lastInsertRowid), 'revoked', ctx, { source_kind: 'manual' });
+  return uidOf('warrants', r.lastInsertRowid);
+}
+// subject_uid is polymorphic, so SQLite cannot cascade it. The four delete
+// paths call this explicitly. Consistent with the v1.11 cascade policy: the
+// parent's own 'deleted' provenance explains the removal, so no per-warrant
+// deletion rows are written (writing 'deleted' here would also contradict the
+// vocabulary, since every other warrant transition is an append).
+const dropWarrantsFor = (subjectType, subjectUid) =>
+  q('DELETE FROM warrants WHERE subject_type=? AND subject_uid=?').run(subjectType, subjectUid);
 // Rejects strings that merely look like YYYY-MM-DD but aren't a real calendar
 // date (2026-02-30, month 13, non-leap Feb 29). Date's own constructor is too
 // forgiving for this — it silently rolls 2026-02-30 into March 2 — so validity
@@ -650,15 +808,39 @@ function readImage(file, cb) {
     dlg.querySelector('form').action = opts.action || '';
     var fld = dlg.querySelector('.dlg-input');
     if (fld) { fld.hidden = !opts.field; fld.value = opts.value || ''; if (opts.field) fld.setAttribute('placeholder', opts.field); }
+    // Optional callbacks, added for the Owned release-vs-correction question,
+    // where BOTH buttons are real outcomes rather than confirm/cancel. Existing
+    // callers pass neither and keep the plain form-action behaviour untouched.
+    dlg.__onConfirm = opts.onConfirm || null;
+    dlg.__onDismiss = opts.onDismiss || null;
+    dlg.__twoWay = !!(opts.onConfirm || opts.onDismiss);
     dlg.classList.add('is-open');
   };
   document.addEventListener('DOMContentLoaded', function () {
     var cdlg = document.getElementById('confirm-dialog');
     if (!cdlg) return;
+    // In two-way mode the dismiss button is a real second outcome, not a
+    // cancel, so it fires its callback rather than merely closing.
     cdlg.querySelectorAll('[data-dismiss]').forEach(function (x) {
-      x.addEventListener('click', function () { cdlg.classList.remove('is-open'); });
+      x.addEventListener('click', function () {
+        cdlg.classList.remove('is-open');
+        var cb = cdlg.__onDismiss; cdlg.__onDismiss = null; cdlg.__onConfirm = null;
+        if (cb) cb();
+      });
     });
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') cdlg.classList.remove('is-open'); });
+    // The confirm button normally submits the dialog's form. When a callback
+    // is supplied there is no form action to submit, so stop the submit and
+    // run the callback instead.
+    cdlg.querySelector('form').addEventListener('submit', function (ev) {
+      if (!cdlg.__twoWay) return;
+      ev.preventDefault();
+      cdlg.classList.remove('is-open');
+      var cb = cdlg.__onConfirm; cdlg.__onConfirm = null; cdlg.__onDismiss = null; cdlg.__twoWay = false;
+      if (cb) cb();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { cdlg.classList.remove('is-open'); cdlg.__onConfirm = null; cdlg.__onDismiss = null; cdlg.__twoWay = false; }
+    });
   });
 
   // Show more: fetch the next page and append it, so the feed never reloads.
@@ -704,6 +886,28 @@ function readImage(file, cb) {
     window.askConfirm({ title: 'Check in', cta: 'Log this visit', dismiss: 'Cancel',
       action: t.dataset.checkin, copy: 'Log today as a visit to <b>' + t.dataset.place + '</b>.',
       field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });
+  });
+
+  // Owned. ON is an unambiguous assertion — one tap, no confirmation.
+  // OFF is genuinely ambiguous, so it asks the one question that resolves it:
+  // a lifecycle release ("sold it") and a correction ("wrong button") mean
+  // different things and must not both be recorded as a release.
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-owned]');
+    if (!t) return;
+    var post = function (intent) {
+      var f = document.createElement('form');
+      f.method = 'post'; f.action = t.dataset.owned;
+      var i = document.createElement('input'); i.type = 'hidden'; i.name = 'intent'; i.value = intent;
+      f.appendChild(i); document.body.appendChild(f); f.submit();
+    };
+    if (t.dataset.on !== '1') return post('own');
+    window.askConfirm({
+      title: 'Owned', cta: 'I no longer own it', dismiss: 'It was marked by mistake',
+      copy: 'Are you saying you no longer own <b>' + t.dataset.title + '</b>, or that the ownership mark was a mistake?',
+      onConfirm: function () { post('release'); },
+      onDismiss: function () { post('correct'); },
+    });
   });
 
   // Feed-card maps don't load until asked for. They're non-interactive here
@@ -1286,6 +1490,7 @@ function markCard(m, me, full = false) {
   const cs = markCollections(m.id);
   const embed = mapEmbed(m);
   return `<article class="note travelmark ${full ? 'note-full' : ''}">
+  ${warrantSeal(m, 'mark', me)}
   <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     <div class="text">
@@ -1436,11 +1641,32 @@ function profileRail(u, me, tab) {
 
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
 
+// The Warrant seal. Rendered from state alone — never from `published`, which
+// is social metadata about the announcement, not part of what a warrant means.
+// A public subject's warrant is visible to everyone; a private subject's is
+// visible only to its owner, because the subject itself already is.
+function warrantSeal(row, subjectType, me) {
+  const w = warrantState(row.user_id, subjectType, row.uid);
+  if (w.state !== 'active') return '';
+  if (row.private && (!me || me.id !== row.user_id)) return '';
+  return `<span class="warrant-seal" title="${esc(row.handle || '')} stands behind this" aria-label="Warranted">
+    <svg viewBox="0 0 40 52" width="26" height="34" role="img" focusable="false">
+      <path class="wsl-ribbon" d="M18 0h4v9h-4z"/>
+      <g class="wsl-crest">
+        <path class="wsl-plume" d="M20 8c-4 0-7 2-8 5 2-1 4-1 5 0-2 1-3 3-3 5 2-2 4-3 6-2 2-1 4 0 6 2 0-2-1-4-3-5 1-1 3-1 5 0-1-3-4-5-8-5z"/>
+        <path class="wsl-shield" d="M20 17c-5 0-9 1-9 1v14c0 7 5 12 9 14 4-2 9-7 9-14V18s-4-1-9-1z"/>
+        <path class="wsl-mark" d="M20 23l5 4-5 4-3-2 2-2-4-2z"/>
+      </g>
+    </svg>
+  </span>`;
+}
+
 function objectCard(o, me, full = false) {
   const noted = me ? q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id) : null;
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
   return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
+  ${warrantSeal(o, 'object', me)}
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     <div class="card-head">
@@ -1459,6 +1685,23 @@ function objectCard(o, me, full = false) {
       <div class="noteit">
         ${me ? `<form method="post" action="/o/${o.id}/${noted ? 'unnote' : 'note'}"><button class="btn-note ${noted ? 'is-noted' : ''}">${noted ? 'Noted' : 'Note this'}</button></form>` : `<a class="btn-note" href="/login">Note this</a>`}
       </div>
+      ${(() => {
+        // Owned is private evidence: rendered only for the member themselves,
+        // and only where they actually have a relationship to the object.
+        // A viewer looking at someone else's note gets nothing at all here —
+        // not a disabled control, not an empty element.
+        if (!me) return '';
+        const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
+        if (!mine) return '';
+        const own = ownedState(me.id, o.id);
+        const on = own.state === 'owned';
+        return `<div class="owned-row">
+          <span class="owned-label">Owned</span>
+          <button type="button" class="switch owned-switch ${on ? 'is-on' : ''}"
+            data-owned="/o/${o.id}/owned" data-on="${on ? '1' : '0'}" data-title="${esc(o.name)}"
+            role="switch" aria-checked="${on}" aria-label="Owned"><span class="knob"></span></button>
+        </div>`;
+      })()}
     </div>
     ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
   </div></article>`;
@@ -2201,28 +2444,39 @@ const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
     handle: { type: 'string' }, private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+// Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
+// disapproval. Consumers must not collapse null with 'released'/'revoked'.
+const OS_OWNED = { type: 'object', additionalProperties: false,
+  required: ['state', 'since', 'history_count'],
+  properties: { state: { type: ['string', 'null'], enum: ['owned', 'released', null] },
+    since: { type: ['string', 'null'] }, history_count: { type: 'integer' } } };
+const OS_WARRANT = { type: 'object', additionalProperties: false,
+  required: ['state', 'since', 'published', 'history_count'],
+  properties: { state: { type: ['string', 'null'], enum: ['active', 'revoked', null] },
+    since: { type: ['string', 'null'] }, published: { type: 'boolean' }, history_count: { type: 'integer' } } };
 const OS_MY_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'owned', 'warrant', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
-    private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+    private: { type: 'boolean' }, owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'owned', 'warrant', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' },
-    private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+    private: { type: 'boolean' }, owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
-    provenance: OS_PROVENANCE } };
+    warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_MARK = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
-    remarked_from_uid: { type: ['string', 'null'] }, visit_count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+    remarked_from_uid: { type: ['string', 'null'] }, visit_count: { type: 'integer' },
+    warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_COLLECTION = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'name', 'kind', 'count', 'provenance'],   // no integer id — collections genuinely have none today
   properties: { type: { const: 'collection' }, uid: { type: 'string' }, name: { type: 'string' },
@@ -2273,6 +2527,26 @@ const TOOLS = [
       private: { type: 'boolean' } } } },
   { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer' } } } },
+
+  { name: 'mark_owned', description: 'Record that the member owns the thing in one of their notes — "I own this". Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The note\'s id.' } } } },
+  { name: 'mark_no_longer_owned', description: 'Record that the member USED TO own this and no longer does — sold, given away, lost, replaced. This preserves the fact that they owned it for a period. If instead the ownership mark was simply a mistake and they never owned it, use correct_ownership_mistake — do not use this tool, because it would leave a false record of them having owned it.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The note\'s id.' } } } },
+  { name: 'correct_ownership_mistake', description: 'Correct an ownership mark that should never have been made — the member did not own this and the earlier mark was an error. This removes the false ownership period from their record while keeping an honest note that a correction happened. This is NOT for things sold, given away, or no longer owned: for those use mark_no_longer_owned. If it is unclear which the member means, ask before calling either.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: 'The note\'s id.' } } } },
+
+  { name: 'warrant', description: 'Record that the member stands behind something — their personal seal of approval on a note or a travel mark. Only call this when the member has explicitly said they want to warrant, endorse or stand behind it. Never infer a warrant from praise, from ownership, from repeat visits, from a positive description, or from sentiment of any kind. On a public note or mark this is announced to the feed by default; pass announce:false to warrant quietly. Private notes and marks are never announced.',
+    inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
+      subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
+      id: { type: 'integer' },
+      announce: { type: 'boolean', description: 'Announce to the feed. Defaults to true for public subjects; forced off for private ones.' } } } },
+  { name: 'revoke_warrant', description: 'Withdraw the member\'s warrant from a note or travel mark — they no longer stand behind it. The public endorsement and any feed appearance disappear; no "revoked" announcement is made. Their private history still records that they warranted it and later withdrew.',
+    inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
+      subject_type: { type: 'string', enum: ['note', 'mark'] },
+      id: { type: 'integer' } } } },
   { name: 'edit_travel_mark', description: 'Edit a travel mark the connected member owns. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
@@ -2401,7 +2675,9 @@ async function mcpCall(user, name, a = {}) {
     const rows = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50));
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
-        tags: o.tags, url: o.url, private: !!o.private, provenance: provenanceOf('object', o.uid) })) } };
+        tags: o.tags, url: o.url, private: !!o.private,
+        owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid),
+        provenance: provenanceOf('object', o.uid) })) } };
   }
   if (name === 'edit_note') {
     if (!a.id) throw new Error('id is required');
@@ -2512,6 +2788,7 @@ async function mcpCall(user, name, a = {}) {
     if (!mk) throw new Error(`No travel mark #${a.id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
     recordProvenance('mark', mk.uid, 'deleted', mcpActor(user));
+    dropWarrantsFor('mark', mk.uid);
     q('DELETE FROM marks WHERE id=?').run(mk.id);
     return `Deleted #${mk.id}: ${mk.name}`;
   }
@@ -2580,6 +2857,7 @@ async function mcpCall(user, name, a = {}) {
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
         country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
         remarked_from_uid: x.remarked_from_uid || null, visit_count: markVisits(x.id).length,
+        warrant: warrantState(user.id, 'mark', x.uid),
         provenance: provenanceOf('mark', x.uid) })) } };
   }
   if (name === 'search_catalogue') {
@@ -2594,7 +2872,8 @@ async function mcpCall(user, name, a = {}) {
         .all(user.id, `%${k}%`, `%${k}%`, `%${k}%`)
         .forEach((o) => hits.push({ at: o.created_at,
           line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
-          item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private } }));
+          item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private,
+                  owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid) } }));
     }
     if (kind !== 'note') {
       q(MARK_SQL + ' WHERE m.user_id=?').all(user.id)
@@ -2602,7 +2881,8 @@ async function mcpCall(user, name, a = {}) {
         .forEach((x) => hits.push({ at: x.created_at,
           line: `MARK #${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''}`,
           item: { type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality, country: x.country,
-                  why: x.why, tags: x.tags, private: !!x.private, remarked_from_uid: x.remarked_from_uid || null } }));
+                  why: x.why, tags: x.tags, private: !!x.private, remarked_from_uid: x.remarked_from_uid || null,
+                  warrant: warrantState(user.id, 'mark', x.uid) } }));
     }
     hits.sort((x, y) => (x.at < y.at ? 1 : -1));
     const top = hits.slice(0, lim);
@@ -2630,12 +2910,58 @@ async function mcpCall(user, name, a = {}) {
         notes_by_collection: byColl.map((r) => ({ name: r.name, count: r.n })),
         marks_by_country: byCountry.map((r) => ({ country: r.country, count: r.n })) } };
   }
+  if (name === 'mark_owned' || name === 'mark_no_longer_owned' || name === 'correct_ownership_mistake') {
+    if (!a.id) throw new Error('id is required');
+    const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
+    if (!o) throw new Error(`No note #${a.id}`);
+    // Ownership is asserted against the member's own relationship to the
+    // object. Objects are shared, so anyone who has noted it may assert.
+    const mine = o.user_id === user.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(user.id, o.id);
+    if (!mine) throw new Error(`Note #${a.id} is not in this member's catalogue`);
+    if (name === 'mark_owned') {
+      assertOwned(user.id, o.id, mcpActor(user));
+      return `Marked as owned: ${o.name}. This is private — only the member and their own AI can see it.`;
+    }
+    if (name === 'mark_no_longer_owned') {
+      const cur = ownedState(user.id, o.id);
+      if (cur.state !== 'owned') throw new Error(`${o.name} is not currently marked as owned, so there is nothing to release.`);
+      releaseOwned(user.id, o.id, mcpActor(user));
+      return `Recorded as no longer owned: ${o.name}. The earlier period of ownership is preserved.`;
+    }
+    const corrected = correctOwned(user.id, o.id, mcpActor(user));
+    if (!corrected) throw new Error(`${o.name} has no current ownership mark to correct.`);
+    return `Corrected: the ownership mark on ${o.name} has been withdrawn as an error, leaving no record of it having been owned.`;
+  }
+  if (name === 'warrant' || name === 'revoke_warrant') {
+    if (!a.id) throw new Error('id is required');
+    if (a.subject_type !== 'note' && a.subject_type !== 'mark') throw new Error("subject_type must be 'note' or 'mark'");
+    const isNote = a.subject_type === 'note';
+    const row = isNote ? q('SELECT * FROM objects WHERE id=?').get(a.id) : q('SELECT * FROM marks WHERE id=?').get(a.id);
+    if (!row) throw new Error(`No ${isNote ? 'note' : 'travel mark'} #${a.id}`);
+    if (row.user_id !== user.id) throw new Error(`That ${isNote ? 'note' : 'travel mark'} does not belong to this member`);
+    const stype = isNote ? 'object' : 'mark';
+    if (name === 'warrant') {
+      const cur = warrantState(user.id, stype, row.uid);
+      if (cur.state === 'active') return `${row.name} is already warranted.`;
+      // A private subject can never publish. Not a filter at read time —
+      // the publication flag is never set in the first place.
+      const publish = row.private ? false : (a.announce === undefined ? true : !!a.announce);
+      assertWarrant(user.id, stype, row.uid, publish, mcpActor(user));
+      return `Warranted: ${row.name}.` + (row.private ? ' The note is private, so nothing was announced.'
+        : publish ? ' Shared to the feed.' : ' Warranted quietly — no feed announcement.');
+    }
+    const cur = warrantState(user.id, stype, row.uid);
+    if (cur.state !== 'active') throw new Error(`${row.name} is not currently warranted.`);
+    revokeWarrant(user.id, stype, row.uid, mcpActor(user));
+    return `Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`;
+  }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
     if (!o) throw new Error(`No note #${a.id}`);
     if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
     recordProvenance('object', o.uid, 'deleted', mcpActor(user));
+    dropWarrantsFor('object', o.uid);
     q('DELETE FROM objects WHERE id=?').run(o.id);
     return `Deleted #${a.id}: ${o.name}`;
   }
@@ -2873,6 +3199,7 @@ async function handle(req, res) {
     const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
     if (!mk) return send(res, 'Not yours', 403);
     recordProvenance('mark', mk.uid, 'deleted', webActor(me));
+    dropWarrantsFor('mark', mk.uid);
     q('DELETE FROM marks WHERE id=?').run(mk.id);
     return redirect(res, `/u/${me.handle}?tab=marks`);
   }
@@ -2940,6 +3267,39 @@ async function handle(req, res) {
     recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
     return redirect(res, `/o/${r.lastInsertRowid}`);
   }
+  if ((mt = p.match(/^\/o\/(\d+)\/owned$/)) && m === 'POST') {
+    if (!me) return need();
+    const o = q('SELECT * FROM objects WHERE id=?').get(+mt[1]);
+    if (!o) return send(res, 'Not found', 404);
+    const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
+    if (!mine) return send(res, 'Not yours', 403);
+    const b = await readBody(req);
+    // The web UI resolves release-vs-correction BEFORE posting, so the server
+    // only ever receives an unambiguous intent. No confirmation state machine.
+    const intent = b.intent;
+    if (intent === 'own') assertOwned(me.id, o.id, webActor(me));
+    else if (intent === 'release') { if (ownedState(me.id, o.id).state === 'owned') releaseOwned(me.id, o.id, webActor(me)); }
+    else if (intent === 'correct') correctOwned(me.id, o.id, webActor(me));
+    return redirect(res, req.headers.referer || `/o/${o.id}`);
+  }
+  if ((mt = p.match(/^\/(o|m)\/(\d+)\/warrant$/)) && m === 'POST') {
+    if (!me) return need();
+    const isNote = mt[1] === 'o';
+    const row = isNote ? q('SELECT * FROM objects WHERE id=?').get(+mt[2]) : q('SELECT * FROM marks WHERE id=?').get(+mt[2]);
+    if (!row) return send(res, 'Not found', 404);
+    if (row.user_id !== me.id) return send(res, 'Not yours', 403);
+    const stype = isNote ? 'object' : 'mark';
+    const b = await readBody(req);
+    if (b.intent === 'revoke') {
+      if (warrantState(me.id, stype, row.uid).state === 'active') revokeWarrant(me.id, stype, row.uid, webActor(me));
+    } else if (warrantState(me.id, stype, row.uid).state !== 'active') {
+      // A private subject can never publish: the flag is never set, rather
+      // than being set and filtered out downstream.
+      const publish = row.private ? false : b.quiet ? false : true;
+      assertWarrant(me.id, stype, row.uid, publish, webActor(me));
+    }
+    return redirect(res, req.headers.referer || `/${mt[1]}/${row.id}`);
+  }
   if ((mt = p.match(/^\/o\/(\d+)$/))) return pages.object(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/o\/(\d+)\/(note|unnote)$/)) && m === 'POST') {
     if (!me) return need();
@@ -2979,6 +3339,7 @@ async function handle(req, res) {
     if (!me) return need();
     const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
     recordProvenance('object', o.uid, 'deleted', webActor(me));
+    dropWarrantsFor('object', o.uid);
     q('DELETE FROM objects WHERE id=?').run(o.id);
     return redirect(res, `/u/${me.handle}?tab=notes`);
   }
