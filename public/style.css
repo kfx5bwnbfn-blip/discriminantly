@@ -54,7 +54,13 @@
   --nf-field-soft: #e1dfdb;
   --nf-rule: rgba(0,0,0,.10);
   --nf-ink: #4b4844;
-  --nf-input-size: .78rem;   /* placeholder/label size inside the note card */
+  /* Two — and only two — field sizes on the note and mark forms, shared by
+     the standalone and curtain variants. --nf-input-size is every label and
+     placeholder; --nf-body-size is the deliberate larger tier for title and
+     comments, which carry the note card's body voice. Both are overridden
+     once at the mobile breakpoint. Nothing else should hardcode a size. */
+  --nf-input-size: .78rem;
+  --nf-body-size: .88rem;
   --tile-face: #edeeee;
   /* travel marks sit on paper: warm stock with a fibrous grain */
   --mark-card: #eeece5;
@@ -584,7 +590,7 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .nf-field::placeholder { color: #9b9c9d; letter-spacing: .12em; }
 /* title + comments carry the note card's body voice: mixed case, same ink */
 .nf-stack input[name="name"], textarea.nf-field {
-  text-transform: none; letter-spacing: .01em; font-size: .88rem; line-height: 1.45; color: #333; }
+  text-transform: none; letter-spacing: .01em; font-size: var(--nf-body-size); line-height: 1.45; color: #333; }
 textarea.nf-field { resize: vertical; }
 /* collections dropdown: gradient tints give it depth over the card */
 .nf-drop { position: relative; }
@@ -608,13 +614,13 @@ textarea.nf-field { resize: vertical; }
 .nf-opt:hover { background: rgba(255,255,255,.5); }
 .nf-opt input { width: auto; margin: 0; }
 .nf-opt-new { flex-wrap: wrap; }
-.nf-opt-new .nf-field { flex: 1 1 100%; margin-top: .4rem; padding: .45rem .6rem; font-size: .72rem; background: #fff; }
+.nf-opt-new .nf-field { flex: 1 1 100%; margin-top: .4rem; padding: .45rem .6rem; font-size: var(--nf-input-size); background: #fff; }
 .nf-image { position: relative; border: 1px solid var(--nf-rule); background: var(--nf-field-soft); overflow: hidden; }
-.nf-image .nf-field { border: 0; background: transparent; text-align: center; padding: 2.6rem 1rem; font-weight: 700; font-size: .82rem; letter-spacing: .14em; color: #a9a7a3; }
+.nf-image .nf-field { border: 0; background: transparent; text-align: center; padding: 2.6rem 1rem; font-weight: 700; font-size: var(--nf-input-size); letter-spacing: .14em; color: #a9a7a3; }
 .nf-image-preview { display: block; width: 100%; max-height: 13rem; object-fit: contain; background: #fff; }
 .nf-image-preview[hidden] { display: none; }
 .nf-image.has-image { background: #fff; }
-.nf-image.has-image .nf-field { padding: .5rem .7rem; text-align: left; font-weight: 400; font-size: .72rem; letter-spacing: .02em; text-transform: none; color: #8a8b8c; background: var(--nf-field-soft); border-top: 1px solid var(--nf-rule); }
+.nf-image.has-image .nf-field { padding: .5rem .7rem; text-align: left; font-weight: 400; font-size: var(--nf-input-size); letter-spacing: .02em; text-transform: none; color: #8a8b8c; background: var(--nf-field-soft); border-top: 1px solid var(--nf-rule); }
 .nf-image.dragover { box-shadow: inset 0 0 0 2px var(--nub-gold); }
 .nf-stack { display: grid; gap: 0; }
 .nf-stack .nf-field { border-top-width: 0; }
@@ -756,7 +762,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .drop-zone.dragover { border-color: var(--nav-active); background: rgba(0,0,0,.35); }
 .drop-zone img { max-width: 9rem; max-height: 9rem; border-radius: 50%; display: block; }
 .drop-zone.has-image .drop-hint { display: none; }
-.drop-hint { font-family: var(--slab); font-weight: 700; font-size: .72rem; letter-spacing: .14em;
+.drop-hint { font-family: var(--slab); font-weight: 700; font-size: var(--nf-input-size); letter-spacing: .14em;
   text-transform: uppercase; color: rgba(255,255,255,.35); }
 #avatar-dialog .nf-post { margin-top: .2rem; }
 
@@ -883,8 +889,8 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .nf-drop-menu { left: -1px; right: -1px; }
   .nf-lbl { font-size: .6rem; letter-spacing: .12em; }
   .nf-field { padding: .62rem .7rem; }
-  .nf-stack input[name="name"], textarea.nf-field { font-size: .8rem; }
-  .nf-image .nf-field { padding: 2rem .8rem; font-size: .7rem; letter-spacing: .12em; }
+  :root { --nf-body-size: .8rem; }
+  .nf-image .nf-field { padding: 2rem .8rem; letter-spacing: .12em; }   /* size comes from --nf-input-size */
   .nf-image-preview { max-height: 10rem; }
   .nf-drop > summary { padding: .62rem .75rem; font-size: .68rem; letter-spacing: .11em; }
   .nf-opt { padding: .5rem .75rem; font-size: .66rem; }

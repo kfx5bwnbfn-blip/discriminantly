@@ -1589,9 +1589,6 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
         <label class="nf-opt nf-opt-new"><span>+ New collection</span><input class="nf-field" name="newcoll" placeholder="Name it" value=""></label>
       </div>
     </details>
-    <div class="nf-stack">
-      <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
-    </div>
     <input type="hidden" name="image" value="${esc(m.image || '')}">
     <div class="nf-lookup" id="lookup-${idp}">
       <input class="nf-field" id="lookup-input-${idp}" type="text" autocomplete="off" placeholder="SEARCH FOR A PLACE — FILLS THE FIELDS BELOW">
@@ -1607,6 +1604,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
     </div>
     <div class="nf-stack">
       <input class="nf-field" name="latlng" id="f-latlng-${idp}" placeholder="LAT, LNG (OPTIONAL)" value="${m.lat != null ? `${m.lat}, ${m.lng}` : ''}">
+      <input class="nf-field" name="url" type="url" placeholder="LINK" value="${esc(m.url || '')}">
     </div>
     <button class="nf-post">${editing ? 'Save mark' : 'Add travel mark'}</button>
     <div class="nf-foot">
@@ -2624,9 +2622,9 @@ const TOOLS = [
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
     outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
-  { name: 'my_notes', description: 'List the connected member\'s own notes. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
+  { name: 'my_notes', description: 'List the connected member\'s own notes. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MY_NOTE) },
-  { name: 'edit_note', description: 'Edit a note the connected member owns. Only pass the fields being changed — anything omitted is left as is.',
+  { name: 'edit_note', description: 'Edit one of the connected member\'s own notes. Only pass the fields being changed — anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id, e.g. from note_object\'s "Noted as #7" or from recent_notes/my_notes.' },
       headline: { type: 'string', description: "Replaces the note's headline." },
@@ -2636,7 +2634,7 @@ const TOOLS = [
       image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } },
-  { name: 'delete_note', description: 'Permanently delete a note the connected member owns. Cannot be undone.',
+  { name: 'delete_note', description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } },
 
   { name: 'mark_owned', description: 'Record that the member owns the thing in one of their notes — "I own this". Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
@@ -2658,7 +2656,7 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
       id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." } } } },
-  { name: 'edit_travel_mark', description: 'Edit a travel mark the connected member owns. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
+  { name: 'edit_travel_mark', description: 'Edit one of the connected member\'s own travel marks. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
       place: { type: 'string', description: "Replaces the place's name." },
@@ -2671,7 +2669,7 @@ const TOOLS = [
       link: { type: 'string', description: 'Replaces the URL for the place.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } },
-  { name: 'delete_travel_mark', description: 'Permanently delete a travel mark the connected member owns, including its visit history. Cannot be undone.',
+  { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } },
   { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
     inputSchema: { type: 'object', required: ['image'], properties: {
@@ -2701,22 +2699,22 @@ const TOOLS = [
       id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
       body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } },
-  { name: 'list_checkins', description: 'List the check-ins on a travel mark the member owns, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
+  { name: 'list_checkins', description: 'List the check-ins on one of the member\'s own travel marks, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
       mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
     outputSchema: OS_ITEMS(OS_VISIT) },
-  { name: 'edit_checkin', description: 'Edit a check-in the member owns, identified by its own id (from list_checkins). Only pass the fields being changed — visited_on, body, or both. Anything omitted is left as is.',
+  { name: 'edit_checkin', description: 'Edit one of the member\'s own check-ins, identified by its own id (from list_checkins). Only pass the fields being changed — visited_on, body, or both. Anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Must be a real calendar date.' },
       body: { type: 'string', description: 'Replaces the line about the visit. Pass an empty string to clear it.' } } } },
-  { name: 'delete_checkin', description: 'Permanently delete a single check-in the member owns. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
+  { name: 'delete_checkin', description: 'Permanently delete one of the member\'s own check-ins. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } },
-  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
+  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across place, city, country and tags.' }, limit: { type: 'integer', default: 20, description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MARK) },
-  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Each entry carries the member\'s private `owned` state and their `warrant` state. For both, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
+  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Results mix the two kinds. Note entries carry the member\'s private `owned` state and their `warrant` state; mark entries carry only `warrant`, because ownership applies to things and not to places. On either, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'Keywords to search for, e.g. "copper pan" or "bangkok"' },
       kind: { type: 'string', enum: ['note', 'mark', 'both'], default: 'both', description: 'Restrict to notes, travel marks, or search both.' },
@@ -3023,6 +3021,15 @@ async function mcpCall(user, name, a = {}) {
   }
   if (name === 'mark_owned' || name === 'mark_no_longer_owned' || name === 'correct_ownership_mistake') {
     if (!a.id) throw new Error('id is required');
+    // Note and mark ids are independent sequences, so note #1 and mark #1 both
+    // exist. A caller that thinks it is addressing a mark would otherwise
+    // silently assert ownership over an unrelated note. Ownership applies to
+    // things in notes and never to places, so treat any mark-shaped argument
+    // as the confusion it is rather than guessing.
+    if (a.subject_type || a.mark_id || a.place) {
+      throw new Error('Ownership applies to notes only — there is no ownership on a travel mark. '
+        + 'Pass just the note\'s id. If you meant a place, no ownership tool applies to it.');
+    }
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
     if (!o) throw new Error(`No note #${a.id}`);
     // Ownership is asserted against the member's own relationship to the
