@@ -1499,8 +1499,8 @@ const pages = {
       </div>
       <p class="rail-post"><a class="btn3d block" href="/new">Post a new note</a></p>`;
     } else {
-      rail = `<p class="rail-title">Start your profile to:</p>
-      <ol class="steps"><li><span>1</span>Post + Collect <i>Notes</i></li><li><span>2</span>Follow People</li></ol>
+      rail = `<p class="rail-title">Start remembering:</p>
+      <ol class="steps"><li><span>1</span>Save what catches your eye</li><li><span>2</span>Remember where you've been</li><li><span>3</span>Connect to your AI</li></ol>
       <form class="signup" method="get" action="/join"><label class="lbl">Invite code</label><input name="code" placeholder=""><button class="btn3d block">Sign me up</button></form>
 `;
     }
@@ -1510,8 +1510,9 @@ const pages = {
     ${rail}
     ${topTags.length ? `<h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
     ${me ? '' : `<h3 class="lbl ruled">About us</h3>
-    <p class="about">We're a lightweight social platform for a small community of discerning individuals capturing, sharing and discovering fine goods from all over the web and all over the world.</p>
-    <p class="about">We're serious about maintaining the integrity of this as an open and honest place to discover genuinely cool, interesting and rare things. For this reason, we don't allow any form of advertising or affiliate programs here.</p>
+    <p class="about">Discriminantly is an independent, personal and portable memory for your taste—the things you notice, the places you go, and the experiences worth remembering.</p>
+    <p class="about">Keep it for yourself, share what you choose, and connect your taste to your AI— ChatGPT or Claude.</p>
+    <p class="about">Your taste is yours. Keep it private when you choose, connect it on your terms, and put it to use wherever you go.</p>
     <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>`}
   </aside>
   <section class="feed feed-plain is-tiled">
@@ -2090,12 +2091,13 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   <p class="splash-word">discriminant.ly</p>
   <h1 class="splash-h">Your taste. Remembered.</h1>
   <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Discriminantly builds a personal, portable memory of your taste—one that grows richer over time and travels with you.</p>
-  ${me ? `<a class="btn splash-enter" href="/">Enter</a>` : `<form class="splash-form" method="get" action="/join"><input name="code" placeholder="Your invite code" required><button class="btn">Sign me up</button></form>`}
+  <a class="btn splash-enter" href="/">Enter</a>
   <div class="splash-install" id="splash-install" hidden>
     <button type="button" class="nf-post" id="splash-install-btn">Install Discriminantly</button>
   </div>
 </section>
 <div class="shot-wrap">
+  <div class="shot-shadow"></div>
   <div class="shot-frame">
     <div class="shot-chrome"><span></span><span></span><span></span></div>
     <img src="/welcome-shot.jpg" alt="Discriminantly on the desktop" width="1800" height="1055">

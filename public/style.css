@@ -1351,13 +1351,18 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 
 /* the demo shot, with the concave "lifted corners" shadow: two counter-rotated
    slabs, so the shadow pools under the bottom corners and pulls away toward the
-   middle. A single ellipse bulges the wrong way and cannot do this. */
-.shot-wrap { position: relative; width: 56rem; max-width: 100%; margin: 0 auto 2.5rem; }
-.shot-wrap::before, .shot-wrap::after {
-  content: ""; position: absolute; z-index: -1; bottom: 10px; width: 48%; height: 50px;
-  box-shadow: 0 26px 18px rgba(0,0,0,.55); }
-.shot-wrap::before { left: 6px; transform: rotate(-5deg); transform-origin: 0 100%; }
-.shot-wrap::after { right: 6px; transform: rotate(5deg); transform-origin: 100% 100%; }
+   middle. A single ellipse bulges the wrong way and cannot do this.
+   .shot-shadow is clipped to exactly the frame's own width, so the blur can
+   never bleed past the image's edges regardless of rotation/blur math. */
+.is-welcome main > .shot-wrap { width: 56rem; max-width: 100%; margin: 0 auto 2.5rem; padding: 0; }
+.shot-wrap { position: relative; }
+.shot-shadow { position: absolute; left: 0; right: 0; bottom: -30px; height: 80px;
+  overflow: hidden; z-index: -1; }
+.shot-shadow::before, .shot-shadow::after {
+  content: ""; position: absolute; bottom: 44px; width: 52%; height: 50px;
+  box-shadow: 0 20px 16px rgba(0,0,0,.55); }
+.shot-shadow::before { left: 2%; transform: rotate(-5deg); transform-origin: 0 100%; }
+.shot-shadow::after { right: 2%; transform: rotate(5deg); transform-origin: 100% 100%; }
 .shot-frame { position: relative; z-index: 1; border-radius: 8px; overflow: hidden;
   box-shadow: 0 1px 3px rgba(0,0,0,.12), 0 8px 20px rgba(0,0,0,.18); }
 .shot-chrome { display: flex; align-items: center; gap: 7px; padding: 10px 14px;
@@ -1376,5 +1381,32 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
   .is-welcome .signin { flex-wrap: wrap; justify-content: center; }
   .is-welcome .splash-h { font-size: 1.45rem; }
   .is-welcome .splash-sub { font-size: .92rem; }
-  .shot-wrap { width: auto; margin-left: 1.1rem; margin-right: 1.1rem; }
+  .is-welcome main > .shot-wrap { width: auto; margin-left: 1.1rem; margin-right: 1.1rem; }
+}
+
+/* ---- sticky left rails on desktop (v1.14) --------------------------------
+   The rail column keeps its nav visible while the feed scrolls, and scrolls
+   independently if its own content is taller than the viewport.
+
+   Scoped to min-width 52.01rem so the mobile stacking at max-width:52rem is
+   completely untouched — below that the rail is a normal flow block again.
+
+   .cols defaults to align-items:stretch, which makes the rail full-height and
+   leaves sticky nothing to move within. Setting align-self:start fixes that
+   but stops the dark panel filling the column, so the column's background is
+   painted on .cols itself instead — full height regardless of content. */
+@media (min-width: 52.01rem) {
+  .cols { background-image: linear-gradient(to right, var(--rail-overlay) 0 19rem, transparent 19rem); }
+  .cols > .rail {
+    background-color: transparent;          /* the gradient above paints it now */
+    align-self: start;
+    position: sticky;
+    top: var(--searchbar-h);
+    max-height: calc(100vh - var(--searchbar-h));
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .cols > .rail::-webkit-scrollbar { width: 8px; }
+  .cols > .rail::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 4px; }
+  .cols > .rail::-webkit-scrollbar-track { background: transparent; }
 }
