@@ -815,6 +815,12 @@ ${me ? `<nav class="iconrail" aria-label="Main">
     <span class="nub-icon">${ICONS.lens}</span>
   </button>
 </div>
+`
+  : `<header class="masthead"><div class="wrap">
+  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="17" height="23"><span>discriminant.ly</span></a>
+  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
+</div></header>`}
+
 <script>
 
 // Downscale in the browser before upload: a phone photo is 4000px and several
@@ -858,7 +864,13 @@ function readImage(file, cb) {
     var f = c.querySelector('.seg-panel.is-on input[name="url"], .seg-panel.is-on input[name="name"]');
     if (f) setTimeout(function () { f.focus(); }, 380);
   });
+})();
 
+// Everything below runs regardless of whether a curtain exists on the page —
+// it must not live inside the IIFE above, whose \`if (!c) return;\` guard was
+// silently skipping all of it (layoutFeed included) on every page that has
+// no curtain, i.e. every signed-out page.
+(function () {
   // Tile the feed into real column elements rather than CSS multi-column.
   // Safari paints fragmentation seams at column boundaries — a stray rule above
   // the first card in the second column — and real columns cannot do that.
@@ -1115,11 +1127,8 @@ function readImage(file, cb) {
   });
 
 })();
-</script>`
-  : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="17" height="23"><span>discriminant.ly</span></a>
-  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
-</div></header>`}
+</script>
+
 <script>
   // The fixed bar's height varies with font loading and device chrome, so
   // measure it rather than trusting a constant. Prevents both a dark gap under
@@ -1271,8 +1280,10 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
       <input class="nf-field" name="tags" placeholder="#HASHTAGS" value="${esc(o.tags)}">
     </div>
     <button class="nf-post">${editing ? 'Save note' : 'Post note'}</button>
-    <div class="nf-foot">
-      <span class="nf-foot-left">${formOwnedControl(o, me)}${editing ? `<button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>` : ''}</span>
+    <div class="nf-foot ${editing ? 'nf-foot-3' : ''}">
+      ${editing
+        ? `<button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/delete" data-kind="note" data-title="${esc(o.name)}">Delete</button>${formOwnedControl(o, me)}`
+        : `<span class="nf-foot-left">${formOwnedControl(o, me)}</span>`}
       ${compact ? '<button type="button" class="nf-link-btn" data-close>Cancel</button>' : `<a class="nf-link-btn" href="${editing ? `/o/${o.id}` : '/'}">Cancel</a>`}
     </div>
   </div>
@@ -2035,8 +2046,7 @@ const pages = {
         <a class="wcell" href="/u/${esc(me.handle)}?tab=followers"><b>${fc.followers}</b><span>Followers</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=following"><b>${fc.following}</b><span>Following</span></a>
         <form class="wcell wcell-wide wcell-btn" method="post" action="/logout"><button class="btn3d block">Logout</button></form>
-      </div>
-      <p class="rail-post"><a class="btn3d block" href="/new">Post a new note</a></p>`;
+      </div>`;
     } else {
       rail = `<p class="rail-title">Start remembering:</p>
       <ol class="steps"><li><span>1</span>Save what catches your eye</li><li><span>2</span>Remember where you've been</li><li><span>3</span>Connect to your AI</li></ol>

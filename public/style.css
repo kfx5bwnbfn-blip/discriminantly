@@ -173,7 +173,10 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: inh
 .rail .rail-tags a { color: var(--chrome-text); font-weight: 500; }
 .rail .rail-tags a.on { color: var(--gold); }
 .members { list-style: none; padding: 0; margin: .4rem 0 0; }
-.members li a { display: flex; align-items: center; gap: .85rem; padding: .45rem 0 .45rem .7rem; font-size: .95rem; }
+/* Centered to match the rail's own "Start remembering:" heading above it,
+   rather than left-hugging with only a token .7rem indent. Desktop-only by
+   construction: .rail .members is hidden entirely below the 52rem breakpoint. */
+.members li a { display: flex; align-items: center; justify-content: center; gap: .85rem; padding: .45rem 0; font-size: .95rem; }
 .welcome { text-align: center; padding: .4rem 0 1rem; }
 .welcome-name { font-size: 1.1rem; color: #eee; margin: .6rem 0 .9rem; }
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #111; border: 1px solid #111; margin-bottom: 1rem; }
@@ -551,7 +554,6 @@ a.wcell:hover { background: rgba(0,0,0,.25); text-decoration: none; }
 .wcell .welcome-name { font-size: 1.2rem; font-weight: 300; color: #e4e4e4; margin: .9rem 0 0; }
 .wcell-btn { padding: 0; background: none; background-color: transparent; }
 .wcell-btn .btn3d { border: 0; padding: 1.05rem; }
-.rail-post { margin: 1.4rem 0 0; }
 
 /* home feed sits directly on the page texture; the grey panel is the profile's */
 .feed-plain { background-color: transparent; background-image: none; }
@@ -631,6 +633,14 @@ textarea.nf-field { resize: vertical; }
 .nf-post:hover { background: linear-gradient(#fff, #dcdddf); }
 .nf-post:active { box-shadow: 0 2px 5px rgba(0,0,0,.22) inset; }
 .nf-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 24px; padding-top: 0; }
+/* Editing an existing note: Delete far left, Owned genuinely centered, Cancel
+   far right. A plain flex space-between can't center the middle item once
+   Delete and Cancel have different widths — the outer 1fr columns absorb
+   that difference so the toggle sits at the true midpoint regardless. */
+.nf-foot.nf-foot-3 { display: grid; grid-template-columns: 1fr auto 1fr; justify-content: normal; }
+.nf-foot.nf-foot-3 .nf-del { justify-self: start; }
+.nf-foot.nf-foot-3 .nf-owned { justify-self: center; }
+.nf-foot.nf-foot-3 > a.nf-link-btn, .nf-foot.nf-foot-3 > button.nf-link-btn:not(.nf-del) { justify-self: end; }
 .nf-link-btn { background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none;
   font-family: var(--slab); font-weight: 700; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--nf-ink); }
 .nf-link-btn:hover { text-decoration: underline; }
@@ -813,7 +823,6 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .cols > .rail { display: flex; flex-direction: column; padding: 1rem var(--m-gutter) 1.2rem; }
   .cols > .rail > .welcome  { order: 1; }
   .cols > .rail > .wtable   { order: 2; }
-  .cols > .rail > .rail-post{ order: 3; margin: 1rem 0 1.1rem; }
   .cols > .rail > .feednav  { order: 4; }
   .cols > .rail > *         { order: 5; }
 
@@ -953,7 +962,6 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .comment-rule { margin: 0 0 1.3rem; }
 @media (max-width: 52rem) {
   /* Post a new note lives in the curtain and the tabs; the rail button is redundant */
-  .cols > .rail > .rail-post { display: none; }
 }
 
 /* breadcrumb: profile › section › note */
@@ -1482,7 +1490,12 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
    paragraph beneath it. The ribbon is a light warm grey strip running from
    the top edge down behind the disc, so the seal reads as draped over the
    card's corner. The drop shadow is on the disc, not the ribbon. */
-.warrant-seal { position: absolute; top: 0; left: .8rem; z-index: 3; line-height: 0; pointer-events: none; }
+/* z-index:1 is deliberate: every real overlay in the app (dropdown menus,
+   lookup lists, image pickers, the curtain, the masthead) sits at 2 or above,
+   and the seal must never be able to win a stacking fight against any of
+   them. It only needs to clear ordinary static content, which has no
+   z-index at all. */
+.warrant-seal { position: absolute; top: 0; left: .8rem; z-index: 1; line-height: 0; pointer-events: none; }
 /* mark cards inset their text further, so the seal follows to stay aligned
    with the paragraph beneath it (1.3rem desktop, 1rem mobile) */
 .travelmark .card > .warrant-seal { left: 1.3rem; }
