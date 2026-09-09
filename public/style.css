@@ -1540,3 +1540,7 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
    and flashes if it failed and had to snap back */
 .owned-row.is-saving .switch { opacity: .55; }
 .owned-row.is-failed .switch span { background: linear-gradient(#c98b8b, #b06a6a); }
+
+/* duplicate awareness: informational, never blocking */
+.note-dupe { font-family: var(--slab); font-size: .68rem; letter-spacing: .04em;
+  color: var(--ink-soft); margin: 0 0 .5rem; text-align: center; }

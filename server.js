@@ -367,6 +367,118 @@ const MIGRATIONS = [
     db.exec('CREATE INDEX IF NOT EXISTS idx_warrants_feed ON warrants(subject_type, subject_uid, state)');
   }],
 
+  // ---- v1.17: the relationship is the record ------------------------------
+  // A Note becomes a first-class, user-owned record of one member's
+  // relationship to a thing, exactly as a Mark already is for a place. The
+  // `objects` table keeps its physical name — 27 call sites change meaning,
+  // and renaming as well would make the diff unreviewable for no semantic
+  // gain — but from here `objects.user_id` means the Note's OWNER, not the
+  // author of a row other people point at.
+  ['021-note-lineage', () => {
+    if (!hasColumn('objects', 'renoted_from_uid')) db.exec('ALTER TABLE objects ADD COLUMN renoted_from_uid TEXT');
+    if (!hasColumn('objects', 'updated_at')) db.exec('ALTER TABLE objects ADD COLUMN updated_at TEXT');
+    // Lineage is a plain TEXT uid with NO foreign key, mirroring
+    // marks.remarked_from_uid: deleting a source must never cascade into an
+    // adopter's record, and there must be no referential edge to cascade along.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_objects_renoted_from ON objects(renoted_from_uid)');
+    // DELIBERATELY NON-UNIQUE. Re-noting the same source twice is a valid
+    // canonical user action: each adoption is its own record and may later
+    // diverge. A UNIQUE index here would break that and the failure would look
+    // like a database error rather than the policy change it actually is.
+    // Do not "optimise" this into a unique index.
+    db.exec('CREATE INDEX IF NOT EXISTS idx_objects_owner_lineage ON objects(user_id, renoted_from_uid)');
+  }],
+
+  // Collections organise the member's own Notes. The old object_collections
+  // keyed on the shared object, and setCollections deleted every user's rows
+  // for that object before reinserting its own — a cross-user data-loss bug
+  // that only stayed hidden because re-noters could never organise anything.
+  ['022-note-collections', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS note_collections (
+      note_id       INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+      collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+      PRIMARY KEY (note_id, collection_id))`);
+    db.exec('INSERT OR IGNORE INTO note_collections(note_id, collection_id) SELECT object_id, collection_id FROM object_collections');
+  }],
+
+  // Owned moves from an integer FK to a stable Note uid, matching Warrant and
+  // making the assertion portable. The old column stays for one release so a
+  // rollback has something to read; nothing writes it after this.
+  ['023-ownership-note-uid', () => {
+    if (!hasColumn('ownership_assertions', 'note_uid')) db.exec('ALTER TABLE ownership_assertions ADD COLUMN note_uid TEXT');
+    db.exec(`UPDATE ownership_assertions SET note_uid =
+      (SELECT o.uid FROM objects o WHERE o.id = ownership_assertions.object_id)
+      WHERE note_uid IS NULL OR note_uid = ''`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ownership_note ON ownership_assertions(user_id, note_uid, id)');
+  }],
+
+  // An explicit "these two Notes are the same thing" is canonical evidence a
+  // member asserted. It cannot live in derived_relations: that table is named
+  // for computation and carries confidence/computed_at, so putting a user's
+  // own statement there would launder explicit evidence into derived.
+  ['024-note-relations', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS note_relations (
+      id               INTEGER PRIMARY KEY,
+      uid              TEXT,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject_note_uid TEXT NOT NULL,
+      predicate        TEXT NOT NULL,        -- 'same_thing_as' only in this release
+      object_note_uid  TEXT NOT NULL,
+      basis            TEXT NOT NULL,        -- 'user' | 'external'
+      source_ref       TEXT,
+      state            TEXT NOT NULL,        -- 'active' | 'retracted'
+      supersedes       TEXT,
+      created_at       TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_note_relations_uid AFTER INSERT ON note_relations
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE note_relations SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_note_relations_uid ON note_relations(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_note_relations_subject ON note_relations(user_id, subject_note_uid, state)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_note_relations_object ON note_relations(user_id, object_note_uid, state)');
+  }],
+
+  // Materialise every existing adoption as an independent Note.
+  //
+  // HONESTY: we copy the shared row as it stands TODAY because no historical
+  // snapshot was ever recorded. Two provenance rows say so — one carrying the
+  // real original adoption timestamp (that relationship genuinely existed
+  // then), one dated now recording that the representation was materialised
+  // during migration. No prior field values are invented, because none are
+  // asserted.
+  ['025-materialise-adoptions', () => {
+    const adoptions = db.prepare(`
+      SELECT n.user_id AS adopter, n.object_id, n.created_at AS adopted_at,
+             o.uid AS src_uid, o.name, o.why, o.tags, o.url, o.image, o.private
+        FROM notes n JOIN objects o ON o.id = n.object_id
+       WHERE n.user_id <> o.user_id`).all();
+    const ins = db.prepare(`INSERT INTO objects(user_id,name,why,tags,url,image,private,renoted_from_uid,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?)`);
+    const prov = db.prepare(`INSERT INTO provenance
+      (entity_type,entity_uid,action,assertion,actor_type,actor_user_id,agent,auth_method,source_kind,source_ref,fields,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    for (const a of adoptions) {
+      const r = ins.run(a.adopter, a.name, a.why, a.tags, a.url, a.image, a.private, a.src_uid, a.adopted_at);
+      const uid = db.prepare('SELECT uid FROM objects WHERE rowid=?').get(r.lastInsertRowid).uid;
+      // 1. the adoption itself — real, and it really happened then
+      prov.run('object', uid, 'renoted', 'explicit', 'user', a.adopter, 'web', 'session', 'renote', a.src_uid, null, a.adopted_at);
+      // 2. the representation — materialised now, from the then-current shared row
+      prov.run('object', uid, 'migrated', 'explicit', 'system', null, 'migration', 'system', 'schema_migration', a.src_uid,
+        'name,why,tags,url,image,private', now);
+      // carry the adopter's own assertions onto their new Note
+      db.prepare('UPDATE ownership_assertions SET note_uid=? WHERE user_id=? AND object_id=?')
+        .run(uid, a.adopter, a.object_id);
+      db.prepare('UPDATE warrants SET subject_uid=? WHERE user_id=? AND subject_type=\'object\' AND subject_uid=?')
+        .run(uid, a.adopter, a.src_uid);
+    }
+    // `notes` is retired as a join table. The rows stay (nothing is ever
+    // dropped) but nothing reads or writes them after this migration.
+    if (adoptions.length) console.log(`  materialised ${adoptions.length} adopted note(s)`);
+  }],
+
 ];
 
 function backupTo(file) {
@@ -421,17 +533,22 @@ if (process.argv.includes('--backup')) {
 const q = (sql) => db.prepare(sql);
 const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
-function setCollections(userId, objectId, names) {
-  q('DELETE FROM object_collections WHERE object_id=?').run(objectId);
+// Collections organise the member's OWN Notes. The delete is scoped to this
+// member's collections: the previous unscoped `DELETE ... WHERE object_id=?`
+// wiped every user's membership for a shared object.
+function setCollections(userId, noteId, names) {
+  q(`DELETE FROM note_collections WHERE note_id=? AND collection_id IN
+       (SELECT id FROM collections WHERE user_id=?)`).run(noteId, userId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
     q("INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,'note')").run(userId, n);
     const c = q("SELECT id FROM collections WHERE user_id=? AND name=? AND kind='note'").get(userId, n);
-    q('INSERT OR IGNORE INTO object_collections(object_id,collection_id) VALUES(?,?)').run(objectId, c.id);
+    q('INSERT OR IGNORE INTO note_collections(note_id,collection_id) VALUES(?,?)').run(noteId, c.id);
   }
 }
 const followCounts = (id) => ({ followers: q('SELECT COUNT(*) c FROM follows WHERE followee_id=?').get(id).c, following: q('SELECT COUNT(*) c FROM follows WHERE follower_id=?').get(id).c });
 const isFollowing = (a, b) => !!q('SELECT 1 FROM follows WHERE follower_id=? AND followee_id=?').get(a, b);
-const objCollections = (objectId) => q('SELECT c.id, c.name FROM object_collections oc JOIN collections c ON c.id=oc.collection_id WHERE oc.object_id=? ORDER BY c.name').all(objectId);
+const objCollections = (noteId) => q(`SELECT c.id, c.name FROM note_collections nc
+  JOIN collections c ON c.id=nc.collection_id WHERE nc.note_id=? ORDER BY c.name`).all(noteId);
 const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || me.is_admin));
 const tagList = (t) => String(t || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 
@@ -519,12 +636,12 @@ const publicWarrant = (userId, subjectType, subjectUid) =>
   warrantState(userId, subjectType, subjectUid).state === 'active';
 
 function assertOwned(userId, objectId, ctx) {
-  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state) VALUES(?,?,\'owned\')').run(userId, objectId);
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,note_uid,state) VALUES(?,?,?,\'owned\')').run(userId, objectId, uidOf('objects', objectId));
   recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'asserted', ctx, { source_kind: 'manual' });
   return uidOf('ownership_assertions', r.lastInsertRowid);
 }
 function releaseOwned(userId, objectId, ctx) {
-  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state) VALUES(?,?,\'released\')').run(userId, objectId);
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,note_uid,state) VALUES(?,?,?,\'released\')').run(userId, objectId, uidOf('objects', objectId));
   recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'released', ctx, { source_kind: 'manual' });
   return uidOf('ownership_assertions', r.lastInsertRowid);
 }
@@ -538,8 +655,8 @@ function correctOwned(userId, objectId, ctx) {
   const live = rows.filter((r) => r.state !== 'retracted' && !corrected.has(r.uid));
   const target = live[live.length - 1];
   if (!target || target.state !== 'owned') return null;   // nothing to correct
-  const r = q('INSERT INTO ownership_assertions(user_id,object_id,state,supersedes) VALUES(?,?,\'retracted\',?)')
-    .run(userId, objectId, target.uid);
+  const r = q('INSERT INTO ownership_assertions(user_id,object_id,note_uid,state,supersedes) VALUES(?,?,?,\'retracted\',?)')
+    .run(userId, objectId, uidOf('objects', objectId), target.uid);
   recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'corrected', ctx,
     { source_kind: 'correction', source_ref: target.uid });
   return uidOf('ownership_assertions', r.lastInsertRowid);
@@ -1733,6 +1850,38 @@ function applyFormIntents(b, subjectType, row, me) {
     revokeWarrant(me.id, subjectType, row.uid, ctx);
   }
 }
+// Adoption. Copies the source's current user-facing representation, mints a
+// new uid, and records lineage — the same shape re-mark has always used. The
+// adopter's own judgment starts empty: tags are authored, and privacy,
+// collections, Owned and Warrant are theirs to set, never inherited.
+// Canonical duplicate awareness. Two kinds of evidence only, both canonical,
+// both scoped to the asking member:
+//   already_adopted  — I hold Note(s) whose lineage points at this one
+//   equivalent_notes — an explicit/external same_thing_as relation I recorded
+// derived_relations is NEVER consulted here: inferred similarity is not
+// canonical identity and must not be presented as "you've noted this before".
+// These are informational. Nothing in the write path reads them.
+function alreadyAdopted(userId, sourceUid) {
+  const rows = q('SELECT uid FROM objects WHERE user_id=? AND renoted_from_uid=? ORDER BY id').all(userId, sourceUid);
+  return { count: rows.length, note_uids: rows.map((r) => r.uid) };
+}
+// basis is preserved rather than flattened: an explicit user assertion and an
+// externally supported identity are both canonical but are not the same claim.
+function equivalentNotes(userId, noteUid) {
+  return q(`SELECT uid AS relation_uid, basis,
+      CASE WHEN subject_note_uid=? THEN object_note_uid ELSE subject_note_uid END AS note_uid
+    FROM note_relations
+    WHERE user_id=? AND state='active' AND predicate='same_thing_as'
+      AND (subject_note_uid=? OR object_note_uid=?)`).all(noteUid, userId, noteUid, noteUid)
+    .map((r) => ({ note_uid: r.note_uid, basis: r.basis, relation_uid: r.relation_uid }));
+}
+function renoteFrom(src, me, ctx) {
+  const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private,renoted_from_uid)
+    VALUES(?,?,?,?,'',?,0,?)`).run(me.id, src.name, src.why, src.url || '', src.image || '', src.uid);
+  const note = q('SELECT * FROM objects WHERE id=?').get(r.lastInsertRowid);
+  recordProvenance('object', note.uid, 'renoted', ctx, { source_kind: 'renote', source_ref: src.uid });
+  return note;
+}
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
@@ -1769,7 +1918,10 @@ function warrantSeal(row, subjectType, me) {
 }
 
 function objectCard(o, me, full = false) {
-  const noted = me ? q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id) : null;
+  // Canonical duplicate awareness: do I already hold an active Note adopted
+  // from this one? Read from my own Notes — never by dereferencing the source.
+  const adopted = me ? q('SELECT id, uid FROM objects WHERE user_id=? AND renoted_from_uid=? ORDER BY id').all(me.id, o.uid) : [];
+  const noted = adopted.length > 0;
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
   return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
@@ -1790,7 +1942,16 @@ function objectCard(o, me, full = false) {
       ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
       ${o.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(o.url)}" rel="noopener">${esc(shortUrl)}</a></p>` : ''}
       <div class="noteit">
-        ${me ? `<form method="post" action="/o/${o.id}/${noted ? 'unnote' : 'note'}"><button class="btn-note ${noted ? 'is-noted' : ''}">${noted ? 'Noted' : 'Note this'}</button></form>` : `<a class="btn-note" href="/login">Note this</a>`}
+        ${(() => {
+          if (!me) return `<a class="btn-note" href="/login">Note this</a>`;
+          if (o.user_id === me.id) return '';                       // your own Note
+          // Duplicate awareness, never duplicate prevention: if they already
+          // hold an adoption of this Note we say so and offer both paths, but
+          // "Note this again" always works.
+          const again = adopted.length
+            ? `<p class="note-dupe">You’ve re-noted this before. <a href="/o/${adopted[0].id}">View your Note</a></p>` : '';
+          return `${again}<form method="post" action="/o/${o.id}/note"><button class="btn-note">${adopted.length ? 'Note this again' : 'Note this'}</button></form>`;
+        })()}
       </div>
     </div>
     ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
@@ -1802,8 +1963,7 @@ function objectCard(o, me, full = false) {
       // It is a sibling of .text and .figure, not a child of .text, so it can
       // span the full card width and sit below the image.
       if (!me) return '';
-      const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
-      if (!mine) return '';
+      if (o.user_id !== me.id) return '';
       const own = ownedState(me.id, o.id);
       const on = own.state === 'owned';
       // The exact .switch token used by the "Private?" toggle on the post form.
@@ -1906,7 +2066,11 @@ const pages = {
   object(req, res, me, url, id) {
     const o = q(OBJ_SQL + ' WHERE o.id=?').get(id); if (!o || !canSee(o, me)) return send(res, layout({ title: 'Not found', body: '<p>No such note.</p>', me }), 404);
     const tags = tagList(o.tags);
-    const noters = q('SELECT u.handle, u.name, u.avatar FROM notes n JOIN users u ON u.id=n.user_id WHERE n.object_id=? AND n.user_id<>? ORDER BY n.created_at').all(id, o.user_id);
+    // Who adopted this Note. Their Notes are their own; we show only that the
+    // adoption happened, never their content.
+    const noters = q(`SELECT DISTINCT u.handle, u.name, u.avatar FROM objects a
+      JOIN users u ON u.id=a.user_id
+      WHERE a.renoted_from_uid=? AND a.user_id<>? AND a.private=0 ORDER BY a.created_at`).all(o.uid, o.user_id);
     const cmts = q('SELECT c.*, u.handle, u.name, u.avatar FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? ORDER BY c.created_at').all(id);
     const ld = { '@context': 'https://schema.org', '@type': 'Product', name: o.name, url: o.url || undefined, image: o.image || undefined, description: o.why, keywords: tags.join(', ') || undefined };
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
@@ -2297,7 +2461,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     } else {
       const acts = [];
       for (const o of visible) acts.push({ at: o.created_at, card: o });
-      for (const n of q('SELECT n.created_at, o.id, o.name, o.private, o.user_id FROM notes n JOIN objects o ON o.id=n.object_id WHERE n.user_id=? AND o.user_id<>? ORDER BY n.created_at DESC LIMIT 30').all(u.id, u.id))
+      for (const n of q(`SELECT created_at, id, name, private, user_id FROM objects
+        WHERE user_id=? AND renoted_from_uid IS NOT NULL ORDER BY created_at DESC LIMIT 30`).all(u.id))
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
       for (const x of q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
         if (!x.private || owner) acts.push({ at: x.created_at, card: null, html: null, mark: x });
@@ -2541,6 +2706,14 @@ const IMAGE_FIELD_DESC = 'An image reference: either a real https:// URL to an e
 // has verified+visit_count, search_catalogue has neither) — that difference
 // is documented per-tool on purpose. Unifying those shapes is a runtime
 // change, out of scope here; this only describes what already exists.
+const OS_ADOPTED = { type: 'object', additionalProperties: false, required: ['count', 'note_uids'],
+  properties: { count: { type: 'integer' }, note_uids: { type: 'array', items: { type: 'string' } } } };
+// basis is required: flattening it would erase the difference between a member
+// saying "these are the same thing" and an external identifier implying it.
+const OS_EQUIVALENT = { type: 'array', items: { type: 'object', additionalProperties: false,
+  required: ['note_uid', 'basis', 'relation_uid'],
+  properties: { note_uid: { type: 'string' }, basis: { type: 'string', enum: ['user', 'external'] },
+    relation_uid: { type: 'string' } } } };
 const OS_PROVENANCE = { type: ['object', 'null'], additionalProperties: false,
   required: ['action', 'assertion', 'actor_type', 'agent', 'created_at'],
   properties: { action: { type: 'string' }, assertion: { type: 'string' }, actor_type: { type: 'string' },
@@ -2568,10 +2741,10 @@ const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false,
   properties: { items: { type: 'array', items: itemSchema } } });
 
 const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'already_adopted', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
-    handle: { type: 'string' }, private: { type: 'boolean' }, provenance: OS_PROVENANCE } };
+    handle: { type: 'string' }, private: { type: 'boolean' }, already_adopted: OS_ADOPTED, provenance: OS_PROVENANCE } };
 // Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
 // disapproval. Consumers must not collapse null with 'released'/'revoked'.
 const OS_OWNED = { type: 'object', additionalProperties: false,
@@ -2583,10 +2756,10 @@ const OS_WARRANT = { type: 'object', additionalProperties: false,
   properties: { state: { type: ['string', 'null'], enum: ['active', 'revoked', null] },
     since: { type: ['string', 'null'] }, published: { type: 'boolean' }, history_count: { type: 'integer' } } };
 const OS_MY_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'owned', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'renoted_from_uid', 'owned', 'warrant', 'equivalent_notes', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
-    private: { type: 'boolean' }, owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
+    private: { type: 'boolean' }, renoted_from_uid: { type: ['string', 'null'] }, owned: OS_OWNED, warrant: OS_WARRANT, equivalent_notes: OS_EQUIVALENT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'owned', 'warrant', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
@@ -2639,10 +2812,10 @@ const TOOLS = [
     outputSchema: OS_WRITE },
   { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
-  { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Optional search query.',
+  { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Each entry carries `already_adopted`: Notes this member has ALREADY created by adopting that one. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeat adoptions are valid and each becomes its own Note. Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
     outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
-  { name: 'my_notes', description: 'List the connected member\'s own notes. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
+  { name: 'my_notes', description: 'List the connected member\'s own notes. `equivalent_notes` lists Notes this member has explicitly said are the same thing, each with its `basis`: \'user\' means they said so themselves, \'external\' means an outside identifier supports it. Both are canonical; neither is a guess. Inferred similarity is never included here. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MY_NOTE) },
   { name: 'edit_note', description: 'Edit one of the connected member\'s own notes. Only pass the fields being changed — anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -2654,6 +2827,10 @@ const TOOLS = [
       image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
+    outputSchema: OS_WRITE },
+  { name: 're_note', description: 'Adopt another member\'s note into this member\'s own catalogue — they saw it and want to record that thing themselves. This creates a NEW independent note owned by this member, copying the current description and image, with lineage back to the source. The source member can never afterwards change or remove it. Adopting the same note more than once is allowed and creates another independent note each time — if the member asks to do it again, just do it.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The source note's id, from recent_notes." } } },
     outputSchema: OS_WRITE },
   { name: 'delete_note', description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } ,
@@ -2805,7 +2982,9 @@ async function mcpCall(user, name, a = {}) {
     const rows = sq ? q(OBJ_SQL + ' WHERE o.private=0 AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC LIMIT ?').all(`%${sq}%`, `%${sq}%`, `%${sq}%`, lim) : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT ?').all(lim);
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
-        tags: o.tags, url: o.url, handle: o.handle, private: !!o.private, provenance: provenanceOf('object', o.uid) })) } };
+        tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
+        already_adopted: alreadyAdopted(user.id, o.uid),
+        provenance: provenanceOf('object', o.uid) })) } };
   }
   if (name === 'my_collections') {
     const rows = q(`SELECT c.uid, c.name, c.kind,
@@ -2820,7 +2999,9 @@ async function mcpCall(user, name, a = {}) {
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, private: !!o.private,
+        renoted_from_uid: o.renoted_from_uid || null,
         owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid),
+        equivalent_notes: equivalentNotes(user.id, o.uid),
         provenance: provenanceOf('object', o.uid) })) } };
   }
   if (name === 'edit_note') {
@@ -3081,8 +3262,7 @@ async function mcpCall(user, name, a = {}) {
     if (!o) throw new Error(`No note #${a.id}`);
     // Ownership is asserted against the member's own relationship to the
     // object. Objects are shared, so anyone who has noted it may assert.
-    const mine = o.user_id === user.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(user.id, o.id);
-    if (!mine) throw new Error(`Note #${a.id} is not in this member's catalogue`);
+    if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
     if (name === 'record_note_ownership') {
       assertOwned(user.id, o.id, mcpActor(user));
       return wr(`Marked as owned: ${o.name}. This is private — only the member and their own AI can see it.`,
@@ -3124,6 +3304,17 @@ async function mcpCall(user, name, a = {}) {
     revokeWarrant(user.id, stype, row.uid, mcpActor(user));
     return wr(`Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`,
       'revoked', 'warrant', row.id, row.uid, row.name);
+  }
+  if (name === 're_note') {
+    if (!a.id) throw new Error('id is required');
+    const src = q('SELECT * FROM objects WHERE id=?').get(a.id);
+    if (!src) throw new Error(`No note #${a.id}`);
+    if (!canSee(src, user)) throw new Error(`No note #${a.id}`);
+    if (src.user_id === user.id) throw new Error('That note already belongs to this member — there is nothing to adopt.');
+    const note = renoteFrom(src, user, mcpActor(user));
+    const prior = alreadyAdopted(user.id, src.uid).count;
+    return wr(`Adopted as #${note.id}: ${note.name}`, 'created', 'note', note.id, note.uid, note.name,
+      prior > 1 ? `${prior} adoptions of this source` : undefined);
   }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
@@ -3444,8 +3635,7 @@ async function handle(req, res) {
     if (!me) return need();
     const o = q('SELECT * FROM objects WHERE id=?').get(+mt[1]);
     if (!o) return send(res, 'Not found', 404);
-    const mine = o.user_id === me.id || q('SELECT 1 FROM notes WHERE user_id=? AND object_id=?').get(me.id, o.id);
-    if (!mine) return send(res, 'Not yours', 403);
+    if (o.user_id !== me.id) return send(res, 'Not yours', 403);
     const b = await readBody(req);
     // The web UI resolves release-vs-correction BEFORE posting, so the server
     // only ever receives an unambiguous intent. No confirmation state machine.
@@ -3477,18 +3667,19 @@ async function handle(req, res) {
     return redirect(res, req.headers.referer || `/${mt[1]}/${row.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)$/))) return pages.object(req, res, me, url, +mt[1]);
-  if ((mt = p.match(/^\/o\/(\d+)\/(note|unnote)$/)) && m === 'POST') {
+  // Re-note: adoption with provenance, not subscription. The adopter gets their
+  // own first-class Note that the source can never afterwards rewrite,
+  // privatise or delete. Repeating it is allowed — each adoption is a real act
+  // and the resulting Notes may diverge — so there is no dedup and no
+  // INSERT OR IGNORE to silently swallow the second one.
+  if ((mt = p.match(/^\/o\/(\d+)\/note$/)) && m === 'POST') {
     if (!me) return need();
-    if (mt[2] === 'note') {
-      // A re-note is explicit evidence: this member adopted another's record.
-      // INSERT OR IGNORE no-ops if it already exists — log nothing in that case.
-      const r = q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(me.id, +mt[1]);
-      if (r.changes) recordProvenance('object', uidOf('objects', +mt[1]), 'renoted', webActor(me), { source_kind: 'renote' });
-    } else if (!q('SELECT 1 FROM objects WHERE id=? AND user_id=?').get(+mt[1], me.id)) {
-      const r = q('DELETE FROM notes WHERE user_id=? AND object_id=?').run(me.id, +mt[1]);
-      if (r.changes) recordProvenance('object', uidOf('objects', +mt[1]), 'unrenoted', webActor(me), { source_kind: 'renote' });
-    }
-    return redirect(res, req.headers.referer || `/o/${mt[1]}`);
+    const src = q('SELECT * FROM objects WHERE id=?').get(+mt[1]);
+    if (!src) return send(res, 'No such note', 404);
+    if (!canSee(src, me)) return send(res, 'Not found', 404);
+    if (src.user_id === me.id) return send(res, 'You cannot re-note your own note', 400);
+    const note = renoteFrom(src, me, webActor(me));
+    return redirect(res, req.headers.referer || `/o/${note.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
