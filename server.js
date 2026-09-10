@@ -589,6 +589,15 @@ const MIGRATIONS = [
     }
   }],
 
+
+  ['031-ensemble-review', () => {
+    if (!hasColumn('ensembles', 'status')) db.exec("ALTER TABLE ensembles ADD COLUMN status TEXT NOT NULL DEFAULT 'saved'");
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ensembles_status ON ensembles(user_id, status, id)');
+    // Anything that already exists was created under the old semantics, where
+    // saving WAS the commitment — so it is already saved, not pending.
+    db.exec("UPDATE ensembles SET status='saved' WHERE status IS NULL OR status=''");
+  }],
+
   // Storage and load-time work. sha256 lets identical bytes be stored once —
   // regenerating a composition, or reusing one product photo across several
   // ensembles, is common and currently duplicates the whole blob. width/height
@@ -601,12 +610,42 @@ const MIGRATIONS = [
   // two: 'pending_review' is durable, private and inspectable; 'saved' is the
   // commitment boundary the Note-materialisation rules already key on.
   // Deliberately scoped to Ensemble; Notes and Marks get no draft state.
-  ['031-ensemble-review', () => {
-    if (!hasColumn('ensembles', 'status')) db.exec("ALTER TABLE ensembles ADD COLUMN status TEXT NOT NULL DEFAULT 'saved'");
-    db.exec('CREATE INDEX IF NOT EXISTS idx_ensembles_status ON ensembles(user_id, status, id)');
-    // Anything that already exists was created under the old semantics, where
-    // saving WAS the commitment — so it is already saved, not pending.
-    db.exec("UPDATE ensembles SET status='saved' WHERE status IS NULL OR status=''");
+  // Chunked image ingestion (v1.27). A whole image crossing as ONE MCP string
+  // argument has proven unreliable at sizes we consider useful — a 310 KB
+  // payload succeeded while a later 135 KB one was truncated — so the size of
+  // any single tool argument must stop being load-bearing. These two tables
+  // stage bytes across several small calls; nothing here is a durable image,
+  // and only finish_image_upload creates a row in `images`.
+  ['032-image-upload-sessions', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS image_uploads (
+      id          INTEGER PRIMARY KEY,
+      uid         TEXT,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mime        TEXT NOT NULL,
+      total_bytes INTEGER NOT NULL,
+      sha256      TEXT,
+      source      TEXT NOT NULL DEFAULT 'upload',
+      status      TEXT NOT NULL DEFAULT 'open',      -- open | finished
+      image_uid   TEXT,                              -- set once finalised, so retries are idempotent
+      created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at  TEXT NOT NULL)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_image_uploads_uid AFTER INSERT ON image_uploads
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE image_uploads SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_image_uploads_uid ON image_uploads(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_image_uploads_owner ON image_uploads(user_id, status)');
+    // One row per chunk, keyed by index: a repeated chunk overwrites nothing and
+    // an out-of-order chunk is just another row, so retries stay harmless.
+    db.exec(`CREATE TABLE IF NOT EXISTS image_upload_chunks (
+      upload_id  INTEGER NOT NULL REFERENCES image_uploads(id) ON DELETE CASCADE,
+      idx        INTEGER NOT NULL,
+      bytes      BLOB NOT NULL,
+      sha256     TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (upload_id, idx))`);
   }],
 
 ];
@@ -1673,6 +1712,11 @@ function setMarkCollections(userId, markId, names) {
 // member, so source images get room; generated compositions get more again.
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_GENERATED_BYTES = 24 * 1024 * 1024;   // AI-generated compositions run large
+// Chunk size for the chunked upload path. Chosen for RELIABILITY, not throughput:
+// a 135 KB single argument has been truncated in practice, so this sits far
+// below that. 32 KB of raw bytes is ~43,700 base64 characters — a small JSON
+// string by any measure — and a 1 MB image is still only 32 calls.
+const UPLOAD_CHUNK_BYTES = 32 * 1024;
 // Only these four are accepted. SVG is deliberately excluded — it can carry
 // script and is already excluded from unfurl image candidates for that reason.
 const IMAGE_MIME_ALLOW = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -2399,6 +2443,36 @@ async function resolveAssetRef(userId, ref, ctx, source, what) {
   const inline = (ref && typeof ref.image === 'string') ? ref.image.trim() : '';
   if (inline) return await ingestImage(userId, inline, ctx, source, what);
   return null;
+}
+
+// What actually arrived? When an inline data: URL is refused we can say a great
+// deal about HOW it was damaged, which distinguishes "the runtime cut the
+// argument short" from "the client built the base64 wrong". Cheap, and it is
+// the only forensic record we get of a transport failure.
+function diagnoseDataUrl(v) {
+  const d = { prefix_intact: false, declared_mime: null, b64_chars: 0, quad_remainder: null,
+    padded: false, decodable: false, decoded_bytes: 0, ends_with_eoi: null };
+  const m = /^data:([\w/+.-]+);base64,([\s\S]*)$/i.exec(String(v || '').trim());
+  if (!m) return d;
+  d.prefix_intact = true; d.declared_mime = m[1].toLowerCase();
+  const b64 = m[2];
+  d.b64_chars = b64.length;
+  d.quad_remainder = b64.length % 4;          // non-zero == cut mid-quad, i.e. hard truncation
+  d.padded = b64.endsWith('=');
+  try {
+    const buf = Buffer.from(b64, 'base64');
+    d.decodable = true; d.decoded_bytes = buf.length;
+    if (d.declared_mime === 'image/jpeg') d.ends_with_eoi = buf.length >= 2 && buf[buf.length - 2] === 0xff && buf[buf.length - 1] === 0xd9;
+  } catch { /* leave decodable false */ }
+  return d;
+}
+// One line, no image data, so a transport failure is diagnosable after the fact.
+function logDataUrlFailure(what, v) {
+  const d = diagnoseDataUrl(v);
+  console.log(`[image-reject] ${what} prefix=${d.prefix_intact} mime=${d.declared_mime} `
+    + `b64_chars=${d.b64_chars} quad_remainder=${d.quad_remainder} padded=${d.padded} `
+    + `decoded_bytes=${d.decoded_bytes} eoi=${d.ends_with_eoi}`);
+  return d;
 }
 
 // Undo an ingest whose post-insert verification failed. Format, size and
@@ -3748,6 +3822,27 @@ const OS_VISIT = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'visited_on', 'body', 'provenance'],
   properties: { type: { const: 'visit' }, uid: { type: 'string' }, id: { type: 'integer' },
     visited_on: { type: 'string' }, body: { type: 'string' }, provenance: OS_PROVENANCE } };
+const OS_UPLOAD_START = { type: 'object', additionalProperties: false,
+  required: ['ok', 'upload_id', 'chunk_bytes', 'total_chunks', 'next_index', 'expires_at'],
+  properties: { ok: { type: 'boolean' }, upload_id: { type: 'string' },
+    chunk_bytes: { type: 'integer', description: 'Maximum raw bytes per chunk.' },
+    total_chunks: { type: 'integer' }, next_index: { type: 'integer' },
+    expires_at: { type: 'string', description: 'The session is discarded after this time.' } } };
+const OS_UPLOAD_CHUNK = { type: 'object', additionalProperties: false,
+  required: ['ok', 'upload_id', 'accepted_index', 'chunk_bytes', 'received_bytes', 'total_bytes', 'received_chunks', 'total_chunks', 'next_index', 'complete'],
+  properties: { ok: { type: 'boolean' }, upload_id: { type: 'string' },
+    accepted_index: { type: 'integer' }, chunk_bytes: { type: 'integer', description: 'Raw bytes decoded from this chunk.' },
+    received_bytes: { type: 'integer' }, total_bytes: { type: 'integer' },
+    received_chunks: { type: 'integer' }, total_chunks: { type: 'integer' },
+    next_index: { type: ['integer', 'null'], description: 'Next index still needed, or null when all are in.' },
+    complete: { type: 'boolean' } } };
+const OS_IMAGE_RESULT = { type: 'object', additionalProperties: false,
+  required: ['ok', 'stored', 'verified', 'image_uid', 'uid', 'mime', 'bytes', 'byte_count', 'width', 'height', 'chunks'],
+  properties: { ok: { type: 'boolean' }, stored: { type: 'boolean' }, verified: { type: 'boolean' },
+    image_uid: { type: 'string' }, uid: { type: 'string' }, mime: { type: 'string' },
+    bytes: { type: 'integer' }, byte_count: { type: 'integer' },
+    width: { type: ['integer', 'null'] }, height: { type: ['integer', 'null'] },
+    chunks: { type: ['integer', 'null'], description: 'How many chunks it was assembled from.' } } };
 const OS_IMAGE = { type: 'object', additionalProperties: false,
   required: ['type', 'stored', 'verified', 'uid', 'image_uid', 'id', 'ref', 'mime', 'bytes', 'byte_count', 'width', 'height', 'provenance'],
   properties: { type: { const: 'image' },
@@ -3936,9 +4031,28 @@ const TOOLS = [
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'upload_image', description: "Store ONE image in Discriminantly and get back a stable image_uid. IF THE IMAGE IS A LOCAL FILE IN YOUR OWN ENVIRONMENT — an attachment the user sent, a file at a path like /mnt/data/... or /workspace/..., or a picture you just generated — that is the normal case and it works: read the file's bytes in your execution environment, resize/re-encode it to a compact JPEG or WEBP if it is large, base64-encode those bytes, and build a 'data:image/jpeg;base64,...' string to pass as `image`. Doing that encoding in code is expected and correct. What does NOT work is passing the handle itself: a ChatGPT file id like 'file_abc123', or a bare path like '/mnt/data/photo.jpg', is meaningless to Discriminantly — it is a reference in YOUR sandbox, not something this server can open. So never treat 'I only have a local file, not a URL' as a dead end; convert the bytes and upload them. Upload images ONE AT A TIME, keep each returned image_uid, and pass those uids to create_pending_ensemble instead of ever sending a picture twice. A successful result is itself proof the image is stored — images are private, so do not fetch the returned /i/<uid> path to check, it will 404 for anyone not signed in as the member.",
+  { name: 'start_image_upload', description: "Begin sending an image to Discriminantly in small pieces. USE THIS for any image you hold as a local file — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you just generated — because a whole image sent as one tool argument is unreliable: runtimes silently cut long arguments short, and that has happened at sizes as small as 135 KB. Chunking removes that risk entirely. SEQUENCE: read the file's bytes in your execution environment, prepare a good-quality version if the original is huge, compute its exact byte count and (ideally) its sha256, call this tool, then call upload_image_chunk once per slice in order, then finish_image_upload — which returns the image_uid you pass onward. For an image already at a public https:// URL, skip all of this and use upload_image instead; Discriminantly fetches those itself.",
+    inputSchema: { type: 'object', required: ['mime', 'total_bytes'], properties: {
+      mime: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+        description: 'Content type of the prepared image.' },
+      total_bytes: { type: 'integer', description: 'Exact byte count of the prepared image file — the length of the raw bytes, not of any base64 text. Finishing fails if the assembled bytes do not match this.' },
+      sha256: { type: 'string', description: 'Optional but recommended: sha256 of the complete prepared image, 64 lowercase hex characters. Lets the server prove the stored bytes are exactly what you sent.' },
+      source: { type: 'string', enum: ['upload', 'generated'], description: "'generated' if you produced this image yourself; otherwise 'upload'. Defaults to 'upload'." } } },
+    outputSchema: OS_UPLOAD_START },
+  { name: 'upload_image_chunk', description: "Send one slice of an image started with start_image_upload. Split the raw bytes into consecutive slices of at most the chunk_bytes you were given, base64 each slice ON ITS OWN, and send them in order with index 0, 1, 2… Each chunk carries only base64 of raw bytes — no 'data:' prefix, no whole-file base64. Re-sending a chunk with identical bytes is harmless if you are unsure it arrived; sending different bytes for an index already accepted is refused. The result tells you the next index expected and whether every chunk is in.",
+    inputSchema: { type: 'object', required: ['upload_id', 'index', 'data'], properties: {
+      upload_id: { type: 'string', description: 'From start_image_upload.' },
+      index: { type: 'integer', description: 'Which slice this is, counting from 0, in file order.' },
+      data: { type: 'string', description: "Base64 of THIS SLICE's raw bytes only. No data: prefix. Keep each slice at or under the chunk_bytes returned by start_image_upload." } } },
+    outputSchema: OS_UPLOAD_CHUNK },
+  { name: 'finish_image_upload', description: "Assemble the chunks into the real image and store it. Verifies that every chunk arrived, that the byte count matches what was declared, that the sha256 matches if you supplied one, and that the image is a complete valid file — then returns the stable image_uid to use everywhere else (create_pending_ensemble, note_object, add_travel_mark). If anything fails to add up, nothing is stored and the error says what was wrong. Safe to call again after success: it returns the same image_uid rather than storing a second copy.",
+    inputSchema: { type: 'object', required: ['upload_id'], properties: {
+      upload_id: { type: 'string', description: 'From start_image_upload.' },
+      sha256: { type: 'string', description: 'Optional: sha256 of the complete prepared image, if you did not give it at the start.' } } },
+    outputSchema: OS_IMAGE_RESULT },
+  { name: 'upload_image', description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer start_image_upload / upload_image_chunk / finish_image_upload instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
     inputSchema: { type: 'object', required: ['image'], properties: {
-      image: { type: 'string', description: "CHATGPT LOCAL IMAGES: if the real image is a mounted/local conversation attachment or a picture you generated, do NOT send its file_... id or filesystem path here — those name a file inside YOUR sandbox and mean nothing to this server. Read the actual file bytes with your local execution/code environment, resize or re-encode if needed, programmatically base64-encode those real bytes, and pass the resulting 'data:image/jpeg;base64,...' string here. That is the expected bridge, and having only a local path is NOT a dead end. Accepted values: (a) such a data: URL built in code from real bytes, or (b) an https:// URL this server can fetch. PNG, JPEG, WEBP or GIF. Preparation target for inline uploads: about 1536 px on the long edge, JPEG or WEBP quality ~85, roughly 300 KB — proven reliable and ample quality for a composition. That is a ChatGPT runtime guideline, NOT this server's limit (much larger images are fine, especially via https:// URL). Keep good visual quality; never reduce to a thumbnail. If an upload is rejected as truncated or incomplete, your runtime cut the argument short in transit: re-encode ONCE at a smaller size or lower quality and retry, and if it fails again say so plainly rather than looping." } } },
+      image: { type: 'string', description: "Either (a) an https:// URL this server can fetch — the preferred use of this tool, any size — or (b) a data: URL you built in code from real local bytes, which is fine for a genuinely small image. For a local file of any real size, use start_image_upload instead of inlining it here: one large argument can be truncated in transit by your runtime, and chunking is not subject to that. Never a file id or a filesystem path. PNG, JPEG, WEBP or GIF." } } },
     outputSchema: OS_IMAGE },
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
@@ -4078,6 +4192,127 @@ async function mcpCall(user, name, a = {}) {
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return wr(`Updated #${o.id}: ${name_}`, 'edited', 'note', o.id, o.uid, name_);
+  }
+  // ---- chunked image ingestion -------------------------------------------
+  // Deliberately narrow: image-only, short-lived, owner-bound. Not an object
+  // store, not resumable-upload machinery. It exists solely so no single MCP
+  // string argument has to carry a whole image.
+  if (name === 'start_image_upload') {
+    // Cheap sweep on the way in: anything expired is dead weight. Keeps staging
+    // bounded without a scheduler.
+    try {
+      q(`DELETE FROM image_upload_chunks WHERE upload_id IN
+         (SELECT id FROM image_uploads WHERE expires_at < datetime('now'))`).run();
+      q("DELETE FROM image_uploads WHERE expires_at < datetime('now') AND status<>'finished'").run();
+    } catch {}
+    const mime = String(a.mime || '').toLowerCase().trim();
+    if (!IMAGE_MIME_ALLOW.has(mime)) throw new Error(`mime must be one of: ${[...IMAGE_MIME_ALLOW].join(', ')}.`);
+    const total = Number(a.total_bytes);
+    if (!Number.isInteger(total) || total <= 0) throw new Error('total_bytes must be the exact byte count of the prepared image.');
+    if (total > MAX_IMAGE_BYTES) throw new Error(`That image is ${Math.round(total / 1048576)} MB; the limit is `
+      + `${Math.round(MAX_IMAGE_BYTES / 1048576)} MB. Prepare a smaller version.`);
+    const sha = a.sha256 ? String(a.sha256).toLowerCase().trim() : null;
+    if (sha && !/^[0-9a-f]{64}$/.test(sha)) throw new Error('sha256 must be 64 lowercase hex characters, or omitted.');
+    const r = q(`INSERT INTO image_uploads(user_id,mime,total_bytes,sha256,source,expires_at)
+      VALUES(?,?,?,?,?,datetime('now','+30 minutes'))`)
+      .run(user.id, mime, total, sha, a.source === 'generated' ? 'generated' : 'upload');
+    const up = q('SELECT * FROM image_uploads WHERE id=?').get(r.lastInsertRowid);
+    const chunks = Math.ceil(total / UPLOAD_CHUNK_BYTES);
+    console.log(`[upload] start id=${up.uid} mime=${mime} total=${total} sha=${sha ? sha.slice(0, 12) : 'none'} chunks=${chunks}`);
+    return { text: `Upload started. Send ${chunks} chunk${chunks === 1 ? '' : 's'} of up to `
+      + `${UPLOAD_CHUNK_BYTES} bytes each (base64 of the raw slice, no data: prefix), indexes 0..${chunks - 1}, `
+      + `then call finish_image_upload.`,
+      structured: { ok: true, upload_id: up.uid, chunk_bytes: UPLOAD_CHUNK_BYTES, total_chunks: chunks,
+        next_index: 0, expires_at: up.expires_at } };
+  }
+  if (name === 'upload_image_chunk') {
+    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
+    if (!up) throw new Error('No such upload_id. Call start_image_upload first.');
+    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
+    if (up.status === 'finished') throw new Error('That upload is already finished.');
+    if (new Date(up.expires_at + 'Z') < new Date()) throw new Error('That upload has expired. Start a new one.');
+    const idx = Number(a.index);
+    if (!Number.isInteger(idx) || idx < 0) throw new Error('index must be a whole number, starting at 0.');
+    let buf;
+    try { buf = Buffer.from(String(a.data || ''), 'base64'); }
+    catch { throw new Error(`Chunk ${idx} is not valid base64.`); }
+    if (!buf.length) throw new Error(`Chunk ${idx} decoded to zero bytes.`);
+    const sha = crypto.createHash('sha256').update(buf).digest('hex');
+    const existing = q('SELECT sha256, length(bytes) n FROM image_upload_chunks WHERE upload_id=? AND idx=?').get(up.id, idx);
+    if (existing) {
+      // A retry of the same chunk is harmless; the SAME index carrying
+      // DIFFERENT bytes is a real conflict and must not silently overwrite.
+      if (existing.sha256 !== sha) throw new Error(`Chunk ${idx} was already received with different content. `
+        + `Do not change a chunk once sent; start a new upload instead.`);
+    } else {
+      q('INSERT INTO image_upload_chunks(upload_id,idx,bytes,sha256) VALUES(?,?,?,?)').run(up.id, idx, buf, sha);
+    }
+    const got = q('SELECT COUNT(*) c, COALESCE(SUM(length(bytes)),0) n FROM image_upload_chunks WHERE upload_id=?').get(up.id);
+    if (got.n > up.total_bytes) throw new Error(`Received ${got.n} bytes but the upload declared ${up.total_bytes}. `
+      + `Start a new upload with the correct total_bytes.`);
+    const totalChunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
+    const have = new Set(q('SELECT idx FROM image_upload_chunks WHERE upload_id=?').all(up.id).map((r) => r.idx));
+    let next = null;
+    for (let i = 0; i < totalChunks; i++) if (!have.has(i)) { next = i; break; }
+    console.log(`[upload] chunk id=${up.uid} idx=${idx} bytes=${buf.length} cumulative=${got.n}/${up.total_bytes}`);
+    return { text: next === null ? `Chunk ${idx} received. All ${totalChunks} chunks are in; call finish_image_upload.`
+      : `Chunk ${idx} received (${got.n} of ${up.total_bytes} bytes). Next expected index: ${next}.`,
+      structured: { ok: true, upload_id: up.uid, accepted_index: idx, chunk_bytes: buf.length,
+        received_bytes: got.n, total_bytes: up.total_bytes, received_chunks: got.c, total_chunks: totalChunks,
+        next_index: next, complete: next === null } };
+  }
+  if (name === 'finish_image_upload') {
+    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
+    if (!up) throw new Error('No such upload_id.');
+    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
+    // Finalising twice returns the same image rather than storing it again.
+    if (up.status === 'finished' && up.image_uid) {
+      const img = q('SELECT uid, mime, length(bytes) n, width, height FROM images WHERE uid=?').get(up.image_uid);
+      return { text: `Already finished. image_uid: ${up.image_uid}`,
+        structured: { ok: true, stored: true, verified: true, image_uid: up.image_uid, uid: up.image_uid,
+          mime: img ? img.mime : up.mime, bytes: img ? img.n : up.total_bytes, byte_count: img ? img.n : up.total_bytes,
+          width: img ? img.width : null, height: img ? img.height : null, chunks: null } };
+    }
+    if (new Date(up.expires_at + 'Z') < new Date()) throw new Error('That upload has expired. Start a new one.');
+    const totalChunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
+    const rows = q('SELECT idx, bytes FROM image_upload_chunks WHERE upload_id=? ORDER BY idx').all(up.id);
+    const have = new Set(rows.map((r) => r.idx));
+    const missing = [];
+    for (let i = 0; i < totalChunks; i++) if (!have.has(i)) missing.push(i);
+    if (missing.length) throw new Error(`Cannot finish: chunk${missing.length === 1 ? '' : 's'} `
+      + `${missing.slice(0, 12).join(', ')}${missing.length > 12 ? '…' : ''} missing. Send them, then finish again.`);
+    // Any failure below abandons this session, so its staged chunks go too —
+    // otherwise a failed upload leaves multi-megabyte staging rows behind
+    // forever. abandon() is called on every throw path, not just success.
+    const abandon = () => { try { q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id); } catch {} };
+    const buf = Buffer.concat(rows.map((r) => Buffer.from(r.bytes)));
+    if (buf.length !== up.total_bytes) { abandon(); throw new Error(`Assembled ${buf.length} bytes but the upload `
+      + `declared ${up.total_bytes}. Nothing was saved.`); }
+    const expected = a.sha256 ? String(a.sha256).toLowerCase().trim() : up.sha256;
+    if (expected) {
+      const actual = crypto.createHash('sha256').update(buf).digest('hex');
+      if (actual !== expected) { abandon(); throw new Error('The assembled image does not match the sha256 you '
+        + 'supplied, so it was damaged in transit. Nothing was saved. Start a new upload.'); }
+    }
+    // From here it is an ordinary image: same store, same validation, same
+    // verification. Nothing above this layer knows chunks existed.
+    const ctx = mcpActor(user);
+    let uid;
+    try {
+      uid = await ingestImage(user.id, `data:${up.mime};base64,${buf.toString('base64')}`, ctx, up.source, 'The assembled image');
+    } catch (e) { abandon(); throw e; }
+    const v = verifyStoredImage(user.id, uid, buf.length);
+    if (!v.verified) { discardStoredImage(uid); abandon(); throw new Error(`Assembled but not stored durably: ${v.problems.join('; ')}.`); }
+    q("UPDATE image_uploads SET status='finished', image_uid=? WHERE id=?").run(uid, up.id);
+    q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id);   // staging is not storage
+    const img = v.row;
+    console.log(`[upload] finish id=${up.uid} bytes=${buf.length} chunks=${totalChunks} image_uid=${uid}`);
+    return { text: `Stored and verified from ${totalChunks} chunk${totalChunks === 1 ? '' : 's'}. `
+      + `image_uid: ${uid} (${img.mime}, ${img.n} bytes${img.width ? `, ${img.width}x${img.height}` : ''}). `
+      + `Pass this uid onward; do not re-send the image.`,
+      structured: { ok: true, stored: true, verified: true, image_uid: uid, uid,
+        mime: img.mime, bytes: img.n, byte_count: img.n,
+        width: img.width || null, height: img.height || null, chunks: totalChunks } };
   }
   if (name === 'upload_image') {
     if (!a.image) throw new Error('image is required');
@@ -4722,7 +4957,7 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those, and edit_travel_mark/delete_travel_mark to change or remove one. Before adding a travel mark, call verify_place unless you already have a precise address — show the member the match (or the fact that nothing was found) and get their confirmation before writing; never invent coordinates. Both note_object and add_travel_mark also check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting anything. IMAGES: every picture must reach discriminant.ly through upload_image, which returns a stable image_uid you then pass to other tools. If an image is a local file in your environment — an attachment, a path like /mnt/data/..., or one you generated — read its bytes in code, re-encode it compactly if large, and build a data:image/...;base64,... string to upload. Passing a file id or a sandbox path straight to a tool never works: those only mean something inside your own sandbox. ENSEMBLES [ensemble_contract: local-data-bridge-v2]: when the member asks to combine or compose things visually, generate the composition yourself, upload each constituent image and the composition separately with upload_image, then call create_pending_ensemble with the resulting uids, and only after it succeeds ask whether to keep or discard. Never tell the member something was saved before the tool call that saves it has actually returned. IMAGES FROM YOUR OWN SANDBOX: an attachment or generated picture reaches you as a local file — that file is the SOURCE of the bytes, not the argument. Read its bytes in your code environment, prepare a compact version, base64-encode those real bytes into a data: URL, and pass that. A file id or path is never accepted and is never a reason to stop.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those, and edit_travel_mark/delete_travel_mark to change or remove one. Before adding a travel mark, call verify_place unless you already have a precise address — show the member the match (or the fact that nothing was found) and get their confirmation before writing; never invent coordinates. Both note_object and add_travel_mark also check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting anything. IMAGES: every picture must reach discriminant.ly through upload_image, which returns a stable image_uid you then pass to other tools. If an image is a local file in your environment — an attachment, a path like /mnt/data/..., or one you generated — read its bytes in code, re-encode it compactly if large, and build a data:image/...;base64,... string to upload. Passing a file id or a sandbox path straight to a tool never works: those only mean something inside your own sandbox. ENSEMBLES [ensemble_contract: chunked-upload-v3]: when the member asks to combine or compose things visually, generate the composition yourself, upload each constituent image and the composition separately with upload_image, then call create_pending_ensemble with the resulting uids, and only after it succeeds ask whether to keep or discard. Never tell the member something was saved before the tool call that saves it has actually returned. IMAGES FROM YOUR OWN SANDBOX: an attachment or generated picture reaches you as a local file — that file is the SOURCE of the bytes, not the argument. Read its bytes in your code environment, keep good visual quality, then send it with start_image_upload -> upload_image_chunk (small slices, in order) -> finish_image_upload, which returns the image_uid. Do NOT put a whole image in one tool argument: runtimes truncate long arguments unpredictably. A file id or path is never accepted and is never a reason to stop. An image already at an https:// URL needs none of this — just upload_image with the URL.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') {
