@@ -1615,6 +1615,7 @@ function emptyState(me, kind, subject = null) {
     marks: own ? ['You have not marked any places yet'] : [`${who} has not marked any places yet`],
     ensembles: own ? ['No ensembles yet', 'Ask your AI to compose one']
                    : [`${who} has not saved any ensembles yet`],
+    warrants: own ? ['Nothing warranted yet'] : [`${who} has not warranted anything yet`],
     tagged: ['Nothing noted under this tag yet'],
   }[kind] || ['Nothing here yet'];
 
@@ -2042,16 +2043,29 @@ function profileRail(u, me, tab) {
   const fc = followCounts(u.id);
   const markCount = q('SELECT COUNT(*) c FROM marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   const ensCount = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
+  // A visitor's warrant count only ever reflects PUBLIC subjects: a warrant on
+  // a private note or mark is not something anyone but the owner should see
+  // exists, since that would leak the existence of the private record itself.
+  const warrantCount = (() => {
+    const objUids = warrantedSubjectUids(u.id, 'object'), markUids = warrantedSubjectUids(u.id, 'mark');
+    const ownerView = me && me.id === u.id;
+    const objN = ownerView ? objUids.size
+      : [...objUids].filter((uid) => { const o = q('SELECT private FROM objects WHERE uid=?').get(uid); return o && !o.private; }).length;
+    const markN = ownerView ? markUids.size
+      : [...markUids].filter((uid) => { const m = q('SELECT private FROM marks WHERE uid=?').get(uid); return m && !m.private; }).length;
+    return objN + markN;
+  })();
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
   const link = (t) => `/u/${esc(u.handle)}?tab=${t}`;
   return `<aside class="rail profile-rail">
     <a href="/u/${esc(u.handle)}">${avatar(u, 'avatar big')}</a><p class="prail-handle">${esc(u.handle)}</p>
     ${u.bio ? `<p class="prail-bio">${esc(u.bio)}</p>` : ''}${u.site ? `<p class="prail-site"><a href="${esc(u.site)}" rel="noopener">${esc(u.site.replace(/^https?:\/\//, ''))}</a></p>` : ''}
-    ${me && me.id !== u.id ? `<form method="post" action="/u/${esc(u.handle)}/${following ? 'unfollow' : 'follow'}" class="prail-follow"><button class="btn ${following ? 'btn-on' : ''} block">${following ? 'Following' : 'Follow'}</button></form>` : ''}
+    ${me && me.id !== u.id ? `<form method="post" action="/u/${esc(u.handle)}/${following ? 'unfollow' : 'follow'}" class="prail-follow"><button class="btn3d block ${following ? 'is-following' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}
     <ul class="prail-nav">
       <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" href="${link('activity')}">All Activity <span>›</span></a></li>
       <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
       <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
+      <li><a class="${tab === 'warrants' ? 'on' : ''}" data-short="Warrant" data-count="${warrantCount}" href="${link('warrants')}">Warrant: ${warrantCount} <span>›</span></a></li>
       <li><a class="${tab === 'ensembles' ? 'on' : ''}" data-short="Ensembles" data-count="${ensCount}" href="${link('ensembles')}">Ensembles: ${ensCount} <span>›</span></a></li>
       <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
@@ -2162,6 +2176,16 @@ function imgTag(ref, alt, cls, eager) {
   const dim = d && d.width && d.height ? ` width="${d.width}" height="${d.height}"` : '';
   return `<img src="${esc(ref)}" alt="${esc(alt || '')}"${cls ? ` class="${cls}"` : ''}${dim}`
     + `${eager ? '' : ' loading="lazy" decoding="async"'}>`;
+}
+
+// Currently-active warrants for one user, batched rather than one query per
+// row. Correction (supersedes) is not used by warrant writes today — only
+// active/revoked — so "latest row per subject" is exactly current state.
+function warrantedSubjectUids(userId, subjectType) {
+  return new Set(q(`SELECT subject_uid FROM warrants w1 WHERE user_id=? AND subject_type=? AND state='active'
+    AND id = (SELECT MAX(id) FROM warrants w2 WHERE w2.user_id=w1.user_id
+              AND w2.subject_type=w1.subject_type AND w2.subject_uid=w1.subject_uid)`)
+    .all(userId, subjectType).map((r) => r.subject_uid));
 }
 
 const ensCanSee = (e, me) => !e.private || (me && (me.id === e.user_id || me.is_admin));
@@ -2280,6 +2304,30 @@ function storeImageStrict(userId, value, ctx, source, what) {
       + `and the declared type must match the actual bytes. Nothing was saved — try a smaller image.`);
   }
   return uid;
+}
+
+// Discard: the member looked at the saved composition and did not want it.
+// This unwinds the save, including the Notes it created — but ONLY those, and
+// only while they are still nothing more than a by-product of this Ensemble.
+// A Note that has since taken on a life of its own is kept, because destroying
+// it would delete something the member did, not something we did for them.
+function notesSafeToDiscard(ens) {
+  const created = q(`SELECT o.id, o.uid, o.name FROM objects o
+    JOIN provenance p ON p.entity_uid = o.uid
+    WHERE p.entity_type='object' AND p.action='created'
+      AND p.source_kind='ensemble' AND p.source_ref=? AND o.user_id=?`).all(ens.uid, ens.user_id);
+  const keep = [], drop = [];
+  for (const n of created) {
+    const reasons = [];
+    if (q('SELECT 1 FROM ownership_assertions WHERE note_uid=?').get(n.uid)) reasons.push('marked owned');
+    if (q('SELECT 1 FROM warrants WHERE subject_uid=?').get(n.uid)) reasons.push('warranted');
+    if (q('SELECT 1 FROM note_collections WHERE note_id=?').get(n.id)) reasons.push('filed in a collection');
+    if (q('SELECT 1 FROM objects WHERE renoted_from_uid=?').get(n.uid)) reasons.push('adopted by someone else');
+    if (q('SELECT 1 FROM ensemble_components WHERE note_uid=? AND ensemble_id<>?').get(n.uid, ens.id)) reasons.push('used in another ensemble');
+    if (q(`SELECT 1 FROM provenance WHERE entity_type='object' AND entity_uid=? AND action='edited'`).get(n.uid)) reasons.push('edited since');
+    if (reasons.length) keep.push({ ...n, reasons }); else drop.push(n);
+  }
+  return { keep, drop };
 }
 
 // The compound save. Saving a durable composition is itself the evidence that
@@ -2489,15 +2537,16 @@ const pages = {
     if (me) {
       const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(me.id).c;
       const markTally = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(me.id).c;
-      const fc = followCounts(me.id);
+      const ensTally = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?').get(me.id).c;
+      const warrantTally = warrantedSubjectUids(me.id, 'object').size + warrantedSubjectUids(me.id, 'mark').size;
       const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
       rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Travel Marks</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=followers"><b>${fc.followers}</b><span>Followers</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=following"><b>${fc.following}</b><span>Following</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=ensembles"><b>${ensTally}</b><span>Ensembles</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=warrants"><b>${warrantTally}</b><span>Warrant</span></a>
         <form class="wcell wcell-wide wcell-btn" method="post" action="/logout"><button class="btn3d block">Logout</button></form>
       </div>`;
     } else {
@@ -2763,7 +2812,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   user(req, res, me, handle, url) {
     const u = q('SELECT * FROM users WHERE handle=?').get(handle); if (!u) return send(res, layout({ title: 'Not found', body: '<p>No such member.</p>', me }), 404);
     const owner = me && me.id === u.id;
-    const tab = ['activity', 'notes', 'marks', 'ensembles', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
+    const tab = ['activity', 'notes', 'marks', 'warrants', 'ensembles', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
     const cid = +url.searchParams.get('c') || 0; const vis = url.searchParams.get('v') || 'all'; const s = (url.searchParams.get('q') || '').trim();
     const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
@@ -2784,6 +2833,24 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
       }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
+    } else if (tab === 'warrants') {
+      const objUids = warrantedSubjectUids(u.id, 'object'), markUids = warrantedSubjectUids(u.id, 'mark');
+      const acts = [];
+      for (const uid of objUids) {
+        const o = q('SELECT * FROM objects WHERE uid=?').get(uid);
+        if (o && canSee(o, me)) acts.push({ at: o.created_at, card: o });
+      }
+      for (const uid of markUids) {
+        const x = q(MARK_SQL + ' WHERE m.uid=?').get(uid);
+        if (x && (!x.private || owner)) acts.push({ at: x.created_at, mark: x });
+      }
+      acts.sort((a, b) => (a.at < b.at ? 1 : -1));
+      const wpg = pageOf(acts, url);
+      main = `<h3 class="strip">${esc(u.handle)}\u2019s warrants</h3>
+      <div class="activity-feed" id="feed-grid">${wpg.slice.map((a) => a.mark
+        ? `<div class="act-note">${markCard(a.mark, me)}</div>`
+        : `<div class="act-note">${objectCard(a.card, me)}</div>`).join('')}</div>${moreLink(url, wpg.off, wpg.more)}
+      ${acts.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'ensembles') {
       // Same privacy rule as every other profile surface: a visitor sees only
       // public ensembles; the owner sees their own private ones too.
@@ -3111,39 +3178,63 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   },
 
   settings(req, res, me, err = '') {
+    const mine = q('SELECT * FROM invites WHERE from_user=? ORDER BY created_at DESC').all(me.id);
+    const unusedInvites = mine.filter((i) => !i.used_by);
     const body = `<h3 class="strip dark-strip">Your Account Settings</h3>
 <div class="settings">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
-  <form method="post" action="/settings" class="wtable settings-table">
-    <div class="wcell wcell-wide">
-      <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
-      <p class="lbl set-cap">Change profile image</p>
-      <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
+  <div class="settings-grid">
+    <div class="settings-col">
+      <form method="post" action="/settings" class="wtable settings-table">
+        <div class="wcell wcell-wide">
+          <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
+          <p class="lbl set-cap">Change profile image</p>
+          <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
+        </div>
+        <div class="wcell wcell-wide">
+          <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
+          <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>
+          <label class="slabel">Name:<input name="name" value="${esc(me.name)}" required></label>
+          <label class="slabel">City:<input name="city" value="${esc(me.city)}"></label>
+          <label class="slabel">Website:<input name="site" type="url" value="${esc(me.site)}" placeholder="https://"></label>
+          <label class="slabel">About you:<textarea name="bio" rows="3" maxlength="300">${esc(me.bio)}</textarea></label>
+          <button class="btn3d block">Save changes</button>
+        </div>
+      </form>
+      <div class="wtable settings-table">
+        <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
+      </div>
     </div>
-    <div class="wcell wcell-wide">
-      <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
-      <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>
-      <label class="slabel">Name:<input name="name" value="${esc(me.name)}" required></label>
-      <label class="slabel">City:<input name="city" value="${esc(me.city)}"></label>
-      <label class="slabel">Website:<input name="site" type="url" value="${esc(me.site)}" placeholder="https://"></label>
-      <label class="slabel">About you:<textarea name="bio" rows="3" maxlength="300">${esc(me.bio)}</textarea></label>
-      <button class="btn3d block">Save changes</button>
-    </div>
-  </form>
-  <div class="wtable settings-table">
-    <div class="wcell wcell-wide">
-      <p class="sbox-title">The Connector</p>
-      <p class="sbox-sub">Add this URL to Claude or ChatGPT to Note things directly from any conversation</p>
-      ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
-      <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
-      <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
-    </div>
-    <div class="wcell wcell-wide"><a class="btn3d block" href="/invites">Invites</a></div>
-    <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
-    <div class="wcell wcell-wide install-box" id="install-box" hidden>
-      <p class="sbox-title">Install Discriminantly</p>
-      <p class="sbox-sub">Keep it on your Home Screen and open it like an app.</p>
-      <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
+    <div class="settings-col">
+      <div class="wtable settings-table">
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Connect to your AI</p>
+          <p class="sbox-sub">Connect ChatGPT or Claude to your Discriminantly memory and work with your Notes, Marks, Collections, Ensembles, and more from any conversation.</p>
+          ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
+          <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
+          <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+        </div>
+      </div>
+      <div class="wtable settings-table">
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Bring someone in</p>
+          <p class="sbox-sub">Each member may hold a few open invites at a time.</p>
+          <form method="post" action="/invites"><button class="btn3d block" ${unusedInvites.length >= 5 ? 'disabled' : ''}>Create an invite</button></form>
+          <p class="fine center">${unusedInvites.length} of 5 open</p>
+          ${mine.length ? mine.map((i) => `<div class="invite-row">
+            ${i.used_by
+              ? `<p class="fine center">Used by @${esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle)}</p>`
+              : `<p class="conn-url"><code>${esc(baseUrl(req))}/join?code=${i.code}</code></p>`}
+          </div>`).join('') : ''}
+        </div>
+      </div>
+      <div class="wtable settings-table install-box" id="install-box" hidden>
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Install Discriminantly</p>
+          <p class="sbox-sub">Keep it on your Home Screen and open it like an app.</p>
+          <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -3338,6 +3429,14 @@ const OS_ENSEMBLE_SAVE = { type: 'object', additionalProperties: false,
     notes_created: { type: 'array', items: { type: 'string' } },
     notes_reused: { type: 'array', items: { type: 'string' } },
     unresolved_component_uids: { type: 'array', items: { type: 'string' } } } };
+const OS_DISCARD = { type: 'object', additionalProperties: false,
+  required: ['ok', 'ensemble_uid', 'notes_deleted', 'notes_kept'],
+  properties: { ok: { type: 'boolean' }, ensemble_uid: { type: 'string' },
+    notes_deleted: { type: 'array', items: { type: 'string' } },
+    notes_kept: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['uid', 'name', 'reasons'],
+      properties: { uid: { type: 'string' }, name: { type: 'string' },
+        reasons: { type: 'array', items: { type: 'string' } } } } } } };
 const OS_UNRESOLVED = { type: 'object', additionalProperties: false,
   required: ['component_uid', 'ensemble_uid', 'ensemble_id', 'ensemble_title', 'label', 'image'],
   properties: { component_uid: { type: 'string' }, ensemble_uid: { type: 'string' },
@@ -3450,7 +3549,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'save_ensemble', description: 'Save a composition the member wants to keep — an Ensemble: a set of things arranged together, with the generated image of that arrangement. GENERATE THE COMPOSITED IMAGE FIRST and pass its bytes as `artifact`; the image is the thing being saved and the call is refused without it. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
+  { name: 'save_ensemble', description: 'Save a composition as an Ensemble: a set of things arranged together, with the generated image of that arrangement. CALL THIS AS SOON AS YOU HAVE GENERATED THE COMPOSITED IMAGE, before asking the member whether they like it — saving first means the composition and its pieces survive even if the conversation ends, and nothing is lost while they decide. Then show it to them and ask whether to keep it or discard it; if they discard, call discard_ensemble, which also removes any notes this save added. Pass the composited image bytes as `artifact`; the image is the thing being saved and the call is refused without it. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
     inputSchema: { type: 'object', required: ['title', 'components', 'artifact'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
@@ -3523,6 +3622,10 @@ const TOOLS = [
       description: { type: 'string', description: 'Replaces the description of the arrangement.' },
       private: { type: 'boolean', description: 'True hides the whole Ensemble from everyone but the member.' } } },
     outputSchema: OS_WRITE },
+  { name: 'discard_ensemble', description: 'Throw away a composition the member has just decided against. Use this when they say no, discard, bin it, start over or similar after seeing a saved composition. It removes the Ensemble, its generated images, and any notes that this Ensemble put into their catalogue — but never notes they already had, and never a note that has since been marked owned, warranted, filed, edited or used elsewhere. To remove an Ensemble they had kept and lived with, use delete_ensemble instead, which leaves every note alone.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id, from save_ensemble." } } },
+    outputSchema: OS_DISCARD },
   { name: 'delete_ensemble', description: 'Permanently delete an Ensemble, its components and its generated images. Notes linked to it are NOT deleted — they are the member\'s own records.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." } } },
@@ -4041,6 +4144,10 @@ async function mcpCall(user, name, a = {}) {
     if (nc) parts.push(`${nc} new ${nc === 1 ? 'note' : 'notes'} added (private).`);
     if (nr) parts.push(`${nr} existing ${nr === 1 ? 'note' : 'notes'} reused.`);
     if (un) parts.push(`${un} ${un === 1 ? 'component remains' : 'components remain'} unidentified.`);
+    // The save is deliberately eager, so the member has not agreed to keep it
+    // yet. Say so, so the model asks rather than assuming.
+    parts.push(`Show it to the member and ask whether to keep it. If they do not want it, `
+      + `call discard_ensemble with id ${ens.id}${nc ? `, which will also remove the ${nc} note${nc === 1 ? '' : 's'} just added` : ''}.`);
     const result = { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
       private: !!ens.private, primary_artifact_uid: primary, artifacts: primary ? [primary] : [],
       components: saved.components, notes_created: saved.notes_created,
@@ -4086,6 +4193,31 @@ async function mcpCall(user, name, a = {}) {
         return { type: 'ensemble', uid: e.uid, id: e.id, title: e.title, private: !!e.private,
           primary_image: pa ? `/i/${pa.image_uid}` : null, component_count: cs.length,
           unresolved_count: cs.filter((c) => c.state === 'unresolved').length, created_at: e.created_at }; }) } };
+  }
+  if (name === 'discard_ensemble') {
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
+    if (!e) throw new Error(`No ensemble #${a.id}`);
+    if (e.user_id !== user.id) throw new Error('That ensemble does not belong to this member');
+    const ctx = mcpActor(user);
+    const { keep, drop } = notesSafeToDiscard(e);
+    db.exec('BEGIN');
+    try {
+      for (const n of drop) {
+        recordProvenance('object', n.uid, 'deleted', ctx, { source_kind: 'ensemble_discarded', source_ref: e.uid });
+        dropWarrantsFor('object', n.uid);
+        q('DELETE FROM objects WHERE id=?').run(n.id);
+      }
+      recordProvenance('ensemble', e.uid, 'deleted', ctx, { source_kind: 'discarded' });
+      q('DELETE FROM ensembles WHERE id=?').run(e.id);
+      db.exec('COMMIT');
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+    const parts = [`Discarded: ${e.title}.`];
+    if (drop.length) parts.push(`Removed ${drop.length} note${drop.length === 1 ? '' : 's'} it had added.`);
+    if (keep.length) parts.push(`Kept ${keep.length}: ${keep.map((k) => `${k.name} (${k.reasons.join(', ')})`).join('; ')}.`);
+    if (!drop.length && !keep.length) parts.push('It had not added any notes.');
+    return { text: parts.join(' '), structured: { ok: true, ensemble_uid: e.uid,
+      notes_deleted: drop.map((n) => n.uid),
+      notes_kept: keep.map((k) => ({ uid: k.uid, name: k.name, reasons: k.reasons })) } };
   }
   if (name === 'add_ensemble_artifact' || name === 'set_primary_artifact' || name === 'remove_ensemble_artifact'
       || name === 'add_ensemble_component' || name === 'edit_ensemble' || name === 'delete_ensemble') {

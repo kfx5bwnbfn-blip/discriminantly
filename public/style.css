@@ -1608,3 +1608,21 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 .ens-saved { font-family: var(--slab); font-size: .58rem; letter-spacing: .16em;
   text-transform: uppercase; color: var(--ink-soft); }
 .ens-saved.is-bad { color: #8c4a4a; }
+
+/* Follow button on another user's rail, matching the dark .btn3d token used
+   by Logout and Save changes rather than the light .btn it used before. */
+.prail-follow .btn3d.is-following { color: var(--chrome-text); background: linear-gradient(var(--dbtn-top), var(--dbtn-bottom));
+  border-color: var(--dbtn-border); }
+
+/* ---- settings: two columns at generous widths (v1.19) --------------------
+   Column 1 is the member's own profile + sign out; column 2 is everything
+   that connects outward (AI connector, invites, install). align-items:start
+   is what keeps both columns' first boxes top-aligned — without it a grid
+   row stretches every cell to the tallest, which would pull column 2 down
+   to match column 1's full height instead of starting level with it. */
+.settings-grid { display: block; }
+.settings-col { display: flex; flex-direction: column; gap: 1.4rem; }
+.settings-col .settings-table { margin-bottom: 0; }
+@media (min-width: 64rem) {
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.4rem; align-items: start; }
+}
