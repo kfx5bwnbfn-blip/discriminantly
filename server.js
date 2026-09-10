@@ -574,6 +574,26 @@ const MIGRATIONS = [
     db.exec('CREATE INDEX IF NOT EXISTS idx_ens_art_ens ON ensemble_artifacts(ensemble_id, id)');
   }],
 
+  // Storage and load-time work. sha256 lets identical bytes be stored once —
+  // regenerating a composition, or reusing one product photo across several
+  // ensembles, is common and currently duplicates the whole blob. width/height
+  // are parsed from the file header (no image library needed) so every <img>
+  // can carry real dimensions, which stops layout shift and lets the browser
+  // reserve space before the bytes arrive.
+  ['030-image-dedupe-dims', () => {
+    for (const col of ['sha256', 'width', 'height']) {
+      if (!hasColumn('images', col)) db.exec(`ALTER TABLE images ADD COLUMN ${col} ${col === 'sha256' ? 'TEXT' : 'INTEGER'}`);
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_images_sha ON images(user_id, sha256)');
+    // backfill for what is already stored
+    for (const r of db.prepare('SELECT rowid AS rid, mime, bytes FROM images WHERE sha256 IS NULL').all()) {
+      const b = Buffer.from(r.bytes);
+      const d = imageDimensions(b, r.mime);
+      db.prepare('UPDATE images SET sha256=?, width=?, height=? WHERE rowid=?')
+        .run(crypto.createHash('sha256').update(b).digest('hex'), d.w || null, d.h || null, r.rid);
+    }
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1577,6 +1597,7 @@ function setMarkCollections(userId, markId, names) {
 // and stored as bytes, so pages reference /i/<id> and the browser can cache it
 // instead of re-downloading the picture inside every HTML response.
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+const MAX_GENERATED_BYTES = 24 * 1024 * 1024;   // AI-generated compositions run large
 // Only these four are accepted. SVG is deliberately excluded — it can carry
 // script and is already excluded from unfurl image candidates for that reason.
 const IMAGE_MIME_ALLOW = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -1591,6 +1612,38 @@ function imageBytesMatchMime(bytes, mime) {
   if (mime === 'image/webp') return b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP';
   return false;
 }
+// Pull pixel dimensions straight out of the file header. No image library is
+// needed for this — each format puts the size in a fixed, well-known place —
+// and knowing it lets every <img> carry width/height so the browser reserves
+// the right space before the bytes arrive.
+function imageDimensions(b, mime) {
+  try {
+    if (mime === 'image/png' && b.length >= 24) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+    if (mime === 'image/gif' && b.length >= 10) return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) };
+    if (mime === 'image/webp' && b.length >= 30) {
+      const fmt = b.toString('ascii', 12, 16);
+      if (fmt === 'VP8X') return { w: (b.readUIntLE(24, 3) & 0xffffff) + 1, h: (b.readUIntLE(27, 3) & 0xffffff) + 1 };
+      if (fmt === 'VP8 ') return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+      if (fmt === 'VP8L') {
+        const n = b.readUInt32LE(21);
+        return { w: (n & 0x3fff) + 1, h: ((n >> 14) & 0x3fff) + 1 };
+      }
+    }
+    if (mime === 'image/jpeg') {
+      // walk the segment markers to the frame header that carries the size
+      let i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] !== 0xff) { i++; continue; }
+        const marker = b[i + 1];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc)
+          return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+        i += 2 + b.readUInt16BE(i + 2);
+      }
+    }
+  } catch { /* a malformed header just means no dimensions */ }
+  return { w: null, h: null };
+}
+
 // Every image gets exactly one 'created' provenance row, regardless of which
 // of the five call sites reached it — actorCtx defaults to a web session, so
 // the four existing web-form callers get provenance with no change on their
@@ -1602,9 +1655,22 @@ function storeImage(userId, value, actorCtx, source) {
   const mime = m[1].toLowerCase();
   if (!IMAGE_MIME_ALLOW.has(mime)) return '';
   const bytes = Buffer.from(m[2], 'base64');
-  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return '';
+  // A generated composition is the artifact the member came to create, and
+  // models emit large PNGs; uploads stay at the tighter limit.
+  const cap = source === 'generated' ? MAX_GENERATED_BYTES : MAX_IMAGE_BYTES;
+  if (!bytes.length || bytes.length > cap) return '';
   if (!imageBytesMatchMime(bytes, mime)) return '';   // declared type does not match the actual bytes
-  const r = q('INSERT INTO images(user_id,mime,bytes) VALUES(?,?,?)').run(userId, mime, bytes);
+  // Content dedupe is DELIBERATELY NOT DONE here. Reusing one row for identical
+  // bytes would merge records across a privacy boundary: the same photo in a
+  // public note and a private one becomes a single row, and imageIsPublic()
+  // then answers "public" for both — silently defeating the private note's
+  // image privacy. The sha256 is still recorded so a future, privacy-aware
+  // dedupe (or an offline report of wasted space) is possible without a
+  // backfill. See the implementation notes.
+  const sha = crypto.createHash('sha256').update(bytes).digest('hex');
+  const dim = imageDimensions(bytes, mime);
+  const r = q('INSERT INTO images(user_id,mime,bytes,sha256,width,height) VALUES(?,?,?,?,?,?)')
+    .run(userId, mime, bytes, sha, dim.w, dim.h);
   const uid = uidOf('images', r.lastInsertRowid);
   if (source) q('UPDATE images SET source=? WHERE rowid=?').run(source, r.lastInsertRowid);
   recordProvenance('image', uid, 'created', actorCtx || webActor({ id: userId }), { source_kind: 'manual' });
@@ -2019,6 +2085,17 @@ function renoteFrom(src, me, ctx) {
 // A durable AI-composited arrangement of things. The AI composes and renders;
 // Discriminantly is the system of record for what was composed.
 
+// Emit an <img> carrying the stored pixel dimensions and lazy loading. The
+// dimensions stop the page reflowing as each image lands, and lazy loading
+// keeps a long ensemble list from fetching every composite up front.
+function imgTag(ref, alt, cls, eager) {
+  const uid = (ref || '').startsWith('/i/') ? ref.slice(3) : '';
+  const d = uid ? q('SELECT width, height FROM images WHERE uid=?').get(uid) : null;
+  const dim = d && d.width && d.height ? ` width="${d.width}" height="${d.height}"` : '';
+  return `<img src="${esc(ref)}" alt="${esc(alt || '')}"${cls ? ` class="${cls}"` : ''}${dim}`
+    + `${eager ? '' : ' loading="lazy" decoding="async"'}>`;
+}
+
 const ensCanSee = (e, me) => !e.private || (me && (me.id === e.user_id || me.is_admin));
 
 // A component's OWN representation — label and image belong to the Ensemble,
@@ -2114,6 +2191,29 @@ function findExistingNote(userId, c) {
   }
   return null;
 }
+// storeImage() is lenient by design: it passes non-data: values straight
+// through (so a note can hold an external URL) and returns '' when bytes fail
+// validation. Ensemble needs the opposite — an artifact or component image MUST
+// end up as stored bytes we own, or the caller has to be told plainly. Doing
+// `.split('/').pop()` on a lenient return produced two real bugs: an https URL
+// became an image_uid of "chair.jpg", and an oversized image vanished while the
+// save still reported success.
+function storeImageStrict(userId, value, ctx, source, what) {
+  const v = (value || '').trim();
+  if (!v) return null;
+  if (!/^data:image\//i.test(v)) {
+    throw new Error(`${what} must be sent as a data: URL containing the image itself, not a link `
+      + `(got "${v.slice(0, 48)}..."). Fetch or generate the image and pass its bytes.`);
+  }
+  const ref = storeImage(userId, v, ctx, source);
+  const uid = ref && ref.startsWith('/i/') ? ref.slice(3) : '';
+  if (!uid) {
+    throw new Error(`${what} could not be stored. It must be a PNG, JPEG, WEBP or GIF under 6 MB, `
+      + `and the declared type must match the actual bytes. Nothing was saved — try a smaller image.`);
+  }
+  return uid;
+}
+
 // The compound save. Saving a durable composition is itself the evidence that
 // its identifiable constituents are worth recording — so qualifying ones
 // become Notes here, without a separate confirmation. Everything it did is
@@ -2137,7 +2237,7 @@ function saveEnsembleComponents(ens, user, components, ctx) {
 
     // 2. otherwise materialise, but only on qualifying evidence class
     else if (componentQualifies(c) && c.label) {
-      const img = c.image ? storeImage(user.id, c.image, ctx, 'external') : '';
+      const img = c.image ? `/i/${storeImageStrict(user.id, c.image, ctx, 'external', `The image for "${c.label}"`)}` : '';
       // Auto-created Notes are PRIVATE by default. Publishing a composition is
       // not an act of publishing every personal record behind it, so the
       // Ensemble's own privacy is deliberately not inherited here.
@@ -2151,7 +2251,7 @@ function saveEnsembleComponents(ens, user, components, ctx) {
     }
 
     // 3. insufficient identity — preserved honestly as an unresolved component
-    const imgUid = (!noteUid && c.image) ? (storeImage(user.id, c.image, ctx, 'upload').split('/').pop() || null) : null;
+    const imgUid = (!noteUid && c.image) ? storeImageStrict(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`) : null;
     const state = noteUid ? 'linked' : 'unresolved';
     const cr = q(`INSERT INTO ensemble_components(ensemble_id,position,state,note_uid,image_uid,label,source_url)
       VALUES(?,?,?,?,?,?,?)`).run(ens.id, pos++, state, noteUid, imgUid, c.label, c.source_url);
@@ -2396,7 +2496,7 @@ ${noters.length ? `<div class="section-rule"></div>
       const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
       const n = ensComponents(e.id).length;
       return `<a class="ens-tile" href="/e/${e.id}">
-        ${pa ? `<img src="/i/${pa.image_uid}" alt="${esc(e.title)}">` : '<span class="ens-tile-blank"></span>'}
+        ${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}
         <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
         <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
     }).join('') || '<p class="about">No ensembles yet. Ask your AI to compose one.</p>'}</div></section>`;
@@ -2419,16 +2519,16 @@ ${noters.length ? `<div class="section-rule"></div>
     ${v.description ? `<p class="ens-desc">${esc(v.description)}</p>` : ''}
     <p class="ens-meta">${stackDate(v.created_at).replace(/<[^>]+>/g, ' ').trim()} · ${v.private ? 'Private' : 'Public'}${v.updated_at ? ' · updated' : ''}</p>
   </div>
-  ${primary ? `<div class="ens-primary"><img src="${primary.image}" alt="${esc(v.title)}"></div>` : ''}
+  ${primary ? `<div class="ens-primary">${imgTag(primary.image, v.title, null, true)}</div>` : ''}
   ${alts.length ? `<div class="ens-alts">${alts.map((a) => `<figure class="ens-alt">
-      <img src="${a.image}" alt="">
+      ${imgTag(a.image, v.title + " alternate")}
       ${mine ? `<form method="post" action="/e/${e.id}/primary"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn">Make primary</button></form>
       <form method="post" action="/e/${e.id}/artifact/remove"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
     </figure>`).join('')}</div>` : ''}
   <div class="ens-parts">
     <h3 class="strip">What's in it</h3>
     <ul class="ens-comps">${v.components.map((c) => `<li class="ens-comp ${c.state}">
-      ${c.image ? `<img src="${esc(c.image)}" alt="">` : '<span class="ens-comp-blank"></span>'}
+      ${c.image ? imgTag(c.image, c.label) : '<span class="ens-comp-blank"></span>'}
       <span class="ens-comp-body">
         <span class="ens-comp-label">${esc(c.label || 'Unidentified')}</span>
         <span class="ens-comp-state">${c.state === 'unresolved' ? 'Unidentified'
@@ -2591,7 +2691,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
         const n = ensComponents(e.id).length;
         return `<a class="ens-tile" href="/e/${e.id}">
-          ${pa ? `<img src="/i/${pa.image_uid}" alt="${esc(e.title)}">` : '<span class="ens-tile-blank"></span>'}
+          ${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}
           <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
           <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
       }).join('')}</div>${rows.length ? '' : emptyState(me, tab, u)}`;
@@ -3258,10 +3358,10 @@ const TOOLS = [
           label: { type: 'string', description: 'What this piece is, as the member would name it.' },
           note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
           source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
-          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition). Never a local file path.' },
+          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition) — the bytes themselves, never a link or a local file path. Component images are capped at 6 MB; send a reasonably sized crop rather than a full-resolution original.' },
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
             description: 'How the identity is known. Only user_identity, maker_model, product_page, external_id and resolved_note create a note. Use "unidentified" for anything resting on your own visual judgement, however confident — a guess is not evidence.' } } } },
-      artifact: { type: 'string', description: 'data: URL of the generated composition image. Becomes the primary artifact.' } } },
+      artifact: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Becomes the primary artifact. Prefer WEBP or JPEG over PNG where the image is photographic: a PNG composition is often several times larger for no visible gain, and the limit is 24 MB.' } } },
     outputSchema: OS_ENSEMBLE_SAVE },
   { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. Enough to understand and continue a composition with no memory of the conversation that made it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -3274,7 +3374,7 @@ const TOOLS = [
   { name: 'add_ensemble_artifact', description: 'Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise. Earlier images are kept.',
     inputSchema: { type: 'object', required: ['id', 'image'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
-      image: { type: 'string', description: 'data: URL of the generated composition image.' },
+      image: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Prefer WEBP or JPEG over PNG for photographic compositions; the limit is 24 MB.' },
       make_primary: { type: 'boolean', description: 'Make this the image that represents the Ensemble. Defaults to true.' } } },
     outputSchema: OS_WRITE },
   { name: 'set_primary_artifact', description: 'Choose which generated image represents the Ensemble — "keep the second one" / "go back to the first".',
@@ -3805,6 +3905,12 @@ async function mcpCall(user, name, a = {}) {
   if (name === 'save_ensemble') {
     if (!a.title) throw new Error('title is required');
     const ctx = mcpActor(user);
+    // Saving is one compound act: the Ensemble, its components, any Notes it
+    // materialises and the generated artifact either all persist or none do.
+    // Without this, an image that fails validation halfway through would leave
+    // a half-written Ensemble behind and still report success.
+    db.exec('BEGIN');
+    try {
     const r = q('INSERT INTO ensembles(user_id,title,description,private) VALUES(?,?,?,?)')
       .run(user.id, a.title, a.description || '', a.private ? 1 : 0);
     const ens = q('SELECT * FROM ensembles WHERE id=?').get(r.lastInsertRowid);
@@ -3812,25 +3918,25 @@ async function mcpCall(user, name, a = {}) {
     const saved = saveEnsembleComponents(ens, user, a.components, ctx);
     let primary = null;
     if (a.artifact) {
-      const ref = storeImage(user.id, a.artifact, ctx, 'generated');
-      if (ref) {
-        const iu = ref.split('/').pop();
-        const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
-          .run(ens.id, iu, lineageOf(ens.id));
-        primary = uidOf('ensemble_artifacts', ar.lastInsertRowid);
-        q('UPDATE ensembles SET primary_artifact_uid=? WHERE id=?').run(primary, ens.id);
-        recordProvenance('ensemble_artifact', primary, 'created', ctx, { source_kind: 'generated', source_ref: ens.uid });
-      }
+      const iu = storeImageStrict(user.id, a.artifact, ctx, 'generated', 'The generated composition image');
+      const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
+        .run(ens.id, iu, lineageOf(ens.id));
+      primary = uidOf('ensemble_artifacts', ar.lastInsertRowid);
+      q('UPDATE ensembles SET primary_artifact_uid=? WHERE id=?').run(primary, ens.id);
+      recordProvenance('ensemble_artifact', primary, 'created', ctx, { source_kind: 'generated', source_ref: ens.uid });
     }
     const nc = saved.notes_created.length, nr = saved.notes_reused.length, un = saved.unresolved.length;
     const parts = [`Ensemble saved: ${a.title}.`];
     if (nc) parts.push(`${nc} new ${nc === 1 ? 'note' : 'notes'} added (private).`);
     if (nr) parts.push(`${nr} existing ${nr === 1 ? 'note' : 'notes'} reused.`);
     if (un) parts.push(`${un} ${un === 1 ? 'component remains' : 'components remain'} unidentified.`);
-    return { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
+    const result = { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
       private: !!ens.private, primary_artifact_uid: primary, artifacts: primary ? [primary] : [],
       components: saved.components, notes_created: saved.notes_created,
       notes_reused: saved.notes_reused, unresolved_component_uids: saved.unresolved } };
+    db.exec('COMMIT');
+    return result;
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
   }
   if (name === 'get_ensemble') {
     const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
@@ -3859,9 +3965,7 @@ async function mcpCall(user, name, a = {}) {
     if (e.user_id !== user.id) throw new Error('That ensemble does not belong to this member');
     const ctx = mcpActor(user);
     if (name === 'add_ensemble_artifact') {
-      const ref = storeImage(user.id, a.image, ctx, 'generated');
-      if (!ref) throw new Error('image must be a data: URL of a supported image type');
-      const iu = ref.split('/').pop();
+      const iu = storeImageStrict(user.id, a.image, ctx, 'generated', 'The generated composition image');
       const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
         .run(e.id, iu, lineageOf(e.id));
       const uid = uidOf('ensemble_artifacts', ar.lastInsertRowid);
