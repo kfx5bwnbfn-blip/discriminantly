@@ -479,6 +479,101 @@ const MIGRATIONS = [
     if (adoptions.length) console.log(`  materialised ${adoptions.length} adopted note(s)`);
   }],
 
+  // ---- v1.18: image access repair (prerequisite for Ensemble) -------------
+  // Stored refs move from /i/<sequential integer> to /i/<uid>. The integer
+  // form was guessable AND unauthenticated, so a private note's bytes could be
+  // fetched by counting upwards; it is also database-local, which made exports
+  // meaningless elsewhere. The route still resolves the old form, but now
+  // behind the same visibility check, so nothing already linked breaks.
+  ['026-image-uid-refs', () => {
+    if (!hasColumn('images', 'source')) db.exec("ALTER TABLE images ADD COLUMN source TEXT DEFAULT 'upload'");
+    for (const t of ['objects', 'marks']) {
+      const rows = db.prepare(`SELECT id, image FROM ${t} WHERE image LIKE '/i/%'`).all();
+      for (const r of rows) {
+        const m = /^\/i\/(\d+)$/.exec(r.image);
+        if (!m) continue;                                  // already a uid, or an external URL
+        const img = db.prepare('SELECT uid FROM images WHERE id=?').get(+m[1]);
+        if (!img || !img.uid) continue;                    // dangling ref: leave it exactly as it is
+        db.prepare(`UPDATE ${t} SET image=? WHERE id=?`).run(`/i/${img.uid}`, r.id);
+      }
+    }
+  }],
+
+  // ---- v1.18: Ensemble ----------------------------------------------------
+  // A durable AI-composited arrangement of things. First-class and user-owned,
+  // like a Note or a Mark.
+  ['027-ensembles', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS ensembles (
+      id                   INTEGER PRIMARY KEY,
+      uid                  TEXT,
+      user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title                TEXT NOT NULL DEFAULT '',
+      description          TEXT NOT NULL DEFAULT '',
+      private              INTEGER NOT NULL DEFAULT 0,
+      primary_artifact_uid TEXT,
+      created_at           TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at           TEXT)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ensembles_uid AFTER INSERT ON ensembles
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE ensembles SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_ensembles_uid ON ensembles(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ensembles_owner ON ensembles(user_id, id)');
+  }],
+
+  // A component keeps its uid for life. Resolution changes what we know about
+  // the constituent (state, note_uid), never which constituent participated —
+  // so there is deliberately no replacement-row column here. label/image_uid
+  // are the Ensemble's OWN representation, which is what lets a public
+  // Ensemble describe a constituent whose Note is private.
+  ['028-ensemble-components', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS ensemble_components (
+      id          INTEGER PRIMARY KEY,
+      uid         TEXT,
+      ensemble_id INTEGER NOT NULL REFERENCES ensembles(id) ON DELETE CASCADE,
+      position    INTEGER NOT NULL DEFAULT 0,
+      state       TEXT NOT NULL DEFAULT 'unresolved',   -- unresolved | linked
+      note_uid    TEXT,          -- non-FK on purpose: survives Note deletion as history
+      image_uid   TEXT,
+      label       TEXT NOT NULL DEFAULT '',
+      source_url  TEXT,
+      created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at  TEXT)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ens_comp_uid AFTER INSERT ON ensemble_components
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE ensemble_components SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_ens_comp_uid ON ensemble_components(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ens_comp_ens ON ensemble_components(ensemble_id, position, id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ens_comp_note ON ensemble_components(note_uid)');
+  }],
+
+  // An artifact is an immutable rendering. Its lineage snapshot records what
+  // participated AT GENERATION TIME and is never rewritten afterwards, which
+  // is what keeps an old rendering truthful once components resolve or Notes
+  // are edited.
+  ['029-ensemble-artifacts', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS ensemble_artifacts (
+      id          INTEGER PRIMARY KEY,
+      uid         TEXT,
+      ensemble_id INTEGER NOT NULL REFERENCES ensembles(id) ON DELETE CASCADE,
+      image_uid   TEXT NOT NULL,
+      lineage     TEXT NOT NULL DEFAULT '[]',
+      created_at  TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_ens_art_uid AFTER INSERT ON ensemble_artifacts
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE ensemble_artifacts SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_ens_art_uid ON ensemble_artifacts(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ens_art_ens ON ensemble_artifacts(ensemble_id, id)');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -550,6 +645,25 @@ const isFollowing = (a, b) => !!q('SELECT 1 FROM follows WHERE follower_id=? AND
 const objCollections = (noteId) => q(`SELECT c.id, c.name FROM note_collections nc
   JOIN collections c ON c.id=nc.collection_id WHERE nc.note_id=? ORDER BY c.name`).all(noteId);
 const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || me.is_admin));
+// An image is public only while some public record actually shows it. Nothing
+// else makes bytes public: an orphan upload, or one used solely by private
+// records, stays owner-only. Both reference forms are checked because rows
+// written before the uid migration may still carry /i/<integer>.
+function imageIsPublic(img) {
+  const a = `/i/${img.uid}`, b = `/i/${img.id}`;
+  if (q('SELECT 1 FROM objects WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
+  if (q('SELECT 1 FROM marks WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
+  if (hasTable('ensemble_artifacts')
+    && q(`SELECT 1 FROM ensemble_artifacts f JOIN ensembles e ON e.id=f.ensemble_id
+          WHERE e.private=0 AND f.image_uid=?`).get(img.uid)) return true;
+  if (hasTable('ensemble_components')
+    && q(`SELECT 1 FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id
+          WHERE e.private=0 AND c.image_uid=?`).get(img.uid)) return true;
+  return false;
+}
+const imageVisibleTo = (img, me) =>
+  (me && (me.id === img.user_id || me.is_admin)) ? true : imageIsPublic(img);
+const hasTable = (t) => !!q("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
 const tagList = (t) => String(t || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 
 const CATEGORIES_UNUSED = ['Table', 'Kitchen', 'Wardrobe', 'Study', 'Workshop', 'Outdoors', 'Travel', 'Home', 'Timepieces & jewellery', 'Other'];
@@ -1478,7 +1592,7 @@ function imageBytesMatchMime(bytes, mime) {
 // of the five call sites reached it — actorCtx defaults to a web session, so
 // the four existing web-form callers get provenance with no change on their
 // part; the MCP upload tool passes mcpActor(user) explicitly.
-function storeImage(userId, value, actorCtx) {
+function storeImage(userId, value, actorCtx, source) {
   const v = (value || '').trim();
   const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(v);
   if (!m) return v;                                  // not a data: URL — an external link passes through unchanged
@@ -1489,8 +1603,11 @@ function storeImage(userId, value, actorCtx) {
   if (!imageBytesMatchMime(bytes, mime)) return '';   // declared type does not match the actual bytes
   const r = q('INSERT INTO images(user_id,mime,bytes) VALUES(?,?,?)').run(userId, mime, bytes);
   const uid = uidOf('images', r.lastInsertRowid);
+  if (source) q('UPDATE images SET source=? WHERE rowid=?').run(source, r.lastInsertRowid);
   recordProvenance('image', uid, 'created', actorCtx || webActor({ id: userId }), { source_kind: 'manual' });
-  return `/i/${r.lastInsertRowid}`;
+  // Reference by uid, never by the sequential integer: the integer is
+  // guessable and is meaningless outside this database.
+  return `/i/${uid}`;
 }
 
 // Feeds render a page at a time. The link works without JavaScript; with it,
@@ -1893,6 +2010,155 @@ function renoteFrom(src, me, ctx) {
   recordProvenance('object', note.uid, 'renoted', ctx, { source_kind: 'renote', source_ref: src.uid });
   return note;
 }
+// ---------- Ensemble (v1.18) ----------
+// A durable AI-composited arrangement of things. The AI composes and renders;
+// Discriminantly is the system of record for what was composed.
+
+const ensCanSee = (e, me) => !e.private || (me && (me.id === e.user_id || me.is_admin));
+
+// A component's OWN representation — label and image belong to the Ensemble,
+// not to the linked Note. That is what lets a public Ensemble describe a
+// constituent whose Note is private without touching the private record.
+function ensComponents(ensembleId) {
+  return q('SELECT * FROM ensemble_components WHERE ensemble_id=? ORDER BY position, id').all(ensembleId);
+}
+function ensArtifacts(ensembleId) {
+  return q('SELECT * FROM ensemble_artifacts WHERE ensemble_id=? ORDER BY id').all(ensembleId);
+}
+// Did this Note come into existence through this Ensemble? Read from
+// provenance, never from a Note subtype — origin is history, not ontology.
+function noteOriginFor(noteUid, ensembleUid) {
+  if (!noteUid) return null;
+  const r = q(`SELECT 1 FROM provenance WHERE entity_type='object' AND entity_uid=?
+    AND action='created' AND source_kind='ensemble' AND source_ref=?`).get(noteUid, ensembleUid);
+  return r ? 'created_by_ensemble' : 'pre_existing';
+}
+// Summarised resolution history for one component, from component-targeted
+// provenance. Current state lives on the row; this is the audit trail.
+function componentHistory(componentUid) {
+  return q(`SELECT action, assertion, actor_type, source_kind, source_ref, fields, created_at
+    FROM provenance WHERE entity_type='ensemble_component' AND entity_uid=? ORDER BY id`).all(componentUid)
+    .map((r) => ({ action: r.action, basis: r.source_kind || null, note_uid: r.source_ref || null,
+      actor: r.actor_type, assertion: r.assertion, superseded: r.fields || null, at: r.created_at }));
+}
+
+// Component view, privacy-aware. A viewer who cannot see the linked Note gets
+// the Ensemble's own representation and NO trace of the private record —
+// no uid, no link, no metadata. Enforced here, not in a template.
+function componentView(c, ens, me) {
+  const note = c.note_uid ? q('SELECT * FROM objects WHERE uid=?').get(c.note_uid) : null;
+  const noteVisible = note && canSee(note, me);
+  return {
+    component_uid: c.uid,
+    position: c.position,
+    state: c.state,
+    label: c.label || (noteVisible ? note.name : ''),
+    image: c.image_uid ? `/i/${c.image_uid}` : (noteVisible ? note.image : '') || '',
+    source_url: c.source_url || '',
+    note_uid: noteVisible ? c.note_uid : null,
+    note_id: noteVisible ? note.id : null,
+    note_origin: noteVisible ? noteOriginFor(c.note_uid, ens.uid) : null,
+    note_available: !!noteVisible,
+    history: componentHistory(c.uid),
+  };
+}
+
+function ensembleView(e, me) {
+  const arts = ensArtifacts(e.id).map((a) => ({
+    artifact_uid: a.uid, image: `/i/${a.image_uid}`,
+    is_primary: a.uid === e.primary_artifact_uid,
+    lineage: JSON.parse(a.lineage || '[]'), created_at: a.created_at }));
+  return {
+    type: 'ensemble', uid: e.uid, id: e.id, title: e.title, description: e.description,
+    private: !!e.private, created_at: e.created_at, updated_at: e.updated_at || null,
+    primary_artifact_uid: e.primary_artifact_uid || null,
+    artifacts: arts,
+    components: ensComponents(e.id).map((c) => componentView(c, e, me)),
+    provenance: provenanceOf('ensemble', e.uid),
+  };
+}
+
+// The lineage snapshot: what participated AT GENERATION TIME. Written once,
+// never rewritten — an artifact made while a chair was unidentified must still
+// say so after the chair is identified.
+const lineageOf = (ensembleId) => JSON.stringify(ensComponents(ensembleId).map((c) => ({
+  component_uid: c.uid, state_at_generation: c.state,
+  note_uid_at_generation: c.note_uid || null, label_at_generation: c.label || '',
+  image_uid_at_generation: c.image_uid || null, position_at_generation: c.position })));
+
+// Identity threshold for materialising a Note, judged by EVIDENCE CLASS and
+// never by confidence. A 99%-certain visual guess is still inference and does
+// not qualify; a maker/model the member supplied does.
+const QUALIFYING_BASIS = new Set(['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note']);
+const componentQualifies = (c) => QUALIFYING_BASIS.has(c.identity_basis || '');
+
+// Reuse before creation, canonical evidence only. derived_relations is never
+// consulted here: an inference must not silently become a canonical link.
+function findExistingNote(userId, c) {
+  if (c.note_uid) {
+    const n = q('SELECT * FROM objects WHERE uid=? AND user_id=?').get(c.note_uid, userId);
+    if (n) return n;
+  }
+  if (c.source_url) {
+    const n = q('SELECT * FROM objects WHERE user_id=? AND url=? AND url<>\'\' ORDER BY id LIMIT 1').get(userId, c.source_url);
+    if (n) return n;
+  }
+  if (c.label) {
+    const n = q('SELECT * FROM objects WHERE user_id=? AND lower(name)=lower(?) ORDER BY id LIMIT 1').get(userId, c.label);
+    if (n) return n;
+  }
+  return null;
+}
+// The compound save. Saving a durable composition is itself the evidence that
+// its identifiable constituents are worth recording — so qualifying ones
+// become Notes here, without a separate confirmation. Everything it did is
+// reported back so the AI can say truthfully what happened.
+function saveEnsembleComponents(ens, user, components, ctx) {
+  const out = { components: [], notes_created: [], notes_reused: [], unresolved: [] };
+  let pos = 0;
+  for (const raw of (components || [])) {
+    const c = {
+      label: (raw.label || '').trim(),
+      source_url: (raw.source_url || '').trim(),
+      note_uid: (raw.note_uid || '').trim() || null,
+      identity_basis: raw.identity_basis || '',
+      image: raw.image || '',
+    };
+    let noteUid = null, origin = null;
+
+    // 1. an existing Note the member already has — reuse, never duplicate
+    const existing = findExistingNote(user.id, c);
+    if (existing) { noteUid = existing.uid; origin = 'pre_existing'; out.notes_reused.push(existing.uid); }
+
+    // 2. otherwise materialise, but only on qualifying evidence class
+    else if (componentQualifies(c) && c.label) {
+      const img = c.image ? storeImage(user.id, c.image, ctx, 'external') : '';
+      // Auto-created Notes are PRIVATE by default. Publishing a composition is
+      // not an act of publishing every personal record behind it, so the
+      // Ensemble's own privacy is deliberately not inherited here.
+      const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private)
+        VALUES(?,?,'','',?,?,1)`).run(user.id, c.label, c.source_url, img);
+      noteUid = uidOf('objects', r.lastInsertRowid);
+      recordProvenance('object', noteUid, 'created', ctx,
+        { source_kind: 'ensemble', source_ref: ens.uid, fields: c.identity_basis });
+      out.notes_created.push(noteUid);
+      origin = 'created_by_ensemble';
+    }
+
+    // 3. insufficient identity — preserved honestly as an unresolved component
+    const imgUid = (!noteUid && c.image) ? (storeImage(user.id, c.image, ctx, 'upload').split('/').pop() || null) : null;
+    const state = noteUid ? 'linked' : 'unresolved';
+    const cr = q(`INSERT INTO ensemble_components(ensemble_id,position,state,note_uid,image_uid,label,source_url)
+      VALUES(?,?,?,?,?,?,?)`).run(ens.id, pos++, state, noteUid, imgUid, c.label, c.source_url);
+    const cuid = uidOf('ensemble_components', cr.lastInsertRowid);
+    recordProvenance('ensemble_component', cuid, 'created', ctx,
+      { source_kind: state === 'linked' ? (c.identity_basis || 'user_identity') : 'unidentified',
+        source_ref: noteUid || null });
+    out.components.push({ component_uid: cuid, state, note_uid: noteUid, note_origin: origin, label: c.label });
+    if (state === 'unresolved') out.unresolved.push(cuid);
+  }
+  return out;
+}
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
@@ -2115,6 +2381,75 @@ ${noters.length ? `<div class="section-rule"></div>
 </section></div>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>`;
     send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
+  },
+
+  ensembles(req, res, me) {
+    if (!me) return need();
+    const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(me.id);
+    const body = `<section class="feed"><h3 class="strip">Your ensembles</h3>
+    <div class="ens-grid">${rows.map((e) => {
+      const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
+      const n = ensComponents(e.id).length;
+      return `<a class="ens-tile" href="/e/${e.id}">
+        ${pa ? `<img src="/i/${pa.image_uid}" alt="${esc(e.title)}">` : '<span class="ens-tile-blank"></span>'}
+        <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
+        <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
+    }).join('') || '<p class="about">No ensembles yet. Ask your AI to compose one.</p>'}</div></section>`;
+    send(res, layout({ title: 'Ensembles', body, me, nav: 'home' }));
+  },
+
+  // The worksurface. Everything an AI did must be legible here: what exists,
+  // what it is made of, which pieces are still unidentified, and which of them
+  // entered the member's notes along the way.
+  ensemble(req, res, me, url, id) {
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(id);
+    if (!e || !ensCanSee(e, me)) return send(res, layout({ title: 'Not found', body: '<p>No such ensemble.</p>', me }), 404);
+    const mine = me && me.id === e.user_id;
+    const v = ensembleView(e, me);
+    const primary = v.artifacts.find((a) => a.is_primary) || v.artifacts[0];
+    const alts = v.artifacts.filter((a) => !primary || a.artifact_uid !== primary.artifact_uid);
+    const body = `<section class="ens">
+  <div class="ens-head">
+    <h1 class="ens-title">${esc(v.title)}</h1>
+    ${v.description ? `<p class="ens-desc">${esc(v.description)}</p>` : ''}
+    <p class="ens-meta">${stackDate(v.created_at).replace(/<[^>]+>/g, ' ').trim()} · ${v.private ? 'Private' : 'Public'}${v.updated_at ? ' · updated' : ''}</p>
+  </div>
+  ${primary ? `<div class="ens-primary"><img src="${primary.image}" alt="${esc(v.title)}"></div>` : ''}
+  ${alts.length ? `<div class="ens-alts">${alts.map((a) => `<figure class="ens-alt">
+      <img src="${a.image}" alt="">
+      ${mine ? `<form method="post" action="/e/${e.id}/primary"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn">Make primary</button></form>
+      <form method="post" action="/e/${e.id}/artifact/remove"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
+    </figure>`).join('')}</div>` : ''}
+  <div class="ens-parts">
+    <h3 class="strip">What's in it</h3>
+    <ul class="ens-comps">${v.components.map((c) => `<li class="ens-comp ${c.state}">
+      ${c.image ? `<img src="${esc(c.image)}" alt="">` : '<span class="ens-comp-blank"></span>'}
+      <span class="ens-comp-body">
+        <span class="ens-comp-label">${esc(c.label || 'Unidentified')}</span>
+        <span class="ens-comp-state">${c.state === 'unresolved' ? 'Unidentified'
+          : c.note_available
+            ? `<a href="/o/${c.note_id}">${c.note_origin === 'created_by_ensemble' ? 'Added to Notes' : 'Existing Note'}</a>`
+            : 'In this composition'}</span>
+      </span>
+      ${mine ? `<form method="post" action="/e/${e.id}/component/remove"><input type="hidden" name="component_uid" value="${c.component_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
+    </li>`).join('') || '<li class="ens-comp"><span class="ens-comp-body">No components.</span></li>'}</ul>
+  </div>
+  ${mine ? `<form class="nf ens-edit" method="post" action="/e/${e.id}/edit">
+    <div class="nf-box">
+      <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${e.private ? 'checked' : ''}><span></span></label></div>
+      <div class="nf-stack">
+        <input class="nf-field" name="title" value="${esc(v.title)}" placeholder="TITLE" required>
+        <textarea class="nf-field" name="description" rows="3" placeholder="DESCRIPTION">${esc(v.description)}</textarea>
+      </div>
+      <button class="nf-post">Save ensemble</button>
+      <div class="nf-foot">
+        <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}">Delete</button>
+        <a class="nf-link-btn" href="/e">Back</a>
+      </div>
+    </div>
+  </form>` : ''}
+</section>`;
+    send(res, layout({ title: v.title, body, me, nav: 'home' }));
   },
 
   mark(req, res, me, url, id) {
@@ -2731,6 +3066,63 @@ const OS_PROVENANCE = { type: ['object', 'null'], additionalProperties: false,
 // Every mutating tool returns this same shape, so a caller can chain on the
 // result (take `id`, feed it to the next call) instead of parsing prose.
 // `action` names the semantic act, matching the provenance vocabulary.
+const OS_LINEAGE = { type: 'array', items: { type: 'object', additionalProperties: false,
+  required: ['component_uid', 'state_at_generation', 'note_uid_at_generation', 'label_at_generation', 'image_uid_at_generation', 'position_at_generation'],
+  properties: { component_uid: { type: 'string' },
+    state_at_generation: { type: 'string', enum: ['unresolved', 'linked'] },
+    note_uid_at_generation: { type: ['string', 'null'] }, label_at_generation: { type: 'string' },
+    image_uid_at_generation: { type: ['string', 'null'] }, position_at_generation: { type: 'integer' } } } };
+const OS_ARTIFACT = { type: 'object', additionalProperties: false,
+  required: ['artifact_uid', 'image', 'is_primary', 'lineage', 'created_at'],
+  properties: { artifact_uid: { type: 'string' }, image: { type: 'string' },
+    is_primary: { type: 'boolean' }, lineage: OS_LINEAGE, created_at: { type: 'string' } } };
+// note_uid is null and note_available false when the viewer may not see the
+// linked Note — the private record is absent from the response, not masked.
+const OS_COMPONENT = { type: 'object', additionalProperties: false,
+  required: ['component_uid', 'position', 'state', 'label', 'image', 'source_url', 'note_uid', 'note_id', 'note_origin', 'note_available', 'history'],
+  properties: { component_uid: { type: 'string' }, position: { type: 'integer' },
+    state: { type: 'string', enum: ['unresolved', 'linked'] },
+    label: { type: 'string' }, image: { type: 'string' }, source_url: { type: 'string' },
+    note_uid: { type: ['string', 'null'] }, note_id: { type: ['integer', 'null'] },
+    note_origin: { type: ['string', 'null'], enum: ['pre_existing', 'created_by_ensemble', null] },
+    note_available: { type: 'boolean' },
+    history: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['action', 'basis', 'note_uid', 'actor', 'assertion', 'superseded', 'at'],
+      properties: { action: { type: 'string' }, basis: { type: ['string', 'null'] },
+        note_uid: { type: ['string', 'null'] }, actor: { type: 'string' },
+        assertion: { type: 'string' }, superseded: { type: ['string', 'null'] }, at: { type: 'string' } } } } } };
+const OS_ENSEMBLE = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'title', 'description', 'private', 'created_at', 'updated_at', 'primary_artifact_uid', 'artifacts', 'components', 'provenance'],
+  properties: { type: { const: 'ensemble' }, uid: { type: 'string' }, id: { type: 'integer' },
+    title: { type: 'string' }, description: { type: 'string' }, private: { type: 'boolean' },
+    created_at: { type: 'string' }, updated_at: { type: ['string', 'null'] },
+    primary_artifact_uid: { type: ['string', 'null'] },
+    artifacts: { type: 'array', items: OS_ARTIFACT },
+    components: { type: 'array', items: OS_COMPONENT }, provenance: OS_PROVENANCE } };
+const OS_ENSEMBLE_BRIEF = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'title', 'private', 'primary_image', 'component_count', 'unresolved_count', 'created_at'],
+  properties: { type: { const: 'ensemble' }, uid: { type: 'string' }, id: { type: 'integer' },
+    title: { type: 'string' }, private: { type: 'boolean' }, primary_image: { type: ['string', 'null'] },
+    component_count: { type: 'integer' }, unresolved_count: { type: 'integer' }, created_at: { type: 'string' } } };
+// The compound result: everything the save actually did, so the model can
+// report it without stitching together further calls.
+const OS_ENSEMBLE_SAVE = { type: 'object', additionalProperties: false,
+  required: ['ok', 'ensemble_uid', 'ensemble_id', 'private', 'primary_artifact_uid', 'artifacts', 'components', 'notes_created', 'notes_reused', 'unresolved_component_uids'],
+  properties: { ok: { type: 'boolean' }, ensemble_uid: { type: 'string' }, ensemble_id: { type: 'integer' },
+    private: { type: 'boolean' }, primary_artifact_uid: { type: ['string', 'null'] },
+    artifacts: { type: 'array', items: { type: 'string' } },
+    components: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['component_uid', 'state', 'note_uid', 'note_origin', 'label'],
+      properties: { component_uid: { type: 'string' }, state: { type: 'string' },
+        note_uid: { type: ['string', 'null'] }, note_origin: { type: ['string', 'null'] }, label: { type: 'string' } } } },
+    notes_created: { type: 'array', items: { type: 'string' } },
+    notes_reused: { type: 'array', items: { type: 'string' } },
+    unresolved_component_uids: { type: 'array', items: { type: 'string' } } } };
+const OS_UNRESOLVED = { type: 'object', additionalProperties: false,
+  required: ['component_uid', 'ensemble_uid', 'ensemble_id', 'ensemble_title', 'label', 'image'],
+  properties: { component_uid: { type: 'string' }, ensemble_uid: { type: 'string' },
+    ensemble_id: { type: 'integer' }, ensemble_title: { type: 'string' },
+    label: { type: 'string' }, image: { type: 'string' } } };
 const wr = (text, action, subject, id, uid, name, detail) => ({ text, structured: { ok: true, action, subject, id: id ?? null, uid: uid ?? null, name: name || '', ...(detail ? { detail } : {}) } });
 const OS_WRITE = { type: 'object', additionalProperties: false,
   required: ['ok', 'action', 'subject', 'id', 'uid', 'name'],
@@ -2837,6 +3229,83 @@ const TOOLS = [
       image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
+    outputSchema: OS_WRITE },
+  { name: 'save_ensemble', description: 'Save a composition the member wants to keep — an Ensemble: a set of things arranged together, with the generated image(s) of that arrangement. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
+    inputSchema: { type: 'object', required: ['title', 'components'], properties: {
+      title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
+      description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
+      private: { type: 'boolean', description: 'Keep the whole Ensemble to the member. Defaults to false.' },
+      components: { type: 'array', description: 'Every constituent kept in the saved composition, in display order.',
+        items: { type: 'object', required: ['label'], properties: {
+          label: { type: 'string', description: 'What this piece is, as the member would name it.' },
+          note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
+          source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
+          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition). Never a local file path.' },
+          identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
+            description: 'How the identity is known. Only user_identity, maker_model, product_page, external_id and resolved_note create a note. Use "unidentified" for anything resting on your own visual judgement, however confident — a guess is not evidence.' } } } },
+      artifact: { type: 'string', description: 'data: URL of the generated composition image. Becomes the primary artifact.' } } },
+    outputSchema: OS_ENSEMBLE_SAVE },
+  { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. Enough to understand and continue a composition with no memory of the conversation that made it.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id, from list_ensembles." } } },
+    outputSchema: OS_ENSEMBLE },
+  { name: 'list_ensembles', description: "List the member's saved compositions, newest first.",
+    inputSchema: { type: 'object', properties: {
+      limit: { type: 'integer', description: 'How many to return. Defaults to 20.' } } },
+    outputSchema: OS_ITEMS(OS_ENSEMBLE_BRIEF) },
+  { name: 'add_ensemble_artifact', description: 'Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise. Earlier images are kept.',
+    inputSchema: { type: 'object', required: ['id', 'image'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." },
+      image: { type: 'string', description: 'data: URL of the generated composition image.' },
+      make_primary: { type: 'boolean', description: 'Make this the image that represents the Ensemble. Defaults to true.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'set_primary_artifact', description: 'Choose which generated image represents the Ensemble — "keep the second one" / "go back to the first".',
+    inputSchema: { type: 'object', required: ['id', 'artifact_uid'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." },
+      artifact_uid: { type: 'string', description: 'uid of the artifact, from get_ensemble.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'remove_ensemble_artifact', description: 'Remove a generated image from an Ensemble. If it was the primary, the newest remaining image takes over. The stored image itself is not destroyed.',
+    inputSchema: { type: 'object', required: ['id', 'artifact_uid'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." },
+      artifact_uid: { type: 'string', description: 'uid of the artifact to remove.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'add_ensemble_component', description: 'Add a constituent to a saved Ensemble. Same rules as save_ensemble: a clearly identified piece is also added to the member\'s notes; an uncertain one stays unidentified.',
+    inputSchema: { type: 'object', required: ['id', 'label'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." },
+      label: { type: 'string', description: 'What this piece is, as the member would name it.' },
+      note_uid: { type: 'string', description: "uid of one of the member's existing notes, if this piece is already in their catalogue." },
+      source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
+      image: { type: 'string', description: 'data: URL of the piece\'s own image.' },
+      identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
+        description: 'How the identity is known. Only the canonical values create a note; use "unidentified" for anything resting on your own visual judgement.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'remove_ensemble_component', description: 'Take a constituent out of an Ensemble. This does not delete any note it was linked to.',
+    inputSchema: { type: 'object', required: ['component_uid'], properties: {
+      component_uid: { type: 'string', description: 'From get_ensemble.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'resolve_ensemble_component', description: 'Say what an unidentified constituent actually is — "that chair is a Finn Juhl Chieftain". Links it to an existing note or creates one, keeping the SAME component: the piece did not change, only what is known about it. Use again to correct a wrong identification; the earlier one stays in the record rather than being erased. Only call this when the member has told you the identity or confirmed yours — your own guess is not enough.',
+    inputSchema: { type: 'object', required: ['component_uid'], properties: {
+      component_uid: { type: 'string', description: 'From get_ensemble or list_unresolved_components.' },
+      note_uid: { type: 'string', description: "uid of the member's existing note for this thing, if it exists." },
+      label: { type: 'string', description: 'What it is, when creating a note for it.' },
+      source_url: { type: 'string', description: 'Product page confirming the identity, if there is one.' },
+      identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id'],
+        description: 'How the identity was established. All four are canonical; a visual guess is not among them.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'list_unresolved_components', description: "List constituents across the member's Ensembles that are still unidentified — answers \"which pieces haven't been identified yet?\". Canonical state only; no guesses.",
+    inputSchema: { type: 'object', properties: {
+      id: { type: 'integer', description: 'Limit to one Ensemble by id. Omit for all.' } } },
+    outputSchema: OS_ITEMS(OS_UNRESOLVED) },
+  { name: 'edit_ensemble', description: "Change an Ensemble's title, description or privacy.",
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." },
+      title: { type: 'string', description: 'Replaces the title.' },
+      description: { type: 'string', description: 'Replaces the description of the arrangement.' },
+      private: { type: 'boolean', description: 'True hides the whole Ensemble from everyone but the member.' } } },
+    outputSchema: OS_WRITE },
+  { name: 'delete_ensemble', description: 'Permanently delete an Ensemble, its components and its generated images. Notes linked to it are NOT deleted — they are the member\'s own records.',
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id." } } },
     outputSchema: OS_WRITE },
   { name: 're_note', description: 'Adopt another member\'s note into this member\'s own catalogue — they saw it and want to record that thing themselves. This creates a NEW independent note owned by this member, copying the current description and image, with lineage back to the source. The source member can never afterwards change or remove it. Adopting the same note more than once is allowed and creates another independent note each time — if the member asks to do it again, just do it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -3315,6 +3784,166 @@ async function mcpCall(user, name, a = {}) {
     return wr(`Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`,
       'revoked', 'warrant', row.id, row.uid, row.name);
   }
+  if (name === 'save_ensemble') {
+    if (!a.title) throw new Error('title is required');
+    const ctx = mcpActor(user);
+    const r = q('INSERT INTO ensembles(user_id,title,description,private) VALUES(?,?,?,?)')
+      .run(user.id, a.title, a.description || '', a.private ? 1 : 0);
+    const ens = q('SELECT * FROM ensembles WHERE id=?').get(r.lastInsertRowid);
+    recordProvenance('ensemble', ens.uid, 'created', ctx, { source_kind: 'manual' });
+    const saved = saveEnsembleComponents(ens, user, a.components, ctx);
+    let primary = null;
+    if (a.artifact) {
+      const ref = storeImage(user.id, a.artifact, ctx, 'generated');
+      if (ref) {
+        const iu = ref.split('/').pop();
+        const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
+          .run(ens.id, iu, lineageOf(ens.id));
+        primary = uidOf('ensemble_artifacts', ar.lastInsertRowid);
+        q('UPDATE ensembles SET primary_artifact_uid=? WHERE id=?').run(primary, ens.id);
+        recordProvenance('ensemble_artifact', primary, 'created', ctx, { source_kind: 'generated', source_ref: ens.uid });
+      }
+    }
+    const nc = saved.notes_created.length, nr = saved.notes_reused.length, un = saved.unresolved.length;
+    const parts = [`Ensemble saved: ${a.title}.`];
+    if (nc) parts.push(`${nc} new ${nc === 1 ? 'note' : 'notes'} added (private).`);
+    if (nr) parts.push(`${nr} existing ${nr === 1 ? 'note' : 'notes'} reused.`);
+    if (un) parts.push(`${un} ${un === 1 ? 'component remains' : 'components remain'} unidentified.`);
+    return { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
+      private: !!ens.private, primary_artifact_uid: primary, artifacts: primary ? [primary] : [],
+      components: saved.components, notes_created: saved.notes_created,
+      notes_reused: saved.notes_reused, unresolved_component_uids: saved.unresolved } };
+  }
+  if (name === 'get_ensemble') {
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
+    if (!e || !ensCanSee(e, user)) throw new Error(`No ensemble #${a.id}`);
+    const v = ensembleView(e, user);
+    const lines = [`${v.title}${v.private ? ' (private)' : ''} — ${v.components.length} components, ${v.artifacts.length} generated image(s)`];
+    if (v.description) lines.push(v.description);
+    v.components.forEach((c) => lines.push(`  ${c.state === 'linked' ? '·' : '?'} ${c.label || '(unlabelled)'}${c.state === 'unresolved' ? ' — unidentified' : ''}`));
+    return { text: lines.join('\n'), structured: v };
+  }
+  if (name === 'list_ensembles') {
+    const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC LIMIT ?')
+      .all(user.id, Math.min(+a.limit || 20, 50));
+    return { text: rows.map((e) => `#${e.id} ${e.title}${e.private ? ' (private)' : ''}`).join('\n') || 'No ensembles yet.',
+      structured: { items: rows.map((e) => {
+        const cs = ensComponents(e.id);
+        const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
+        return { type: 'ensemble', uid: e.uid, id: e.id, title: e.title, private: !!e.private,
+          primary_image: pa ? `/i/${pa.image_uid}` : null, component_count: cs.length,
+          unresolved_count: cs.filter((c) => c.state === 'unresolved').length, created_at: e.created_at }; }) } };
+  }
+  if (name === 'add_ensemble_artifact' || name === 'set_primary_artifact' || name === 'remove_ensemble_artifact'
+      || name === 'add_ensemble_component' || name === 'edit_ensemble' || name === 'delete_ensemble') {
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
+    if (!e) throw new Error(`No ensemble #${a.id}`);
+    if (e.user_id !== user.id) throw new Error('That ensemble does not belong to this member');
+    const ctx = mcpActor(user);
+    if (name === 'add_ensemble_artifact') {
+      const ref = storeImage(user.id, a.image, ctx, 'generated');
+      if (!ref) throw new Error('image must be a data: URL of a supported image type');
+      const iu = ref.split('/').pop();
+      const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
+        .run(e.id, iu, lineageOf(e.id));
+      const uid = uidOf('ensemble_artifacts', ar.lastInsertRowid);
+      recordProvenance('ensemble_artifact', uid, 'created', ctx, { source_kind: 'generated', source_ref: e.uid });
+      if (a.make_primary !== false) {
+        q('UPDATE ensembles SET primary_artifact_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(uid, e.id);
+        recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'primary_artifact_uid' });
+      }
+      return wr(`Added a generated image to ${e.title}.`, 'created', 'ensemble_artifact', e.id, uid, e.title);
+    }
+    if (name === 'set_primary_artifact') {
+      const art = q('SELECT * FROM ensemble_artifacts WHERE uid=? AND ensemble_id=?').get(a.artifact_uid, e.id);
+      if (!art) throw new Error('No such artifact on this ensemble');
+      q('UPDATE ensembles SET primary_artifact_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(art.uid, e.id);
+      recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'primary_artifact_uid' });
+      return wr(`Primary image set for ${e.title}.`, 'edited', 'ensemble', e.id, e.uid, e.title);
+    }
+    if (name === 'remove_ensemble_artifact') {
+      const art = q('SELECT * FROM ensemble_artifacts WHERE uid=? AND ensemble_id=?').get(a.artifact_uid, e.id);
+      if (!art) throw new Error('No such artifact on this ensemble');
+      recordProvenance('ensemble_artifact', art.uid, 'deleted', ctx, { source_ref: e.uid });
+      q('DELETE FROM ensemble_artifacts WHERE id=?').run(art.id);
+      // the image bytes are deliberately kept — removing the artifact record
+      // is not the same act as destroying an immutable original
+      if (e.primary_artifact_uid === art.uid) {
+        const next = q('SELECT uid FROM ensemble_artifacts WHERE ensemble_id=? ORDER BY id DESC LIMIT 1').get(e.id);
+        q('UPDATE ensembles SET primary_artifact_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(next ? next.uid : null, e.id);
+      }
+      return wr(`Removed a generated image from ${e.title}.`, 'deleted', 'ensemble_artifact', e.id, art.uid, e.title);
+    }
+    if (name === 'add_ensemble_component') {
+      const pos = (q('SELECT COALESCE(MAX(position),-1) p FROM ensemble_components WHERE ensemble_id=?').get(e.id).p) + 1;
+      const saved = saveEnsembleComponents(e, user, [{ label: a.label, note_uid: a.note_uid,
+        source_url: a.source_url, image: a.image, identity_basis: a.identity_basis }], ctx);
+      q('UPDATE ensemble_components SET position=? WHERE uid=?').run(pos, saved.components[0].component_uid);
+      const c = saved.components[0];
+      return wr(`Added ${c.label} to ${e.title}${c.note_origin === 'created_by_ensemble' ? ' and to notes (private)' : ''}.`,
+        'created', 'ensemble_component', e.id, c.component_uid, c.label);
+    }
+    if (name === 'edit_ensemble') {
+      const f = [];
+      if (a.title !== undefined) { q('UPDATE ensembles SET title=? WHERE id=?').run(a.title, e.id); f.push('title'); }
+      if (a.description !== undefined) { q('UPDATE ensembles SET description=? WHERE id=?').run(a.description, e.id); f.push('description'); }
+      if (a.private !== undefined) { q('UPDATE ensembles SET private=? WHERE id=?').run(a.private ? 1 : 0, e.id); f.push('private'); }
+      if (!f.length) return wr(`Nothing to change on ${e.title}.`, 'unchanged', 'ensemble', e.id, e.uid, e.title);
+      q('UPDATE ensembles SET updated_at=CURRENT_TIMESTAMP WHERE id=?').run(e.id);
+      recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: f.join(',') });
+      return wr(`Updated ${a.title || e.title}.`, 'edited', 'ensemble', e.id, e.uid, a.title || e.title);
+    }
+    recordProvenance('ensemble', e.uid, 'deleted', ctx, {});
+    q('DELETE FROM ensembles WHERE id=?').run(e.id);
+    return wr(`Deleted ensemble: ${e.title}. Linked notes were kept.`, 'deleted', 'ensemble', e.id, e.uid, e.title);
+  }
+  if (name === 'remove_ensemble_component') {
+    const c = q('SELECT c.*, e.user_id, e.title, e.uid AS euid FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id WHERE c.uid=?').get(a.component_uid);
+    if (!c) throw new Error('No such component');
+    if (c.user_id !== user.id) throw new Error('That component does not belong to this member');
+    recordProvenance('ensemble_component', c.uid, 'deleted', mcpActor(user), { source_ref: c.euid });
+    q('DELETE FROM ensemble_components WHERE id=?').run(c.id);
+    return wr(`Removed ${c.label || 'a component'} from ${c.title}. Any linked note was kept.`,
+      'deleted', 'ensemble_component', c.id, c.uid, c.label || '');
+  }
+  if (name === 'resolve_ensemble_component') {
+    const c = q('SELECT c.*, e.user_id, e.uid AS euid, e.title FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id WHERE c.uid=?').get(a.component_uid);
+    if (!c) throw new Error('No such component');
+    if (c.user_id !== user.id) throw new Error('That component does not belong to this member');
+    if (!a.note_uid && !a.label) throw new Error('Give either note_uid (an existing note) or label (to create one)');
+    const ctx = mcpActor(user);
+    const prior = c.note_uid || null;
+    let noteUid = null;
+    if (a.note_uid) {
+      const n = q('SELECT * FROM objects WHERE uid=? AND user_id=?').get(a.note_uid, user.id);
+      if (!n) throw new Error('No such note belonging to this member');
+      noteUid = n.uid;
+    } else {
+      const basis = a.identity_basis || 'user_identity';
+      if (!QUALIFYING_BASIS.has(basis)) throw new Error('identity_basis must be canonical evidence, not a guess');
+      const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,'','',?,?,1)`)
+        .run(user.id, a.label, a.source_url || '', c.image_uid ? `/i/${c.image_uid}` : '');
+      noteUid = uidOf('objects', r.lastInsertRowid);
+      recordProvenance('object', noteUid, 'created', ctx, { source_kind: 'ensemble', source_ref: c.euid, fields: basis });
+    }
+    // The SAME component: the constituent did not change, only what is known
+    // about it. A correction records what it supersedes rather than erasing it.
+    q("UPDATE ensemble_components SET state='linked', note_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(noteUid, c.id);
+    recordProvenance('ensemble_component', c.uid, prior ? 'corrected' : 'resolved', ctx,
+      { source_kind: a.identity_basis || 'user_identity', source_ref: noteUid, fields: prior ? `superseded:${prior}` : null });
+    return wr(prior ? `Corrected: now identified as ${a.label || noteUid}.` : `Identified as ${a.label || noteUid}.`,
+      prior ? 'corrected' : 'resolved', 'ensemble_component', c.id, c.uid, a.label || '');
+  }
+  if (name === 'list_unresolved_components') {
+    const rows = a.id
+      ? q(`SELECT c.*, e.uid euid, e.id eid, e.title FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id
+           WHERE e.user_id=? AND e.id=? AND c.state='unresolved' ORDER BY e.id DESC, c.position`).all(user.id, a.id)
+      : q(`SELECT c.*, e.uid euid, e.id eid, e.title FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id
+           WHERE e.user_id=? AND c.state='unresolved' ORDER BY e.id DESC, c.position`).all(user.id);
+    return { text: rows.map((r) => `${r.label || '(unlabelled)'} — in ${r.title}`).join('\n') || 'Nothing unidentified.',
+      structured: { items: rows.map((r) => ({ component_uid: r.uid, ensemble_uid: r.euid, ensemble_id: r.eid,
+        ensemble_title: r.title, label: r.label || '', image: r.image_uid ? `/i/${r.image_uid}` : '' })) } };
+  }
   if (name === 're_note') {
     if (!a.id) throw new Error('id is required');
     const src = q('SELECT * FROM objects WHERE id=?').get(a.id);
@@ -3381,11 +4010,22 @@ async function handle(req, res) {
   const need = () => { redirect(res, '/login'); return true; };
   let mt;
 
-  if ((mt = p.match(/^\/i\/(\d+)$/))) {
-    const img = q('SELECT mime, bytes FROM images WHERE id=?').get(+mt[1]);
+  // Images are served by uid. The old /i/<integer> form still resolves so that
+  // anything already linking to it keeps working, but BOTH forms now go
+  // through the same visibility check — the integer path was previously
+  // unauthenticated and sequential, so a private note's bytes could be
+  // fetched by anyone counting upwards.
+  if ((mt = p.match(/^\/i\/([0-9a-f-]{8,}|\d+)$/i))) {
+    const key = mt[1];
+    const img = /^\d+$/.test(key)
+      ? q('SELECT * FROM images WHERE id=?').get(+key)
+      : q('SELECT * FROM images WHERE uid=?').get(key);
     if (!img) return send(res, 'Not found', 404);
+    if (!imageVisibleTo(img, me)) return send(res, 'Not found', 404);
     res.writeHead(200, { 'Content-Type': img.mime, 'Content-Length': img.bytes.length,
-      'Cache-Control': 'public, max-age=31536000, immutable' });
+      // private images must not be cached by shared proxies
+      'Cache-Control': imageIsPublic(img) ? 'public, max-age=31536000, immutable'
+                                          : 'private, max-age=86400' });
     return res.end(Buffer.from(img.bytes));
   }
   if ((mt = p.match(/^\/avatars\/([a-z0-9_-]+\.png)$/))) {
@@ -3526,6 +4166,54 @@ async function handle(req, res) {
     applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(r.lastInsertRowid), me);
     return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
   }
+  // Native authorship controls. Everything here is also MCP-operable; the
+  // point is that the member never needs an AI to control their own record.
+  if ((mt = p.match(/^\/e\/(\d+)\/(edit|delete|primary|artifact\/remove|component\/remove)$/)) && m === 'POST') {
+    if (!me) return need();
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(+mt[1]);
+    if (!e) return send(res, 'Not found', 404);
+    if (e.user_id !== me.id) return send(res, 'Not yours', 403);
+    const b = await readBody(req), ctx = webActor(me), act = mt[2];
+    if (act === 'edit') {
+      q('UPDATE ensembles SET title=?, description=?, private=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .run((b.title || '').trim() || e.title, (b.description || '').trim(), b.private ? 1 : 0, e.id);
+      recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'title,description,private' });
+      return redirect(res, `/e/${e.id}`);
+    }
+    if (act === 'delete') {
+      recordProvenance('ensemble', e.uid, 'deleted', ctx, {});
+      q('DELETE FROM ensembles WHERE id=?').run(e.id);   // components + artifacts cascade; Notes are untouched
+      return redirect(res, '/e');
+    }
+    if (act === 'primary') {
+      const art = q('SELECT * FROM ensemble_artifacts WHERE uid=? AND ensemble_id=?').get(b.artifact_uid, e.id);
+      if (art) {
+        q('UPDATE ensembles SET primary_artifact_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(art.uid, e.id);
+        recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'primary_artifact_uid' });
+      }
+      return redirect(res, `/e/${e.id}`);
+    }
+    if (act === 'artifact/remove') {
+      const art = q('SELECT * FROM ensemble_artifacts WHERE uid=? AND ensemble_id=?').get(b.artifact_uid, e.id);
+      if (art) {
+        recordProvenance('ensemble_artifact', art.uid, 'deleted', ctx, { source_ref: e.uid });
+        q('DELETE FROM ensemble_artifacts WHERE id=?').run(art.id);
+        if (e.primary_artifact_uid === art.uid) {
+          const next = q('SELECT uid FROM ensemble_artifacts WHERE ensemble_id=? ORDER BY id DESC LIMIT 1').get(e.id);
+          q('UPDATE ensembles SET primary_artifact_uid=? WHERE id=?').run(next ? next.uid : null, e.id);
+        }
+      }
+      return redirect(res, `/e/${e.id}`);
+    }
+    const c = q('SELECT * FROM ensemble_components WHERE uid=? AND ensemble_id=?').get(b.component_uid, e.id);
+    if (c) {
+      recordProvenance('ensemble_component', c.uid, 'deleted', ctx, { source_ref: e.uid });
+      q('DELETE FROM ensemble_components WHERE id=?').run(c.id);   // the linked Note is the member's own record and is kept
+    }
+    return redirect(res, `/e/${e.id}`);
+  }
+  if (p === '/e') return pages.ensembles(req, res, me);
+  if ((mt = p.match(/^\/e\/(\d+)$/))) return pages.ensemble(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/m\/(\d+)\/edit$/))) {
     if (!me) return need();

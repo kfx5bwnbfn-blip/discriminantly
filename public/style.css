@@ -1557,3 +1557,37 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 /* duplicate awareness: informational, never blocking */
 .note-dupe { font-family: var(--slab); font-size: .68rem; letter-spacing: .04em;
   color: var(--ink-soft); margin: 0 0 .5rem; text-align: center; }
+
+/* ---- Ensemble worksurface (v1.18) --------------------------------------- */
+.ens { max-width: 62rem; margin: 0 auto; }
+.ens-head { text-align: center; padding: 1.4rem 1.5rem .6rem; }
+.ens-title { font-size: 1.9rem; font-weight: 400; margin: 0 0 .4rem; color: var(--ink); }
+.ens-desc { font-size: 1rem; line-height: 1.55; max-width: 34rem; margin: 0 auto .6rem; color: var(--ink); }
+.ens-meta { font-family: var(--slab); font-size: .62rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-soft); margin: 0; }
+.ens-primary img { display: block; width: 100%; height: auto; }
+.ens-alts { display: flex; flex-wrap: wrap; gap: .8rem; padding: .9rem 1.2rem; }
+.ens-alt { margin: 0; width: 9rem; }
+.ens-alt img { display: block; width: 100%; height: 7rem; object-fit: cover; }
+.ens-danger { color: #8c4a4a; }
+.ens-comps { list-style: none; margin: 0; padding: 0; }
+.ens-comp { display: flex; align-items: center; gap: .9rem; padding: .7rem 1.2rem;
+  border-top: 1px solid var(--rule); }
+.ens-comp img, .ens-comp-blank { width: 3rem; height: 3rem; object-fit: cover; flex: none;
+  background: var(--nf-field-soft); }
+.ens-comp-body { flex: 1; display: flex; flex-direction: column; gap: .15rem; }
+.ens-comp-label { font-size: .95rem; color: var(--ink); }
+.ens-comp-state { font-family: var(--slab); font-size: .58rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.ens-comp.unresolved .ens-comp-label { color: var(--ink-soft); font-style: italic; }
+.ens-edit { margin: 1.4rem 0 0; }
+.ens-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 1rem; padding: 1.2rem; }
+.ens-tile { display: flex; flex-direction: column; gap: .3rem; text-decoration: none; }
+.ens-tile img, .ens-tile-blank { width: 100%; height: 9rem; object-fit: cover; background: var(--nf-field-soft); }
+.ens-tile-t { font-size: .92rem; color: var(--ink); }
+.ens-tile-t i { font-family: var(--slab); font-size: .55rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-soft); font-style: normal; }
+.ens-tile-n { font-family: var(--slab); font-size: .58rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-soft); }
+@media (max-width: 52rem) { .ens-comp { padding: .7rem .9rem; } }
