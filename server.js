@@ -1537,6 +1537,9 @@ function emptyState(me, kind, subject = null) {
               : ['Where did all the activity go?', `Must have been something ${who} said`],
     activity: own ? ['Where did all the activity go?', 'Must have been something I said']
                   : ['Where did all the activity go?', `Must have been something ${who} said`],
+    marks: own ? ['You have not marked any places yet'] : [`${who} has not marked any places yet`],
+    ensembles: own ? ['No ensembles yet', 'Ask your AI to compose one']
+                   : [`${who} has not saved any ensembles yet`],
     tagged: ['Nothing noted under this tag yet'],
   }[kind] || ['Nothing here yet'];
 
@@ -1917,6 +1920,7 @@ function profileRail(u, me, tab) {
   const visible = q(OBJ_SQL + ' WHERE o.user_id=?').all(u.id).filter((o) => canSee(o, me));
   const fc = followCounts(u.id);
   const markCount = q('SELECT COUNT(*) c FROM marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
+  const ensCount = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
   const link = (t) => `/u/${esc(u.handle)}?tab=${t}`;
   return `<aside class="rail profile-rail">
@@ -1927,6 +1931,7 @@ function profileRail(u, me, tab) {
       <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" href="${link('activity')}">All Activity <span>›</span></a></li>
       <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
       <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
+      <li><a class="${tab === 'ensembles' ? 'on' : ''}" data-short="Ensembles" data-count="${ensCount}" href="${link('ensembles')}">Ensembles: ${ensCount} <span>›</span></a></li>
       <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
@@ -2556,7 +2561,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   user(req, res, me, handle, url) {
     const u = q('SELECT * FROM users WHERE handle=?').get(handle); if (!u) return send(res, layout({ title: 'Not found', body: '<p>No such member.</p>', me }), 404);
     const owner = me && me.id === u.id;
-    const tab = ['activity', 'notes', 'marks', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
+    const tab = ['activity', 'notes', 'marks', 'ensembles', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
     const cid = +url.searchParams.get('c') || 0; const vis = url.searchParams.get('v') || 'all'; const s = (url.searchParams.get('q') || '').trim();
     const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
@@ -2577,6 +2582,19 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
         ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
       }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
+    } else if (tab === 'ensembles') {
+      // Same privacy rule as every other profile surface: a visitor sees only
+      // public ensembles; the owner sees their own private ones too.
+      const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(u.id)
+        .filter((e) => ensCanSee(e, me));
+      main = `<h3 class="strip">${esc(u.handle)}\u2019s ensembles</h3><div class="ens-grid">${rows.map((e) => {
+        const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
+        const n = ensComponents(e.id).length;
+        return `<a class="ens-tile" href="/e/${e.id}">
+          ${pa ? `<img src="/i/${pa.image_uid}" alt="${esc(e.title)}">` : '<span class="ens-tile-blank"></span>'}
+          <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
+          <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
+      }).join('')}</div>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'marks') {
       let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
         .filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
