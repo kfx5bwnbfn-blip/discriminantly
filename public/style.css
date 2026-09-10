@@ -1665,3 +1665,39 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 .ens-review-q { margin: 0; font-family: var(--slab); font-size: .68rem; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-soft); }
 .ens-review form { margin: 0; }
+
+/* ---- multi-day check-ins (v1.29) ----------------------------------------
+   Everything here dresses NATIVE elements in existing tokens: the date input
+   as an .nf-field, day rows as <details> using .tl-date, and day logs nested
+   in the timeline. No new colours or components. */
+.nf-field[type="date"] { color-scheme: light; font-family: var(--slab); letter-spacing: .06em; }
+.nf-dates { display: grid; grid-template-columns: 1fr; gap: 0; }
+.nf-dates.has-end { grid-template-columns: 1fr 1fr; }
+.nf-dates.has-end .nf-field:last-child { border-left-width: 0; }
+.nf-range { font-family: var(--slab); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--nf-ink); opacity: .7; margin: .2rem 0 0; }
+.ck-days-wrap { display: grid; gap: .4rem; }
+.nf-days { display: grid; gap: 0; border-top: 1px solid rgba(0,0,0,.14); }
+.nf-day { border-bottom: 1px solid rgba(0,0,0,.14); }
+.nf-day summary { list-style: none; display: flex; align-items: center; justify-content: space-between;
+  gap: .6rem; padding: .55rem .1rem; cursor: pointer; }
+.nf-day summary::-webkit-details-marker { display: none; }
+.nf-day summary:focus-visible { outline: 2px solid var(--nf-ink); outline-offset: 2px; }
+.nf-day .tl-date { font-family: var(--slab); font-weight: 700; font-size: .7rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--nf-ink); white-space: nowrap; }
+.nf-day .nf-link-btn { font-size: .62rem; white-space: nowrap; }
+.nf-day[open] summary .nf-link-btn { display: none; }
+.nf-day[open] summary .nf-day-preview { display: none; }
+.nf-day .nf-day-preview { font-size: .8rem; color: var(--nf-ink); opacity: .75; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nf-day textarea.nf-field { margin: 0 0 .5rem; }
+/* day logs inside the timeline: a subordinate column, NOT further cards.
+   .timeline li supplies a card and a dot; strip both for the nested list. */
+.tl-days { list-style: none; margin: .6rem 0 0; padding: 0 0 0 .9rem; border-left: 2px solid rgba(0,0,0,.14); }
+.tl-days li { margin: .45rem 0 0; padding: 0; background: none; box-shadow: none; border: 0; }
+.tl-days li::before, .tl-days li::after { display: none; }
+.tl-days .tl-date { display: block; margin-bottom: .1rem; font-size: .62rem; }
+.tl-days .tl-body { font-size: .86rem; }
+/* `hidden` must actually hide: several of these blocks set display:grid,
+   which would otherwise override the attribute's user-agent default. */
+#checkin-dialog [hidden] { display: none !important; }

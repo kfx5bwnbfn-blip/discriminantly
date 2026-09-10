@@ -648,6 +648,42 @@ const MIGRATIONS = [
       PRIMARY KEY (upload_id, idx))`);
   }],
 
+  // Multi-day check-ins (v1.29). A check-in is one visit; ended_on turns it
+  // into one CONTINUOUS visit spanning a date range, NULL meaning single-day —
+  // so every existing row is already correct and no backfill is needed.
+  // visit_days holds day-level commentary INSIDE that visit, sparsely: a row
+  // exists only where the member wrote something for that date. The range
+  // defines the days; the rows record what was said about some of them.
+  ['033-multi-day-checkins', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    if (!hasColumn('visits', 'ended_on')) db.exec('ALTER TABLE visits ADD COLUMN ended_on TEXT');
+    db.exec(`CREATE TABLE IF NOT EXISTS visit_days (
+      id         INTEGER PRIMARY KEY,
+      uid        TEXT,
+      visit_id   INTEGER NOT NULL REFERENCES visits(id) ON DELETE CASCADE,
+      day        TEXT NOT NULL,                 -- YYYY-MM-DD, within the visit's range
+      body       TEXT NOT NULL DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT,
+      UNIQUE (visit_id, day))`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_visit_days_uid AFTER INSERT ON visit_days
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE visit_days SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_visit_days_uid ON visit_days(uid)');
+  }],
+
+  // Undated check-ins (v1.30). "I was there" is worth recording even when
+  // "when" is gone. visited_on is NOT NULL and cannot be relaxed without
+  // rebuilding the table, so an undated visit keeps a placeholder date (the
+  // day it was logged) purely for storage and sort order, and date_known=0
+  // is the truth. Every reader consults the flag; the placeholder is never
+  // shown or returned.
+  ['034-undated-checkins', () => {
+    if (!hasColumn('visits', 'date_known')) db.exec('ALTER TABLE visits ADD COLUMN date_known INTEGER NOT NULL DEFAULT 1');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1201,13 +1237,112 @@ function readImage(file, cb) {
       copy: 'Delete <b>' + t.dataset.title + '</b>? This cannot be undone.' });
   });
 
+  // ---- check-in dialog: single day by default, "+ Add end date" makes it a
+  // continuous multi-day visit with optional day-level notes. Day rows are
+  // derived from the range in the browser; only rows with text are posted.
+  window.openCheckin = function (o) {
+    var dlg = document.getElementById('checkin-dialog'); if (!dlg) return;
+    var f = dlg.querySelector('.ck-form'), startEl = dlg.querySelector('#ck-start'), endEl = dlg.querySelector('#ck-end');
+    var endLbl = dlg.querySelector('.ck-end-lbl'), rangeEl = dlg.querySelector('.nf-range'), daysWrap = dlg.querySelector('.ck-days-wrap');
+    var daysEl = dlg.querySelector('.nf-days'), toggle = dlg.querySelector('.ck-toggle-end'), dates = dlg.querySelector('.nf-dates');
+    var today = new Date().toISOString().slice(0, 10);
+    var existingDays = {}; (o.days || []).forEach(function (d) { existingDays[d.date] = d.body; });
+    var typed = {};                                   // text typed this session, keyed by date
+
+    f.action = o.action || '';
+    dlg.querySelector('.ck-place').textContent = o.place || '';
+    dlg.querySelector('.dlg-title').textContent = o.editing ? 'Edit check-in' : 'Check in';
+    dlg.querySelector('.ck-cta').textContent = o.editing ? 'Save' : 'Log this visit';
+    f.querySelector('[name=drop_days]').value = '';
+    startEl.value = o.start || today; startEl.max = today;
+    endEl.max = today;
+    dlg.querySelector('#ck-body').value = o.body || '';
+    var hasEnd = !!o.end; endEl.value = o.end || '';
+
+    var fmt = function (ymd) { var d = new Date(ymd + 'T00:00:00Z'); return d.toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }); };
+    var datesIn = function (a, b) { var out = [], d = new Date(a + 'T00:00:00Z'), z = new Date(b + 'T00:00:00Z'); for (; d <= z; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10)); return out; };
+
+    var renderDays = function () {
+      var a = startEl.value, b = endEl.value;
+      if (!hasEnd || !a || !b || b < a) { daysWrap.hidden = true; daysEl.innerHTML = ''; return; }
+      var list = datesIn(a, b), open = false;
+      daysEl.innerHTML = list.map(function (day) {
+        var body = (typed[day] !== undefined ? typed[day] : (existingDays[day] || ''));
+        var has = !!body.trim();
+        return '<details class="nf-day"' + (has && list.length <= 7 ? ' open' : '') + ' data-day="' + day + '">'
+          + '<summary><span class="tl-date">' + fmt(day) + '</span>'
+          + '<span class="nf-day-preview">' + (has ? body.replace(/</g, '&lt;') : '') + '</span>'
+          + '<span class="nf-link-btn">' + (has ? 'Edit' : '+ Add a line') + '</span></summary>'
+          + '<textarea class="nf-field" name="day_' + day + '" rows="2" maxlength="600" aria-label="Note for ' + fmt(day) + '">' + body.replace(/</g, '&lt;') + '</textarea></details>';
+      }).join('');
+      daysWrap.hidden = false;
+    };
+    var renderRange = function () {
+      var a = startEl.value, b = endEl.value;
+      endEl.min = a || '';
+      if (hasEnd && b && b < a) { endEl.value = a; b = a; }
+      dates.classList.toggle('has-end', hasEnd); endEl.hidden = !hasEnd; endLbl.hidden = !hasEnd;
+      toggle.textContent = hasEnd ? 'Remove end date' : '+ Add end date';
+      if (!hasEnd || !a) { rangeEl.hidden = true; renderDays(); return; }
+      if (!b) { rangeEl.textContent = 'Choose an end date to add daily notes'; rangeEl.hidden = false; renderDays(); return; }
+      var n = datesIn(a, b).length;
+      var A = new Date(a + 'T00:00:00Z'), B = new Date(b + 'T00:00:00Z'), M = function (x) { return x.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }); };
+      var txt = A.getUTCFullYear() !== B.getUTCFullYear() ? fmt(a) + ', ' + A.getUTCFullYear() + ' – ' + fmt(b) + ', ' + B.getUTCFullYear()
+        : A.getUTCMonth() !== B.getUTCMonth() ? M(A) + ' ' + A.getUTCDate() + ' – ' + M(B) + ' ' + B.getUTCDate() + ', ' + B.getUTCFullYear()
+        : M(A) + ' ' + A.getUTCDate() + ' – ' + B.getUTCDate() + ', ' + B.getUTCFullYear();
+      rangeEl.textContent = txt + ' · ' + n + ' day' + (n === 1 ? '' : 's'); rangeEl.hidden = false;
+      renderDays();
+    };
+    toggle.onclick = function () { hasEnd = !hasEnd; if (!hasEnd) endEl.value = ''; renderRange(); };
+    // "Date unknown?" — the visit is recorded, the date is not. Everything
+    // date-shaped goes with it: the inputs, the range, the day notes, and the
+    // end-date affordance. The overall line stays.
+    var undated = dlg.querySelector('#ck-undated'), datesBlock = dlg.querySelector('.ck-dates-block'), undatedNote = dlg.querySelector('.ck-undated-note');
+    var applyUndated = function () {
+      var on = undated.checked;
+      datesBlock.hidden = on; toggle.hidden = on; undatedNote.hidden = !on;
+      startEl.required = !on;
+      if (on) { daysWrap.hidden = true; } else { renderRange(); }
+    };
+    undated.checked = !!o.undated; undated.onchange = applyUndated; applyUndated();
+    startEl.onchange = renderRange; endEl.onchange = renderRange;
+    daysEl.oninput = function (e) { var ta = e.target.closest('textarea'); if (ta) typed[ta.name.slice(4)] = ta.value; };
+    // keep the empty-row affordance honest: hide it once the row is open
+    daysEl.ontoggle = function (e) { var d = e.target; if (d.open) { var t = d.querySelector('textarea'); if (t && !t.value) setTimeout(function () { t.focus(); }, 0); } };
+    renderRange();
+
+    // The contraction guard, asked ONCE: the server answers 409 with the
+    // dates whose notes would fall outside the new range, and we confirm
+    // before resubmitting with explicit consent.
+    f.onsubmit = function (e) {
+      if (!o.editing) return;                                  // creation has nothing to lose
+      e.preventDefault();
+      var data = new URLSearchParams(new FormData(f)).toString();
+      fetch(f.action, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-quiet': '1' }, body: data })
+        .then(function (r) {
+          if (r.status === 409) return r.json().then(function (g) {
+            dlg.classList.remove('is-open');
+            window.askConfirm({ title: 'Shorten this visit?', copy: g.message.replace(/</g, '&lt;'),
+              cta: 'Keep the dates as they were', dismiss: 'Shorten and remove those notes', action: '',
+              onConfirm: function () { dlg.classList.add('is-open'); },
+              onDismiss: function () { f.querySelector('[name=drop_days]').value = '1'; f.onsubmit = null; f.submit(); } });
+          });
+          if (!r.ok) return r.text().then(function (t) { alert(t); });
+          location.reload();
+        });
+    };
+    dlg.classList.add('is-open');
+    setTimeout(function () { (o.editing ? dlg.querySelector('#ck-body') : startEl).focus(); }, 60);
+  };
+  document.querySelectorAll('#checkin-dialog [data-dismiss]').forEach(function (b) {
+    b.addEventListener('click', function () { document.getElementById('checkin-dialog').classList.remove('is-open'); });
+  });
+
   // Check in asks first, and takes an optional line about the visit
   document.addEventListener('click', function (e) {
     var t = e.target.closest && e.target.closest('[data-checkin]');
     if (!t) return;
-    window.askConfirm({ title: 'Check in', cta: 'Log this visit', dismiss: 'Cancel',
-      action: t.dataset.checkin, copy: 'Log today as a visit to <b>' + t.dataset.place + '</b>.',
-      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });
+    window.openCheckin({ action: t.dataset.checkin, place: t.dataset.place, editing: false });
   });
 
   // Owned. ON is an unambiguous assertion — one tap, no confirmation.
@@ -1398,6 +1533,39 @@ ${me ? `<div class="curtain dialog" id="confirm-dialog">
         <p class="dlg-copy">Delete “<span class="dlg-name"></span>”? The notes inside stay put — only the collection is removed.</p>
         <textarea class="nf-field dlg-input" name="body" rows="3" maxlength="600" hidden></textarea>
         <button class="nf-post">Delete collection</button>
+        <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss>Cancel</button></div>
+      </div>
+    </form>
+  </div></div>
+  <div class="curtain-tail"><span class="tail-band"></span></div>
+</div>
+<div class="curtain dialog" id="checkin-dialog">
+  <div class="curtain-frame"><div class="curtain-body">
+    <form method="post" action="" class="ck-form">
+      <div class="nf-box">
+        <p class="dlg-title">Check in</p>
+        <p class="dlg-copy">A visit to <b class="ck-place"></b>.</p>
+        <input type="hidden" name="drop_days" value="">
+        <div class="nf-top"><span class="nf-lbl">Date unknown?</span><label class="switch"><input type="checkbox" name="date_unknown" value="1" id="ck-undated"><span></span></label></div>
+        <p class="nf-range ck-undated-note" hidden>Recorded as a visit with no date.</p>
+        <div class="nf-stack ck-dates-block">
+          <label class="nf-lbl" for="ck-start">Date<span class="ck-end-lbl" hidden> · End date</span></label>
+          <div class="nf-dates">
+            <input class="nf-field" type="date" id="ck-start" name="visited_on" required>
+            <input class="nf-field" type="date" id="ck-end" name="ended_on" aria-label="End date" hidden>
+          </div>
+          <p class="nf-range" aria-live="polite" hidden></p>
+        </div>
+        <div class="nf-stack">
+          <label class="nf-lbl" for="ck-body">About this visit</label>
+          <textarea class="nf-field" id="ck-body" name="body" rows="2" maxlength="600" placeholder="A LINE ABOUT THIS VISIT (OPTIONAL)"></textarea>
+        </div>
+        <div class="ck-days-wrap" hidden>
+          <span class="nf-lbl">Daily notes</span>
+          <div class="nf-days"></div>
+        </div>
+        <button type="button" class="nf-link-btn ck-toggle-end">+ Add end date</button>
+        <button class="nf-post ck-cta">Log this visit</button>
         <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-dismiss>Cancel</button></div>
       </div>
     </form>
@@ -1694,7 +1862,8 @@ function emptyState(me, kind, subject = null) {
 // ---------- travel marks ----------
 const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM marks m JOIN users u ON u.id=m.user_id';
 const markCollections = (id) => q('SELECT c.id, c.name FROM mark_collections mc JOIN collections c ON c.id=mc.collection_id WHERE mc.mark_id=? ORDER BY c.name').all(id);
-const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON u.id=v.user_id WHERE v.mark_id=? ORDER BY v.visited_on DESC, v.id DESC').all(id);
+// Undated visits have no position in time, so they follow every dated one.
+const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON u.id=v.user_id WHERE v.mark_id=? ORDER BY v.date_known DESC, v.visited_on DESC, v.id DESC').all(id);
 function setMarkCollections(userId, markId, names) {
   q('DELETE FROM mark_collections WHERE mark_id=?').run(markId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
@@ -2277,6 +2446,101 @@ function warrantedSubjectUids(userId, subjectType) {
 // A pending composition is owner-only whatever its private flag says: it has
 // not been committed to the catalogue yet, so it must never appear publicly or
 // in anyone else's view even briefly.
+// ---------- multi-day check-ins (v1.29) ----------
+// A check-in is one visit. ended_on = NULL means a single day; otherwise the
+// visit runs visited_on..ended_on INCLUSIVE, and day-level commentary may be
+// attached to any date in that range. These helpers carry every invariant so
+// the web form and the MCP tools cannot drift apart.
+const isYMD = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !isNaN(Date.parse(v));
+const todayYMD = () => new Date().toISOString().slice(0, 10);
+const inRange = (day, start, end) => day >= start && day <= (end || start);
+
+// A visit's dates as a person would say them, undated ones included.
+const visitLabel = (v) => v.date_known === 0 ? UNDATED_LABEL : prettyRange(v.visited_on, v.ended_on);
+
+// Validate a proposed range. Returns { start, end } with end null for single-day.
+function normaliseVisitRange(visited_on, ended_on) {
+  const start = String(visited_on || '').trim() || todayYMD();
+  if (!isYMD(start)) throw new Error('visited_on must be a date in YYYY-MM-DD form.');
+  if (start > todayYMD()) throw new Error('A check-in cannot be in the future.');
+  let end = String(ended_on || '').trim() || null;
+  if (end) {
+    if (!isYMD(end)) throw new Error('ended_on must be a date in YYYY-MM-DD form.');
+    if (end > todayYMD()) throw new Error('The end of a visit cannot be in the future.');
+    if (end < start) throw new Error('ended_on cannot be before visited_on.');
+    if (end === start) end = null;            // a one-day range IS a single day
+  }
+  return { start, end };
+}
+
+// Populated day rows that would fall outside a proposed range. The guard: a
+// range edit must never silently discard day commentary.
+function daysExcludedBy(visitId, start, end) {
+  return q('SELECT day FROM visit_days WHERE visit_id=? AND body<>? ORDER BY day').all(visitId, '')
+    .map((r) => r.day).filter((d) => !inRange(d, start, end));
+}
+
+// Write day commentary for a visit. `days` is [{date, body}]. Rows are sparse:
+// an empty body deletes the row (or leaves nothing), a non-empty body creates
+// or updates in place — the row's uid survives an edit, and a later note on a
+// date whose row was removed is a new row with a new uid, matching how
+// re-notes and re-marks already behave.
+function applyVisitDays(visitId, start, end, days, ctx) {
+  const seen = new Set();
+  const out = { created: [], updated: [], removed: [] };
+  for (const d of (days || [])) {
+    const day = String(d && d.date || '').trim();
+    if (!isYMD(day)) throw new Error(`Day "${day}" is not a date in YYYY-MM-DD form.`);
+    if (seen.has(day)) throw new Error(`Day ${day} was given twice in one request.`);
+    seen.add(day);
+    if (!inRange(day, start, end)) throw new Error(`Day ${day} is outside this visit (${start}${end ? ` to ${end}` : ''}).`);
+    const body = String(d.body || '').trim();
+    const existing = q('SELECT id, uid FROM visit_days WHERE visit_id=? AND day=?').get(visitId, day);
+    if (!body) {
+      if (existing) {
+        recordProvenance('visit_day', existing.uid, 'deleted', ctx, {});
+        q('DELETE FROM visit_days WHERE id=?').run(existing.id);
+        out.removed.push(day);
+      }
+      continue;                                  // empty stays sparse
+    }
+    if (existing) {
+      q('UPDATE visit_days SET body=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(body, existing.id);
+      recordProvenance('visit_day', existing.uid, 'edited', ctx, { fields: 'body' });
+      out.updated.push(day);
+    } else {
+      const r = q('INSERT INTO visit_days(visit_id, day, body) VALUES(?,?,?)').run(visitId, day, body);
+      recordProvenance('visit_day', uidOf('visit_days', r.lastInsertRowid), 'created', ctx, { source_kind: 'manual' });
+      out.created.push(day);
+    }
+  }
+  return out;
+}
+
+const visitDaysOf = (visitId) => q('SELECT uid, day, body FROM visit_days WHERE visit_id=? ORDER BY day').all(visitId);
+
+// Every calendar date in a visit, inclusive — the UI derives its day slots from
+// this, which is why empty days never need a row.
+function datesInVisit(start, end) {
+  const out = [];
+  const d = new Date(start + 'T00:00:00Z'), last = new Date((end || start) + 'T00:00:00Z');
+  for (; d <= last; d.setUTCDate(d.getUTCDate() + 1)) out.push(d.toISOString().slice(0, 10));
+  return out;
+}
+
+// "Feb 24" — for a day INSIDE a visit whose range already states the year
+const prettyDayShort = (d) => new Date(d + 'T00:00:00Z').toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const UNDATED_LABEL = 'Date unknown';
+// "Feb 24 – 29, 2024" / "Feb 28 – Mar 2, 2025" / "Dec 30, 2024 – Jan 2, 2025"
+function prettyRange(start, end) {
+  if (!end) return prettyDay(start);
+  const a = new Date(start + 'T00:00:00Z'), b = new Date(end + 'T00:00:00Z');
+  const M = (x) => x.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  if (a.getUTCFullYear() !== b.getUTCFullYear()) return `${prettyDay(start)} – ${prettyDay(end)}`;
+  if (a.getUTCMonth() !== b.getUTCMonth()) return `${M(a)} ${a.getUTCDate()} – ${M(b)} ${b.getUTCDate()}, ${b.getUTCFullYear()}`;
+  return `${M(a)} ${a.getUTCDate()} – ${b.getUTCDate()}, ${b.getUTCFullYear()}`;
+}
+
 const ensCanSee = (e, me) => (e.status === 'pending_review')
   ? !!(me && (me.id === e.user_id || me.is_admin))
   : (!e.private || (me && (me.id === e.user_id || me.is_admin)));
@@ -3043,14 +3307,20 @@ ${noters.length ? `<div class="section-rule"></div>
   <div class="mark-main"><div class="grid grid-single">${markCard(m, me, true)}</div></div>
   ${visits.length ? `<aside class="visit-log">
     <h3 class="lbl">Check-ins</h3>
-    <ol class="timeline">${visits.map((v) => `<li>
-      <span class="tl-date">${esc(prettyDay(v.visited_on))}</span>
+    <ol class="timeline">${visits.map((v) => {
+      // One visit, several day logs: the days nest INSIDE the check-in's
+      // card as a subordinate column, never as further timeline entries.
+      const days = visitDaysOf(v.id);
+      const label = visitLabel(v);
+      return `<li>
+      <span class="tl-date">${esc(label)}</span>
       ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
+      ${days.length ? `<ul class="tl-days">${days.map((d) => `<li><span class="tl-date">${esc(prettyDayShort(d.day))}</span><span class="tl-body">${esc(d.body)}</span></li>`).join('')}</ul>` : ''}
       ${owner ? `<span class="tl-actions">
-        <button class="tl-edit" data-edit="/m/${m.id}/visits/${v.id}/edit" data-day="${esc(prettyDay(v.visited_on))}" data-body="${esc(v.body || '')}" aria-label="Edit this check-in">Edit</button>
-        <button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(prettyDay(v.visited_on))}" aria-label="Remove this check-in">×</button>
+        <button class="tl-edit" data-edit="/m/${m.id}/visits/${v.id}/edit" data-day="${esc(label)}" data-start="${v.date_known === 0 ? '' : v.visited_on}" data-end="${v.ended_on || ''}" data-undated="${v.date_known === 0 ? '1' : ''}" data-body="${esc(v.body || '')}" data-days="${esc(JSON.stringify(days.map((d) => ({ date: d.day, body: d.body }))))}" data-place="${esc(m.name)}" aria-label="Edit this check-in">Edit</button>
+        <button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(label)}" aria-label="Remove this check-in">×</button>
       </span>` : ''}
-    </li>`).join('')}</ol>
+    </li>`; }).join('')}</ol>
   </aside>` : ''}
 </div>
 ${source
@@ -3072,18 +3342,14 @@ ${remarkers.length ? `<div class="section-rule"></div>
 </section>
 </section></div>
 <script>
+// One binding. This block previously bound .tl-edit TWICE (with different CTA
+// copy), so every click opened the dialog twice; the later binding was the
+// intended one and the check-in dialog now replaces both.
 document.querySelectorAll('.tl-edit').forEach(function (b) {
   b.addEventListener('click', function () {
-    window.askConfirm({ title: 'Edit check-in', cta: 'Save remark', action: b.dataset.edit,
-      copy: 'Your note on <b>' + b.dataset.day + '</b>.',
-      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)', value: b.dataset.body });
-  });
-});
-document.querySelectorAll('.tl-edit').forEach(function (b) {
-  b.addEventListener('click', function () {
-    window.askConfirm({ title: 'Edit check-in', cta: 'Save', action: b.dataset.edit,
-      copy: 'Your note on <b>' + b.dataset.day + '</b>.',
-      field: 'A LINE ABOUT THIS VISIT (OPTIONAL)', value: b.dataset.body });
+    window.openCheckin({ action: b.dataset.edit, place: b.dataset.place, editing: true,
+      start: b.dataset.start, end: b.dataset.end, body: b.dataset.body, undated: b.dataset.undated === '1',
+      days: JSON.parse(b.dataset.days || '[]') });
   });
 });
 document.querySelectorAll('.tl-del').forEach(function (b) {
@@ -3827,10 +4093,19 @@ const OS_COLLECTION = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'name', 'kind', 'count', 'provenance'],   // no integer id — collections genuinely have none today
   properties: { type: { const: 'collection' }, uid: { type: 'string' }, name: { type: 'string' },
     kind: { type: 'string' }, count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_VISIT_DAY = { type: 'object', additionalProperties: false,
+  required: ['uid', 'date', 'body'],
+  properties: { uid: { type: 'string' }, date: { type: 'string' }, body: { type: 'string' } } };
 const OS_VISIT = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'visited_on', 'body', 'provenance'],
+  required: ['type', 'uid', 'id', 'date_known', 'visited_on', 'ended_on', 'range', 'body', 'days', 'provenance'],
   properties: { type: { const: 'visit' }, uid: { type: 'string' }, id: { type: 'integer' },
-    visited_on: { type: 'string' }, body: { type: 'string' }, provenance: OS_PROVENANCE } };
+    date_known: { type: 'boolean', description: 'false when the member recorded the visit without knowing when it was; visited_on and ended_on are then null.' },
+    visited_on: { type: ['string', 'null'], description: 'Start date, YYYY-MM-DD; null when the date is unknown.' },
+    ended_on: { type: ['string', 'null'], description: 'Final date of a continuous multi-day visit, inclusive; null for a single day or an undated visit.' },
+    range: { type: 'string', description: 'The visit dates as a person would say them, e.g. "Feb 24 – 29, 2024".' },
+    body: { type: 'string', description: 'Commentary on the visit as a whole.' },
+    days: { type: 'array', items: OS_VISIT_DAY, description: 'Day-level commentary inside this visit — only dates that have any. One check-in, however many days.' },
+    provenance: OS_PROVENANCE } };
 const OS_UPLOAD_START = { type: 'object', additionalProperties: false,
   required: ['ok', 'upload_id', 'chunk_bytes', 'total_chunks', 'next_index', 'expires_at'],
   properties: { ok: { type: 'boolean' }, upload_id: { type: 'string' },
@@ -4084,21 +4359,33 @@ const TOOLS = [
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'log_visit', description: 'Add a visit to an existing travel mark. Use when the member returns somewhere they have already marked. Keep it light — a date is enough, and a line about it is optional.',
+  { name: 'log_visit', description: "Add a check-in to an existing travel mark — one visit. A single day is the common case: a date and, if the member said something, a line about it. If they remember being there but not when, set date_unknown and skip the date entirely — that still counts as having visited. A CONTINUOUS multi-day visit (a hotel stay, a few days somewhere) is still ONE check-in: give ended_on as well, and optionally attach a note to individual days inside the range with `days`. Two separate trips are two separate check-ins, however close together. Never split one stay into several check-ins.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." },
-      visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today.' },
-      body: { type: 'string', description: 'One line, only if the member said something worth keeping.' } } } ,
+      date_unknown: { type: 'boolean', description: 'true when the member has been here but cannot say when. Records the visit with no date; cannot be combined with visited_on, ended_on or days.' },
+      visited_on: { type: 'string', description: 'The date, or the FIRST date of a multi-day visit. YYYY-MM-DD, not in the future. Defaults to today unless date_unknown is set.' },
+      ended_on: { type: 'string', description: 'The LAST date of a continuous multi-day visit, inclusive — leave out for a single day. YYYY-MM-DD, on or after visited_on, not in the future.' },
+      body: { type: 'string', description: 'A line about the visit as a whole, only if the member said something worth keeping.' },
+      days: { type: 'array', description: 'Optional notes on particular days inside the range. Only include days the member actually said something about; every other day in the range is simply part of the visit.',
+        items: { type: 'object', required: ['date', 'body'], properties: {
+          date: { type: 'string', description: 'YYYY-MM-DD, within visited_on..ended_on inclusive.' },
+          body: { type: 'string', description: 'What happened that day.' } } } } } },
     outputSchema: OS_WRITE },
   { name: 'list_checkins', description: 'List the check-ins on one of the member\'s own travel marks, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
       mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
     outputSchema: OS_ITEMS(OS_VISIT) },
-  { name: 'edit_checkin', description: 'Edit one of the member\'s own check-ins, identified by its own id (from list_checkins). Only pass the fields being changed — visited_on, body, or both. Anything omitted is left as is.',
+  { name: 'edit_checkin', description: "Edit one of the member's own check-ins, identified by its own id (from list_checkins). Only pass what changes — dates, the overall line, and/or notes on particular days; everything omitted is left as is, and the check-in keeps its identity. To add or change a day's note, pass it in `days`; to remove one, pass that date with an empty body. Shortening the dates so that an existing day note would fall outside the visit is refused unless you also list that date in `remove_days` — the member must be asked before a note is discarded.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
-      visited_on: { type: 'string', description: 'YYYY-MM-DD. Must be a real calendar date.' },
-      body: { type: 'string', description: 'Replaces the line about the visit. Pass an empty string to clear it.' } } } ,
+      date_unknown: { type: 'boolean', description: 'true to record that the date is not known (drops the range; any day notes must be listed in remove_days). false, together with visited_on, gives an undated visit a date.' },
+      visited_on: { type: 'string', description: 'New first date, YYYY-MM-DD, not in the future. Required when dating a visit that had no date.' },
+      ended_on: { type: ['string', 'null'], description: 'New last date of a multi-day visit (inclusive), or null/empty to make it a single day again.' },
+      body: { type: 'string', description: 'Replaces the line about the visit as a whole. Pass an empty string to clear it.' },
+      days: { type: 'array', description: 'Notes on particular days to add or change. A day given with an empty body has its note removed. Dates must fall inside the (new) visit range.',
+        items: { type: 'object', required: ['date', 'body'], properties: {
+          date: { type: 'string', description: 'YYYY-MM-DD.' }, body: { type: 'string', description: 'The note; empty removes it.' } } } },
+      remove_days: { type: 'array', items: { type: 'string' }, description: 'Dates whose notes the member has agreed to discard because the new dates no longer include them. Required for any such date, or the edit is refused.' } } } ,
     outputSchema: OS_WRITE },
   { name: 'delete_checkin', description: 'Permanently delete one of the member\'s own check-ins. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -4455,12 +4742,33 @@ async function mcpCall(user, name, a = {}) {
     const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
     if (!mk) throw new Error(`No travel mark #${a.id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
-    const day = a.visited_on || new Date().toISOString().slice(0, 10);
-    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(mk.id, user.id, day, String(a.body || '').trim());
-    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user), { source_kind: 'manual' });
+    const ctx = mcpActor(user);
+    if (a.date_unknown) {
+      // The member was there but cannot say when. Refuse dates rather than
+      // quietly ignoring them — a caller giving both is contradicting itself.
+      if (a.visited_on || a.ended_on || (a.days && a.days.length)) throw new Error('date_unknown cannot be combined with visited_on, ended_on or days.');
+      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body,date_known) VALUES(?,?,?,NULL,?,0)')
+        .run(mk.id, user.id, todayYMD(), String(a.body || '').trim());
+      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', ctx, { source_kind: 'manual', fields: 'date_known:0' });
+      const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
+      return wr(`Logged a visit to ${mk.name} with the date unknown — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+        'created', 'visit', v.lastInsertRowid, uidOf('visits', v.lastInsertRowid), mk.name, `${n} total`);
+    }
+    const { start, end } = normaliseVisitRange(a.visited_on, a.ended_on);
+    db.exec('BEGIN');
+    let vid;
+    try {
+      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body) VALUES(?,?,?,?,?)')
+        .run(mk.id, user.id, start, end, String(a.body || '').trim());
+      vid = v.lastInsertRowid;
+      recordProvenance('visit', uidOf('visits', vid), 'created', ctx, { source_kind: 'manual' });
+      applyVisitDays(vid, start, end, a.days, ctx);       // validates every day against the range
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
-    return wr(`Logged a visit to ${mk.name} on ${day} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
-      'created', 'visit', mk.id, mk.uid, mk.name, `${n} total`);
+    const dn = visitDaysOf(vid).length;
+    return wr(`Logged a visit to ${mk.name}: ${prettyRange(start, end)}${dn ? ` with notes on ${dn} day${dn === 1 ? '' : 's'}` : ''} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+      'created', 'visit', vid, uidOf('visits', vid), mk.name, `${n} total`);
   }
   if (name === 'list_checkins') {
     if (!a.mark_id) throw new Error('mark_id is required');
@@ -4468,10 +4776,15 @@ async function mcpCall(user, name, a = {}) {
     if (!mk) throw new Error(`No travel mark #${a.mark_id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.mark_id} does not belong to this member`);
     const vs = markVisits(mk.id);   // already ordered visited_on DESC, id DESC — reused as-is
-    return { text: vs.map((v) => `#${v.id} ${v.visited_on}${v.body ? ` — ${v.body}` : ''}`).join('\n')
+    const shape = (v) => { const days = visitDaysOf(v.id); const undated = v.date_known === 0; return { type: 'visit', uid: v.uid, id: v.id,
+      date_known: !undated, visited_on: undated ? null : v.visited_on, ended_on: undated ? null : (v.ended_on || null),
+      range: visitLabel(v),
+      body: v.body, days: days.map((d) => ({ uid: d.uid, date: d.day, body: d.body })),
+      provenance: provenanceOf('visit', v.uid) }; };
+    return { text: vs.map((v) => { const dn = visitDaysOf(v.id).length;
+        return `#${v.id} ${visitLabel(v)}${v.body ? ` — ${v.body}` : ''}${dn ? ` [notes on ${dn} day${dn === 1 ? '' : 's'}]` : ''}`; }).join('\n')
         || 'No check-ins yet.',
-      structured: { items: vs.map((v) => ({ type: 'visit', uid: v.uid, id: v.id,
-        visited_on: v.visited_on, body: v.body, provenance: provenanceOf('visit', v.uid) })) } };
+      structured: { items: vs.map(shape) } };
   }
   if (name === 'edit_checkin') {
     if (!a.id) throw new Error('id is required');
@@ -4481,19 +4794,69 @@ async function mcpCall(user, name, a = {}) {
       JOIN marks m ON m.id = v.mark_id WHERE v.id = ?`).get(a.id);
     if (!v) throw new Error(`No such check-in #${a.id}`);
     if (v.mark_owner !== user.id) throw new Error(`Check-in #${a.id} does not belong to this member`);
-    if (a.visited_on !== undefined && !isValidCalendarDate(a.visited_on))
-      throw new Error(`"${a.visited_on}" is not a real calendar date — use YYYY-MM-DD.`);
-    const changed = [];
-    const visited_on = a.visited_on !== undefined ? a.visited_on : v.visited_on;
-    const body = a.body !== undefined ? String(a.body).trim() : v.body;
-    if (visited_on !== v.visited_on) changed.push('visited_on');
-    if (body !== v.body) changed.push('body');
-    if (changed.length) {
-      q('UPDATE visits SET visited_on=?, body=? WHERE id=?').run(visited_on, body, v.id);
-      recordProvenance('visit', v.uid, 'edited', mcpActor(user), { source_kind: 'manual', fields: changed.join(',') });
+    const ctx0 = mcpActor(user);
+    if (a.date_unknown === true) {
+      if (a.visited_on || a.ended_on || (a.days && a.days.length)) throw new Error('date_unknown cannot be combined with visited_on, ended_on or days.');
+      const stranded = q('SELECT day FROM visit_days WHERE visit_id=? AND body<>?').all(v.id, '').map((r) => r.day);
+      const ok = new Set((a.remove_days || []).map(String));
+      const left = stranded.filter((d) => !ok.has(d));
+      if (left.length) throw new Error(`Marking this visit undated would leave notes on ${left.join(', ')} with no day to belong to. `
+        + `Pass those dates in remove_days to confirm removing them.`);
+      db.exec('BEGIN');
+      try {
+        applyVisitDays(v.id, v.visited_on, v.ended_on, stranded.map((d) => ({ date: d, body: '' })), ctx0);
+        const body = a.body !== undefined ? String(a.body).trim() : v.body;
+        q('UPDATE visits SET date_known=0, ended_on=NULL, body=? WHERE id=?').run(body, v.id);
+        recordProvenance('visit', v.uid, 'edited', ctx0, { source_kind: 'manual', fields: 'date_known' });
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+      return wr(`Updated check-in #${v.id}: date now unknown`, 'edited', 'visit', v.id, v.uid, UNDATED_LABEL);
     }
-    return wr(`Updated check-in #${v.id}: ${visited_on}${body ? ` — ${body}` : ''}`,
-      'edited', 'visit', v.id, v.uid, visited_on);
+    // Going from undated back to dated needs a real date; there is no old one to fall back to.
+    if (v.date_known === 0 && a.date_unknown !== false && a.visited_on === undefined) {
+      if (a.body === undefined) throw new Error('This check-in has no date. Pass visited_on to give it one, or date_unknown:false with visited_on.');
+      q('UPDATE visits SET body=? WHERE id=?').run(String(a.body).trim(), v.id);
+      recordProvenance('visit', v.uid, 'edited', ctx0, { source_kind: 'manual', fields: 'body' });
+      return wr(`Updated check-in #${v.id}`, 'edited', 'visit', v.id, v.uid, UNDATED_LABEL);
+    }
+    if (v.date_known === 0 && a.visited_on === undefined) throw new Error('Pass visited_on to give this check-in a date.');
+    // Only what is passed changes; the check-in keeps its uid throughout, and
+    // so does every day row that is merely edited.
+    const { start, end } = normaliseVisitRange(
+      a.visited_on !== undefined ? a.visited_on : v.visited_on,
+      a.ended_on !== undefined ? a.ended_on : v.ended_on);
+    const body = a.body !== undefined ? String(a.body).trim() : v.body;
+    const ctx = mcpActor(user);
+    // The guard: a range change must never silently discard day notes. The
+    // caller must name the days it is willing to lose in remove_days.
+    const excluded = daysExcludedBy(v.id, start, end);
+    const willRemove = new Set((a.remove_days || []).map(String));
+    const stranded = excluded.filter((d) => !willRemove.has(d));
+    if (stranded.length) {
+      throw new Error(`Changing the dates to ${prettyRange(start, end)} would leave notes on `
+        + `${stranded.join(', ')} outside the visit. Either keep the dates, or pass those dates in remove_days `
+        + `to confirm removing their notes.`);
+    }
+    db.exec('BEGIN');
+    try {
+      // removals first, while the old (wider) range still contains them
+      const wideStart = v.visited_on < start ? v.visited_on : start;
+      const wideEnd = (v.ended_on || v.visited_on) > (end || start) ? (v.ended_on || v.visited_on) : (end || start);
+      applyVisitDays(v.id, wideStart, wideEnd, [...willRemove].map((d) => ({ date: d, body: '' })), ctx);
+      const changed = [];
+      if (start !== v.visited_on || v.date_known === 0) changed.push('visited_on');
+      if ((end || null) !== (v.ended_on || null)) changed.push('ended_on');
+      if (body !== v.body) changed.push('body');
+      if (changed.length) {
+        q('UPDATE visits SET visited_on=?, ended_on=?, body=?, date_known=1 WHERE id=?').run(start, end, body, v.id);
+        recordProvenance('visit', v.uid, 'edited', ctx, { source_kind: 'manual', fields: changed.join(',') });
+      }
+      applyVisitDays(v.id, start, end, a.days, ctx);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    const dn = visitDaysOf(v.id).length;
+    return wr(`Updated check-in #${v.id}: ${prettyRange(start, end)}${body ? ` — ${body}` : ''}${dn ? ` (notes on ${dn} day${dn === 1 ? '' : 's'})` : ''}`,
+      'edited', 'visit', v.id, v.uid, prettyRange(start, end));
   }
   if (name === 'delete_checkin') {
     if (!a.id) throw new Error('id is required');
@@ -5281,35 +5644,84 @@ async function handle(req, res) {
     }
     return redirect(res, `/m/${mk.id}`);
   }
-  if ((mt = p.match(/^\/m\/(\d+)\/checkin$/)) && m === 'POST') {
-    if (!me) return need();
-    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
-    if (!mk) return send(res, 'Not yours', 403);
-    const b = await readBody(req);
-    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
-      .run(mk.id, me.id, new Date().toISOString().slice(0, 10), (b.body || '').trim());
-    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
-    return redirect(res, `/m/${mk.id}`);
-  }
-  if ((mt = p.match(/^\/m\/(\d+)\/visits$/)) && m === 'POST') {
-    if (!me) return need();
-    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
-    if (!mk) return send(res, 'Not yours', 403);
-    const b = await readBody(req);
-    if (b.visited_on) {
-      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
-        .run(mk.id, me.id, b.visited_on, (b.body || '').trim());
-      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+  // Check-in create (both routes) and edit share one write path so the web
+  // form and the MCP tools apply identical invariants. The form posts
+  // visited_on, ended_on (optional), body, and day_YYYY-MM-DD fields for any
+  // date the member wrote about; drop_days=1 is the explicit consent to
+  // discard day notes that a shortened range would exclude.
+  const writeVisitFromForm = (mk, existing, b) => {
+    // "I don't recall the exact date": the visit is recorded, the date is not.
+    // No range and no day notes can attach to a date that does not exist.
+    const undated = b.date_unknown === '1';
+    if (undated) {
+      const body = (b.body || '').trim();
+      if (existing) {
+        const stranded = q('SELECT day FROM visit_days WHERE visit_id=? AND body<>? ORDER BY day').all(existing.id, '').map((r) => r.day);
+        if (stranded.length && b.drop_days !== '1') {
+          const e = new Error(`Marking this visit as undated leaves notes on ${stranded.map(prettyDay).join(' and ')} without a day to belong to.`);
+          e.excluded = stranded; throw e;
+        }
+        for (const d of stranded) applyVisitDays(existing.id, existing.visited_on, existing.ended_on, [{ date: d, body: '' }], webActor(me));
+        q('UPDATE visits SET date_known=0, ended_on=NULL, body=? WHERE id=?').run(body, existing.id);
+        recordProvenance('visit', uidOf('visits', existing.id), 'edited', webActor(me), { source_kind: 'manual', fields: 'date_known,body' });
+        return existing.id;
+      }
+      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body,date_known) VALUES(?,?,?,NULL,?,0)')
+        .run(mk.id, me.id, todayYMD(), body);
+      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual', fields: 'date_known:0' });
+      return v.lastInsertRowid;
     }
+    const { start, end } = normaliseVisitRange(b.visited_on, b.ended_on);
+    const days = Object.keys(b).filter((k) => /^day_\d{4}-\d{2}-\d{2}$/.test(k))
+      .map((k) => ({ date: k.slice(4), body: b[k] }));
+    if (existing) {
+      const excluded = daysExcludedBy(existing.id, start, end);
+      if (excluded.length && b.drop_days !== '1') {
+        const e = new Error(`Changing the dates to ${prettyRange(start, end)} leaves notes on `
+          + `${excluded.map(prettyDay).join(' and ')} outside the visit.`);
+        e.excluded = excluded; throw e;
+      }
+      for (const d of excluded) days.push({ date: d, body: '' });   // consented removal
+      // the exclusion rows must be removed BEFORE the range shrinks, or the
+      // in-range check inside applyVisitDays would refuse them
+      const dropFirst = days.filter((d) => excluded.includes(d.date));
+      const rest = days.filter((d) => !excluded.includes(d.date));
+      const oldEnd = existing.ended_on, oldStart = existing.visited_on;
+      applyVisitDays(existing.id, oldStart < start ? oldStart : start, (oldEnd || oldStart) > (end || start) ? (oldEnd || oldStart) : (end || start), dropFirst, webActor(me));
+      q('UPDATE visits SET visited_on=?, ended_on=?, body=?, date_known=1 WHERE id=?').run(start, end, (b.body || '').trim(), existing.id);
+      recordProvenance('visit', uidOf('visits', existing.id), 'edited', webActor(me), { source_kind: 'manual', fields: 'visited_on,ended_on,body' });
+      applyVisitDays(existing.id, start, end, rest, webActor(me));
+      return existing.id;
+    }
+    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body) VALUES(?,?,?,?,?)')
+      .run(mk.id, me.id, start, end, (b.body || '').trim());
+    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
+    applyVisitDays(v.lastInsertRowid, start, end, days, webActor(me));
+    return v.lastInsertRowid;
+  };
+  if ((mt = p.match(/^\/m\/(\d+)\/(checkin|visits)$/)) && m === 'POST') {
+    if (!me) return need();
+    const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
+    if (!mk) return send(res, 'Not yours', 403);
+    const b = await readBody(req);
+    try { writeVisitFromForm(mk, null, b); }
+    catch (e) { return send(res, e.message, 400); }
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/edit$/)) && m === 'POST') {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=? AND user_id=?').get(+mt[1], me.id);
     if (!mk) return send(res, 'Not yours', 403);
+    const existing = q('SELECT * FROM visits WHERE id=? AND mark_id=?').get(+mt[2], mk.id);
+    if (!existing) return send(res, 'Not found', 404);
     const b = await readBody(req);
-    q('UPDATE visits SET body=? WHERE id=? AND mark_id=?').run((b.body || '').trim(), +mt[2], mk.id);
-    recordProvenance('visit', uidOf('visits', +mt[2]), 'edited', webActor(me), { source_kind: 'manual', fields: 'body' });
+    try { writeVisitFromForm(mk, existing, b); }
+    catch (e) {
+      // the guard: answer with the excluded dates so the client can ask once
+      if (e.excluded) return send(res, JSON.stringify({ guard: true, message: e.message, excluded: e.excluded }), 409, { 'Content-Type': 'application/json' });
+      return send(res, e.message, 400);
+    }
+    if (req.headers['x-quiet'] === '1') { res.writeHead(204); return res.end(); }
     return redirect(res, `/m/${mk.id}`);
   }
   if ((mt = p.match(/^\/m\/(\d+)\/visits\/(\d+)\/delete$/)) && m === 'POST') {
