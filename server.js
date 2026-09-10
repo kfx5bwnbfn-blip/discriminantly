@@ -2088,6 +2088,19 @@ function renoteFrom(src, me, ctx) {
 // Emit an <img> carrying the stored pixel dimensions and lazy loading. The
 // dimensions stop the page reflowing as each image lands, and lazy loading
 // keeps a long ensemble list from fetching every composite up front.
+// Load stored bytes as an MCP image block. Guarded by size: a 20 MB composite
+// base64-encoded would swamp the model's context and help nobody, so oversized
+// originals are described rather than inlined and the member can open them on
+// the worksurface.
+const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
+function imageBlock(ref) {
+  const uid = (ref || '').startsWith('/i/') ? ref.slice(3) : '';
+  if (!uid) return null;
+  const im = q('SELECT mime, bytes FROM images WHERE uid=?').get(uid);
+  if (!im || !im.bytes || im.bytes.length > MAX_INLINE_IMAGE_BYTES) return null;
+  return { data: Buffer.from(im.bytes).toString('base64'), mimeType: im.mime };
+}
+
 function imgTag(ref, alt, cls, eager) {
   const uid = (ref || '').startsWith('/i/') ? ref.slice(3) : '';
   const d = uid ? q('SELECT width, height FROM images WHERE uid=?').get(uid) : null;
@@ -3363,7 +3376,7 @@ const TOOLS = [
             description: 'How the identity is known. Only user_identity, maker_model, product_page, external_id and resolved_note create a note. Use "unidentified" for anything resting on your own visual judgement, however confident — a guess is not evidence.' } } } },
       artifact: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Becomes the primary artifact. Prefer WEBP or JPEG over PNG where the image is photographic: a PNG composition is often several times larger for no visible gain, and the limit is 24 MB.' } } },
     outputSchema: OS_ENSEMBLE_SAVE },
-  { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. Enough to understand and continue a composition with no memory of the conversation that made it.',
+  { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. The actual pictures come back with the result: the current composition first, then any alternate versions, then images of individual pieces — show them to the member rather than describing them or linking to them. Enough to understand and continue a composition with no memory of the conversation that made it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id, from list_ensembles." } } },
     outputSchema: OS_ENSEMBLE },
@@ -3945,7 +3958,25 @@ async function mcpCall(user, name, a = {}) {
     const lines = [`${v.title}${v.private ? ' (private)' : ''} — ${v.components.length} components, ${v.artifacts.length} generated image(s)`];
     if (v.description) lines.push(v.description);
     v.components.forEach((c) => lines.push(`  ${c.state === 'linked' ? '·' : '?'} ${c.label || '(unlabelled)'}${c.state === 'unresolved' ? ' — unidentified' : ''}`));
-    return { text: lines.join('\n'), structured: v };
+
+    // Return the pictures themselves, in a deliberate order: the primary
+    // rendering first, then the other renderings, then any component images.
+    // The text names each one in the same order so the member can be told
+    // which picture is which rather than being handed an unlabelled pile.
+    const images = [];
+    const caption = [];
+    const primary = v.artifacts.find((x) => x.is_primary) || v.artifacts[0];
+    const pushImg = (ref, label) => {
+      const b = imageBlock(ref);
+      if (b) { images.push(b); caption.push(label); }
+      else if (ref) caption.push(`${label} (too large to show here — open it on discriminant.ly)`);
+    };
+    if (primary) pushImg(primary.image, 'the current composition');
+    v.artifacts.filter((x) => primary && x.artifact_uid !== primary.artifact_uid)
+      .forEach((x, i) => pushImg(x.image, `alternate version ${i + 1}`));
+    v.components.filter((c) => c.image).forEach((c) => pushImg(c.image, `component: ${c.label || 'unidentified'}`));
+    if (caption.length) lines.push('', 'Images below, in order: ' + caption.join('; ') + '.');
+    return { text: lines.join('\n'), structured: v, images };
   }
   if (name === 'list_ensembles') {
     const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC LIMIT ?')
@@ -4110,6 +4141,13 @@ async function mcp(req, res, tok) {
       // questions in the MCP Policy remain answerable inside the AI's context
       // rather than only inside our database.
       const payload = { content: [{ type: 'text', text: typeof out === 'string' ? out : out.text }] };
+      // Some results are pictures. A path like /i/<uid> is useless to a model —
+      // it is relative, and a private image needs this member's session — so
+      // when a tool returns images we hand back the bytes as MCP image blocks,
+      // which is the only way the composition can actually be shown.
+      if (out && typeof out === 'object' && Array.isArray(out.images)) {
+        for (const im of out.images) payload.content.push({ type: 'image', data: im.data, mimeType: im.mimeType });
+      }
       if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
       return reply(id, payload);
     } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); }
