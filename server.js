@@ -3827,10 +3827,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {
       limit: { type: 'integer', description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_ENSEMBLE_BRIEF) },
-  { name: 'add_ensemble_artifact', description: 'Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise. Earlier images are kept.',
-    inputSchema: { type: 'object', required: ['id', 'image'], properties: {
+  { name: 'add_ensemble_artifact', description: "Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise; earlier versions are kept. Upload the new composition with upload_image first and pass the uid it returns as `image_uid` — that is the preferred path and re-sends nothing.",
+    inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
-      image: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Prefer WEBP or JPEG over PNG for photographic compositions; the limit is 24 MB.' },
+      image_uid: { type: 'string', description: 'PREFERRED. uid of the composition image, from upload_image. Give this OR `image`; one of the two is required.' },
+      image: { type: 'string', description: 'Alternative to image_uid: an https:// URL, or a data: URL you build in code from local bytes (see upload_image for how). Ignored if image_uid is given.' },
       make_primary: { type: 'boolean', description: 'Make this the image that represents the Ensemble. Defaults to true.' } } },
     outputSchema: OS_WRITE },
   { name: 'set_primary_artifact', description: 'Choose which generated image represents the Ensemble — "keep the second one" / "go back to the first".',
@@ -3849,7 +3850,8 @@ const TOOLS = [
       label: { type: 'string', description: 'What this piece is, as the member would name it.' },
       note_uid: { type: 'string', description: "uid of one of the member's existing notes, if this piece is already in their catalogue." },
       source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
-      image: { type: 'string', description: 'data: URL of the piece\'s own image. Required unless note_uid points to an existing note that already has one.' },
+      image_uid: { type: 'string', description: "PREFERRED. uid of this piece's own image, from upload_image." },
+      image: { type: 'string', description: "Alternative to image_uid: an https:// URL, or a data: URL you build in code from local bytes (see upload_image for how). Ignored if image_uid is given. One of image_uid / image is required unless note_uid points to a note that already has an image." },
       identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
         description: 'How the identity is known. Only the canonical values create a note; use "unidentified" for anything resting on your own visual judgement.' } } },
     outputSchema: OS_WRITE },
@@ -4571,7 +4573,12 @@ async function mcpCall(user, name, a = {}) {
     if (e.user_id !== user.id) throw new Error('That ensemble does not belong to this member');
     const ctx = mcpActor(user);
     if (name === 'add_ensemble_artifact') {
-      const iu = storeImageStrict(user.id, a.image, ctx, 'generated', 'The generated composition image');
+      // Same resolution path as create_pending_ensemble: an already-uploaded
+      // uid is preferred and reused as-is; a URL or data: URL is ingested.
+      const iu = await resolveAssetRef(user.id, { image_uid: a.image_uid, image: a.image },
+        ctx, 'generated', 'The composition image');
+      if (!iu) throw new Error('An image is required: pass `image_uid` from upload_image, or `image` as an '
+        + 'https:// URL or data: URL. Nothing was saved.');
       const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
         .run(e.id, iu, lineageOf(e.id));
       const uid = uidOf('ensemble_artifacts', ar.lastInsertRowid);
@@ -4604,8 +4611,18 @@ async function mcpCall(user, name, a = {}) {
     }
     if (name === 'add_ensemble_component') {
       const pos = (q('SELECT COALESCE(MAX(position),-1) p FROM ensemble_components WHERE ensemble_id=?').get(e.id).p) + 1;
-      const saved = saveEnsembleComponents(e, user, [{ label: a.label, note_uid: a.note_uid,
-        source_url: a.source_url, image: a.image, identity_basis: a.identity_basis }], ctx);
+      // saveEnsembleComponents consumes a pre-resolved uid (network fetches must
+      // not run inside its write path), so resolve here first — without this the
+      // advertised `image` argument was silently ignored and the call refused
+      // itself for having no image.
+      const one = { label: a.label, note_uid: a.note_uid, source_url: a.source_url,
+        image: a.image, image_uid: a.image_uid, identity_basis: a.identity_basis };
+      one.__uid = await resolveAssetRef(user.id, one, ctx, 'upload', `The image for "${a.label || 'a component'}"`);
+      if (!one.__uid && (a.note_uid || '').trim()) {
+        const n = q('SELECT image FROM objects WHERE uid=? AND user_id=?').get(a.note_uid.trim(), user.id);
+        if (n && n.image && n.image.startsWith('/i/')) one.__uid = n.image.slice(3);
+      }
+      const saved = saveEnsembleComponents(e, user, [one], ctx);
       q('UPDATE ensemble_components SET position=? WHERE uid=?').run(pos, saved.components[0].component_uid);
       const c = saved.components[0];
       return wr(`Added ${c.label} to ${e.title}${c.note_origin === 'created_by_ensemble' ? ' and to notes (private)' : ''}.`,
