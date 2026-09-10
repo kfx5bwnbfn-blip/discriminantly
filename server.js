@@ -2755,8 +2755,13 @@ function objectCard(o, me, full = false) {
       })() : ''}
       ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
       ${o.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(o.url)}" rel="noopener">${esc(shortUrl)}</a></p>` : ''}
-      <div class="noteit">
-        ${(() => {
+      ${(() => {
+        // Build the contents first, and emit the .noteit box ONLY if there are
+        // any. The box carries its own background, border and padding, so
+        // rendering it empty — which is what happens on your own Note — leaves
+        // a vestigial grey rectangle where the button used to be. When a button
+        // IS present the markup and token are exactly as before.
+        const inner = (() => {
           if (!me) return `<a class="btn-note" href="/login">Note this</a>`;
           if (o.user_id === me.id) return '';                       // your own Note
           // Duplicate awareness, never duplicate prevention: if they already
@@ -2765,8 +2770,9 @@ function objectCard(o, me, full = false) {
           const again = adopted.length
             ? `<p class="note-dupe">You’ve re-noted this before. <a href="/o/${adopted[0].id}">View your Note</a></p>` : '';
           return `${again}<form method="post" action="/o/${o.id}/note"><button class="btn-note">${adopted.length ? 'Note this again' : 'Note this'}</button></form>`;
-        })()}
-      </div>
+        })();
+        return inner ? `<div class="noteit">${inner}</div>` : '';
+      })()}
     </div>
     ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
     ${(() => {
@@ -3144,7 +3150,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       const objUids = warrantedSubjectUids(u.id, 'object'), markUids = warrantedSubjectUids(u.id, 'mark');
       const acts = [];
       for (const uid of objUids) {
-        const o = q('SELECT * FROM objects WHERE uid=?').get(uid);
+        // OBJ_SQL, not a bare select: the byline needs the author's handle,
+        // name and avatar, which only come from the users join. Without it the
+        // card renders an avatar-less byline even for your own notes.
+        const o = q(OBJ_SQL + ' WHERE o.uid=?').get(uid);
         if (o && canSee(o, me)) acts.push({ at: o.created_at, card: o });
       }
       for (const uid of markUids) {
