@@ -1652,7 +1652,11 @@ function setMarkCollections(userId, markId, names) {
 // A pasted https:// URL is kept as-is. A data: URL from the uploader is decoded
 // and stored as bytes, so pages reference /i/<id> and the browser can cache it
 // instead of re-downloading the picture inside every HTML response.
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+// Web uploads are downscaled in the browser before they ever arrive, so these
+// ceilings really govern what an AI may send over MCP. A genuine phone photo
+// of a thing is routinely 10-20 MB, and rejecting it is a real failure to the
+// member, so source images get room; generated compositions get more again.
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_GENERATED_BYTES = 24 * 1024 * 1024;   // AI-generated compositions run large
 // Only these four are accepted. SVG is deliberately excluded — it can carry
 // script and is already excluded from unfurl image candidates for that reason.
@@ -2291,6 +2295,7 @@ function findExistingNote(userId, c) {
 // became an image_uid of "chair.jpg", and an oversized image vanished while the
 // save still reported success.
 function storeImageStrict(userId, value, ctx, source, what) {
+  const cap = source === 'generated' ? MAX_GENERATED_BYTES : MAX_IMAGE_BYTES;
   const v = (value || '').trim();
   if (!v) return null;
   if (!/^data:image\//i.test(v)) {
@@ -2301,9 +2306,43 @@ function storeImageStrict(userId, value, ctx, source, what) {
   const uid = ref && ref.startsWith('/i/') ? ref.slice(3) : '';
   if (!uid) {
     throw new Error(`${what} could not be stored. It must be a PNG, JPEG, WEBP or GIF under 6 MB, `
-      + `and the declared type must match the actual bytes. Nothing was saved — try a smaller image.`);
+      + `and the declared type must match the actual bytes (limit ${Math.round(cap / (1024 * 1024))} MB). `
+      + `Nothing was saved.`);
   }
   return uid;
+}
+
+// Cheap integrity check run inside the save transaction. Every uid the new
+// records point at must resolve to a real row with non-empty bytes; if one
+// does not, the whole save is rolled back rather than reported as complete.
+// This is deliberately a few indexed lookups, not a re-read of the blobs.
+function verifyEnsembleAssets(ens, saved) {
+  const bad = [];
+  const ck = (uid, what) => {
+    if (!uid) return;
+    const r = q('SELECT length(bytes) n, mime FROM images WHERE uid=?').get(uid);
+    if (!r) bad.push(`${what}: image ${uid} was not stored`);
+    else if (!r.n) bad.push(`${what}: image ${uid} stored zero bytes`);
+    else if (!r.mime) bad.push(`${what}: image ${uid} has no content type`);
+  };
+  for (const c of q('SELECT label, image_uid, note_uid FROM ensemble_components WHERE ensemble_id=?').all(ens.id)) {
+    ck(c.image_uid, `component "${c.label}"`);
+    if (c.note_uid) {
+      const n = q('SELECT name, image FROM objects WHERE uid=?').get(c.note_uid);
+      if (!n) bad.push(`component "${c.label}": linked note ${c.note_uid} is missing`);
+      // A Note created by this save was given the component's image, so an
+      // empty or unresolvable value there is a propagation bug, not a
+      // legitimately image-less note.
+      else if (saved.notes_created.includes(c.note_uid)) {
+        if (!n.image) bad.push(`note "${n.name}": created from a component that supplied an image, but has none`);
+        else if (n.image.startsWith('/i/')) ck(n.image.slice(3), `note "${n.name}"`);
+      }
+    }
+  }
+  for (const a of q('SELECT uid, image_uid FROM ensemble_artifacts WHERE ensemble_id=?').all(ens.id)) {
+    ck(a.image_uid, 'generated composition');
+  }
+  if (bad.length) throw new Error('The ensemble was not saved because some images did not persist: ' + bad.join('; '));
 }
 
 // Discard: the member looked at the saved composition and did not want it.
@@ -2361,18 +2400,31 @@ function saveEnsembleComponents(ens, user, components, ctx) {
     };
     let noteUid = null, origin = null;
 
+    // Store the supplied image ONCE, before any branch decides what to do with
+    // it, and share that one asset between the component and any Note made
+    // from it. Previously each branch stored its own copy and the qualifying
+    // branch attached the image to the Note ONLY, leaving the component with
+    // image_uid = NULL — so on a public Ensemble that constituent rendered
+    // with no picture for anyone but the owner, because the only record
+    // holding the image was the deliberately-private auto-created Note.
+    // One row, two references: identical bytes, and the component carries the
+    // Ensemble's own durable representation as the architecture requires.
+    const imgUid = c.image
+      ? storeImageStrict(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`)
+      : null;
+    const imgRef = imgUid ? `/i/${imgUid}` : '';
+
     // 1. an existing Note the member already has — reuse, never duplicate
     const existing = findExistingNote(user.id, c);
     if (existing) { noteUid = existing.uid; origin = 'pre_existing'; out.notes_reused.push(existing.uid); }
 
     // 2. otherwise materialise, but only on qualifying evidence class
     else if (componentQualifies(c) && c.label) {
-      const img = c.image ? `/i/${storeImageStrict(user.id, c.image, ctx, 'external', `The image for "${c.label}"`)}` : '';
       // Auto-created Notes are PRIVATE by default. Publishing a composition is
       // not an act of publishing every personal record behind it, so the
       // Ensemble's own privacy is deliberately not inherited here.
       const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private)
-        VALUES(?,?,'','',?,?,1)`).run(user.id, c.label, c.source_url, img);
+        VALUES(?,?,'','',?,?,1)`).run(user.id, c.label, c.source_url, imgRef);
       noteUid = uidOf('objects', r.lastInsertRowid);
       recordProvenance('object', noteUid, 'created', ctx,
         { source_kind: 'ensemble', source_ref: ens.uid, fields: c.identity_basis });
@@ -2380,8 +2432,6 @@ function saveEnsembleComponents(ens, user, components, ctx) {
       origin = 'created_by_ensemble';
     }
 
-    // 3. insufficient identity — preserved honestly as an unresolved component
-    const imgUid = (!noteUid && c.image) ? storeImageStrict(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`) : null;
     const state = noteUid ? 'linked' : 'unresolved';
     const cr = q(`INSERT INTO ensemble_components(ensemble_id,position,state,note_uid,image_uid,label,source_url)
       VALUES(?,?,?,?,?,?,?)`).run(ens.id, pos++, state, noteUid, imgUid, c.label, c.source_url);
@@ -4148,6 +4198,10 @@ async function mcpCall(user, name, a = {}) {
     // yet. Say so, so the model asks rather than assuming.
     parts.push(`Show it to the member and ask whether to keep it. If they do not want it, `
       + `call discard_ensemble with id ${ens.id}${nc ? `, which will also remove the ${nc} note${nc === 1 ? '' : 's'} just added` : ''}.`);
+    // Before claiming success, prove every asset we just wrote is actually
+    // there and readable. An INSERT returning a rowid is not evidence that the
+    // bytes survived, and the member is about to be told this is done.
+    verifyEnsembleAssets(ens, saved);
     const result = { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
       private: !!ens.private, primary_artifact_uid: primary, artifacts: primary ? [primary] : [],
       components: saved.components, notes_created: saved.notes_created,
