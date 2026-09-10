@@ -2352,6 +2352,32 @@ async function fetchImageAsDataUrl(rawUrl, what) {
   return `data:${mime};base64,${buf.toString('base64')}`;
 }
 
+// Validate an image_uid the caller already holds — from upload_image, or from
+// a previous Ensemble read. This is the preferred path: the bytes are already
+// stored, so nothing is fetched, decoded, optimised or duplicated. Ownership is
+// checked against the acting member, not merely existence, so one member cannot
+// mount another member's asset into their own Ensemble by guessing a uid.
+function resolveOwnedImageUid(userId, uid, what) {
+  const row = q('SELECT uid, user_id, length(bytes) n, mime FROM images WHERE uid=?').get(String(uid).trim());
+  if (!row) throw new Error(`${what}: no stored image with uid "${String(uid).slice(0, 40)}". `
+    + `Use the uid returned by upload_image, or pass an https:// URL instead.`);
+  if (row.user_id !== userId) throw new Error(`${what}: that image belongs to a different member.`);
+  if (!row.n) throw new Error(`${what}: that stored image is empty.`);
+  if (!row.mime || !IMAGE_MIME_ALLOW.has(row.mime)) throw new Error(`${what}: that stored image is not a usable image type.`);
+  return row.uid;
+}
+
+// Resolve one asset slot to a confirmed stored uid. image_uid wins when both
+// are given: re-ingesting bytes we already hold would duplicate the BLOB for
+// no gain, and the uid is the cheaper, more certain reference.
+async function resolveAssetRef(userId, ref, ctx, source, what) {
+  const uid = (ref && typeof ref.image_uid === 'string') ? ref.image_uid.trim() : '';
+  if (uid) return resolveOwnedImageUid(userId, uid, what);
+  const inline = (ref && typeof ref.image === 'string') ? ref.image.trim() : '';
+  if (inline) return await ingestImage(userId, inline, ctx, source, what);
+  return null;
+}
+
 // One entry point. Takes whatever representation the caller could supply and
 // returns a CONFIRMED stored image uid — confirmed meaning the row exists, the
 // bytes are non-empty, and the owner can retrieve it through the normal path.
@@ -2526,7 +2552,8 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
     // 'unidentified' just because no Note exists yet.
     recordProvenance('ensemble_component', cuid, 'created', ctx,
       { source_kind: c.identity_basis || 'unidentified', source_ref: noteUid || null });
-    out.components.push({ component_uid: cuid, state, note_uid: noteUid, note_origin: origin, label: c.label });
+    out.components.push({ component_uid: cuid, state, note_uid: noteUid, note_origin: origin,
+      label: c.label, image_uid: imgUid || null });
     if (state === 'unresolved') out.unresolved.push(cuid);
   }
   return out;
@@ -3570,10 +3597,12 @@ const OS_ENSEMBLE_SAVE = { type: 'object', additionalProperties: false,
     ensemble_uid: { type: 'string' }, ensemble_id: { type: 'integer' },
     private: { type: 'boolean' }, primary_artifact_uid: { type: ['string', 'null'] },
     artifacts: { type: 'array', items: { type: 'string' } },
+    artifact_image_uid: { type: ['string', 'null'], description: 'The stored image behind the primary artifact.' },
     components: { type: 'array', items: { type: 'object', additionalProperties: false,
-      required: ['component_uid', 'state', 'note_uid', 'note_origin', 'label'],
+      required: ['component_uid', 'state', 'note_uid', 'note_origin', 'label', 'image_uid'],
       properties: { component_uid: { type: 'string' }, state: { type: 'string' },
-        note_uid: { type: ['string', 'null'] }, note_origin: { type: ['string', 'null'] }, label: { type: 'string' } } } },
+        note_uid: { type: ['string', 'null'] }, note_origin: { type: ['string', 'null'] }, label: { type: 'string' },
+        image_uid: { type: ['string', 'null'], description: 'The stored image actually persisted for this component.' } } } },
     notes_created: { type: 'array', items: { type: 'string' } },
     notes_reused: { type: 'array', items: { type: 'string' } },
     unresolved_component_uids: { type: 'array', items: { type: 'string' } } } };
@@ -3697,15 +3726,17 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. WORKFLOW, in order: (1) generate the composited image yourself using your own image-generation ability — discriminant.ly does not generate it; (2) call this tool to persist the composition and the pieces that went into it; (3) show the member the composition and ask whether to keep it; (4) call keep_ensemble or discard_ensemble with the id this returns. What this tool creates is PENDING REVIEW: durable and private to the member, but not yet part of their catalogue — nothing is added to their notes until they say keep. IMAGES: pass an https:// URL for each image and discriminant.ly will fetch it; a data: URL also works for small images, but do not attempt to inline a large photograph, which no model can emit. Every image must actually be reachable — the call fails rather than saving a composition with missing pieces.",
-    inputSchema: { type: 'object', required: ['title', 'components', 'artifact'], properties: {
+  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. WORKFLOW, in order: (1) generate the composited image yourself using your own image-generation ability — discriminant.ly does not generate it; (2) get every image into discriminant.ly and collect its uid — call upload_image for each one, which returns a uid; (3) call this tool, passing those uids; (4) show the member the composition and ask whether to keep it; (5) call keep_ensemble or discard_ensemble with the id this returns. What this tool creates is PENDING REVIEW: durable and private to the member, but not yet part of their catalogue — nothing is added to their notes until they say keep. IMAGES: prefer `artifact_uid` and `image_uid` from upload_image — the bytes are already stored, so nothing is fetched or copied again. `artifact` / `image` remain for convenience when you have a plain https:// URL. Every image must resolve; the call fails rather than saving a composition with missing pieces.",
+    inputSchema: { type: 'object', required: ['title', 'components'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
-      artifact: { type: 'string', description: 'The composited image YOU generated: an https:// URL to it, or a data: URL. Required — the composition is the thing being saved.' },
+      artifact_uid: { type: 'string', description: 'PREFERRED. uid of the composited image, from upload_image. Give this OR `artifact` — one of the two is required, since the composition is the thing being saved.' },
+      artifact: { type: 'string', description: 'Alternative to artifact_uid: an https:// URL to the composited image (a data: URL also works for small images). Ignored if artifact_uid is given.' },
       components: { type: 'array', description: 'Every piece that went into the composition, in display order.',
         items: { type: 'object', required: ['label'], properties: {
           label: { type: 'string', description: 'What this piece is, as the member would name it.' },
-          image: { type: 'string', description: 'The piece\'s own image (not the composition): an https:// URL, or a data: URL. Required unless note_uid points to an existing note that already has one.' },
+          image_uid: { type: 'string', description: 'PREFERRED. uid of this piece\'s own image (not the composition), from upload_image.' },
+          image: { type: 'string', description: 'Alternative to image_uid: an https:// URL to this piece\'s own image (a data: URL also works for small images). Ignored if image_uid is given. One of image_uid / image is required unless note_uid points to an existing note that already has an image.' },
           note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
           source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
@@ -3831,9 +3862,9 @@ const TOOLS = [
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'upload_image', description: 'Upload image bytes to Discriminantly and receive a stable reference. Call this first, then pass the returned reference as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. This tool does not create or modify a Note or Travel Mark by itself — it only stores an image and hands back where to find it.',
+  { name: 'upload_image', description: 'Store an image in Discriminantly and get back its uid. Call this first for every image, then pass the uid onward: as `artifact_uid` / `image_uid` to create_pending_ensemble, or as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. Storing once and passing the uid is always preferable to sending the same bytes again — nothing is fetched or copied twice. This tool does not create or modify a Note, Travel Mark or Ensemble by itself.',
     inputSchema: { type: 'object', required: ['image'], properties: {
-      image: { type: 'string', description: 'A data URL, e.g. "data:image/jpeg;base64,....". PNG, JPEG, WEBP, or GIF only, up to 6 MB decoded.' } } },
+      image: { type: 'string', description: 'The image to store: an https:// URL that Discriminantly will fetch, or a data: URL such as "data:image/jpeg;base64,....". PNG, JPEG, WEBP or GIF, up to 20 MB decoded.' } } },
     outputSchema: OS_IMAGE },
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
@@ -3976,12 +4007,17 @@ async function mcpCall(user, name, a = {}) {
   }
   if (name === 'upload_image') {
     if (!a.image) throw new Error('image is required');
-    const ref = storeImage(user.id, a.image, mcpActor(user));
-    if (!ref) throw new Error('Could not store that image — check it is PNG, JPEG, WEBP, or GIF, matches its declared type, and is under 6 MB.');
-    const idNum = +ref.split('/')[2];
-    const img = q('SELECT uid, mime, length(bytes) AS bytes FROM images WHERE id=?').get(idNum);
-    return { text: `Uploaded: ${ref} (${img.mime}, ${Math.round(img.bytes / 1024)} KB)`,
-      structured: { type: 'image', uid: img.uid, id: idNum, ref, mime: img.mime, bytes: img.bytes,
+    // Accepts a data: URL or an https:// URL, and returns the stored uid —
+    // which is the reference every other tool wants.
+    // NOTE: this used to parse `/i/<integer>` out of storeImage()'s return.
+    // Since image references became uid-based, that parse produced NaN and the
+    // lookup failed, so this tool threw on every call. Resolve by uid instead.
+    const uid = await ingestImage(user.id, a.image, mcpActor(user), 'upload', 'The image');
+    const img = q('SELECT id, uid, mime, length(bytes) AS bytes FROM images WHERE uid=?').get(uid);
+    const ref = `/i/${img.uid}`;
+    return { text: `Uploaded. uid: ${img.uid} (${img.mime}, ${Math.round(img.bytes / 1024)} KB). `
+      + `Pass this uid as image_uid / artifact_uid, or as the image argument to note_object or add_travel_mark.`,
+      structured: { type: 'image', uid: img.uid, id: img.id, ref, mime: img.mime, bytes: img.bytes,
         provenance: provenanceOf('image', img.uid) } };
   }
   if (name === 'verify_place') {
@@ -4261,9 +4297,11 @@ async function mcpCall(user, name, a = {}) {
   }
   if (name === 'create_pending_ensemble' || name === 'save_ensemble') {
     if (!a.title) throw new Error('title is required');
-    if (!a.artifact || !String(a.artifact).trim()) {
-      throw new Error('artifact is required: an Ensemble is the composition itself, so generate the composited '
-        + 'image first and pass it as `artifact` — an https:// URL to the image, or a data: URL. Nothing was saved.');
+    const hasArtifact = (a.artifact_uid && String(a.artifact_uid).trim())
+      || (a.artifact && String(a.artifact).trim());
+    if (!hasArtifact) {
+      throw new Error('The composition image is required: an Ensemble is the composition itself. Upload it with '
+        + 'upload_image and pass the uid as `artifact_uid`, or pass `artifact` as an https:// URL. Nothing was saved.');
     }
     const ctx = mcpActor(user);
     const comps = Array.isArray(a.components) ? a.components : [];
@@ -4272,9 +4310,11 @@ async function mcpCall(user, name, a = {}) {
     // Fetching a URL can take seconds; holding a write transaction open across
     // that would lock the database for every other request. Nothing semantic is
     // written until all of these have succeeded and been verified.
-    const artifactUid = await ingestImage(user.id, a.artifact, ctx, 'generated', 'The generated composition');
+    const artifactUid = await resolveAssetRef(user.id,
+      { image_uid: a.artifact_uid, image: a.artifact }, ctx, 'generated', 'The composition image');
     for (const c of comps) {
-      if (c.image) c.__uid = await ingestImage(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`);
+      const resolved = await resolveAssetRef(user.id, c, ctx, 'upload', `The image for "${c.label || 'a component'}"`);
+      if (resolved) c.__uid = resolved;
       else if ((c.note_uid || '').trim()) {
         const n = q('SELECT image FROM objects WHERE uid=? AND user_id=?').get(c.note_uid.trim(), user.id);
         if (n && n.image && n.image.startsWith('/i/')) c.__uid = n.image.slice(3);
@@ -4301,7 +4341,7 @@ async function mcpCall(user, name, a = {}) {
         + `${esc(user.handle)} only. Show the member the composition and ask whether to keep it. `
         + `If yes call keep_ensemble with id ${ens.id}; if no call discard_ensemble with id ${ens.id}.`,
         structured: { ok: true, status: 'pending_review', ensemble_uid: ens.uid, ensemble_id: ens.id,
-          private: true, primary_artifact_uid: primary, artifacts: [primary],
+          private: true, primary_artifact_uid: primary, artifacts: [primary], artifact_image_uid: artifactUid,
           components: saved.components, notes_created: [], notes_reused: [],
           unresolved_component_uids: saved.unresolved } };
       db.exec('COMMIT');
@@ -4317,6 +4357,7 @@ async function mcpCall(user, name, a = {}) {
       return { text: `${e.title} is already kept.`, structured: { ok: true, status: 'saved',
         ensemble_uid: e.uid, ensemble_id: e.id, private: !!e.private,
         primary_artifact_uid: e.primary_artifact_uid || null,
+        artifact_image_uid: (q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid || '') || {}).image_uid || null,
         notes_created: [], notes_reused: [], unresolved_component_uids: [], components: [] } };
     }
     const ctx = mcpActor(user);
@@ -4328,7 +4369,7 @@ async function mcpCall(user, name, a = {}) {
       for (const c of ensComponents(e.id)) {
         if (c.note_uid) {
           out.notes_reused.push(c.note_uid);
-          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: c.note_uid, note_origin: 'pre_existing', label: c.label });
+          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: c.note_uid, note_origin: 'pre_existing', label: c.label , image_uid: c.image_uid || null });
           continue;
         }
         const basis = componentIdentityBasis(c.uid);
@@ -4337,7 +4378,7 @@ async function mcpCall(user, name, a = {}) {
           if (existing) {
             q('UPDATE ensemble_components SET note_uid=?, state=\'linked\', updated_at=CURRENT_TIMESTAMP WHERE id=?').run(existing.uid, c.id);
             out.notes_reused.push(existing.uid);
-            out.components.push({ component_uid: c.uid, state: 'linked', note_uid: existing.uid, note_origin: 'pre_existing', label: c.label });
+            out.components.push({ component_uid: c.uid, state: 'linked', note_uid: existing.uid, note_origin: 'pre_existing', label: c.label , image_uid: c.image_uid || null });
             continue;
           }
           // Auto-created Notes are private by default, and share the component's
@@ -4348,11 +4389,11 @@ async function mcpCall(user, name, a = {}) {
           recordProvenance('object', nUid, 'created', ctx, { source_kind: 'ensemble', source_ref: e.uid, fields: basis });
           q('UPDATE ensemble_components SET note_uid=?, state=\'linked\', updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nUid, c.id);
           out.notes_created.push(nUid);
-          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: nUid, note_origin: 'created_by_ensemble', label: c.label });
+          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: nUid, note_origin: 'created_by_ensemble', label: c.label , image_uid: c.image_uid || null });
           continue;
         }
         out.unresolved.push(c.uid);
-        out.components.push({ component_uid: c.uid, state: 'unresolved', note_uid: null, note_origin: null, label: c.label });
+        out.components.push({ component_uid: c.uid, state: 'unresolved', note_uid: null, note_origin: null, label: c.label , image_uid: c.image_uid || null });
       }
       const priv = a.private === undefined ? 1 : (a.private ? 1 : 0);
       q("UPDATE ensembles SET status='saved', private=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(priv, e.id);
@@ -4366,6 +4407,7 @@ async function mcpCall(user, name, a = {}) {
       const result = { text: parts.join(' '), structured: { ok: true, status: 'saved',
         ensemble_uid: e.uid, ensemble_id: e.id, private: !!priv,
         primary_artifact_uid: e.primary_artifact_uid || null,
+        artifact_image_uid: (q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid || '') || {}).image_uid || null,
         components: out.components, notes_created: out.notes_created,
         notes_reused: out.notes_reused, unresolved_component_uids: out.unresolved } };
       db.exec('COMMIT');
