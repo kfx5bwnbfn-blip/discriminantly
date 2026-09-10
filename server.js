@@ -3255,27 +3255,29 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         <div class="wcell wcell-wide"><form method="post" action="/logout"><button class="btn3d block">Sign out</button></form></div>
       </div>
     </div>
-    <div class="settings-col">
-      <div class="wtable settings-table">
-        <div class="wcell wcell-wide">
-          <p class="sbox-title">Connect to your AI</p>
-          <p class="sbox-sub">Connect ChatGPT or Claude to your Discriminantly memory and work with your Notes, Marks, Collections, Ensembles, and more from any conversation.</p>
-          ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
-          <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
-          <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+    <div class="settings-col settings-col-outward">
+      <div class="settings-stack">
+        <div class="wtable settings-table settings-connector">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Connect to your AI</p>
+            <p class="sbox-sub">Connect ChatGPT or Claude to your Discriminantly memory and work with your Notes, Marks, Collections, Ensembles, and more from any conversation.</p>
+            ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
+            <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
+            <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+          </div>
         </div>
-      </div>
-      <div class="wtable settings-table">
-        <div class="wcell wcell-wide">
-          <p class="sbox-title">Bring someone in</p>
-          <p class="sbox-sub">Each member may hold a few open invites at a time.</p>
-          <form method="post" action="/invites"><button class="btn3d block" ${unusedInvites.length >= 5 ? 'disabled' : ''}>Create an invite</button></form>
-          <p class="fine center">${unusedInvites.length} of 5 open</p>
-          ${mine.length ? mine.map((i) => `<div class="invite-row">
-            ${i.used_by
-              ? `<p class="fine center">Used by @${esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle)}</p>`
-              : `<p class="conn-url"><code>${esc(baseUrl(req))}/join?code=${i.code}</code></p>`}
-          </div>`).join('') : ''}
+        <div class="wtable settings-table settings-invites">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Bring someone in</p>
+            <p class="sbox-sub">Each member may hold a few open invites at a time.</p>
+            <form method="post" action="/invites"><button class="btn3d block" ${unusedInvites.length >= 5 ? 'disabled' : ''}>Create an invite</button></form>
+            <p class="fine center">${unusedInvites.length} of 5 open</p>
+            ${mine.length ? mine.map((i) => `<div class="invite-row">
+              ${i.used_by
+                ? `<p class="fine center">Used by @${esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle)}</p>`
+                : `<p class="conn-url"><code>${esc(baseUrl(req))}/join?code=${i.code}</code></p>`}
+            </div>`).join('') : ''}
+          </div>
         </div>
       </div>
       <div class="wtable settings-table install-box" id="install-box" hidden>
