@@ -574,12 +574,7 @@ const MIGRATIONS = [
     db.exec('CREATE INDEX IF NOT EXISTS idx_ens_art_ens ON ensemble_artifacts(ensemble_id, id)');
   }],
 
-  // Storage and load-time work. sha256 lets identical bytes be stored once —
-  // regenerating a composition, or reusing one product photo across several
-  // ensembles, is common and currently duplicates the whole blob. width/height
-  // are parsed from the file header (no image library needed) so every <img>
-  // can carry real dimensions, which stops layout shift and lets the browser
-  // reserve space before the bytes arrive.
+
   ['030-image-dedupe-dims', () => {
     for (const col of ['sha256', 'width', 'height']) {
       if (!hasColumn('images', col)) db.exec(`ALTER TABLE images ADD COLUMN ${col} ${col === 'sha256' ? 'TEXT' : 'INTEGER'}`);
@@ -592,6 +587,26 @@ const MIGRATIONS = [
       db.prepare('UPDATE images SET sha256=?, width=?, height=? WHERE rowid=?')
         .run(crypto.createHash('sha256').update(b).digest('hex'), d.w || null, d.h || null, r.rid);
     }
+  }],
+
+  // Storage and load-time work. sha256 lets identical bytes be stored once —
+  // regenerating a composition, or reusing one product photo across several
+  // ensembles, is common and currently duplicates the whole blob. width/height
+  // are parsed from the file header (no image library needed) so every <img>
+  // can carry real dimensions, which stops layout shift and lets the browser
+  // reserve space before the bytes arrive.
+  // Ensemble review lifecycle. A composition is persisted the moment it is
+  // generated — so nothing is lost while the member decides — but persisting
+  // is not yet the commitment that materialises Notes. status separates the
+  // two: 'pending_review' is durable, private and inspectable; 'saved' is the
+  // commitment boundary the Note-materialisation rules already key on.
+  // Deliberately scoped to Ensemble; Notes and Marks get no draft state.
+  ['031-ensemble-review', () => {
+    if (!hasColumn('ensembles', 'status')) db.exec("ALTER TABLE ensembles ADD COLUMN status TEXT NOT NULL DEFAULT 'saved'");
+    db.exec('CREATE INDEX IF NOT EXISTS idx_ensembles_status ON ensembles(user_id, status, id)');
+    // Anything that already exists was created under the old semantics, where
+    // saving WAS the commitment — so it is already saved, not pending.
+    db.exec("UPDATE ensembles SET status='saved' WHERE status IS NULL OR status=''");
   }],
 
 ];
@@ -2192,7 +2207,12 @@ function warrantedSubjectUids(userId, subjectType) {
     .all(userId, subjectType).map((r) => r.subject_uid));
 }
 
-const ensCanSee = (e, me) => !e.private || (me && (me.id === e.user_id || me.is_admin));
+// A pending composition is owner-only whatever its private flag says: it has
+// not been committed to the catalogue yet, so it must never appear publicly or
+// in anyone else's view even briefly.
+const ensCanSee = (e, me) => (e.status === 'pending_review')
+  ? !!(me && (me.id === e.user_id || me.is_admin))
+  : (!e.private || (me && (me.id === e.user_id || me.is_admin)));
 
 // A component's OWN representation — label and image belong to the Ensemble,
 // not to the linked Note. That is what lets a public Ensemble describe a
@@ -2248,7 +2268,7 @@ function ensembleView(e, me) {
     lineage: JSON.parse(a.lineage || '[]'), created_at: a.created_at }));
   return {
     type: 'ensemble', uid: e.uid, id: e.id, title: e.title, description: e.description,
-    private: !!e.private, created_at: e.created_at, updated_at: e.updated_at || null,
+    private: !!e.private, status: e.status || 'saved', created_at: e.created_at, updated_at: e.updated_at || null,
     primary_artifact_uid: e.primary_artifact_uid || null,
     artifacts: arts,
     components: ensComponents(e.id).map((c) => componentView(c, e, me)),
@@ -2270,6 +2290,15 @@ const lineageOf = (ensembleId) => JSON.stringify(ensComponents(ensembleId).map((
 const QUALIFYING_BASIS = new Set(['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note']);
 const componentQualifies = (c) => QUALIFYING_BASIS.has(c.identity_basis || '');
 
+// The identity evidence a component was staged with. Recorded as provenance at
+// staging time so Keep can apply the same evidence-class rule later without the
+// model having to restate it — the decision must not depend on conversation.
+function componentIdentityBasis(componentUid) {
+  const r = q(`SELECT source_kind FROM provenance WHERE entity_type='ensemble_component'
+    AND entity_uid=? AND action='created' ORDER BY id LIMIT 1`).get(componentUid);
+  return r ? r.source_kind || '' : '';
+}
+
 // Reuse before creation, canonical evidence only. derived_relations is never
 // consulted here: an inference must not silently become a canonical link.
 function findExistingNote(userId, c) {
@@ -2287,6 +2316,58 @@ function findExistingNote(userId, c) {
   }
   return null;
 }
+// ---- asset ingestion (v1.20) --------------------------------------------
+// A chat model cannot hand us image BYTES. Two independent reasons, either
+// fatal on its own:
+//   1. It does not have them. An attached photo reaches the model as vision
+//      tokens; a picture it generated reaches it as an asset reference. In
+//      neither case can it read the bytes back out.
+//   2. Even if it could, it would have to EMIT them as output tokens. A 500 KB
+//      photo is ~667,000 base64 characters — roughly 167,000 tokens, against a
+//      per-turn output budget of a few thousand.
+// So a data:-only contract is not a strict contract, it is an unbuildable one.
+// We therefore accept what a client can actually supply — chiefly a URL we
+// fetch ourselves — and normalise everything to one stored image.
+const PRIVATE_HOST = /^(localhost$|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)/i;
+
+async function fetchImageAsDataUrl(rawUrl, what) {
+  let u;
+  try { u = new URL(rawUrl); } catch { throw new Error(`${what}: "${String(rawUrl).slice(0, 60)}" is not a valid URL.`); }
+  if (!/^https?:$/.test(u.protocol)) throw new Error(`${what}: only http(s) image URLs can be fetched.`);
+  // never let a supplied URL probe our own private network
+  if (PRIVATE_HOST.test(u.hostname)) throw new Error(`${what}: that host is not reachable.`);
+  let r;
+  try {
+    r = await fetch(u.href, { redirect: 'follow', signal: AbortSignal.timeout(20000),
+      headers: { 'User-Agent': 'discriminantly/1.0 (+https://discriminantly.com)', Accept: 'image/*' } });
+  } catch (e) {
+    throw new Error(`${what}: could not fetch that image (${e.name === 'TimeoutError' ? 'timed out' : 'network error'}). `
+      + `If the link is short-lived or needs a login, it cannot be read from here.`);
+  }
+  if (!r.ok) throw new Error(`${what}: the image URL returned HTTP ${r.status}.`);
+  const mime = (r.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!IMAGE_MIME_ALLOW.has(mime)) throw new Error(`${what}: that URL returned "${mime || 'no content type'}", not an image.`);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!buf.length) throw new Error(`${what}: the image URL returned no data.`);
+  return `data:${mime};base64,${buf.toString('base64')}`;
+}
+
+// One entry point. Takes whatever representation the caller could supply and
+// returns a CONFIRMED stored image uid — confirmed meaning the row exists, the
+// bytes are non-empty, and the owner can retrieve it through the normal path.
+async function ingestImage(userId, input, ctx, source, what) {
+  const v = typeof input === 'string' ? input.trim() : '';
+  if (!v) return null;
+  const dataUrl = /^data:image\//i.test(v) ? v
+    : /^https?:\/\//i.test(v) ? await fetchImageAsDataUrl(v, what)
+    : (() => { throw new Error(`${what}: expected an https:// image URL or a data: URL, got "${v.slice(0, 48)}".`); })();
+  const uid = storeImageStrict(userId, dataUrl, ctx, source, what);
+  // prove it, rather than trusting the insert
+  const row = q('SELECT length(bytes) n, mime FROM images WHERE uid=?').get(uid);
+  if (!row || !row.n || !row.mime) throw new Error(`${what}: stored but not retrievable afterwards; nothing was saved.`);
+  return uid;
+}
+
 // storeImage() is lenient by design: it passes non-data: values straight
 // through (so a note can hold an external URL) and returns '' when bytes fail
 // validation. Ensemble needs the opposite — an artifact or component image MUST
@@ -2373,7 +2454,7 @@ function notesSafeToDiscard(ens) {
 // its identifiable constituents are worth recording — so qualifying ones
 // become Notes here, without a separate confirmation. Everything it did is
 // reported back so the AI can say truthfully what happened.
-function saveEnsembleComponents(ens, user, components, ctx) {
+function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
   const out = { components: [], notes_created: [], notes_reused: [], unresolved: [] };
   // Every constituent must be visually represented — the pieces are what the
   // composition is made of, and an Ensemble page listing bare labels is not
@@ -2382,7 +2463,7 @@ function saveEnsembleComponents(ens, user, components, ctx) {
   // Checked for all components before anything is written, so the error names
   // the offending piece rather than failing halfway through.
   for (const raw of (components || [])) {
-    if (raw.image && String(raw.image).trim()) continue;
+    if (raw.__uid) continue;
     const nu = (raw.note_uid || '').trim();
     const linked = nu ? q('SELECT image FROM objects WHERE uid=? AND user_id=?').get(nu, user.id) : null;
     if (linked && linked.image) continue;
@@ -2409,17 +2490,20 @@ function saveEnsembleComponents(ens, user, components, ctx) {
     // holding the image was the deliberately-private auto-created Note.
     // One row, two references: identical bytes, and the component carries the
     // Ensemble's own durable representation as the architecture requires.
-    const imgUid = c.image
-      ? storeImageStrict(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`)
-      : null;
+    // Already ingested and confirmed before the transaction opened — a network
+    // fetch must never run while a write transaction is held open.
+    const imgUid = raw.__uid || null;
     const imgRef = imgUid ? `/i/${imgUid}` : '';
 
     // 1. an existing Note the member already has — reuse, never duplicate
     const existing = findExistingNote(user.id, c);
     if (existing) { noteUid = existing.uid; origin = 'pre_existing'; out.notes_reused.push(existing.uid); }
 
-    // 2. otherwise materialise, but only on qualifying evidence class
-    else if (componentQualifies(c) && c.label) {
+    // 2. otherwise materialise — but ONLY at the commitment moment. Staging a
+    // composition for review is not yet the member saying it is worth keeping,
+    // so a pending Ensemble records the identity evidence and leaves the
+    // catalogue untouched until Keep.
+    else if (materialiseNotes && componentQualifies(c) && c.label) {
       // Auto-created Notes are PRIVATE by default. Publishing a composition is
       // not an act of publishing every personal record behind it, so the
       // Ensemble's own privacy is deliberately not inherited here.
@@ -2436,9 +2520,12 @@ function saveEnsembleComponents(ens, user, components, ctx) {
     const cr = q(`INSERT INTO ensemble_components(ensemble_id,position,state,note_uid,image_uid,label,source_url)
       VALUES(?,?,?,?,?,?,?)`).run(ens.id, pos++, state, noteUid, imgUid, c.label, c.source_url);
     const cuid = uidOf('ensemble_components', cr.lastInsertRowid);
+    // Record the evidence class the member/AI actually supplied, whatever the
+    // current state is — Keep re-reads this to decide what qualifies, so it
+    // must survive the staging step rather than being flattened to
+    // 'unidentified' just because no Note exists yet.
     recordProvenance('ensemble_component', cuid, 'created', ctx,
-      { source_kind: state === 'linked' ? (c.identity_basis || 'user_identity') : 'unidentified',
-        source_ref: noteUid || null });
+      { source_kind: c.identity_basis || 'unidentified', source_ref: noteUid || null });
     out.components.push({ component_uid: cuid, state, note_uid: noteUid, note_origin: origin, label: c.label });
     if (state === 'unresolved') out.unresolved.push(cuid);
   }
@@ -2698,7 +2785,12 @@ ${noters.length ? `<div class="section-rule"></div>
   <div class="ens-head">
     <h1 class="ens-title">${esc(v.title)}</h1>
     ${v.description ? `<p class="ens-desc">${esc(v.description)}</p>` : ''}
-    <p class="ens-meta">${stackDate(v.created_at).replace(/<[^>]+>/g, ' ').trim()} · ${v.private ? 'Private' : 'Public'}${v.updated_at ? ' · updated' : ''}</p>
+    <p class="ens-meta">${stackDate(v.created_at).replace(/<[^>]+>/g, ' ').trim()} · ${v.status === 'pending_review' ? '<b class="ens-pending">Pending review</b>' : (v.private ? 'Private' : 'Public')}${v.updated_at ? ' · updated' : ''}</p>
+    ${mine && v.status === 'pending_review' ? `<div class="ens-review">
+      <p class="ens-review-q">Keep this on discriminant.ly?</p>
+      <form method="post" action="/e/${e.id}/keep"><button class="btn3d">Keep</button></form>
+      <form method="post" action="/e/${e.id}/discard"><button class="nf-link-btn ens-danger">Discard</button></form>
+    </div>` : ''}
   </div>
   ${primary ? `<div class="ens-primary">${imgTag(primary.image, v.title, null, true)}</div>` : ''}
   ${alts.length ? `<div class="ens-alts">${alts.map((a) => `<figure class="ens-alt">
@@ -3455,9 +3547,10 @@ const OS_COMPONENT = { type: 'object', additionalProperties: false,
         note_uid: { type: ['string', 'null'] }, actor: { type: 'string' },
         assertion: { type: 'string' }, superseded: { type: ['string', 'null'] }, at: { type: 'string' } } } } } };
 const OS_ENSEMBLE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'title', 'description', 'private', 'created_at', 'updated_at', 'primary_artifact_uid', 'artifacts', 'components', 'provenance'],
+  required: ['type', 'uid', 'id', 'title', 'description', 'private', 'status', 'created_at', 'updated_at', 'primary_artifact_uid', 'artifacts', 'components', 'provenance'],
   properties: { type: { const: 'ensemble' }, uid: { type: 'string' }, id: { type: 'integer' },
     title: { type: 'string' }, description: { type: 'string' }, private: { type: 'boolean' },
+    status: { type: 'string', enum: ['pending_review', 'saved'] },
     created_at: { type: 'string' }, updated_at: { type: ['string', 'null'] },
     primary_artifact_uid: { type: ['string', 'null'] },
     artifacts: { type: 'array', items: OS_ARTIFACT },
@@ -3470,8 +3563,11 @@ const OS_ENSEMBLE_BRIEF = { type: 'object', additionalProperties: false,
 // The compound result: everything the save actually did, so the model can
 // report it without stitching together further calls.
 const OS_ENSEMBLE_SAVE = { type: 'object', additionalProperties: false,
-  required: ['ok', 'ensemble_uid', 'ensemble_id', 'private', 'primary_artifact_uid', 'artifacts', 'components', 'notes_created', 'notes_reused', 'unresolved_component_uids'],
-  properties: { ok: { type: 'boolean' }, ensemble_uid: { type: 'string' }, ensemble_id: { type: 'integer' },
+  required: ['ok', 'status', 'ensemble_uid', 'ensemble_id', 'private', 'primary_artifact_uid', 'components', 'notes_created', 'notes_reused', 'unresolved_component_uids'],
+  properties: { ok: { type: 'boolean' },
+    status: { type: 'string', enum: ['pending_review', 'saved'],
+      description: 'pending_review means staged and awaiting the member\'s keep/discard decision; saved means committed.' },
+    ensemble_uid: { type: 'string' }, ensemble_id: { type: 'integer' },
     private: { type: 'boolean' }, primary_artifact_uid: { type: ['string', 'null'] },
     artifacts: { type: 'array', items: { type: 'string' } },
     components: { type: 'array', items: { type: 'object', additionalProperties: false,
@@ -3601,20 +3697,24 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'save_ensemble', description: 'Save a composition as an Ensemble: a set of things arranged together, with the generated image of that arrangement. CALL THIS AS SOON AS YOU HAVE GENERATED THE COMPOSITED IMAGE, before asking the member whether they like it — saving first means the composition and its pieces survive even if the conversation ends, and nothing is lost while they decide. Then show it to them and ask whether to keep it or discard it; if they discard, call discard_ensemble, which also removes any notes this save added. Pass the composited image bytes as `artifact`; the image is the thing being saved and the call is refused without it. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
+  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. WORKFLOW, in order: (1) generate the composited image yourself using your own image-generation ability — discriminant.ly does not generate it; (2) call this tool to persist the composition and the pieces that went into it; (3) show the member the composition and ask whether to keep it; (4) call keep_ensemble or discard_ensemble with the id this returns. What this tool creates is PENDING REVIEW: durable and private to the member, but not yet part of their catalogue — nothing is added to their notes until they say keep. IMAGES: pass an https:// URL for each image and discriminant.ly will fetch it; a data: URL also works for small images, but do not attempt to inline a large photograph, which no model can emit. Every image must actually be reachable — the call fails rather than saving a composition with missing pieces.",
     inputSchema: { type: 'object', required: ['title', 'components', 'artifact'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
-      private: { type: 'boolean', description: 'Keep the whole Ensemble to the member. Defaults to false.' },
-      components: { type: 'array', description: 'Every constituent kept in the saved composition, in display order.',
+      artifact: { type: 'string', description: 'The composited image YOU generated: an https:// URL to it, or a data: URL. Required — the composition is the thing being saved.' },
+      components: { type: 'array', description: 'Every piece that went into the composition, in display order.',
         items: { type: 'object', required: ['label'], properties: {
           label: { type: 'string', description: 'What this piece is, as the member would name it.' },
+          image: { type: 'string', description: 'The piece\'s own image (not the composition): an https:// URL, or a data: URL. Required unless note_uid points to an existing note that already has one.' },
           note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
           source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
-          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition) — the bytes themselves, never a link or a local file path. REQUIRED unless note_uid points to an existing note that already has an image. Capped at 6 MB; send a good-quality crop rather than a full-resolution original.' },
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
-            description: 'How the identity is known. Only user_identity, maker_model, product_page, external_id and resolved_note create a note. Use "unidentified" for anything resting on your own visual judgement, however confident — a guess is not evidence.' } } } },
-      artifact: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Becomes the primary artifact. Prefer WEBP or JPEG over PNG where the image is photographic: a PNG composition is often several times larger for no visible gain, and the limit is 24 MB.' } } },
+            description: 'How the identity is known. Only the canonical values let a note be created when the member keeps this; use "unidentified" for anything resting on your own visual judgement, however confident.' } } } } } },
+    outputSchema: OS_ENSEMBLE_SAVE },
+  { name: 'keep_ensemble', description: "The member has looked at a staged composition and wants to keep it. This is the moment their catalogue changes: pieces that are clearly identified become notes (private by default), pieces already in their notes are reused rather than duplicated, and anything uncertain stays unidentified. Safe to call twice — a composition already kept is left alone.",
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The Ensemble's id, from create_pending_ensemble." },
+      private: { type: 'boolean', description: 'Whether the composition itself stays private. Defaults to private; pass false only if the member asked to publish it.' } } },
     outputSchema: OS_ENSEMBLE_SAVE },
   { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. The actual pictures come back with the result: the current composition first, then any alternate versions, then images of individual pieces — show them to the member rather than describing them or linking to them. Enough to understand and continue a composition with no memory of the conversation that made it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -3674,7 +3774,7 @@ const TOOLS = [
       description: { type: 'string', description: 'Replaces the description of the arrangement.' },
       private: { type: 'boolean', description: 'True hides the whole Ensemble from everyone but the member.' } } },
     outputSchema: OS_WRITE },
-  { name: 'discard_ensemble', description: 'Throw away a composition the member has just decided against. Use this when they say no, discard, bin it, start over or similar after seeing a saved composition. It removes the Ensemble, its generated images, and any notes that this Ensemble put into their catalogue — but never notes they already had, and never a note that has since been marked owned, warranted, filed, edited or used elsewhere. To remove an Ensemble they had kept and lived with, use delete_ensemble instead, which leaves every note alone.',
+  { name: 'discard_ensemble', description: 'Throw away a composition the member has decided against — including one still pending review straight after generating it. No confirmation is needed for a composition they have just declined. Use this when they say no, discard, bin it, start over or similar after seeing a saved composition. It removes the Ensemble, its generated images, and any notes that this Ensemble put into their catalogue — but never notes they already had, and never a note that has since been marked owned, warranted, filed, edited or used elsewhere. To remove an Ensemble they had kept and lived with, use delete_ensemble instead, which leaves every note alone.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id, from save_ensemble." } } },
     outputSchema: OS_DISCARD },
@@ -4159,58 +4259,118 @@ async function mcpCall(user, name, a = {}) {
     return wr(`Warrant withdrawn from ${row.name}. The history of having warranted it is preserved privately.`,
       'revoked', 'warrant', row.id, row.uid, row.name);
   }
-  if (name === 'save_ensemble') {
+  if (name === 'create_pending_ensemble' || name === 'save_ensemble') {
     if (!a.title) throw new Error('title is required');
-    // The generated composition IS the artifact the member came to create.
-    // An Ensemble without one is an empty shell, so this is refused rather
-    // than saved — schema `required` is not enforced by every client, so the
-    // check lives here too.
     if (!a.artifact || !String(a.artifact).trim()) {
-      throw new Error('artifact is required: an Ensemble is the saved composition, so generate the '
-        + 'composited image first and pass its bytes as a data: URL. Nothing was saved. If the member '
-        + 'only wants to group things without a composition, use a collection on their notes instead.');
+      throw new Error('artifact is required: an Ensemble is the composition itself, so generate the composited '
+        + 'image first and pass it as `artifact` — an https:// URL to the image, or a data: URL. Nothing was saved.');
     }
     const ctx = mcpActor(user);
-    // Saving is one compound act: the Ensemble, its components, any Notes it
-    // materialises and the generated artifact either all persist or none do.
-    // Without this, an image that fails validation halfway through would leave
-    // a half-written Ensemble behind and still report success.
+    const comps = Array.isArray(a.components) ? a.components : [];
+
+    // ---- stage 1: ingest every asset FIRST, outside any transaction.
+    // Fetching a URL can take seconds; holding a write transaction open across
+    // that would lock the database for every other request. Nothing semantic is
+    // written until all of these have succeeded and been verified.
+    const artifactUid = await ingestImage(user.id, a.artifact, ctx, 'generated', 'The generated composition');
+    for (const c of comps) {
+      if (c.image) c.__uid = await ingestImage(user.id, c.image, ctx, 'upload', `The image for "${c.label || 'a component'}"`);
+      else if ((c.note_uid || '').trim()) {
+        const n = q('SELECT image FROM objects WHERE uid=? AND user_id=?').get(c.note_uid.trim(), user.id);
+        if (n && n.image && n.image.startsWith('/i/')) c.__uid = n.image.slice(3);
+      }
+    }
+
+    // ---- stage 2: one transaction for the semantic records
     db.exec('BEGIN');
     try {
-    const r = q('INSERT INTO ensembles(user_id,title,description,private) VALUES(?,?,?,?)')
-      .run(user.id, a.title, a.description || '', a.private ? 1 : 0);
-    const ens = q('SELECT * FROM ensembles WHERE id=?').get(r.lastInsertRowid);
-    recordProvenance('ensemble', ens.uid, 'created', ctx, { source_kind: 'manual' });
-    const saved = saveEnsembleComponents(ens, user, a.components, ctx);
-    let primary = null;
-    if (a.artifact) {
-      const iu = storeImageStrict(user.id, a.artifact, ctx, 'generated', 'The generated composition image');
+      const r = q("INSERT INTO ensembles(user_id,title,description,private,status) VALUES(?,?,?,1,'pending_review')")
+        .run(user.id, a.title, a.description || '');
+      const ens = q('SELECT * FROM ensembles WHERE id=?').get(r.lastInsertRowid);
+      recordProvenance('ensemble', ens.uid, 'created', ctx, { source_kind: 'manual', fields: 'pending_review' });
+      // Staging is not the commitment moment, so no Notes are materialised yet.
+      const saved = saveEnsembleComponents(ens, user, comps, ctx, false);
       const ar = q('INSERT INTO ensemble_artifacts(ensemble_id,image_uid,lineage) VALUES(?,?,?)')
-        .run(ens.id, iu, lineageOf(ens.id));
-      primary = uidOf('ensemble_artifacts', ar.lastInsertRowid);
+        .run(ens.id, artifactUid, lineageOf(ens.id));
+      const primary = uidOf('ensemble_artifacts', ar.lastInsertRowid);
       q('UPDATE ensembles SET primary_artifact_uid=? WHERE id=?').run(primary, ens.id);
       recordProvenance('ensemble_artifact', primary, 'created', ctx, { source_kind: 'generated', source_ref: ens.uid });
-    }
-    const nc = saved.notes_created.length, nr = saved.notes_reused.length, un = saved.unresolved.length;
-    const parts = [`Ensemble saved: ${a.title}.`];
-    if (nc) parts.push(`${nc} new ${nc === 1 ? 'note' : 'notes'} added (private).`);
-    if (nr) parts.push(`${nr} existing ${nr === 1 ? 'note' : 'notes'} reused.`);
-    if (un) parts.push(`${un} ${un === 1 ? 'component remains' : 'components remain'} unidentified.`);
-    // The save is deliberately eager, so the member has not agreed to keep it
-    // yet. Say so, so the model asks rather than assuming.
-    parts.push(`Show it to the member and ask whether to keep it. If they do not want it, `
-      + `call discard_ensemble with id ${ens.id}${nc ? `, which will also remove the ${nc} note${nc === 1 ? '' : 's'} just added` : ''}.`);
-    // Before claiming success, prove every asset we just wrote is actually
-    // there and readable. An INSERT returning a rowid is not evidence that the
-    // bytes survived, and the member is about to be told this is done.
-    verifyEnsembleAssets(ens, saved);
-    const result = { text: parts.join(' '), structured: { ok: true, ensemble_uid: ens.uid, ensemble_id: ens.id,
-      private: !!ens.private, primary_artifact_uid: primary, artifacts: primary ? [primary] : [],
-      components: saved.components, notes_created: saved.notes_created,
-      notes_reused: saved.notes_reused, unresolved_component_uids: saved.unresolved } };
-    db.exec('COMMIT');
-    return result;
+      verifyEnsembleAssets(ens, saved);
+      const result = { text: `Staged for review: ${a.title}. ${saved.components.length} piece`
+        + `${saved.components.length === 1 ? '' : 's'} and the composition are saved to discriminant.ly and visible to `
+        + `${esc(user.handle)} only. Show the member the composition and ask whether to keep it. `
+        + `If yes call keep_ensemble with id ${ens.id}; if no call discard_ensemble with id ${ens.id}.`,
+        structured: { ok: true, status: 'pending_review', ensemble_uid: ens.uid, ensemble_id: ens.id,
+          private: true, primary_artifact_uid: primary, artifacts: [primary],
+          components: saved.components, notes_created: [], notes_reused: [],
+          unresolved_component_uids: saved.unresolved } };
+      db.exec('COMMIT');
+      return result;
     } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  if (name === 'keep_ensemble') {
+    const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
+    if (!e) throw new Error(`No ensemble #${a.id}`);
+    if (e.user_id !== user.id) throw new Error('That ensemble does not belong to this member');
+    // Retrying Keep must not materialise a second set of Notes.
+    if (e.status === 'saved') {
+      return { text: `${e.title} is already kept.`, structured: { ok: true, status: 'saved',
+        ensemble_uid: e.uid, ensemble_id: e.id, private: !!e.private,
+        primary_artifact_uid: e.primary_artifact_uid || null,
+        notes_created: [], notes_reused: [], unresolved_component_uids: [], components: [] } };
+    }
+    const ctx = mcpActor(user);
+    db.exec('BEGIN');
+    try {
+      // Keep IS the commitment boundary: now the qualifying constituents are
+      // worth recording, so existing Notes are reused and missing ones made.
+      const out = { notes_created: [], notes_reused: [], components: [], unresolved: [] };
+      for (const c of ensComponents(e.id)) {
+        if (c.note_uid) {
+          out.notes_reused.push(c.note_uid);
+          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: c.note_uid, note_origin: 'pre_existing', label: c.label });
+          continue;
+        }
+        const basis = componentIdentityBasis(c.uid);
+        if (QUALIFYING_BASIS.has(basis) && c.label) {
+          const existing = findExistingNote(user.id, { note_uid: null, source_url: c.source_url, label: c.label });
+          if (existing) {
+            q('UPDATE ensemble_components SET note_uid=?, state=\'linked\', updated_at=CURRENT_TIMESTAMP WHERE id=?').run(existing.uid, c.id);
+            out.notes_reused.push(existing.uid);
+            out.components.push({ component_uid: c.uid, state: 'linked', note_uid: existing.uid, note_origin: 'pre_existing', label: c.label });
+            continue;
+          }
+          // Auto-created Notes are private by default, and share the component's
+          // already-stored image rather than re-ingesting the same bytes.
+          const nr = q("INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,'','',?,?,1)")
+            .run(user.id, c.label, c.source_url || '', c.image_uid ? `/i/${c.image_uid}` : '');
+          const nUid = uidOf('objects', nr.lastInsertRowid);
+          recordProvenance('object', nUid, 'created', ctx, { source_kind: 'ensemble', source_ref: e.uid, fields: basis });
+          q('UPDATE ensemble_components SET note_uid=?, state=\'linked\', updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nUid, c.id);
+          out.notes_created.push(nUid);
+          out.components.push({ component_uid: c.uid, state: 'linked', note_uid: nUid, note_origin: 'created_by_ensemble', label: c.label });
+          continue;
+        }
+        out.unresolved.push(c.uid);
+        out.components.push({ component_uid: c.uid, state: 'unresolved', note_uid: null, note_origin: null, label: c.label });
+      }
+      const priv = a.private === undefined ? 1 : (a.private ? 1 : 0);
+      q("UPDATE ensembles SET status='saved', private=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(priv, e.id);
+      recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'status:saved' });
+      verifyEnsembleAssets(e, out);
+      const nc = out.notes_created.length, nr2 = out.notes_reused.length, un = out.unresolved.length;
+      const parts = [`Kept: ${e.title}.`];
+      if (nc) parts.push(`${nc} new ${nc === 1 ? 'note' : 'notes'} added (private).`);
+      if (nr2) parts.push(`${nr2} existing ${nr2 === 1 ? 'note' : 'notes'} reused.`);
+      if (un) parts.push(`${un} ${un === 1 ? 'piece remains' : 'pieces remain'} unidentified.`);
+      const result = { text: parts.join(' '), structured: { ok: true, status: 'saved',
+        ensemble_uid: e.uid, ensemble_id: e.id, private: !!priv,
+        primary_artifact_uid: e.primary_artifact_uid || null,
+        components: out.components, notes_created: out.notes_created,
+        notes_reused: out.notes_reused, unresolved_component_uids: out.unresolved } };
+      db.exec('COMMIT');
+      return result;
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
   }
   if (name === 'get_ensemble') {
     const e = q('SELECT * FROM ensembles WHERE id=?').get(a.id);
@@ -4614,7 +4774,7 @@ async function handle(req, res) {
   }
   // Native authorship controls. Everything here is also MCP-operable; the
   // point is that the member never needs an AI to control their own record.
-  if ((mt = p.match(/^\/e\/(\d+)\/(edit|delete|primary|artifact\/remove|component\/remove)$/)) && m === 'POST') {
+  if ((mt = p.match(/^\/e\/(\d+)\/(edit|delete|primary|keep|discard|artifact\/remove|component\/remove)$/)) && m === 'POST') {
     if (!me) return need();
     const e = q('SELECT * FROM ensembles WHERE id=?').get(+mt[1]);
     if (!e) return send(res, 'Not found', 404);
@@ -4628,6 +4788,14 @@ async function handle(req, res) {
       // A plain form post (no JS) still redirects.
       if (req.headers['x-quiet'] === '1') { res.writeHead(204); return res.end(); }
       return redirect(res, `/e/${e.id}`);
+    }
+    // Keep / Discard from the worksurface run the same semantics as the MCP
+    // tools — the member must never need an AI to commit or reject their own
+    // composition.
+    if (act === 'keep' || act === 'discard') {
+      const out = await mcpCall(me, act === 'keep' ? 'keep_ensemble' : 'discard_ensemble', { id: e.id })
+        .catch((err) => ({ text: err.message }));
+      return redirect(res, act === 'keep' ? `/e/${e.id}` : '/e');
     }
     if (act === 'delete') {
       recordProvenance('ensemble', e.uid, 'deleted', ctx, {});

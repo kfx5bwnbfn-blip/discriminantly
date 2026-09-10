@@ -1656,3 +1656,12 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
   .settings-stack { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 1.4rem; }
   .install-box { grid-column: 3; grid-row: 1; margin: 0; }
 }
+
+/* pending-review banner and its keep/discard controls */
+.ens-pending { color: #c9a227; font-weight: 700; }
+.ens-review { display: flex; align-items: center; justify-content: center; gap: 1.1rem;
+  padding: .9rem 1.2rem; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+  margin: .8rem 0 0; flex-wrap: wrap; }
+.ens-review-q { margin: 0; font-family: var(--slab); font-size: .68rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.ens-review form { margin: 0; }
