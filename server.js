@@ -2401,6 +2401,21 @@ async function resolveAssetRef(userId, ref, ctx, source, what) {
   return null;
 }
 
+// Undo an ingest whose post-insert verification failed. Format, size and
+// completeness are all checked BEFORE the row is written, so nothing malformed
+// ever reaches this point — but the verification that runs AFTER the insert
+// (ownership, byte-count fidelity, read-back) can still fail, and at that point
+// the row is already committed. Throwing alone would leave an orphan and make
+// the "nothing was saved" in the error a lie. Delete the row and its
+// provenance so the failure is literally true.
+function discardStoredImage(uid) {
+  if (!uid) return;
+  try {
+    q("DELETE FROM provenance WHERE entity_type='image' AND entity_uid=?").run(uid);
+    q('DELETE FROM images WHERE uid=?').run(uid);
+  } catch { /* best effort: the caller is already failing the request */ }
+}
+
 // Prove an ingested image is durably stored, entirely server-side. A caller
 // must never have to GET a private image URL to find out whether an upload
 // worked — that request is unauthenticated from a model's environment and will
@@ -2435,7 +2450,10 @@ async function ingestImage(userId, input, ctx, source, what) {
   const uid = storeImageStrict(userId, dataUrl, ctx, source, what);
   // prove it, rather than trusting the insert
   const row = q('SELECT length(bytes) n, mime FROM images WHERE uid=?').get(uid);
-  if (!row || !row.n || !row.mime) throw new Error(`${what}: stored but not retrievable afterwards; nothing was saved.`);
+  if (!row || !row.n || !row.mime) {
+    discardStoredImage(uid);
+    throw new Error(`${what}: stored but not retrievable afterwards; nothing was saved.`);
+  }
   return uid;
 }
 
@@ -4072,7 +4090,10 @@ async function mcpCall(user, name, a = {}) {
       ? Buffer.from(String(a.image).split(',')[1] || '', 'base64').length : null;
     const uid = await ingestImage(user.id, a.image, mcpActor(user), 'upload', 'The image');
     const v = verifyStoredImage(user.id, uid, sentBytes);
-    if (!v.verified) throw new Error(`The image was not stored durably: ${v.problems.join('; ')}. Nothing was saved.`);
+    if (!v.verified) {
+      discardStoredImage(uid);   // so "nothing was saved" is literally true
+      throw new Error(`The image was not stored durably: ${v.problems.join('; ')}. Nothing was saved.`);
+    }
     const img = v.row;
     const ref = `/i/${img.uid}`;
     const kb = Math.round(img.n / 1024);
