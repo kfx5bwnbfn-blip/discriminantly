@@ -957,19 +957,24 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 
 <script>
 
-// Downscale in the browser before upload: a phone photo is 4000px and several
-// megabytes, which is wasteful to store and slow to send.
+// Bound the size of a browser upload without visibly degrading it. A phone
+// photo is 4000px and several megabytes, which is slow to send — but these are
+// pictures of things the member cares about, so the ceiling is generous and
+// the quality high. Anything already within the ceiling is re-encoded at near
+// full quality rather than being squeezed.
 function readImage(file, cb) {
   if (!file || file.type.indexOf('image/') !== 0) return;
   var r = new FileReader();
   r.onload = function () {
     var img = new Image();
     img.onload = function () {
-      var MAX = 1600, w = img.width, h = img.height;
+      var MAX = 2560, w = img.width, h = img.height;
       if (Math.max(w, h) > MAX) { var k = MAX / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
       var cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
-      cb(cv.toDataURL('image/jpeg', 0.82));
+      var cx = cv.getContext('2d');
+      cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+      cx.drawImage(img, 0, 0, w, h);
+      cb(cv.toDataURL('image/jpeg', 0.94));
     };
     img.onerror = function () { cb(r.result); };   // svg and the like pass through
     img.src = r.result;
@@ -1186,6 +1191,52 @@ function readImage(file, cb) {
     });
   });
 
+  // Auto-save the ensemble's title, description and privacy. Delegated on
+  // document rather than resolved at parse time: this script block runs in the
+  // masthead, before the form exists in the DOM, so querying for the form here
+  // would find nothing and silently do nothing.
+  (function () {
+    var timer, inflight = false;
+    var flash = function (f, msg, bad) {
+      var note = f.querySelector('[data-saved]');
+      if (!note) return;
+      note.textContent = msg; note.hidden = false;
+      note.classList.toggle('is-bad', !!bad);
+      clearTimeout(note.__t);
+      note.__t = setTimeout(function () { note.hidden = true; }, 2200);
+    };
+    var save = function (f) {
+      if (inflight) return;
+      inflight = true;
+      var d = new URLSearchParams();
+      f.querySelectorAll('input[name], textarea[name]').forEach(function (el) {
+        if (el.type === 'checkbox') { if (el.checked) d.set(el.name, el.value || '1'); }
+        else d.set(el.name, el.value);
+      });
+      fetch(f.getAttribute('action'), { method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-quiet': '1' }, body: d.toString() })
+        .then(function (r) { if (!r.ok) throw new Error(r.status); flash(f, 'Saved'); })
+        .catch(function () { flash(f, 'Not saved — use Save ensemble', true); })
+        .then(function () { inflight = false; });
+    };
+    document.addEventListener('input', function (e) {
+      var f = e.target.closest && e.target.closest('form[data-autosave]');
+      if (!f || e.target.type === 'checkbox') return;
+      clearTimeout(timer); timer = setTimeout(function () { save(f); }, 900);
+    });
+    // a privacy change is a decision, not a draft — save it at once
+    document.addEventListener('change', function (e) {
+      var f = e.target.closest && e.target.closest('form[data-autosave]');
+      if (!f || e.target.type !== 'checkbox') return;
+      clearTimeout(timer); save(f);
+    });
+    // never lose an edit that was mid-debounce when the page closes
+    window.addEventListener('beforeunload', function () {
+      var f = document.querySelector('form[data-autosave]');
+      if (f && timer) { clearTimeout(timer); save(f); }
+    });
+  })();
+
   // Post-form Warrant control. Clicking the CTA slides the seal down in its
   // place and records the intent; clicking the seal asks before withdrawing.
   // Nothing is written until the form is saved.
@@ -1336,10 +1387,14 @@ document.addEventListener('DOMContentLoaded', function () {
       img.onload = function () {
         open();
         // square centre-crop, downscaled, so the stored photo stays small
-        var S = 320, cv = document.createElement('canvas'); cv.width = cv.height = S;
+        // an avatar is displayed small, so it stays a thumbnail — but at 2x for
+        // retina, with high-quality resampling
+        var S = 640, cv = document.createElement('canvas'); cv.width = cv.height = S;
         var n = Math.min(img.width, img.height);
-        cv.getContext('2d').drawImage(img, (img.width - n) / 2, (img.height - n) / 2, n, n, 0, 0, S, S);
-        data = cv.toDataURL('image/jpeg', 0.86);
+        var acx = cv.getContext('2d');
+        acx.imageSmoothingEnabled = true; acx.imageSmoothingQuality = 'high';
+        acx.drawImage(img, (img.width - n) / 2, (img.height - n) / 2, n, n, 0, 0, S, S);
+        data = cv.toDataURL('image/jpeg', 0.92);
         prev.src = data; prev.hidden = false; drop.classList.add('has-image');
       };
       img.src = r.result;
@@ -2233,6 +2288,20 @@ function storeImageStrict(userId, value, ctx, source, what) {
 // reported back so the AI can say truthfully what happened.
 function saveEnsembleComponents(ens, user, components, ctx) {
   const out = { components: [], notes_created: [], notes_reused: [], unresolved: [] };
+  // Every constituent must be visually represented — the pieces are what the
+  // composition is made of, and an Ensemble page listing bare labels is not
+  // the record the member saved. The one exception is a piece already in their
+  // notes: that note carries the picture, so asking for it twice is pointless.
+  // Checked for all components before anything is written, so the error names
+  // the offending piece rather than failing halfway through.
+  for (const raw of (components || [])) {
+    if (raw.image && String(raw.image).trim()) continue;
+    const nu = (raw.note_uid || '').trim();
+    const linked = nu ? q('SELECT image FROM objects WHERE uid=? AND user_id=?').get(nu, user.id) : null;
+    if (linked && linked.image) continue;
+    throw new Error(`The component "${raw.label || '(unlabelled)'}" needs an image: pass its own picture as a `
+      + `data: URL, or set note_uid to one of the member's existing notes that already has one. Nothing was saved.`);
+  }
   let pos = 0;
   for (const raw of (components || [])) {
     const c = {
@@ -2540,19 +2609,38 @@ ${noters.length ? `<div class="section-rule"></div>
     </figure>`).join('')}</div>` : ''}
   <div class="ens-parts">
     <h3 class="strip">What's in it</h3>
-    <ul class="ens-comps">${v.components.map((c) => `<li class="ens-comp ${c.state}">
-      ${c.image ? imgTag(c.image, c.label) : '<span class="ens-comp-blank"></span>'}
-      <span class="ens-comp-body">
-        <span class="ens-comp-label">${esc(c.label || 'Unidentified')}</span>
-        <span class="ens-comp-state">${c.state === 'unresolved' ? 'Unidentified'
-          : c.note_available
-            ? `<a href="/o/${c.note_id}">${c.note_origin === 'created_by_ensemble' ? 'Added to Notes' : 'Existing Note'}</a>`
-            : 'In this composition'}</span>
-      </span>
-      ${mine ? `<form method="post" action="/e/${e.id}/component/remove"><input type="hidden" name="component_uid" value="${c.component_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
-    </li>`).join('') || '<li class="ens-comp"><span class="ens-comp-body">No components.</span></li>'}</ul>
+    ${(() => {
+      // Grouped by where each piece came from, because "already mine" and
+      // "this composition put it in my notes" are different facts about the
+      // member's catalogue and reading them interleaved hides that.
+      const groups = [
+        ['From your notes', v.components.filter((c) => c.note_available && c.note_origin === 'pre_existing')],
+        ['Added to your notes by this ensemble', v.components.filter((c) => c.note_available && c.note_origin === 'created_by_ensemble')],
+        ['Not identified', v.components.filter((c) => !c.note_available)],
+      ].filter(([, list]) => list.length);
+      if (!groups.length) return '<ul class="ens-comps"><li class="ens-comp"><span class="ens-comp-body">No components.</span></li></ul>';
+      return groups.map(([heading, list]) => `<p class="ens-group">${heading} <i>${list.length}</i></p>
+      <ul class="ens-comps">${list.map((c) => {
+        const media = c.image ? imgTag(c.image, c.label) : '<span class="ens-comp-blank"></span>';
+        const label = esc(c.label || 'Unidentified');
+        // The whole row is the link when there is a note behind it — a label
+        // that looks like a thing should behave like one.
+        const body = c.note_available
+          ? `<a class="ens-comp-link" href="/o/${c.note_id}">${media}<span class="ens-comp-body">
+               <span class="ens-comp-label">${label}</span>
+               <span class="ens-comp-state">${c.note_origin === 'created_by_ensemble' ? 'Added to your notes' : 'In your notes'} ›</span>
+             </span></a>`
+          : `${media}<span class="ens-comp-body">
+               <span class="ens-comp-label">${label}</span>
+               <span class="ens-comp-state">${c.state === 'unresolved' ? 'Not identified yet' : 'No longer in your notes'}</span>
+             </span>`;
+        return `<li class="ens-comp ${c.state}${c.note_available ? ' is-linked' : ''}">${body}
+        ${mine ? `<form method="post" action="/e/${e.id}/component/remove"><input type="hidden" name="component_uid" value="${c.component_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
+      </li>`;
+      }).join('')}</ul>`).join('');
+    })()}
   </div>
-  ${mine ? `<form class="nf ens-edit" method="post" action="/e/${e.id}/edit">
+  ${mine ? `<form class="nf ens-edit" method="post" action="/e/${e.id}/edit" data-autosave>
     <div class="nf-box">
       <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${e.private ? 'checked' : ''}><span></span></label></div>
       <div class="nf-stack">
@@ -2562,6 +2650,7 @@ ${noters.length ? `<div class="section-rule"></div>
       <button class="nf-post">Save ensemble</button>
       <div class="nf-foot">
         <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}">Delete</button>
+        <span class="ens-saved" data-saved hidden>Saved</span>
         <a class="nf-link-btn" href="/e">Back</a>
       </div>
     </div>
@@ -3361,8 +3450,8 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'save_ensemble', description: 'Save a composition the member wants to keep — an Ensemble: a set of things arranged together, with the generated image(s) of that arrangement. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
-    inputSchema: { type: 'object', required: ['title', 'components'], properties: {
+  { name: 'save_ensemble', description: 'Save a composition the member wants to keep — an Ensemble: a set of things arranged together, with the generated image of that arrangement. GENERATE THE COMPOSITED IMAGE FIRST and pass its bytes as `artifact`; the image is the thing being saved and the call is refused without it. Use this once the member is happy with a composition and wants it kept, not for every candidate considered along the way. Pass every constituent that survives into the saved composition. Constituents that are clearly identified are also added to the member\'s notes automatically; ones that are not stay in the Ensemble as unidentified components. Do not ask separately for permission to add those notes — saving the composition is the permission. Never pass a visual guess as an identified constituent.',
+    inputSchema: { type: 'object', required: ['title', 'components', 'artifact'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
       private: { type: 'boolean', description: 'Keep the whole Ensemble to the member. Defaults to false.' },
@@ -3371,7 +3460,7 @@ const TOOLS = [
           label: { type: 'string', description: 'What this piece is, as the member would name it.' },
           note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
           source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
-          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition) — the bytes themselves, never a link or a local file path. Component images are capped at 6 MB; send a reasonably sized crop rather than a full-resolution original.' },
+          image: { type: 'string', description: 'data: URL of the piece\'s own image (not the composition) — the bytes themselves, never a link or a local file path. REQUIRED unless note_uid points to an existing note that already has an image. Capped at 6 MB; send a good-quality crop rather than a full-resolution original.' },
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
             description: 'How the identity is known. Only user_identity, maker_model, product_page, external_id and resolved_note create a note. Use "unidentified" for anything resting on your own visual judgement, however confident — a guess is not evidence.' } } } },
       artifact: { type: 'string', description: 'data: URL of the generated composition image — the bytes themselves, not a link. Becomes the primary artifact. Prefer WEBP or JPEG over PNG where the image is photographic: a PNG composition is often several times larger for no visible gain, and the limit is 24 MB.' } } },
@@ -3406,7 +3495,7 @@ const TOOLS = [
       label: { type: 'string', description: 'What this piece is, as the member would name it.' },
       note_uid: { type: 'string', description: "uid of one of the member's existing notes, if this piece is already in their catalogue." },
       source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
-      image: { type: 'string', description: 'data: URL of the piece\'s own image.' },
+      image: { type: 'string', description: 'data: URL of the piece\'s own image. Required unless note_uid points to an existing note that already has one.' },
       identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
         description: 'How the identity is known. Only the canonical values create a note; use "unidentified" for anything resting on your own visual judgement.' } } },
     outputSchema: OS_WRITE },
@@ -3917,6 +4006,15 @@ async function mcpCall(user, name, a = {}) {
   }
   if (name === 'save_ensemble') {
     if (!a.title) throw new Error('title is required');
+    // The generated composition IS the artifact the member came to create.
+    // An Ensemble without one is an empty shell, so this is refused rather
+    // than saved — schema `required` is not enforced by every client, so the
+    // check lives here too.
+    if (!a.artifact || !String(a.artifact).trim()) {
+      throw new Error('artifact is required: an Ensemble is the saved composition, so generate the '
+        + 'composited image first and pass its bytes as a data: URL. Nothing was saved. If the member '
+        + 'only wants to group things without a composition, use a collection on their notes instead.');
+    }
     const ctx = mcpActor(user);
     // Saving is one compound act: the Ensemble, its components, any Notes it
     // materialises and the generated artifact either all persist or none do.
@@ -4338,6 +4436,9 @@ async function handle(req, res) {
       q('UPDATE ensembles SET title=?, description=?, private=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
         .run((b.title || '').trim() || e.title, (b.description || '').trim(), b.private ? 1 : 0, e.id);
       recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'title,description,private' });
+      // Auto-save posts in the background; answer 204 so the page stays put.
+      // A plain form post (no JS) still redirects.
+      if (req.headers['x-quiet'] === '1') { res.writeHead(204); return res.end(); }
       return redirect(res, `/e/${e.id}`);
     }
     if (act === 'delete') {

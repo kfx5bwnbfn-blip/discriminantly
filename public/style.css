@@ -1591,3 +1591,20 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 .ens-tile-n { font-family: var(--slab); font-size: .58rem; letter-spacing: .14em;
   text-transform: uppercase; color: var(--ink-soft); }
 @media (max-width: 52rem) { .ens-comp { padding: .7rem .9rem; } }
+
+/* grouped component sections on the ensemble worksurface */
+.ens-group { font-family: var(--slab); font-size: .58rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-soft); margin: 1.1rem 0 0; padding: 0 1.2rem; }
+.ens-group i { font-style: normal; opacity: .6; }
+.ens-comp.is-linked { padding: 0; }
+.ens-comp-link { display: flex; align-items: center; gap: .9rem; flex: 1;
+  padding: .7rem 1.2rem; text-decoration: none; color: inherit; }
+.ens-comp-link:hover { background: rgba(0,0,0,.03); text-decoration: none; }
+.ens-comp-link:hover .ens-comp-label { text-decoration: underline; }
+@media (max-width: 52rem) {
+  .ens-group { padding: 0 .9rem; }
+  .ens-comp-link { padding: .7rem .9rem; }
+}
+.ens-saved { font-family: var(--slab); font-size: .58rem; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.ens-saved.is-bad { color: #8c4a4a; }
