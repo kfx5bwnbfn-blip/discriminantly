@@ -1687,6 +1687,28 @@ function imageBytesMatchMime(bytes, mime) {
   if (mime === 'image/webp') return b.length >= 12 && b.toString('ascii', 0, 4) === 'RIFF' && b.toString('ascii', 8, 12) === 'WEBP';
   return false;
 }
+
+// Is the file STRUCTURALLY COMPLETE, not merely correctly headed? A payload cut
+// short in transit — a runtime truncating a large inline argument, a dropped
+// connection — keeps its header intact and passes every magic-byte check, so
+// header validation alone will happily store half an image that renders as a
+// grey band. Each format ends with a known terminator, so completeness is
+// checkable without decoding. A truncated image is refused outright: salvaging
+// partial pixel data would mean storing something the member never sent.
+function imageBytesComplete(b, mime) {
+  if (!b || !b.length) return false;
+  if (mime === 'image/jpeg') {
+    // EOI (FFD9); some encoders append a little padding, so scan back a bit
+    for (let i = b.length - 2; i >= Math.max(0, b.length - 64); i--) {
+      if (b[i] === 0xff && b[i + 1] === 0xd9) return true;
+    }
+    return false;
+  }
+  if (mime === 'image/png') return b.length >= 12 && b.toString('ascii', b.length - 8, b.length - 4) === 'IEND';
+  if (mime === 'image/gif') return b[b.length - 1] === 0x3b;
+  if (mime === 'image/webp') { const declared = b.readUInt32LE(4); return b.length >= declared + 8; }
+  return true;
+}
 // Pull pixel dimensions straight out of the file header. No image library is
 // needed for this — each format puts the size in a fixed, well-known place —
 // and knowing it lets every <img> carry width/height so the browser reserves
@@ -1735,6 +1757,7 @@ function storeImage(userId, value, actorCtx, source) {
   const cap = source === 'generated' ? MAX_GENERATED_BYTES : MAX_IMAGE_BYTES;
   if (!bytes.length || bytes.length > cap) return '';
   if (!imageBytesMatchMime(bytes, mime)) return '';   // declared type does not match the actual bytes
+  if (!imageBytesComplete(bytes, mime)) return '';    // arrived truncated — never store a partial image
   // Content dedupe is DELIBERATELY NOT DONE here. Reusing one row for identical
   // bytes would merge records across a privacy boundary: the same photo in a
   // public note and a private one becomes a single row, and imageIsPublic()
@@ -2378,6 +2401,28 @@ async function resolveAssetRef(userId, ref, ctx, source, what) {
   return null;
 }
 
+// Prove an ingested image is durably stored, entirely server-side. A caller
+// must never have to GET a private image URL to find out whether an upload
+// worked — that request is unauthenticated from a model's environment and will
+// correctly 404, which says nothing about storage. Every check here reads back
+// what was actually persisted.
+function verifyStoredImage(userId, uid, expectedBytes) {
+  const row = q('SELECT id, uid, user_id, mime, length(bytes) n, width, height FROM images WHERE uid=?').get(uid);
+  const problems = [];
+  if (!row) problems.push('no image row for that uid');
+  else {
+    if (row.user_id !== userId) problems.push('stored under a different member');
+    if (!row.n) problems.push('stored zero bytes');
+    if (!row.mime || !IMAGE_MIME_ALLOW.has(row.mime)) problems.push('stored without a usable image type');
+    if (expectedBytes != null && row.n !== expectedBytes) problems.push(`stored ${row.n} bytes, expected ${expectedBytes}`);
+    // read the bytes back rather than trusting the length column
+    const back = q('SELECT bytes FROM images WHERE uid=?').get(uid);
+    if (!back || !back.bytes || !back.bytes.length) problems.push('bytes could not be read back');
+  }
+  return { verified: problems.length === 0, problems,
+    row: row || null };
+}
+
 // One entry point. Takes whatever representation the caller could supply and
 // returns a CONFIRMED stored image uid — confirmed meaning the row exists, the
 // bytes are non-empty, and the owner can retrieve it through the normal path.
@@ -2412,9 +2457,10 @@ function storeImageStrict(userId, value, ctx, source, what) {
   const ref = storeImage(userId, v, ctx, source);
   const uid = ref && ref.startsWith('/i/') ? ref.slice(3) : '';
   if (!uid) {
-    throw new Error(`${what} could not be stored. It must be a PNG, JPEG, WEBP or GIF under 6 MB, `
-      + `and the declared type must match the actual bytes (limit ${Math.round(cap / (1024 * 1024))} MB). `
-      + `Nothing was saved.`);
+    throw new Error(`${what} could not be stored. It must be a COMPLETE PNG, JPEG, WEBP or GIF whose declared `
+      + `type matches its actual bytes (limit ${Math.round(cap / (1024 * 1024))} MB). A common cause is an inline `
+      + `data: URL cut short before it reached us — if so, prepare the image smaller (around 1536 px on the long `
+      + `edge, roughly 300 KB) and send it again, or pass an https:// URL instead. Nothing was saved.`);
   }
   return uid;
 }
@@ -3685,9 +3731,17 @@ const OS_VISIT = { type: 'object', additionalProperties: false,
   properties: { type: { const: 'visit' }, uid: { type: 'string' }, id: { type: 'integer' },
     visited_on: { type: 'string' }, body: { type: 'string' }, provenance: OS_PROVENANCE } };
 const OS_IMAGE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'ref', 'mime', 'bytes', 'provenance'],
-  properties: { type: { const: 'image' }, uid: { type: 'string' }, id: { type: 'integer' },
-    ref: { type: 'string' }, mime: { type: 'string' }, bytes: { type: 'integer' }, provenance: OS_PROVENANCE } };
+  required: ['type', 'stored', 'verified', 'uid', 'image_uid', 'id', 'ref', 'mime', 'bytes', 'byte_count', 'width', 'height', 'provenance'],
+  properties: { type: { const: 'image' },
+    stored: { type: 'boolean', description: 'The bytes were written to durable storage.' },
+    verified: { type: 'boolean', description: 'Read back and checked after writing: row present, owned by this member, non-empty, valid type, and the byte count matches what was sent. A successful result is proof of storage — no HTTP fetch is needed to confirm it.' },
+    uid: { type: 'string' },
+    image_uid: { type: 'string', description: 'Same value as uid, under the name the Ensemble tools expect.' },
+    id: { type: 'integer' }, ref: { type: 'string', description: 'Path where the owner can view it while signed in. Private images are not fetchable by anyone else.' },
+    mime: { type: 'string' }, bytes: { type: 'integer' },
+    byte_count: { type: 'integer', description: 'Stored byte count; equals the decoded size of what was sent.' },
+    width: { type: ['integer', 'null'] }, height: { type: ['integer', 'null'] },
+    provenance: OS_PROVENANCE } };
 const OS_STATS = { type: 'object', additionalProperties: false,
   required: ['notes', 'marks', 'notes_without_image', 'notes_by_collection', 'marks_by_country'],
   properties: { notes: { type: 'integer' }, marks: { type: 'integer' }, notes_without_image: { type: 'integer' },
@@ -3726,7 +3780,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. WORKFLOW, in order: (1) generate the composited image yourself using your own image-generation ability — discriminant.ly does not generate it; (2) get every image into discriminant.ly and collect its uid — call upload_image for each one, which returns a uid; (3) call this tool, passing those uids; (4) show the member the composition and ask whether to keep it; (5) call keep_ensemble or discard_ensemble with the id this returns. What this tool creates is PENDING REVIEW: durable and private to the member, but not yet part of their catalogue — nothing is added to their notes until they say keep. IMAGES: prefer `artifact_uid` and `image_uid` from upload_image — the bytes are already stored, so nothing is fetched or copied again. `artifact` / `image` remain for convenience when you have a plain https:// URL. Every image must resolve; the call fails rather than saving a composition with missing pieces.",
+  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. FULL WORKFLOW, in order: (1) prepare each constituent image compactly and call upload_image on it ON ITS OWN, keeping the image_uid it returns; (2) generate the composited image yourself — discriminant.ly does not generate it; (3) call upload_image on that composition too, on its own, and keep its uid; (4) call this tool passing ONLY those uids — no picture data goes in this call; (5) show the member the composition and ask whether to keep it; (6) call keep_ensemble or discard_ensemble with the id this returns. Uploading each image separately keeps every argument small and isolates a failure to one image instead of the whole composition. What this tool creates is PENDING REVIEW: durable and private to the member, but not yet in their catalogue — nothing reaches their notes until they say keep, so ask only after this call has succeeded. IMAGES: prefer `artifact_uid` and `image_uid`; the bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) when you have not uploaded separately. Every image must resolve — the call fails rather than saving a composition with a missing piece.",
     inputSchema: { type: 'object', required: ['title', 'components'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
@@ -3862,9 +3916,9 @@ const TOOLS = [
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'upload_image', description: 'Store an image in Discriminantly and get back its uid. Call this first for every image, then pass the uid onward: as `artifact_uid` / `image_uid` to create_pending_ensemble, or as the image argument to note_object, edit_note, add_travel_mark, or edit_travel_mark. Storing once and passing the uid is always preferable to sending the same bytes again — nothing is fetched or copied twice. This tool does not create or modify a Note, Travel Mark or Ensemble by itself.',
+  { name: 'upload_image', description: 'Store one image in Discriminantly and get back a stable image_uid. Upload images ONE AT A TIME, each in its own call, and keep the uid you get back — then pass those uids to create_pending_ensemble as `artifact_uid` and `image_uid` rather than sending any picture again. Sending one image per call keeps each tool argument small and means a single bad image fails on its own instead of losing the whole composition. A successful result is itself the confirmation that the image is stored; images are private to the member, so do not fetch the returned path to check.',
     inputSchema: { type: 'object', required: ['image'], properties: {
-      image: { type: 'string', description: 'The image to store: an https:// URL that Discriminantly will fetch, or a data: URL such as "data:image/jpeg;base64,....". PNG, JPEG, WEBP or GIF, up to 20 MB decoded.' } } },
+      image: { type: 'string', description: 'One image: an https:// URL that Discriminantly will fetch, or an inline data: URL such as "data:image/jpeg;base64,....". PNG, JPEG, WEBP or GIF. When sending inline from a chat client, prepare the image compactly first — around 1536 px on the long edge, JPEG or WEBP, roughly 300 KB or less works reliably, and that is ample quality for a composition. This is a preparation guideline, not a server limit: much larger images are accepted through an https:// URL, and inline uploads well above 300 KB often succeed too. But some runtimes silently truncate a very large inline argument before it is sent, which arrives here as a corrupt image and is refused — so resize or recompress a multi-megabyte photo rather than inlining it whole.' } } },
     outputSchema: OS_IMAGE },
   { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
@@ -4012,12 +4066,24 @@ async function mcpCall(user, name, a = {}) {
     // NOTE: this used to parse `/i/<integer>` out of storeImage()'s return.
     // Since image references became uid-based, that parse produced NaN and the
     // lookup failed, so this tool threw on every call. Resolve by uid instead.
+    // What the caller SENT, so the result can confirm the bytes survived the
+    // journey rather than merely that something was stored.
+    const sentBytes = /^data:image\//i.test(String(a.image).trim())
+      ? Buffer.from(String(a.image).split(',')[1] || '', 'base64').length : null;
     const uid = await ingestImage(user.id, a.image, mcpActor(user), 'upload', 'The image');
-    const img = q('SELECT id, uid, mime, length(bytes) AS bytes FROM images WHERE uid=?').get(uid);
+    const v = verifyStoredImage(user.id, uid, sentBytes);
+    if (!v.verified) throw new Error(`The image was not stored durably: ${v.problems.join('; ')}. Nothing was saved.`);
+    const img = v.row;
     const ref = `/i/${img.uid}`;
-    return { text: `Uploaded. uid: ${img.uid} (${img.mime}, ${Math.round(img.bytes / 1024)} KB). `
-      + `Pass this uid as image_uid / artifact_uid, or as the image argument to note_object or add_travel_mark.`,
-      structured: { type: 'image', uid: img.uid, id: img.id, ref, mime: img.mime, bytes: img.bytes,
+    const kb = Math.round(img.n / 1024);
+    return { text: `Stored and verified. image_uid: ${img.uid} (${img.mime}, ${img.n} bytes / ~${kb} KB`
+      + `${img.width && img.height ? `, ${img.width}x${img.height}` : ''}). `
+      + `Pass this uid onward as image_uid / artifact_uid to create_pending_ensemble, or as the image argument to `
+      + `note_object or add_travel_mark. This image is private to the member: ${ref} is only fetchable by them while `
+      + `signed in, so do not try to GET it to confirm the upload — this result is the confirmation.`,
+      structured: { type: 'image', stored: true, verified: true, uid: img.uid, image_uid: img.uid, id: img.id, ref,
+        mime: img.mime, bytes: img.n, byte_count: img.n,
+        width: img.width || null, height: img.height || null,
         provenance: provenanceOf('image', img.uid) } };
   }
   if (name === 'verify_place') {
