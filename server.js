@@ -2541,6 +2541,15 @@ function prettyRange(start, end) {
   return `${M(a)} ${a.getUTCDate()} – ${b.getUTCDate()}, ${b.getUTCFullYear()}`;
 }
 
+// A stored record's image as the MCP surface should see it. The stored value is
+// a path ("/i/<uid>") or an external URL; a model needs the UID, because that is
+// the only form the Ensemble tools accept. Without this a Note's image is
+// invisible over MCP and an AI re-uploads a picture the member already has.
+const imageUidOf = (rec) => {
+  const v = (rec && rec.image) || '';
+  return v.startsWith('/i/') ? v.slice(3) : null;
+};
+
 const ensCanSee = (e, me) => (e.status === 'pending_review')
   ? !!(me && (me.id === e.user_id || me.is_admin))
   : (!e.private || (me && (me.id === e.user_id || me.is_admin)));
@@ -4052,10 +4061,13 @@ const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false,
   properties: { items: { type: 'array', items: itemSchema } } });
 
 const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'already_adopted', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'has_image', 'image_uid', 'already_adopted', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
-    handle: { type: 'string' }, private: { type: 'boolean' }, already_adopted: OS_ADOPTED, provenance: OS_PROVENANCE } };
+    handle: { type: 'string' }, private: { type: 'boolean' },
+    has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    already_adopted: OS_ADOPTED, provenance: OS_PROVENANCE } };
 // Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
 // disapproval. Consumers must not collapse null with 'released'/'revoked'.
 const OS_OWNED = { type: 'object', additionalProperties: false,
@@ -4067,15 +4079,21 @@ const OS_WARRANT = { type: 'object', additionalProperties: false,
   properties: { state: { type: ['string', 'null'], enum: ['active', 'revoked', null] },
     since: { type: ['string', 'null'] }, published: { type: 'boolean' }, history_count: { type: 'integer' } } };
 const OS_MY_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'renoted_from_uid', 'owned', 'warrant', 'equivalent_notes', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'has_image', 'image_uid', 'renoted_from_uid', 'owned', 'warrant', 'equivalent_notes', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
-    private: { type: 'boolean' }, renoted_from_uid: { type: ['string', 'null'] }, owned: OS_OWNED, warrant: OS_WARRANT, equivalent_notes: OS_EQUIVALENT, provenance: OS_PROVENANCE } };
+    private: { type: 'boolean' },
+    has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    renoted_from_uid: { type: ['string', 'null'] }, owned: OS_OWNED, warrant: OS_WARRANT, equivalent_notes: OS_EQUIVALENT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'owned', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'has_image', 'image_uid', 'owned', 'warrant', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' },
-    private: { type: 'boolean' }, owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
+    private: { type: 'boolean' },
+    has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
@@ -4083,11 +4101,13 @@ const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
     tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_MARK = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'visits', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
     remarked_from_uid: { type: ['string', 'null'] },
+    has_image: { type: 'boolean', description: 'Whether this mark already has a picture stored in Discriminantly.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass straight to create_pending_ensemble as image_uid, or to view_images to look at it. Never re-upload a picture the member already has.' },
     visit_count: { type: 'integer', description: 'How many times the member went. One continuous multi-day stay counts once, and a visit whose date they cannot recall still counts.' },
     visits: { type: 'array', items: { type: 'string' }, description: 'Each check-in\'s dates as a person would say them, newest first — e.g. "Feb 24 – 29, 2024", "Sep 3, 2023", "Date unknown". Use list_checkins for the ids, day notes and machine dates.' },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
@@ -4095,6 +4115,15 @@ const OS_COLLECTION = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'name', 'kind', 'count', 'provenance'],   // no integer id — collections genuinely have none today
   properties: { type: { const: 'collection' }, uid: { type: 'string' }, name: { type: 'string' },
     kind: { type: 'string' }, count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_VIEW_IMAGES = { type: 'object', additionalProperties: false, required: ['items', 'missing'],
+  properties: {
+    items: { type: 'array', description: 'One entry per image actually shown, in the same order as the pictures in this reply.',
+      items: { type: 'object', additionalProperties: false,
+        required: ['image_uid', 'mime', 'byte_count', 'width', 'height'],
+        properties: { image_uid: { type: 'string' }, mime: { type: 'string' }, byte_count: { type: 'integer' },
+          width: { type: ['integer', 'null'] }, height: { type: ['integer', 'null'] } } } },
+    missing: { type: 'array', items: { type: 'string' },
+      description: 'Uids that could not be shown: unknown, not visible to this member, or too large to inline.' } } };
 const OS_COMMENT = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'subject_type', 'subject_id', 'subject_name', 'handle', 'name', 'body', 'created_at', 'mine'],
   properties: { type: { const: 'comment' }, uid: { type: 'string' }, id: { type: 'integer' },
@@ -4116,27 +4145,27 @@ const OS_VISIT = { type: 'object', additionalProperties: false,
     body: { type: 'string', description: 'Commentary on the visit as a whole.' },
     days: { type: 'array', items: OS_VISIT_DAY, description: 'Day-level commentary inside this visit — only dates that have any. One check-in, however many days.' },
     provenance: OS_PROVENANCE } };
-const OS_UPLOAD_START = { type: 'object', additionalProperties: false,
-  required: ['ok', 'upload_id', 'chunk_bytes', 'total_chunks', 'next_index', 'expires_at'],
-  properties: { ok: { type: 'boolean' }, upload_id: { type: 'string' },
-    chunk_bytes: { type: 'integer', description: 'Maximum raw bytes per chunk.' },
-    total_chunks: { type: 'integer' }, next_index: { type: 'integer' },
-    expires_at: { type: 'string', description: 'The session is discarded after this time.' } } };
-const OS_UPLOAD_CHUNK = { type: 'object', additionalProperties: false,
-  required: ['ok', 'upload_id', 'accepted_index', 'chunk_bytes', 'received_bytes', 'total_bytes', 'received_chunks', 'total_chunks', 'next_index', 'complete'],
-  properties: { ok: { type: 'boolean' }, upload_id: { type: 'string' },
-    accepted_index: { type: 'integer' }, chunk_bytes: { type: 'integer', description: 'Raw bytes decoded from this chunk.' },
-    received_bytes: { type: 'integer' }, total_bytes: { type: 'integer' },
-    received_chunks: { type: 'integer' }, total_chunks: { type: 'integer' },
-    next_index: { type: ['integer', 'null'], description: 'Next index still needed, or null when all are in.' },
-    complete: { type: 'boolean' } } };
-const OS_IMAGE_RESULT = { type: 'object', additionalProperties: false,
-  required: ['ok', 'stored', 'verified', 'image_uid', 'uid', 'mime', 'bytes', 'byte_count', 'width', 'height', 'chunks'],
-  properties: { ok: { type: 'boolean' }, stored: { type: 'boolean' }, verified: { type: 'boolean' },
-    image_uid: { type: 'string' }, uid: { type: 'string' }, mime: { type: 'string' },
-    bytes: { type: 'integer' }, byte_count: { type: 'integer' },
+// One shape for every stage, so a model reads the same field in every reply.
+// `status` is the whole contract: 'receiving' means send next_index; 'stored'
+// means a verified durable image exists and image_uid is set. There is
+// deliberately no boolean like "complete" — a flag meaning "every index
+// arrived" reads as "done" and is not.
+const OS_UPLOAD = { type: 'object', additionalProperties: false,
+  required: ['status', 'upload_id', 'image_uid', 'verified', 'mime', 'byte_count', 'width', 'height',
+    'total_bytes', 'received_bytes', 'total_chunks', 'next_index'],
+  properties: {
+    status: { type: 'string', enum: ['receiving', 'stored'],
+      description: "'receiving': more bytes needed — send the slice at next_index. 'stored': the image is saved and verified; image_uid is ready to use and nothing further is needed." },
+    upload_id: { type: 'string' },
+    image_uid: { type: ['string', 'null'], description: 'Set only when status is "stored". This is the id to pass to create_pending_ensemble, note_object or add_travel_mark.' },
+    verified: { type: 'boolean', description: 'True only when stored: bytes read back, count matched, sha256 matched if given, and the file is a complete valid image.' },
+    mime: { type: ['string', 'null'] },
+    byte_count: { type: ['integer', 'null'], description: 'Stored size, once stored.' },
     width: { type: ['integer', 'null'] }, height: { type: ['integer', 'null'] },
-    chunks: { type: ['integer', 'null'], description: 'How many chunks it was assembled from.' } } };
+    total_bytes: { type: 'integer', description: 'The byte count declared for the whole image.' },
+    received_bytes: { type: 'integer', description: 'How much has arrived so far.' },
+    total_chunks: { type: 'integer' },
+    next_index: { type: ['integer', 'null'], description: 'The slice to send next; null once stored.' } } };
 const OS_IMAGE = { type: 'object', additionalProperties: false,
   required: ['type', 'stored', 'verified', 'uid', 'image_uid', 'id', 'ref', 'mime', 'bytes', 'byte_count', 'width', 'height', 'provenance'],
   properties: { type: { const: 'image' },
@@ -4187,7 +4216,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. When the member says something like \"ensemble these\", do the WHOLE sequence without asking them for technical steps — they should never have to mention uploading, encoding or ids. (1) Look at each constituent image. (2) Generate the composited image yourself with your own image generation; discriminant.ly does not generate it. Show it to them. (3) For EACH constituent image, and then for the composition, call upload_image separately — one image per call — converting local files to a data: URL in code as upload_image describes, and keep each returned image_uid. (4) Call THIS tool with those uids in `image_uid` / `artifact_uid`: no picture data belongs in this call. (5) Only once this call has returned pending_review, tell the member it is staged and ask whether to keep or discard it — then call keep_ensemble or discard_ensemble with the id returned here. Do not stop after generating the composition, and do not ask keep/discard before this call has actually succeeded: until it does, nothing exists on discriminant.ly and saying otherwise would be untrue. If an upload fails, fix or report THAT step — never proceed to this tool with a missing image. What this creates is PENDING REVIEW: durable and private to the member, not yet in their catalogue, and nothing reaches their notes until they choose keep. IMAGES: prefer `artifact_uid` and `image_uid` — those bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) if you genuinely have not uploaded separately. Every image must resolve; the call fails rather than saving a composition with a missing piece.",
+  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. When the member says something like \"ensemble these\", do the WHOLE sequence without asking them for technical steps — they should never have to mention uploading, encoding or ids. (1) Look at each constituent. IF A CONSTITUENT IS ALREADY ONE OF THEIR NOTES OR MARKS, its picture is already here: read its image_uid from my_notes / my_travel_marks / search_catalogue and call view_images to see it. Do NOT ask the member to attach a picture of something they have already noted, and do NOT upload it again — that uid is ready to use as-is. (2) Generate the composited image yourself with your own image generation; discriminant.ly does not generate it. Show it to them. (3) Only images that are NOT yet in discriminant.ly — a fresh attachment, or the composition you just generated — need ingesting, one at a time, keeping each returned image_uid: for a local or generated file call begin_image_upload with the first slice of its bytes and keep calling upload_image_chunk until the reply comes back with status \"stored\"; for an image already at a public https:// URL, upload_image with that URL is enough. Never pause for the member between slices. (4) Call THIS tool with those uids in `image_uid` / `artifact_uid`: no picture data belongs in this call. (5) Only once this call has returned pending_review, tell the member it is staged and ask whether to keep or discard it — then call keep_ensemble or discard_ensemble with the id returned here. Do not stop after generating the composition, and do not ask keep/discard before this call has actually succeeded: until it does, nothing exists on discriminant.ly and saying otherwise would be untrue. If an upload fails, fix or report THAT step — never proceed to this tool with a missing image. What this creates is PENDING REVIEW: durable and private to the member, not yet in their catalogue, and nothing reaches their notes until they choose keep. IMAGES: prefer `artifact_uid` and `image_uid` — those bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) if you genuinely have not uploaded separately. Every image must resolve; the call fails rather than saving a composition with a missing piece.",
     inputSchema: { type: 'object', required: ['title', 'components'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
@@ -4196,9 +4225,9 @@ const TOOLS = [
       components: { type: 'array', description: 'Every piece that went into the composition, in display order.',
         items: { type: 'object', required: ['label'], properties: {
           label: { type: 'string', description: 'What this piece is, as the member would name it.' },
-          image_uid: { type: 'string', description: 'PREFERRED. uid of this piece\'s own image (not the composition), from upload_image.' },
+          image_uid: { type: 'string', description: "PREFERRED. The stored image for this piece. If the piece is already one of the member's notes or marks, use the image_uid that my_notes / my_travel_marks / search_catalogue gave you — it is already here and needs no uploading. Otherwise it is the uid returned by begin_image_upload or upload_image." },
           image: { type: 'string', description: 'Alternative to image_uid: an https:// URL to this piece\'s own image (a data: URL also works for small images). Ignored if image_uid is given. One of image_uid / image is required unless note_uid points to an existing note that already has an image.' },
-          note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue." },
+          note_uid: { type: 'string', description: "uid of one of the member's existing notes, when this piece is already in their catalogue. Giving this alone is enough: that note's own picture is used automatically, so no image needs supplying or uploading for it." },
           source_url: { type: 'string', description: 'Product page for the piece, if there is a trustworthy one.' },
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
             description: 'How the identity is known. Only the canonical values let a note be created when the member keeps this; use "unidentified" for anything resting on your own visual judgement, however confident.' } } } } } },
@@ -4325,25 +4354,38 @@ const TOOLS = [
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'start_image_upload', description: "Begin sending an image to Discriminantly in small pieces. USE THIS for any image you hold as a local file — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you just generated — because a whole image sent as one tool argument is unreliable: runtimes silently cut long arguments short, and that has happened at sizes as small as 135 KB. Chunking removes that risk entirely. SEQUENCE: read the file's bytes in your execution environment, prepare a good-quality version if the original is huge, compute its exact byte count and (ideally) its sha256, call this tool, then call upload_image_chunk once per slice in order, then finish_image_upload — which returns the image_uid you pass onward. For an image already at a public https:// URL, skip all of this and use upload_image instead; Discriminantly fetches those itself.",
-    inputSchema: { type: 'object', required: ['mime', 'total_bytes'], properties: {
+  { name: 'begin_image_upload', description: "Send an image you hold as a local file — an attachment the user gave you, a file under /mnt/data or /workspace, or a picture you generated — into Discriminantly, and get back a stable image_uid. THIS IS THE FIRST AND OFTEN THE ONLY CALL: it carries the first slice of bytes with it, so no call is wasted on setup. Read the file's bytes in your code environment, note its exact byte count, split the bytes into slices of at most 32768 bytes, and send slice 0 here as base64. WHAT COMES BACK TELLS YOU WHAT TO DO NEXT, and there are only two answers. status \"stored\" means the image is saved and image_uid is ready — you are done with this image, call nothing else for it. status \"receiving\" means keep going: call upload_image_chunk with the index given in next_index, and keep going without pausing or asking the user anything until you get \"stored\". An image of 32 KB or less finishes in this single call. Never send a file id or a path — those name something inside YOUR sandbox that this server cannot open. For an image already at a public https:// URL, skip all of this and use upload_image.",
+    inputSchema: { type: 'object', required: ['mime', 'total_bytes', 'data'], properties: {
       mime: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
         description: 'Content type of the prepared image.' },
-      total_bytes: { type: 'integer', description: 'Exact byte count of the prepared image file — the length of the raw bytes, not of any base64 text. Finishing fails if the assembled bytes do not match this.' },
+      total_bytes: { type: 'integer', description: 'Exact byte count of the WHOLE prepared image file — raw bytes, not the length of any base64 text. The image is stored only once the slices add up to exactly this.' },
+      data: { type: 'string', description: 'Base64 of the FIRST slice of raw bytes, up to 32768 bytes. For an image that size or smaller this is the whole file and the call returns image_uid immediately. No "data:" prefix — just base64 of the bytes.' },
       sha256: { type: 'string', description: 'Optional but recommended: sha256 of the complete prepared image, 64 lowercase hex characters. Lets the server prove the stored bytes are exactly what you sent.' },
       source: { type: 'string', enum: ['upload', 'generated'], description: "'generated' if you produced this image yourself; otherwise 'upload'. Defaults to 'upload'." } } },
-    outputSchema: OS_UPLOAD_START },
-  { name: 'upload_image_chunk', description: "Send one slice of an image started with start_image_upload. Split the raw bytes into consecutive slices of at most the chunk_bytes you were given, base64 each slice ON ITS OWN, and send them in order with index 0, 1, 2… Each chunk carries only base64 of raw bytes — no 'data:' prefix, no whole-file base64. Re-sending a chunk with identical bytes is harmless if you are unsure it arrived; sending different bytes for an index already accepted is refused. The result tells you the next index expected and whether every chunk is in.",
+    outputSchema: OS_UPLOAD },
+  { name: 'upload_image_chunk', description: "Send the next slice of an image begun with begin_image_upload. Use the index the previous response gave you in next_index, and base64 only THAT slice's raw bytes — never the whole file, never a \"data:\" prefix. Keep calling this, without pausing or asking the user anything, until a response comes back with status \"stored\": that response carries the image_uid and means the image is saved. A response with status \"receiving\" always names the next index to send. If you are unsure whether a slice arrived, sending it again with identical bytes is harmless.",
     inputSchema: { type: 'object', required: ['upload_id', 'index', 'data'], properties: {
-      upload_id: { type: 'string', description: 'From start_image_upload.' },
-      index: { type: 'integer', description: 'Which slice this is, counting from 0, in file order.' },
-      data: { type: 'string', description: "Base64 of THIS SLICE's raw bytes only. No data: prefix. Keep each slice at or under the chunk_bytes returned by start_image_upload." } } },
-    outputSchema: OS_UPLOAD_CHUNK },
-  { name: 'finish_image_upload', description: "Assemble the chunks into the real image and store it. Verifies that every chunk arrived, that the byte count matches what was declared, that the sha256 matches if you supplied one, and that the image is a complete valid file — then returns the stable image_uid to use everywhere else (create_pending_ensemble, note_object, add_travel_mark). If anything fails to add up, nothing is stored and the error says what was wrong. Safe to call again after success: it returns the same image_uid rather than storing a second copy.",
+      upload_id: { type: 'string', description: 'From the previous response.' },
+      index: { type: 'integer', description: 'The value of next_index from the previous response. Slices are counted from 0 in file order.' },
+      data: { type: 'string', description: "Base64 of THIS slice's raw bytes only, up to 32768 bytes." } } },
+    outputSchema: OS_UPLOAD },
+  { name: 'start_image_upload', description: "Compatibility only — prefer begin_image_upload, which does this AND carries the first slice, so an ordinary image takes one call instead of three. This opens an upload session without moving any bytes. Even here there is no separate finish step: whichever slice completes the image returns the image_uid by itself.",
+    inputSchema: { type: 'object', required: ['mime', 'total_bytes'], properties: {
+      mime: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], description: 'Content type of the prepared image.' },
+      total_bytes: { type: 'integer', description: 'Exact byte count of the prepared image.' },
+      sha256: { type: 'string', description: 'Optional sha256 of the complete image, 64 lowercase hex characters.' },
+      source: { type: 'string', enum: ['upload', 'generated'], description: "'generated' if you produced it; otherwise 'upload'." } } },
+    outputSchema: OS_UPLOAD },
+  { name: 'finish_image_upload', description: "Compatibility only — you should not normally need this. The slice that completes an image finalises it automatically and returns the image_uid. Call this only if you opened a session with start_image_upload and want to force assembly. Safe after the image is already stored: it returns the same image_uid rather than storing a second copy.",
     inputSchema: { type: 'object', required: ['upload_id'], properties: {
-      upload_id: { type: 'string', description: 'From start_image_upload.' },
-      sha256: { type: 'string', description: 'Optional: sha256 of the complete prepared image, if you did not give it at the start.' } } },
-    outputSchema: OS_IMAGE_RESULT },
+      upload_id: { type: 'string', description: 'The upload session id.' },
+      sha256: { type: 'string', description: 'Optional sha256 of the complete image, if not given earlier.' } } },
+    outputSchema: OS_UPLOAD },
+  { name: 'view_images', description: "Look at pictures the member already has in Discriminantly. Notes, travel marks and ensembles carry an image_uid; pass those uids here and the actual images come back so you can SEE them. Use this before composing an Ensemble from things the member has already noted — you need to look at a jacket before you can arrange it with a chair — and any time the member refers to how something of theirs looks. An image the member already has NEVER needs to be uploaded again and must never be asked for again: read its image_uid and view it. Up to 8 at a time. Only images the member can see are returned; very large ones are named but not inlined.",
+    inputSchema: { type: 'object', required: ['image_uids'], properties: {
+      image_uids: { type: 'array', maxItems: 8, items: { type: 'string' },
+        description: 'The image_uid values from my_notes, recent_notes, my_travel_marks, search_catalogue or get_ensemble. Not note ids and not /i/ paths — the uid itself.' } } },
+    outputSchema: OS_VIEW_IMAGES },
   { name: 'read_comments', description: "Read the comments on a note or a travel mark — the conversation around it, written by the member or by others who can see it. A comment is a REMARK, not a record of taste: it says what someone said about the thing, never that the member owns it, endorses it, or has been there. Use this when the member asks what people said about something, or before replying so you are not repeating what is already there. Only notes and marks the member can actually see can be read; a private record belonging to someone else is reported as not found.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The note's or travel mark's id, from my_notes, my_travel_marks, recent_notes or search_catalogue." },
@@ -4473,6 +4515,7 @@ async function mcpCall(user, name, a = {}) {
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
+        has_image: !!o.image, image_uid: imageUidOf(o),
         already_adopted: alreadyAdopted(user.id, o.uid),
         provenance: provenanceOf('object', o.uid) })) } };
   }
@@ -4489,6 +4532,7 @@ async function mcpCall(user, name, a = {}) {
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, private: !!o.private,
+        has_image: !!o.image, image_uid: imageUidOf(o),
         renoted_from_uid: o.renoted_from_uid || null,
         owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid),
         equivalent_notes: equivalentNotes(user.id, o.uid),
@@ -4510,126 +4554,202 @@ async function mcpCall(user, name, a = {}) {
     recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return wr(`Updated #${o.id}: ${name_}`, 'edited', 'note', o.id, o.uid, name_);
   }
-  // ---- chunked image ingestion -------------------------------------------
-  // Deliberately narrow: image-only, short-lived, owner-bound. Not an object
-  // store, not resumable-upload machinery. It exists solely so no single MCP
-  // string argument has to carry a whole image.
-  if (name === 'start_image_upload') {
-    // Cheap sweep on the way in: anything expired is dead weight. Keeps staging
-    // bounded without a scheduler.
-    try {
-      q(`DELETE FROM image_upload_chunks WHERE upload_id IN
-         (SELECT id FROM image_uploads WHERE expires_at < datetime('now'))`).run();
-      q("DELETE FROM image_uploads WHERE expires_at < datetime('now') AND status<>'finished'").run();
-    } catch {}
-    const mime = String(a.mime || '').toLowerCase().trim();
-    if (!IMAGE_MIME_ALLOW.has(mime)) throw new Error(`mime must be one of: ${[...IMAGE_MIME_ALLOW].join(', ')}.`);
-    const total = Number(a.total_bytes);
-    if (!Number.isInteger(total) || total <= 0) throw new Error('total_bytes must be the exact byte count of the prepared image.');
-    if (total > MAX_IMAGE_BYTES) throw new Error(`That image is ${Math.round(total / 1048576)} MB; the limit is `
-      + `${Math.round(MAX_IMAGE_BYTES / 1048576)} MB. Prepare a smaller version.`);
-    const sha = a.sha256 ? String(a.sha256).toLowerCase().trim() : null;
-    if (sha && !/^[0-9a-f]{64}$/.test(sha)) throw new Error('sha256 must be 64 lowercase hex characters, or omitted.');
-    const r = q(`INSERT INTO image_uploads(user_id,mime,total_bytes,sha256,source,expires_at)
-      VALUES(?,?,?,?,?,datetime('now','+30 minutes'))`)
-      .run(user.id, mime, total, sha, a.source === 'generated' ? 'generated' : 'upload');
-    const up = q('SELECT * FROM image_uploads WHERE id=?').get(r.lastInsertRowid);
-    const chunks = Math.ceil(total / UPLOAD_CHUNK_BYTES);
-    console.log(`[upload] start id=${up.uid} mime=${mime} total=${total} sha=${sha ? sha.slice(0, 12) : 'none'} chunks=${chunks}`);
-    return { text: `Upload started. Send ${chunks} chunk${chunks === 1 ? '' : 's'} of up to `
-      + `${UPLOAD_CHUNK_BYTES} bytes each (base64 of the raw slice, no data: prefix), indexes 0..${chunks - 1}, `
-      + `then call finish_image_upload.`,
-      structured: { ok: true, upload_id: up.uid, chunk_bytes: UPLOAD_CHUNK_BYTES, total_chunks: chunks,
-        next_index: 0, expires_at: up.expires_at } };
-  }
-  if (name === 'upload_image_chunk') {
-    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
-    if (!up) throw new Error('No such upload_id. Call start_image_upload first.');
-    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
-    if (up.status === 'finished') throw new Error('That upload is already finished.');
-    if (new Date(up.expires_at + 'Z') < new Date()) throw new Error('That upload has expired. Start a new one.');
-    const idx = Number(a.index);
-    if (!Number.isInteger(idx) || idx < 0) throw new Error('index must be a whole number, starting at 0.');
-    let buf;
-    try { buf = Buffer.from(String(a.data || ''), 'base64'); }
-    catch { throw new Error(`Chunk ${idx} is not valid base64.`); }
-    if (!buf.length) throw new Error(`Chunk ${idx} decoded to zero bytes.`);
-    const sha = crypto.createHash('sha256').update(buf).digest('hex');
-    const existing = q('SELECT sha256, length(bytes) n FROM image_upload_chunks WHERE upload_id=? AND idx=?').get(up.id, idx);
-    if (existing) {
-      // A retry of the same chunk is harmless; the SAME index carrying
-      // DIFFERENT bytes is a real conflict and must not silently overwrite.
-      if (existing.sha256 !== sha) throw new Error(`Chunk ${idx} was already received with different content. `
-        + `Do not change a chunk once sent; start a new upload instead.`);
-    } else {
-      q('INSERT INTO image_upload_chunks(upload_id,idx,bytes,sha256) VALUES(?,?,?,?)').run(up.id, idx, buf, sha);
-    }
-    const got = q('SELECT COUNT(*) c, COALESCE(SUM(length(bytes)),0) n FROM image_upload_chunks WHERE upload_id=?').get(up.id);
-    if (got.n > up.total_bytes) throw new Error(`Received ${got.n} bytes but the upload declared ${up.total_bytes}. `
-      + `Start a new upload with the correct total_bytes.`);
-    const totalChunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
-    const have = new Set(q('SELECT idx FROM image_upload_chunks WHERE upload_id=?').all(up.id).map((r) => r.idx));
-    let next = null;
-    for (let i = 0; i < totalChunks; i++) if (!have.has(i)) { next = i; break; }
-    console.log(`[upload] chunk id=${up.uid} idx=${idx} bytes=${buf.length} cumulative=${got.n}/${up.total_bytes}`);
-    return { text: next === null ? `Chunk ${idx} received. All ${totalChunks} chunks are in; call finish_image_upload.`
-      : `Chunk ${idx} received (${got.n} of ${up.total_bytes} bytes). Next expected index: ${next}.`,
-      structured: { ok: true, upload_id: up.uid, accepted_index: idx, chunk_bytes: buf.length,
-        received_bytes: got.n, total_bytes: up.total_bytes, received_chunks: got.c, total_chunks: totalChunks,
-        next_index: next, complete: next === null } };
-  }
-  if (name === 'finish_image_upload') {
-    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
-    if (!up) throw new Error('No such upload_id.');
-    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
-    // Finalising twice returns the same image rather than storing it again.
-    if (up.status === 'finished' && up.image_uid) {
-      const img = q('SELECT uid, mime, length(bytes) n, width, height FROM images WHERE uid=?').get(up.image_uid);
-      return { text: `Already finished. image_uid: ${up.image_uid}`,
-        structured: { ok: true, stored: true, verified: true, image_uid: up.image_uid, uid: up.image_uid,
-          mime: img ? img.mime : up.mime, bytes: img ? img.n : up.total_bytes, byte_count: img ? img.n : up.total_bytes,
-          width: img ? img.width : null, height: img ? img.height : null, chunks: null } };
-    }
-    if (new Date(up.expires_at + 'Z') < new Date()) throw new Error('That upload has expired. Start a new one.');
+  // ---- chunked image ingestion ------------------------------------------
+  // A model must be told to continue at every step, and each step it has to
+  // remember is a step it can drop. So: the first call carries real bytes, and
+  // the chunk that completes the image returns the durable image_uid. There is
+  // no setup call that moves nothing, and no finalise call to forget.
+  //
+  // Exactly two outcomes are possible from a chunk:
+  //   status 'receiving' — more bytes needed; next_index says which
+  //   status 'stored'    — a verified durable image exists; image_uid is set
+  // Anything else is an error. Nothing short of 'stored' looks terminal.
+
+  // Assemble, validate, persist. The ONLY path to a durable image — shared by
+  // automatic finalisation and the legacy finish_image_upload — so both carry
+  // identical guarantees.
+  const finalizeUpload = async (up, suppliedSha, ctx) => {
     const totalChunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
     const rows = q('SELECT idx, bytes FROM image_upload_chunks WHERE upload_id=? ORDER BY idx').all(up.id);
     const have = new Set(rows.map((r) => r.idx));
     const missing = [];
     for (let i = 0; i < totalChunks; i++) if (!have.has(i)) missing.push(i);
     if (missing.length) throw new Error(`Cannot finish: chunk${missing.length === 1 ? '' : 's'} `
-      + `${missing.slice(0, 12).join(', ')}${missing.length > 12 ? '…' : ''} missing. Send them, then finish again.`);
-    // Any failure below abandons this session, so its staged chunks go too —
-    // otherwise a failed upload leaves multi-megabyte staging rows behind
-    // forever. abandon() is called on every throw path, not just success.
+      + `${missing.slice(0, 12).join(', ')}${missing.length > 12 ? '…' : ''} missing. Send them and it will finish itself.`);
     const abandon = () => { try { q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id); } catch {} };
     const buf = Buffer.concat(rows.map((r) => Buffer.from(r.bytes)));
-    if (buf.length !== up.total_bytes) { abandon(); throw new Error(`Assembled ${buf.length} bytes but the upload `
-      + `declared ${up.total_bytes}. Nothing was saved.`); }
-    const expected = a.sha256 ? String(a.sha256).toLowerCase().trim() : up.sha256;
+    if (buf.length !== up.total_bytes) {
+      abandon();
+      throw new Error(`Assembled ${buf.length} bytes but the upload declared ${up.total_bytes}. `
+        + `The image was NOT stored. Start a new upload and send the whole file.`);
+    }
+    const expected = suppliedSha ? String(suppliedSha).toLowerCase().trim() : up.sha256;
     if (expected) {
       const actual = crypto.createHash('sha256').update(buf).digest('hex');
-      if (actual !== expected) { abandon(); throw new Error('The assembled image does not match the sha256 you '
-        + 'supplied, so it was damaged in transit. Nothing was saved. Start a new upload.'); }
+      if (actual !== expected) {
+        abandon();
+        throw new Error('The assembled image does not match the sha256 you supplied, so it was damaged in '
+          + 'transit. Nothing was saved. Start a new upload.');
+      }
     }
-    // From here it is an ordinary image: same store, same validation, same
-    // verification. Nothing above this layer knows chunks existed.
-    const ctx = mcpActor(user);
     let uid;
     try {
-      uid = await ingestImage(user.id, `data:${up.mime};base64,${buf.toString('base64')}`, ctx, up.source, 'The assembled image');
+      uid = await ingestImage(up.user_id, `data:${up.mime};base64,${buf.toString('base64')}`, ctx, up.source, 'The assembled image');
     } catch (e) { abandon(); throw e; }
-    const v = verifyStoredImage(user.id, uid, buf.length);
+    const v = verifyStoredImage(up.user_id, uid, buf.length);
     if (!v.verified) { discardStoredImage(uid); abandon(); throw new Error(`Assembled but not stored durably: ${v.problems.join('; ')}.`); }
     q("UPDATE image_uploads SET status='finished', image_uid=? WHERE id=?").run(uid, up.id);
     q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id);   // staging is not storage
     const img = v.row;
-    console.log(`[upload] finish id=${up.uid} bytes=${buf.length} chunks=${totalChunks} image_uid=${uid}`);
-    return { text: `Stored and verified from ${totalChunks} chunk${totalChunks === 1 ? '' : 's'}. `
-      + `image_uid: ${uid} (${img.mime}, ${img.n} bytes${img.width ? `, ${img.width}x${img.height}` : ''}). `
-      + `Pass this uid onward; do not re-send the image.`,
-      structured: { ok: true, stored: true, verified: true, image_uid: uid, uid,
-        mime: img.mime, bytes: img.n, byte_count: img.n,
-        width: img.width || null, height: img.height || null, chunks: totalChunks } };
+    console.log(`[upload] stored id=${up.uid} bytes=${buf.length} chunks=${totalChunks} image_uid=${uid}`);
+    return { text: `Stored and verified${totalChunks > 1 ? ` from ${totalChunks} chunks` : ''}. image_uid: ${uid} `
+      + `(${img.mime}, ${img.n} bytes${img.width ? `, ${img.width}x${img.height}` : ''}). `
+      + `Use this uid from here on — do not send the image again.`,
+      structured: { status: 'stored', upload_id: up.uid, image_uid: uid, verified: true,
+        mime: img.mime, byte_count: img.n, width: img.width || null, height: img.height || null,
+        total_bytes: up.total_bytes, received_bytes: up.total_bytes,
+        total_chunks: totalChunks, next_index: null } };
+  };
+
+  // The already-stored result, so an anxious retry of the final chunk returns
+  // the same image instead of storing a second copy.
+  const storedResult = (up) => {
+    const img = q('SELECT mime, length(bytes) n, width, height FROM images WHERE uid=?').get(up.image_uid) || {};
+    return { text: `Already stored. image_uid: ${up.image_uid}`,
+      structured: { status: 'stored', upload_id: up.uid, image_uid: up.image_uid, verified: true,
+        mime: img.mime || up.mime, byte_count: img.n || up.total_bytes,
+        width: img.width || null, height: img.height || null,
+        total_bytes: up.total_bytes, received_bytes: up.total_bytes,
+        total_chunks: Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES), next_index: null } };
+  };
+
+  const uploadExpired = (up) => new Date(String(up.expires_at).replace(' ', 'T') + 'Z') < new Date();
+
+  // Store one chunk, then either ask for the next or finish the job.
+  const receiveChunk = async (up, idx, data, ctx) => {
+    if (uploadExpired(up)) throw new Error('That upload has expired. Start a new one.');
+    if (!Number.isInteger(idx) || idx < 0) throw new Error('index must be a whole number, starting at 0.');
+    let buf;
+    try { buf = Buffer.from(String(data || ''), 'base64'); }
+    catch { throw new Error(`Chunk ${idx} is not valid base64.`); }
+    if (!buf.length) throw new Error(`Chunk ${idx} decoded to zero bytes.`);
+    const sha = crypto.createHash('sha256').update(buf).digest('hex');
+    const existing = q('SELECT sha256 FROM image_upload_chunks WHERE upload_id=? AND idx=?').get(up.id, idx);
+    if (existing) {
+      // An identical resend is harmless; the same index with DIFFERENT bytes is
+      // a real conflict and must never silently overwrite.
+      if (existing.sha256 !== sha) throw new Error(`Chunk ${idx} was already received with different content. `
+        + `Do not change a chunk once sent; start a new upload instead.`);
+    } else {
+      q('INSERT INTO image_upload_chunks(upload_id,idx,bytes,sha256) VALUES(?,?,?,?)').run(up.id, idx, buf, sha);
+    }
+    const got = q('SELECT COUNT(*) c, COALESCE(SUM(length(bytes)),0) n FROM image_upload_chunks WHERE upload_id=?').get(up.id);
+    if (got.n > up.total_bytes) {
+      q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id);
+      throw new Error(`Received ${got.n} bytes but the upload declared only ${up.total_bytes}. Nothing was stored. `
+        + `Start a new upload with the correct total_bytes.`);
+    }
+    const totalChunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
+    const have = new Set(q('SELECT idx FROM image_upload_chunks WHERE upload_id=?').all(up.id).map((r) => r.idx));
+    let next = null;
+    for (let i = 0; i < totalChunks; i++) if (!have.has(i)) { next = i; break; }
+    // Finish ONLY when every index is present AND the bytes add up exactly.
+    // Index presence alone is NOT completeness: a short chunk would otherwise
+    // look finished while the image is truncated — which is exactly what the
+    // old `complete` flag reported.
+    if (next === null && got.n === up.total_bytes) return finalizeUpload(up, null, ctx);
+    if (next === null) {
+      q('DELETE FROM image_upload_chunks WHERE upload_id=?').run(up.id);
+      throw new Error(`Every chunk arrived but the bytes are short: ${got.n} of ${up.total_bytes}. A chunk was `
+        + `truncated in transit. Nothing was stored — start a new upload and send the whole file.`);
+    }
+    console.log(`[upload] receiving id=${up.uid} idx=${idx} bytes=${buf.length} cumulative=${got.n}/${up.total_bytes} next=${next}`);
+    return { text: `Chunk ${idx} received — ${got.n} of ${up.total_bytes} bytes. Send chunk ${next} next.`,
+      structured: { status: 'receiving', upload_id: up.uid, image_uid: null, verified: false,
+        mime: up.mime, byte_count: null, width: null, height: null,
+        total_bytes: up.total_bytes, received_bytes: got.n,
+        total_chunks: totalChunks, next_index: next } };
+  };
+
+  const openUploadSession = (a2, userId) => {
+    const mime = String(a2.mime || '').toLowerCase().trim();
+    if (!IMAGE_MIME_ALLOW.has(mime)) throw new Error(`mime must be one of: ${[...IMAGE_MIME_ALLOW].join(', ')}.`);
+    const total = Number(a2.total_bytes);
+    if (!Number.isInteger(total) || total <= 0) throw new Error('total_bytes must be the exact byte count of the prepared image.');
+    if (total > MAX_IMAGE_BYTES) throw new Error(`That image is ${Math.round(total / 1048576)} MB; the limit is `
+      + `${Math.round(MAX_IMAGE_BYTES / 1048576)} MB. Prepare a smaller version.`);
+    const sha = a2.sha256 ? String(a2.sha256).toLowerCase().trim() : null;
+    if (sha && !/^[0-9a-f]{64}$/.test(sha)) throw new Error('sha256 must be 64 lowercase hex characters, or omitted.');
+    // Cheap sweep on the way in: expired sessions are dead weight. Keeps
+    // staging bounded without a scheduler.
+    try {
+      q(`DELETE FROM image_upload_chunks WHERE upload_id IN
+         (SELECT id FROM image_uploads WHERE expires_at < datetime('now'))`).run();
+      q("DELETE FROM image_uploads WHERE expires_at < datetime('now') AND status<>'finished'").run();
+    } catch {}
+    const r = q(`INSERT INTO image_uploads(user_id,mime,total_bytes,sha256,source,expires_at)
+      VALUES(?,?,?,?,?,datetime('now','+30 minutes'))`)
+      .run(userId, mime, total, sha, a2.source === 'generated' ? 'generated' : 'upload');
+    return q('SELECT * FROM image_uploads WHERE id=?').get(r.lastInsertRowid);
+  };
+
+  if (name === 'begin_image_upload') {
+    if (!a.data) throw new Error('data is required: the first call carries chunk 0, so bytes move immediately.');
+    const up = openUploadSession(a, user.id);
+    console.log(`[upload] begin id=${up.uid} mime=${up.mime} total=${up.total_bytes} chunks=${Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES)}`);
+    return receiveChunk(up, 0, a.data, mcpActor(user));
+  }
+  if (name === 'upload_image_chunk') {
+    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
+    if (!up) throw new Error('No such upload_id. Call begin_image_upload first.');
+    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
+    if (up.status === 'finished' && up.image_uid) return storedResult(up);   // anxious retry
+    return receiveChunk(up, Number(a.index), a.data, mcpActor(user));
+  }
+  if (name === 'start_image_upload') {
+    // Compatibility only: opens a session without moving any bytes.
+    const up = openUploadSession(a, user.id);
+    const chunks = Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES);
+    return { text: `Upload started. Send ${chunks} chunk${chunks === 1 ? '' : 's'} of up to ${UPLOAD_CHUNK_BYTES} `
+      + `bytes each, indexes 0..${chunks - 1}. The chunk that completes the image returns the image_uid.`,
+      structured: { status: 'receiving', upload_id: up.uid, image_uid: null, verified: false,
+        mime: up.mime, byte_count: null, width: null, height: null,
+        total_bytes: up.total_bytes, received_bytes: 0, total_chunks: chunks, next_index: 0 } };
+  }
+  if (name === 'finish_image_upload') {
+    // Compatibility only: the chunk that completes the image finalises itself.
+    const up = q('SELECT * FROM image_uploads WHERE uid=?').get(String(a.upload_id || '').trim());
+    if (!up) throw new Error('No such upload_id.');
+    if (up.user_id !== user.id) throw new Error('That upload belongs to a different member.');
+    if (up.status === 'finished' && up.image_uid) return storedResult(up);
+    if (uploadExpired(up)) throw new Error('That upload has expired. Start a new one.');
+    return finalizeUpload(up, a.sha256, mcpActor(user));
+  }
+  // Hand back the ACTUAL PICTURES for images the member can see. Without this
+  // an AI knows a note has an image and can pass its uid along, but has never
+  // seen it — so it cannot judge whether the thing suits a composition, and
+  // ends up asking the member to re-attach a picture Discriminantly already
+  // holds. Reads only; visibility is checked per image exactly as /i/<uid> does.
+  if (name === 'view_images') {
+    const uids = (Array.isArray(a.image_uids) ? a.image_uids : [a.image_uids])
+      .filter(Boolean).map((x) => String(x).trim()).slice(0, 8);
+    if (!uids.length) throw new Error('image_uids is required — pass the image_uid values from my_notes, my_travel_marks, search_catalogue or get_ensemble.');
+    const images = [], seen = [], missing = [];
+    for (const uid of uids) {
+      const img = q('SELECT * FROM images WHERE uid=?').get(uid);
+      if (!img || !imageVisibleTo(img, user)) { missing.push(uid); continue; }
+      const block = imageBlock(`/i/${uid}`);
+      if (!block) { missing.push(uid); continue; }      // too large to inline
+      images.push(block);
+      seen.push({ image_uid: uid, mime: img.mime, byte_count: img.bytes.length,
+        width: img.width || null, height: img.height || null });
+    }
+    const lines = [];
+    if (seen.length) lines.push(`Showing ${seen.length} image${seen.length === 1 ? '' : 's'}, in order: `
+      + seen.map((x) => `${x.image_uid.slice(0, 8)} (${x.width || '?'}x${x.height || '?'})`).join('; ') + '.');
+    if (missing.length) lines.push(`Could not show: ${missing.join(', ')} — not found, not visible to this member, or too large to inline.`);
+    return { text: lines.join(' ') || 'Nothing to show.', images,
+      structured: { items: seen, missing } };
   }
   // ---- comments -----------------------------------------------------------
   // A comment is a remark in conversation on someone's note or mark — it is
@@ -4936,7 +5056,9 @@ async function mcpCall(user, name, a = {}) {
       }).join('\n') || 'No travel marks yet.',
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
         country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
-        remarked_from_uid: x.remarked_from_uid || null, visit_count: markVisits(x.id).length,
+        remarked_from_uid: x.remarked_from_uid || null,
+        has_image: !!x.image, image_uid: imageUidOf(x),
+        visit_count: markVisits(x.id).length,
         visits: markVisits(x.id).map((v) => visitLabel(v)),
         warrant: warrantState(user.id, 'mark', x.uid),
         provenance: provenanceOf('mark', x.uid) })) } };
@@ -4954,6 +5076,7 @@ async function mcpCall(user, name, a = {}) {
         .forEach((o) => hits.push({ at: o.created_at,
           line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
           item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private,
+            has_image: !!o.image, image_uid: imageUidOf(o),
                   owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid) } }));
     }
     if (kind !== 'note') {
@@ -5387,7 +5510,21 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}). When the user wants to note an object, write a crisp headline and a short description in their voice, propose tags, and call note_object. Notes are objects; travel marks are places the member went — use add_travel_mark and log_visit for those, and edit_travel_mark/delete_travel_mark to change or remove one. Before adding a travel mark, call verify_place unless you already have a precise address — show the member the match (or the fact that nothing was found) and get their confirmation before writing; never invent coordinates. Both note_object and add_travel_mark also check for a similarly-named existing entry and will decline with a message rather than create a duplicate; if that happens, tell the user what already exists and ask before retrying with allow_duplicate. Before answering any question about what the member has already catalogued — "have I noted...", "what's in my...", "how many..." — call search_catalogue or catalogue_stats rather than guessing from memory or only checking recent_notes. Use edit_note to change an existing note (only pass the fields being changed) and delete_note to remove one — both require the note's id and only work on this member's own notes. Confirm with the user before deleting anything. IMAGES: every picture must reach discriminant.ly through upload_image, which returns a stable image_uid you then pass to other tools. If an image is a local file in your environment — an attachment, a path like /mnt/data/..., or one you generated — read its bytes in code, re-encode it compactly if large, and build a data:image/...;base64,... string to upload. Passing a file id or a sandbox path straight to a tool never works: those only mean something inside your own sandbox. ENSEMBLES [ensemble_contract: chunked-upload-v3]: when the member asks to combine or compose things visually, generate the composition yourself, upload each constituent image and the composition separately with upload_image, then call create_pending_ensemble with the resulting uids, and only after it succeeds ask whether to keep or discard. Never tell the member something was saved before the tool call that saves it has actually returned. IMAGES FROM YOUR OWN SANDBOX: an attachment or generated picture reaches you as a local file — that file is the SOURCE of the bytes, not the argument. Read its bytes in your code environment, keep good visual quality, then send it with start_image_upload -> upload_image_chunk (small slices, in order) -> finish_image_upload, which returns the image_uid. Do NOT put a whole image in one tool argument: runtimes truncate long arguments unpredictably. A file id or path is never accepted and is never a reason to stop. An image already at an https:// URL needs none of this — just upload_image with the URL.` });
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
+
+HOW TO WORK HERE. Never say something was saved before the tool call that saves it has returned successfully. If a call fails you will get a reference code — tell the member it failed, quote the reason and the code, and never quietly carry on as if it worked. Do not retry an identical failing call more than once. When a tool result tells you what to do next, do it without pausing to ask the member: internal plumbing is not their decision. Confirm before deleting anything.
+
+WHAT LIVES HERE. Notes are objects the member recorded. Travel marks are places they went, with check-ins recording when. Collections group either. A note or mark means they thought it worth recording — never that they own or endorse it; ownership is record_note_ownership and endorsement is warrant, each its own deliberate act. Comments are remarks in conversation, not records of taste.
+
+BEFORE ANSWERING ABOUT THEIR CATALOGUE. For anything like \"have I noted…\", \"what's in my…\", \"how many…\", call search_catalogue or catalogue_stats. Do not answer from memory of this conversation, and do not settle for recent_notes.
+
+WRITING. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
+
+IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again.
+
+IMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
+
+ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') {
@@ -5407,7 +5544,30 @@ async function mcp(req, res, tok) {
       }
       if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
       return reply(id, payload);
-    } catch (e) { return reply(id, { content: [{ type: 'text', text: e.message }], isError: true }); }
+    } catch (e) {
+      // Every failure gets a short reference, is logged server-side, and comes
+      // back in a shape the model is told to show the member verbatim. A
+      // failure the member never sees is a failure we cannot troubleshoot.
+      const ref = 'DL-' + crypto.randomBytes(3).toString('hex').toUpperCase();
+      // Deliberate refusals carry a message written for the member. An
+      // unexpected fault does not, and must not leak internals — but it is the
+      // one we most want in the log.
+      const deliberate = e instanceof Error && !!e.message && !/^(Cannot read|Cannot access|undefined is not|.* is not a function)/.test(e.message);
+      const argKeys = Object.keys(params.arguments || {}).join(',');   // names only, never values
+      console.log(`[tool-error] ref=${ref} tool=${params.name} member=@${user.handle} args=[${argKeys}] `
+        + `kind=${deliberate ? 'refused' : 'fault'} msg=${JSON.stringify(String(e.message || '').slice(0, 300))}`);
+      if (!deliberate && e && e.stack) console.log(`[tool-error] ref=${ref} stack=${e.stack.split('\n').slice(0, 3).join(' | ')}`);
+      const detail = deliberate ? e.message
+        : 'Something went wrong inside discriminant.ly while running this. Nothing was saved.';
+      return reply(id, {
+        content: [{ type: 'text', text: `${detail}\n\n[${params.name} failed — reference ${ref}] `
+          + `TELL THE MEMBER THIS FAILED, quote the reason and this reference, and say what you were attempting. `
+          + `Do not describe the action as done, do not work around it silently, and do not retry the identical call `
+          + `more than once.` }],
+        structuredContent: { ok: false, error: { reference: ref, tool: params.name,
+          kind: deliberate ? 'refused' : 'fault', message: detail, retryable: !deliberate } },
+        isError: true });
+    }
   }
   return reply(id, null, { code: -32601, message: 'Method not found' });
 }
