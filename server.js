@@ -4083,16 +4083,26 @@ const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
     tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_MARK = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
-    remarked_from_uid: { type: ['string', 'null'] }, visit_count: { type: 'integer' },
+    remarked_from_uid: { type: ['string', 'null'] },
+    visit_count: { type: 'integer', description: 'How many times the member went. One continuous multi-day stay counts once, and a visit whose date they cannot recall still counts.' },
+    visits: { type: 'array', items: { type: 'string' }, description: 'Each check-in\'s dates as a person would say them, newest first — e.g. "Feb 24 – 29, 2024", "Sep 3, 2023", "Date unknown". Use list_checkins for the ids, day notes and machine dates.' },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_COLLECTION = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'name', 'kind', 'count', 'provenance'],   // no integer id — collections genuinely have none today
   properties: { type: { const: 'collection' }, uid: { type: 'string' }, name: { type: 'string' },
     kind: { type: 'string' }, count: { type: 'integer' }, provenance: OS_PROVENANCE } };
+const OS_COMMENT = { type: 'object', additionalProperties: false,
+  required: ['type', 'uid', 'id', 'subject_type', 'subject_id', 'subject_name', 'handle', 'name', 'body', 'created_at', 'mine'],
+  properties: { type: { const: 'comment' }, uid: { type: 'string' }, id: { type: 'integer' },
+    subject_type: { type: 'string', enum: ['note', 'mark'], description: 'What was commented on.' },
+    subject_id: { type: 'integer' }, subject_name: { type: 'string' },
+    handle: { type: 'string', description: 'Who wrote it.' }, name: { type: 'string' },
+    body: { type: 'string' }, created_at: { type: 'string' },
+    mine: { type: 'boolean', description: 'True when the connected member wrote it.' } } };
 const OS_VISIT_DAY = { type: 'object', additionalProperties: false,
   required: ['uid', 'date', 'body'],
   properties: { uid: { type: 'string' }, date: { type: 'string' }, body: { type: 'string' } } };
@@ -4334,6 +4344,17 @@ const TOOLS = [
       upload_id: { type: 'string', description: 'From start_image_upload.' },
       sha256: { type: 'string', description: 'Optional: sha256 of the complete prepared image, if you did not give it at the start.' } } },
     outputSchema: OS_IMAGE_RESULT },
+  { name: 'read_comments', description: "Read the comments on a note or a travel mark — the conversation around it, written by the member or by others who can see it. A comment is a REMARK, not a record of taste: it says what someone said about the thing, never that the member owns it, endorses it, or has been there. Use this when the member asks what people said about something, or before replying so you are not repeating what is already there. Only notes and marks the member can actually see can be read; a private record belonging to someone else is reported as not found.",
+    inputSchema: { type: 'object', required: ['id'], properties: {
+      id: { type: 'integer', description: "The note's or travel mark's id, from my_notes, my_travel_marks, recent_notes or search_catalogue." },
+      subject_type: { type: 'string', enum: ['note', 'mark'], description: "Whether that id is a note or a travel mark. Defaults to 'note'. Get this right — note #3 and mark #3 are different things." } } },
+    outputSchema: OS_ITEMS(OS_COMMENT) },
+  { name: 'comment', description: "Post a comment on a note or travel mark as the connected member — a remark in the conversation around it. Say something only when the member has actually told you what to say, or clearly asked you to respond on their behalf; never invent an opinion for them, and never use a comment to record that they own, endorse or visited something. Those are different acts with their own tools: record_note_ownership, warrant, and log_visit. Commenting on someone else's note is fine where the member can see it; a private record belonging to another member cannot be commented on.",
+    inputSchema: { type: 'object', required: ['id', 'body'], properties: {
+      id: { type: 'integer', description: "The note's or travel mark's id." },
+      subject_type: { type: 'string', enum: ['note', 'mark'], description: "Whether that id is a note or a travel mark. Defaults to 'note'." },
+      body: { type: 'string', description: "What the member wants to say, in their voice. One or two sentences is usual." } } },
+    outputSchema: OS_WRITE },
   { name: 'upload_image', description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer start_image_upload / upload_image_chunk / finish_image_upload instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: "Either (a) an https:// URL this server can fetch — the preferred use of this tool, any size — or (b) a data: URL you built in code from real local bytes, which is fine for a genuinely small image. For a local file of any real size, use start_image_upload instead of inlining it here: one large argument can be truncated in transit by your runtime, and chunking is not subject to that. Never a file id or a filesystem path. PNG, JPEG, WEBP or GIF." } } },
@@ -4371,7 +4392,7 @@ const TOOLS = [
           date: { type: 'string', description: 'YYYY-MM-DD, within visited_on..ended_on inclusive.' },
           body: { type: 'string', description: 'What happened that day.' } } } } } },
     outputSchema: OS_WRITE },
-  { name: 'list_checkins', description: 'List the check-ins on one of the member\'s own travel marks, most recent first. Use this to find a specific check-in\'s id before editing or deleting it — no other tool exposes individual check-in ids.',
+  { name: 'list_checkins', description: "List the check-ins on one of the member's own travel marks — the times they actually went. Most recent first, with undated ones last since they have no place in time. Use this to find a check-in's id before editing or deleting it; no other tool exposes individual check-in ids. Each carries: `range`, the dates as a person would say them (\"Feb 28, 2025\", \"Feb 24 – 29, 2024\", or \"Date unknown\"); `visited_on` and `ended_on`, the machine dates, where ended_on is the LAST day of a continuous multi-day visit and is null for a single day; `date_known`, false when the member recorded the visit without knowing when it was, in which case both dates are null; `body`, their line about the visit as a whole; and `days`, notes tied to particular dates inside it. A multi-day visit is ONE check-in with day notes inside it — never read its days as separate visits, and never count them as extra visits.",
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
       mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
     outputSchema: OS_ITEMS(OS_VISIT) },
@@ -4387,11 +4408,11 @@ const TOOLS = [
           date: { type: 'string', description: 'YYYY-MM-DD.' }, body: { type: 'string', description: 'The note; empty removes it.' } } } },
       remove_days: { type: 'array', items: { type: 'string' }, description: 'Dates whose notes the member has agreed to discard because the new dates no longer include them. Required for any such date, or the edit is refused.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'delete_checkin', description: 'Permanently delete one of the member\'s own check-ins. Does not affect the travel mark itself or its other check-ins. Cannot be undone.',
+  { name: 'delete_checkin', description: "Permanently delete one of the member's own check-ins — the record that they went at all. Any notes on individual days inside it go with it, since those describe that visit. The travel mark itself and its other check-ins are untouched. To shorten a visit rather than erase it, or to drop a single day's note, use edit_checkin instead. Cannot be undone.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
+  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts — a count of CHECK-INS, where one continuous multi-day stay counts once, not once per day, and a visit whose date the member cannot recall still counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across place, city, country and tags.' }, limit: { type: 'integer', default: 20, description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MARK) },
   { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Results mix the two kinds. Note entries carry the member\'s private `owned` state and their `warrant` state; mark entries carry only `warrant`, because ownership applies to things and not to places. On either, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
@@ -4609,6 +4630,42 @@ async function mcpCall(user, name, a = {}) {
       structured: { ok: true, stored: true, verified: true, image_uid: uid, uid,
         mime: img.mime, bytes: img.n, byte_count: img.n,
         width: img.width || null, height: img.height || null, chunks: totalChunks } };
+  }
+  // ---- comments -----------------------------------------------------------
+  // A comment is a remark in conversation on someone's note or mark — it is
+  // NOT a record of taste. Only what the member can already see may be read or
+  // commented on, which the web enforces by simply not showing the form; here
+  // it has to be checked explicitly.
+  if (name === 'read_comments' || name === 'comment') {
+    const kind = String(a.subject_type || 'note').toLowerCase();
+    if (kind !== 'note' && kind !== 'mark') throw new Error("subject_type must be 'note' or 'mark'.");
+    const isNote = kind === 'note';
+    const subj = isNote
+      ? q(OBJ_SQL + ' WHERE o.id=?').get(a.id)
+      : q(MARK_SQL + ' WHERE m.id=?').get(a.id);
+    if (!subj) throw new Error(`No ${kind} #${a.id}`);
+    const visible = isNote ? canSee(subj, user) : (!subj.private || subj.user_id === user.id);
+    if (!visible) throw new Error(`No ${kind} #${a.id}`);   // never confirm a private record exists
+    const table = isNote ? 'comments' : 'mark_comments';
+    const fk = isNote ? 'object_id' : 'mark_id';
+    if (name === 'comment') {
+      const body = String(a.body || '').trim();
+      if (!body) throw new Error('body is required — a comment with nothing in it is not worth posting.');
+      const r = q(`INSERT INTO ${table}(${fk},user_id,body) VALUES(?,?,?)`).run(subj.id, user.id, body);
+      const uid = uidOf(table, r.lastInsertRowid);
+      recordProvenance('comment', uid, 'created', mcpActor(user), { source_kind: 'manual' });
+      return wr(`Commented on ${subj.name}.`, 'created', 'comment', r.lastInsertRowid, uid, subj.name);
+    }
+    const rows = q(`SELECT c.*, u.handle, u.name AS uname FROM ${table} c JOIN users u ON u.id=c.user_id
+      WHERE c.${fk}=? ORDER BY c.created_at`).all(subj.id);
+    return { text: rows.length
+        ? `${rows.length} comment${rows.length === 1 ? '' : 's'} on ${subj.name}:\n`
+          + rows.map((c) => `  @${c.handle}: ${c.body}`).join('\n')
+        : `No comments on ${subj.name} yet.`,
+      structured: { items: rows.map((c) => ({ type: 'comment', uid: c.uid, id: c.id,
+        subject_type: kind, subject_id: subj.id, subject_name: subj.name,
+        handle: c.handle, name: c.uname, body: c.body, created_at: c.created_at,
+        mine: c.user_id === user.id })) } };
   }
   if (name === 'upload_image') {
     if (!a.image) throw new Error('image is required');
@@ -4880,6 +4937,7 @@ async function mcpCall(user, name, a = {}) {
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
         country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
         remarked_from_uid: x.remarked_from_uid || null, visit_count: markVisits(x.id).length,
+        visits: markVisits(x.id).map((v) => visitLabel(v)),
         warrant: warrantState(user.id, 'mark', x.uid),
         provenance: provenanceOf('mark', x.uid) })) } };
   }
