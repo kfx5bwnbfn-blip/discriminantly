@@ -42,6 +42,6 @@ module.exports = function seed(db) {
 ];
   const imgs = { 'de Buyer': '/seed/debuyer.jpg', 'Blenheim': '/seed/blenheim.jpg', "Jamieson's": '/seed/jamiesons.jpg', 'Pilot': '/seed/pilot.jpg', 'Rimowa': '/seed/rimowa.jpg', 'Mauviel': '/seed/mauviel.jpg' };
   const colls = { 'de Buyer': ['Kitchen'], 'Blenheim': ['Kitchen', 'Made in Britain'], "Jamieson's": ['Sartorial Matters', 'Made in Britain'], 'Pilot': ['Study'], 'Rimowa': ['Travel'], 'Mauviel': ['Kitchen'] };
-  const ic = db.prepare('INSERT OR IGNORE INTO collections(user_id,name) VALUES(1,?)'); const gc = db.prepare('SELECT id FROM collections WHERE user_id=1 AND name=?'); const oc = db.prepare('INSERT OR IGNORE INTO object_collections(object_id,collection_id) VALUES(?,?)');
+  const ic = db.prepare('INSERT OR IGNORE INTO collections(user_id,name) VALUES(1,?)'); const gc = db.prepare('SELECT id FROM collections WHERE user_id=1 AND name=?'); const oc = db.prepare('INSERT OR IGNORE INTO note_collections(note_id,collection_id) VALUES(?,?)');
   for (const r of rows) { const img = Object.entries(imgs).find(([k]) => r[0].startsWith(k)); const id = ins.run(...r, img ? img[1] : '').lastInsertRowid; note.run(id); for (const [k, names] of Object.entries(colls)) if (r[0].startsWith(k)) for (const n of names) { ic.run(n); oc.run(id, gc.get(n).id); } }
 };

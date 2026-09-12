@@ -684,6 +684,45 @@ const MIGRATIONS = [
     if (!hasColumn('visits', 'date_known')) db.exec('ALTER TABLE visits ADD COLUMN date_known INTEGER NOT NULL DEFAULT 1');
   }],
 
+  // Adopt linked pictures (v1.36). Notes created over MCP used to store the
+  // retailer's URL verbatim: the image was never actually brought in, so it
+  // could vanish when that page changed and had no image_uid, which is why an
+  // AI could see has_image:true yet have nothing to look at. Fetching at
+  // startup would be slow and could hang boot, so this migration only RECORDS
+  // which rows need adopting; adoptLinkedImages() does the fetching in the
+  // background once the server is up, and is safe to re-run.
+  ['035-linked-image-adoption', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS linked_image_backlog (
+      id         INTEGER PRIMARY KEY,
+      kind       TEXT NOT NULL,                    -- 'object' | 'mark'
+      row_id     INTEGER NOT NULL,
+      url        TEXT NOT NULL,
+      state      TEXT NOT NULL DEFAULT 'pending',  -- pending | done | failed
+      note       TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (kind, row_id))`);
+    db.exec(`INSERT OR IGNORE INTO linked_image_backlog(kind, row_id, url)
+      SELECT 'object', id, image FROM objects WHERE image LIKE 'http%'`);
+    db.exec(`INSERT OR IGNORE INTO linked_image_backlog(kind, row_id, url)
+      SELECT 'mark', id, image FROM marks WHERE image LIKE 'http%'`);
+  }],
+
+  // Ingestion mode (v1.38). A diagnostic switch, not a feature: we know a large
+  // inline payload gets truncated, but not whether chunking itself costs us
+  // anything on images small enough to go in one call. 'auto' is the shipping
+  // behaviour; the other two force one path so the same test can be run twice.
+  ['036-ingest-mode', () => {
+    if (!hasColumn('users', 'ingest_mode')) db.exec("ALTER TABLE users ADD COLUMN ingest_mode TEXT NOT NULL DEFAULT 'auto'");
+  }],
+
+  // Collection membership moved to note_collections in 022, but that migration
+  // copied ONCE — anything written to the old table afterwards (seed data, and
+  // any older deploy) was stranded, so collections showed a count of 0 while
+  // plainly containing notes. Re-run the copy; it is idempotent.
+  ['037-collection-membership-sweep', () => {
+    db.exec('INSERT OR IGNORE INTO note_collections(note_id, collection_id) SELECT object_id, collection_id FROM object_collections');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -2545,6 +2584,63 @@ function prettyRange(start, end) {
 // a path ("/i/<uid>") or an external URL; a model needs the UID, because that is
 // the only form the Ensemble tools accept. Without this a Note's image is
 // invisible over MCP and an AI re-uploads a picture the member already has.
+// Legacy rows (and any record whose picture was linked rather than ingested)
+// keep an external URL in `image`. Surface it so an AI can still fetch and look
+// at it — without it, such a note is invisible to anything visual.
+// Pull linked pictures into storage, a few at a time, after boot. Each success
+// rewrites the record to /i/<uid>, so the member's image stops depending on
+// someone else's server and becomes viewable through view_images. A failure is
+// recorded and the record is left exactly as it was — a broken link is still
+// better than a blank note.
+async function adoptLinkedImages(limit = 25) {
+  let rows;
+  try { rows = q("SELECT * FROM linked_image_backlog WHERE state='pending' ORDER BY id LIMIT ?").all(limit); }
+  catch { return; }                                  // table not there yet
+  for (const r of rows) {
+    const table = r.kind === 'mark' ? 'marks' : 'objects';
+    const rec = q(`SELECT id, user_id, image FROM ${table} WHERE id=?`).get(r.row_id);
+    if (!rec || rec.image !== r.url) {               // edited or deleted since
+      q("UPDATE linked_image_backlog SET state='done', note='superseded' WHERE id=?").run(r.id);
+      continue;
+    }
+    try {
+      const uid = await ingestImage(rec.user_id, r.url, { actor_kind: 'system', actor_label: 'image adoption' }, 'upload', 'A linked image');
+      q(`UPDATE ${table} SET image=? WHERE id=?`).run(`/i/${uid}`, rec.id);
+      q("UPDATE linked_image_backlog SET state='done' WHERE id=?").run(r.id);
+      console.log(`[adopt] ${r.kind} #${rec.id} -> /i/${uid}`);
+    } catch (e) {
+      q("UPDATE linked_image_backlog SET state='failed', note=? WHERE id=?").run(String(e.message).slice(0, 200), r.id);
+      console.log(`[adopt] ${r.kind} #${r.row_id} FAILED: ${String(e.message).slice(0, 120)}`);
+    }
+  }
+}
+
+// What the connector should tell a model about how to send images. Purely a
+// troubleshooting control: 'auto' is what ships, and the forced modes exist so
+// the same upload can be run down each path and compared in the logs.
+const INGEST_MODES = new Set(['auto', 'always_chunk', 'never_chunk']);
+function ingestDirective(u) {
+  const mode = INGEST_MODES.has(u.ingest_mode) ? u.ingest_mode : 'auto';
+  if (mode === 'always_chunk') return { mode, line: "INGESTION MODE: always_chunk. Send EVERY local image with "
+    + "begin_image_upload and upload_image_chunk, however small, and do not use upload_image for local files at all." };
+  if (mode === 'never_chunk') return { mode, line: "INGESTION MODE: never_chunk (diagnostic). Send local images as a "
+    + "single inline data: URL to upload_image, however large, and do not use begin_image_upload or "
+    + "upload_image_chunk. If an upload is refused as truncated or incomplete, report that plainly and do NOT fall "
+    + "back to chunking — the point of this mode is to observe the failure." };
+  return { mode, line: "INGESTION MODE: auto. Send local images with begin_image_upload; an image that fits one slice "
+    + "takes a single call. Use upload_image for images already at a public https:// URL." };
+}
+
+const PUBLIC_ORIGIN = (process.env.PUBLIC_ORIGIN || 'https://www.discriminantly.com').replace(/\/$/, '');
+const imageUrlOf = (rec) => {
+  const v = (rec && rec.image) || '';
+  if (/^https?:\/\//i.test(v)) return v;
+  // Demo seed notes point at static assets. They are public files, so give the
+  // absolute URL rather than a bare path — otherwise has_image is true with
+  // nothing an AI can actually reach, which is the worst of both.
+  if (v.startsWith('/seed/')) return PUBLIC_ORIGIN + v;
+  return null;
+};
 const imageUidOf = (rec) => {
   const v = (rec && rec.image) || '';
   return v.startsWith('/i/') ? v.slice(3) : null;
@@ -2822,6 +2918,12 @@ function storeImageStrict(userId, value, ctx, source, what) {
   const ref = storeImage(userId, v, ctx, source);
   const uid = ref && ref.startsWith('/i/') ? ref.slice(3) : '';
   if (!uid) {
+    // Record HOW an inline payload was damaged before refusing it. quad_remainder
+    // is the discriminating signal: a non-zero value means the base64 was cut
+    // mid-quad, which a client that built the string itself would never produce
+    // — that is runtime truncation. Zero, with a missing EOI, points instead at
+    // the client sending an already-incomplete file.
+    if (/^data:image\//i.test(v)) logDataUrlFailure(what, v);
     throw new Error(`${what} could not be stored. It must be a COMPLETE PNG, JPEG, WEBP or GIF whose declared `
       + `type matches its actual bytes (limit ${Math.round(cap / (1024 * 1024))} MB). A common cause is an inline `
       + `data: URL cut short before it reached us — if so, prepare the image smaller (around 1536 px on the long `
@@ -3405,7 +3507,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
     const colls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(u.id).map((c) => {
-      const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(c.id).map((r) => r.object_id));
+      const ids = new Set(q('SELECT note_id FROM note_collections WHERE collection_id=?').all(c.id).map((r) => r.note_id));
       const items = visible.filter((o) => ids.has(o.id)); return { ...c, count: items.length, image: (items.find((o) => o.image) || {}).image || '' };
     });
     const link = (t, extra = '') => `/u/${esc(u.handle)}?tab=${t}${extra}`;
@@ -3591,7 +3693,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       let rows = visible;
       if (owner && vis === 'public') rows = rows.filter((o) => !o.private);
       if (owner && vis === 'private') rows = rows.filter((o) => o.private);
-      if (cid) { const ids = new Set(q('SELECT object_id FROM object_collections WHERE collection_id=?').all(cid).map((r) => r.object_id)); rows = rows.filter((o) => ids.has(o.id)); }
+      if (cid) { const ids = new Set(q('SELECT note_id FROM note_collections WHERE collection_id=?').all(cid).map((r) => r.note_id)); rows = rows.filter((o) => ids.has(o.id)); }
       if (s) rows = rows.filter((o) => (o.name + ' ' + o.why + ' ' + o.tags).toLowerCase().includes(s.toLowerCase()));
       const tile = (id, name, count, image, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${link('notes', `&c=${id}${vis !== 'all' ? '&v=' + vis : ''}`)}"><span class="tile-img" ${image ? `style="background-image:url('${esc(image)}')"` : ''}>${image ? '' : `<span class="tile-glyph">${ICONS.lens}</span>`}</span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
   <button type="button" class="tile-ren" aria-label="Rename collection">···</button>
@@ -3805,6 +3907,15 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
             <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
             <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+            <form method="post" action="/settings/ingest" class="ingest-mode">
+              <span class="nf-lbl">How AI sends images</span>
+              <select class="nf-field" name="mode" onchange="this.form.submit()">
+                <option value="auto"${(me.ingest_mode || 'auto') === 'auto' ? ' selected' : ''}>Automatic (recommended)</option>
+                <option value="always_chunk"${me.ingest_mode === 'always_chunk' ? ' selected' : ''}>Always in pieces</option>
+                <option value="never_chunk"${me.ingest_mode === 'never_chunk' ? ' selected' : ''}>Always in one go (testing)</option>
+              </select>
+              <p class="lookup-note">Leave this on Automatic unless you are troubleshooting how images reach discriminant.ly.</p>
+            </form>
           </div>
         </div>
         <div class="wtable settings-table settings-invites">
@@ -4061,12 +4172,13 @@ const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false,
   properties: { items: { type: 'array', items: itemSchema } } });
 
 const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'has_image', 'image_uid', 'already_adopted', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'has_image', 'image_uid', 'image_url', 'already_adopted', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
     handle: { type: 'string' }, private: { type: 'boolean' },
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
-    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
+    image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
     already_adopted: OS_ADOPTED, provenance: OS_PROVENANCE } };
 // Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
 // disapproval. Consumers must not collapse null with 'released'/'revoked'.
@@ -4079,20 +4191,22 @@ const OS_WARRANT = { type: 'object', additionalProperties: false,
   properties: { state: { type: ['string', 'null'], enum: ['active', 'revoked', null] },
     since: { type: ['string', 'null'] }, published: { type: 'boolean' }, history_count: { type: 'integer' } } };
 const OS_MY_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'has_image', 'image_uid', 'renoted_from_uid', 'owned', 'warrant', 'equivalent_notes', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'private', 'has_image', 'image_uid', 'image_url', 'renoted_from_uid', 'owned', 'warrant', 'equivalent_notes', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
     private: { type: 'boolean' },
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
-    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
+    image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
     renoted_from_uid: { type: ['string', 'null'] }, owned: OS_OWNED, warrant: OS_WARRANT, equivalent_notes: OS_EQUIVALENT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'has_image', 'image_uid', 'owned', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'has_image', 'image_uid', 'image_url', 'owned', 'warrant', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' },
     private: { type: 'boolean' },
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
-    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to actually look at it. An image the member already has NEVER needs uploading again. Null when the record has no image, or when its picture is an external URL rather than a stored one.' },
+    image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
+    image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
     owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'warrant', 'provenance'],
@@ -4101,13 +4215,14 @@ const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
     tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_MARK = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'visit_count', 'visits', 'warrant', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'image_url', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
     remarked_from_uid: { type: ['string', 'null'] },
     has_image: { type: 'boolean', description: 'Whether this mark already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass straight to create_pending_ensemble as image_uid, or to view_images to look at it. Never re-upload a picture the member already has.' },
+    image_url: { type: ['string', 'null'], description: 'Set instead of image_uid when the picture was linked to an outside site rather than stored here. Fetch it to look at the place; ingest it once with upload_image if you need it in an Ensemble.' },
     visit_count: { type: 'integer', description: 'How many times the member went. One continuous multi-day stay counts once, and a visit whose date they cannot recall still counts.' },
     visits: { type: 'array', items: { type: 'string' }, description: 'Each check-in\'s dates as a person would say them, newest first — e.g. "Feb 24 – 29, 2024", "Sep 3, 2023", "Date unknown". Use list_checkins for the ids, day notes and machine dates.' },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
@@ -4194,11 +4309,11 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["kitchen","copper","france"]' },
       link: { type: 'string', description: 'URL where the object can be found' },
       image: { type: 'string', description: IMAGE_FIELD_DESC + ' Required — every note carries an image.' },
-      collections: { type: 'array', items: { type: 'string' }, description: 'Names of the member\'s collections to file this under (created if new). A note may sit in several.' },
+      collections: { type: 'array', items: { type: 'string' }, description: 'Names of the collections to file this note under, created if new; a note may sit in several. Check my_collections first and reuse an existing name exactly — a near-miss makes a SECOND collection rather than adding to the existing one.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'my_collections', description: 'List the connected member\'s collections with counts.', inputSchema: { type: 'object', properties: {} },
+  { name: 'my_collections', description: 'List the member\'s collections with a count of what is in each. Collections are how the member groups their own notes and travel marks — names they chose, not categories the system assigns. Read this BEFORE filing anything, so you reuse the exact existing name instead of creating a near-duplicate, and whenever the member asks what they have grouped. Note collections and mark collections are separate; `kind` says which.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
   { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Each entry carries `already_adopted`: Notes this member has ALREADY created by adopting that one. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeat adoptions are valid and each becomes its own Note. Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
@@ -4213,7 +4328,7 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["kitchen","copper"].' },
       link: { type: 'string', description: 'Replaces the URL where the object can be found.' },
       image: { type: 'string', description: IMAGE_FIELD_DESC },
-      collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s full set of collections.' },
+      collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the note\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one. An empty array files it under nothing.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
   { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. When the member says something like \"ensemble these\", do the WHOLE sequence without asking them for technical steps — they should never have to mention uploading, encoding or ids. (1) Look at each constituent. IF A CONSTITUENT IS ALREADY ONE OF THEIR NOTES OR MARKS, its picture is already here: read its image_uid from my_notes / my_travel_marks / search_catalogue and call view_images to see it. Do NOT ask the member to attach a picture of something they have already noted, and do NOT upload it again — that uid is ready to use as-is. (2) Generate the composited image yourself with your own image generation; discriminant.ly does not generate it. Show it to them. (3) Only images that are NOT yet in discriminant.ly — a fresh attachment, or the composition you just generated — need ingesting, one at a time, keeping each returned image_uid: for a local or generated file call begin_image_upload with the first slice of its bytes and keep calling upload_image_chunk until the reply comes back with status \"stored\"; for an image already at a public https:// URL, upload_image with that URL is enough. Never pause for the member between slices. (4) Call THIS tool with those uids in `image_uid` / `artifact_uid`: no picture data belongs in this call. (5) Only once this call has returned pending_review, tell the member it is staged and ask whether to keep or discard it — then call keep_ensemble or discard_ensemble with the id returned here. Do not stop after generating the composition, and do not ask keep/discard before this call has actually succeeded: until it does, nothing exists on discriminant.ly and saying otherwise would be untrue. If an upload fails, fix or report THAT step — never proceed to this tool with a missing image. What this creates is PENDING REVIEW: durable and private to the member, not yet in their catalogue, and nothing reaches their notes until they choose keep. IMAGES: prefer `artifact_uid` and `image_uid` — those bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) if you genuinely have not uploaded separately. Every image must resolve; the call fails rather than saving a composition with a missing piece.",
@@ -4348,7 +4463,7 @@ const TOOLS = [
       why: { type: 'string', description: "Replaces why it is worth returning to, in the member's voice." },
       tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["thai","bangkok"].' },
       link: { type: 'string', description: 'Replaces the URL for the place.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
-      collections: { type: 'array', items: { type: 'string' }, description: 'Replaces the mark\'s full set of collections.' },
+      collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the mark\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one.' },
       private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
   { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
@@ -4417,7 +4532,7 @@ const TOOLS = [
       why: { type: 'string', description: 'Why it is worth returning to, written in the member\'s voice from what they said. If they were vague, draw on the conversation and on what you know of the place to write two useful sentences — what it is, what to order or do, what makes it worth the return.' },
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["thai","bangkok","dinner"].' },
       link: { type: 'string', description: 'URL for the place, if there is one.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
-      collections: { type: 'array', items: { type: 'string' }, description: "Names of the member's mark collections to file this under (created if new). Must be set now — there is no way to change them later." },
+      collections: { type: 'array', items: { type: 'string' }, description: "Names of the collections to file this place under, created if new. Check my_collections first and reuse an existing name exactly — Lisbon and lisbon become two separate collections. These can be changed later with edit_travel_mark." },
       visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
@@ -4501,7 +4616,35 @@ async function mcpCall(user, name, a = {}) {
       const dup = findSimilarNote(user.id, a.headline);
       if (dup) return `This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`;
     }
-    const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0);
+    // Bring the picture INTO discriminant.ly rather than storing a link to
+    // someone else's server. A note pointing at a retailer's URL loses its
+    // image the day that page changes, and — because there is no stored image —
+    // has no image_uid, so nothing can later look at it or compose with it.
+    // ingestImage fetches https:// safely, accepts data: URLs, and reuses an
+    // image_uid as-is.
+    // Best effort, never fatal. Plenty of retailers refuse an automated fetch,
+    // and losing the whole note over a 403 would be worse than the problem this
+    // solves — so on failure we keep the link exactly as before, surface it as
+    // image_url, and leave it in the backlog to retry later.
+    let noteImage = '';
+    try {
+      const uid = await resolveAssetRef(user.id, { image_uid: a.image_uid, image: a.image },
+        mcpActor(user), 'upload', 'The note image');
+      if (uid) noteImage = `/i/${uid}`;
+    } catch (e) {
+      if (/^https?:\/\//i.test(String(a.image || '').trim())) {
+        noteImage = String(a.image).trim();
+        try { q(`INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url,state,note)
+          VALUES('object',-1,?, 'pending', ?)`).run(noteImage, String(e.message).slice(0, 160)); } catch {}
+        console.log(`[note] kept link, could not adopt: ${String(e.message).slice(0, 120)}`);
+      } else throw e;                       // a bad data: URL is still a real error
+    }
+    if (!noteImage) throw new Error('image is required: every note carries an image.');
+    const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', noteImage, a.private ? 1 : 0);
+    if (/^https?:\/\//i.test(noteImage)) {
+      try { q(`INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url) VALUES('object',?,?)`).run(r.lastInsertRowid, noteImage);
+            q("DELETE FROM linked_image_backlog WHERE row_id=-1").run(); } catch {}
+    }
     q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(user.id, r.lastInsertRowid);
     if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
     recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', mcpActor(user),
@@ -4515,13 +4658,13 @@ async function mcpCall(user, name, a = {}) {
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
-        has_image: !!o.image, image_uid: imageUidOf(o),
+        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
         already_adopted: alreadyAdopted(user.id, o.uid),
         provenance: provenanceOf('object', o.uid) })) } };
   }
   if (name === 'my_collections') {
     const rows = q(`SELECT c.uid, c.name, c.kind,
-        (SELECT COUNT(*) FROM object_collections oc WHERE oc.collection_id=c.id) n
+        (SELECT COUNT(*) FROM note_collections nc WHERE nc.collection_id=c.id) n
       FROM collections c WHERE c.user_id=? ORDER BY c.name`).all(user.id);
     return { text: rows.map((c) => `${c.name} (${c.n})`).join('\n') || 'No collections yet.',
       structured: { items: rows.map((c) => ({ type: 'collection', uid: c.uid, name: c.name, kind: c.kind || 'note',
@@ -4532,7 +4675,7 @@ async function mcpCall(user, name, a = {}) {
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, private: !!o.private,
-        has_image: !!o.image, image_uid: imageUidOf(o),
+        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
         renoted_from_uid: o.renoted_from_uid || null,
         owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid),
         equivalent_notes: equivalentNotes(user.id, o.uid),
@@ -4547,7 +4690,17 @@ async function mcpCall(user, name, a = {}) {
     const why = a.description !== undefined ? String(a.description).trim() : o.why;
     const tags = a.tags !== undefined ? tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', ') : o.tags;
     const url = a.link !== undefined ? a.link : o.url;
-    const image = a.image !== undefined ? a.image : o.image;
+    // Same rule as note_object: a replacement picture is ingested, never linked.
+    let image = o.image;
+    if (a.image !== undefined || a.image_uid !== undefined) {
+      try {
+        const uid = await resolveAssetRef(user.id, { image_uid: a.image_uid, image: a.image }, mcpActor(user), 'upload', 'The note image');
+        if (uid) image = `/i/${uid}`;
+      } catch (e) {
+        if (/^https?:\/\//i.test(String(a.image || '').trim())) image = String(a.image).trim();
+        else throw e;
+      }
+    }
     const priv = a.private !== undefined ? (a.private ? 1 : 0) : o.private;
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?').run(name_, why, tags, url, image, priv, o.id);
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
@@ -4696,7 +4849,7 @@ async function mcpCall(user, name, a = {}) {
   if (name === 'begin_image_upload') {
     if (!a.data) throw new Error('data is required: the first call carries chunk 0, so bytes move immediately.');
     const up = openUploadSession(a, user.id);
-    console.log(`[upload] begin id=${up.uid} mime=${up.mime} total=${up.total_bytes} chunks=${Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES)}`);
+    console.log(`[upload] begin id=${up.uid} mode=${ingestDirective(user).mode} mime=${up.mime} total=${up.total_bytes} chunks=${Math.ceil(up.total_bytes / UPLOAD_CHUNK_BYTES)}`);
     return receiveChunk(up, 0, a.data, mcpActor(user));
   }
   if (name === 'upload_image_chunk') {
@@ -4798,6 +4951,7 @@ async function mcpCall(user, name, a = {}) {
     // journey rather than merely that something was stored.
     const sentBytes = /^data:image\//i.test(String(a.image).trim())
       ? Buffer.from(String(a.image).split(',')[1] || '', 'base64').length : null;
+    console.log(`[upload] inline mode=${ingestDirective(user).mode} bytes=${sentBytes == null ? 'url' : sentBytes}`);
     const uid = await ingestImage(user.id, a.image, mcpActor(user), 'upload', 'The image');
     const v = verifyStoredImage(user.id, uid, sentBytes);
     if (!v.verified) {
@@ -5057,7 +5211,7 @@ async function mcpCall(user, name, a = {}) {
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
         country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
         remarked_from_uid: x.remarked_from_uid || null,
-        has_image: !!x.image, image_uid: imageUidOf(x),
+        has_image: !!x.image, image_uid: imageUidOf(x), image_url: imageUrlOf(x),
         visit_count: markVisits(x.id).length,
         visits: markVisits(x.id).map((v) => visitLabel(v)),
         warrant: warrantState(user.id, 'mark', x.uid),
@@ -5076,7 +5230,7 @@ async function mcpCall(user, name, a = {}) {
         .forEach((o) => hits.push({ at: o.created_at,
           line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
           item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private,
-            has_image: !!o.image, image_uid: imageUidOf(o),
+            has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
                   owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid) } }));
     }
     if (kind !== 'note') {
@@ -5099,8 +5253,8 @@ async function mcpCall(user, name, a = {}) {
     const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(user.id).c;
     const marks = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(user.id).c;
     const noImage = q("SELECT COUNT(*) c FROM objects WHERE user_id=? AND (image IS NULL OR image='')").get(user.id).c;
-    const byColl = q(`SELECT c.name, COUNT(*) n FROM object_collections oc
-      JOIN collections c ON c.id=oc.collection_id JOIN objects o ON o.id=oc.object_id
+    const byColl = q(`SELECT c.name, COUNT(*) n FROM note_collections nc
+      JOIN collections c ON c.id=nc.collection_id JOIN objects o ON o.id=nc.note_id
       WHERE o.user_id=? GROUP BY c.id ORDER BY n DESC`).all(user.id);
     const byCountry = q("SELECT country, COUNT(*) n FROM marks WHERE user_id=? AND country<>'' GROUP BY country ORDER BY n DESC").all(user.id);
     const lines = [`${notes} notes, ${marks} travel marks.`];
@@ -5522,7 +5676,7 @@ WRITING. For a note, write a crisp headline and a short description in the membe
 
 IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again.
 
-IMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
+${ingestDirective(user).line}\n\nIMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
 
 ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.` });
   if (method === 'ping') return reply(id, {});
@@ -5698,6 +5852,13 @@ async function handle(req, res) {
       stream.on('close', () => { try { fs.unlinkSync(tmp); } catch {} });
       return;
     } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
+  }
+  if (p === '/settings/ingest' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const mode = INGEST_MODES.has(b.mode) ? b.mode : 'auto';
+    q('UPDATE users SET ingest_mode=? WHERE id=?').run(mode, me.id);
+    return redirect(res, '/settings');
   }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
@@ -6102,4 +6263,8 @@ const counts = ['users', 'objects', 'marks', 'visits', 'comments']
   .map((t) => `${t} ${q(`SELECT COUNT(*) c FROM ${t}`).get().c}`).join(', ');
 console.log(`Database: ${DB_PATH} (${(fs.statSync(DB_PATH).size / 1024).toFixed(0)} KB) — ${counts}`);
 
-http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e); send(res, 'Something went wrong.', 500); })).listen(PORT, () => console.log(`discriminant.ly on http://localhost:${PORT}`));
+http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e); send(res, 'Something went wrong.', 500); })).listen(PORT, () => {
+  console.log(`discriminant.ly on http://localhost:${PORT}`);
+  // Adopt linked pictures once the server is answering, never during boot.
+  if (!process.env.NO_ADOPT) setTimeout(() => { adoptLinkedImages().catch(() => {}); }, 4000);
+});

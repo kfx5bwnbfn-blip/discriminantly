@@ -1701,3 +1701,5 @@ body.is-welcome { background-color: var(--paper); background-image: var(--paper-
 /* `hidden` must actually hide: several of these blocks set display:grid,
    which would otherwise override the attribute's user-agent default. */
 #checkin-dialog [hidden] { display: none !important; }
+.ingest-mode { display: grid; gap: .3rem; margin: .8rem 0 0; }
+.ingest-mode .nf-field { width: 100%; }
