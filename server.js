@@ -16,6 +16,11 @@ const assetHash = (rel) => {
   } catch { return String(Date.now()); }
 };
 const CSS_V = assetHash('style.css');
+const CSS_MODERN_V = assetHash('style.modern.css');
+// The classic skin is the default and the one every existing member sees.
+const SKINS = new Set(['classic', 'modern']), MODES = new Set(['system', 'light', 'dark']);
+const skinOf = (u) => (u && SKINS.has(u.ui_skin)) ? u.ui_skin : 'classic';
+const modeOf = (u) => (u && MODES.has(u.ui_mode)) ? u.ui_mode : 'system';
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'discriminantly.db');
 const SECURE = process.env.NODE_ENV === 'production';
@@ -723,6 +728,14 @@ const MIGRATIONS = [
     db.exec('INSERT OR IGNORE INTO note_collections(note_id, collection_id) SELECT object_id, collection_id FROM object_collections');
   }],
 
+  // Skins (v1.41). 'classic' is the revived 2013 design, kept exactly as it
+  // is; 'modern' is a second stylesheet layered over the same markup. ui_mode
+  // is light / dark / system and only means anything under the modern skin.
+  ['038-ui-skin', () => {
+    if (!hasColumn('users', 'ui_skin')) db.exec("ALTER TABLE users ADD COLUMN ui_skin TEXT NOT NULL DEFAULT 'classic'");
+    if (!hasColumn('users', 'ui_mode')) db.exec("ALTER TABLE users ADD COLUMN ui_mode TEXT NOT NULL DEFAULT 'system'");
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1048,7 +1061,7 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
-<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}"></head><body class="${cls}${me ? ' is-in' : ''}">
+<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}">${skinOf(me) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me) === 'modern' && modeOf(me) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me)}" data-mode="${modeOf(me)}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -3907,6 +3920,18 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
             <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
             <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+            <form method="post" action="/settings/skin" class="ingest-mode">
+              <span class="nf-lbl">Look</span>
+              <select class="nf-field" name="skin" onchange="this.form.submit()">
+                <option value="classic"${skinOf(me) === 'classic' ? ' selected' : ''}>Classic — the original design</option>
+                <option value="modern"${skinOf(me) === 'modern' ? ' selected' : ''}>Modern — glass and depth</option>
+              </select>
+              ${skinOf(me) === 'modern' ? `<select class="nf-field" name="mode" onchange="this.form.submit()" style="margin-top:.4rem">
+                <option value="system"${modeOf(me) === 'system' ? ' selected' : ''}>Follow the device (light or dark)</option>
+                <option value="light"${modeOf(me) === 'light' ? ' selected' : ''}>Light</option>
+                <option value="dark"${modeOf(me) === 'dark' ? ' selected' : ''}>Dark</option>
+              </select>` : ''}
+            </form>
             <form method="post" action="/settings/ingest" class="ingest-mode">
               <span class="nf-lbl">How AI sends images</span>
               <select class="nf-field" name="mode" onchange="this.form.submit()">
@@ -5727,7 +5752,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg' };
+const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -5852,6 +5877,14 @@ async function handle(req, res) {
       stream.on('close', () => { try { fs.unlinkSync(tmp); } catch {} });
       return;
     } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
+  }
+  if (p === '/settings/skin' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const skin = SKINS.has(b.skin) ? b.skin : 'classic';
+    const mode = MODES.has(b.mode) ? b.mode : modeOf(me);
+    q('UPDATE users SET ui_skin=?, ui_mode=? WHERE id=?').run(skin, mode, me.id);
+    return redirect(res, '/settings');
   }
   if (p === '/settings/ingest' && m === 'POST') {
     if (!me) return need();

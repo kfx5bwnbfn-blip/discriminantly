@@ -1,0 +1,577 @@
+/* =====================================================================
+   discriminant.ly — MODERN skin
+   ---------------------------------------------------------------------
+   Loaded AFTER style.css and scoped entirely under body[data-skin=modern],
+   so the classic sheet is never edited and its layout, breakpoints and
+   behaviour all carry over. This file repaints only.
+
+   Philosophy (visionOS, not Liquid Glass):
+     • material over surface — content sits ON translucent glass
+     • depth is the hierarchy — a raised control is a lighter material,
+       never a border or a texture
+     • vibrancy — secondary text is the ink at reduced opacity, so it
+       takes on the backdrop
+     • one hue — the gold, kept for links and warrant
+     • Chaparral throughout — the serif IS the identity
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   0. Tokens. Dark is the reference; light re-derives the same recipe.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] {
+  --m-bg: #0d0f14;
+  --m-glow-a: rgba(120,140,190,.16);
+  --m-glow-b: rgba(190,150,110,.10);
+  --m-glass: rgba(255,255,255,.075);
+  --m-glass-2: rgba(255,255,255,.11);
+  --m-glass-3: rgba(255,255,255,.16);
+  --m-line: rgba(255,255,255,.14);        /* the 1px light edge */
+  --m-line-2: rgba(255,255,255,.24);
+  --m-rule: rgba(255,255,255,.08);
+  --m-ink: rgba(255,255,255,.94);
+  --m-ink-2: rgba(255,255,255,.66);
+  --m-ink-3: rgba(255,255,255,.44);
+  --m-gold: #dcc27a;
+  --m-knob: #ffffff;
+  --m-shadow: 0 24px 60px -30px rgba(0,0,0,.7), 0 2px 10px rgba(0,0,0,.25);
+  --m-shadow-2: 0 10px 30px rgba(0,0,0,.45);
+  --m-field: rgba(0,0,0,.28);
+  --m-image-bed: rgba(0,0,0,.25);
+  --m-sheet: rgba(28,30,38,.94);         /* modal material: heavy, so content beneath recedes */
+  --m-scrim: rgba(0,0,0,.5);
+  --m-r: 26px; --m-r2: 18px; --m-r3: 12px;
+  --m-ease: cubic-bezier(.2,.7,.2,1);
+  color-scheme: dark;
+}
+body[data-skin="modern"][data-mode="light"],
+html.m-light body[data-skin="modern"][data-mode="system"] {
+  --m-bg: #eceef2;
+  --m-glow-a: rgba(140,160,210,.28);
+  --m-glow-b: rgba(230,200,160,.30);
+  --m-glass: rgba(255,255,255,.55);
+  --m-glass-2: rgba(255,255,255,.72);
+  --m-glass-3: rgba(255,255,255,.88);
+  --m-line: rgba(255,255,255,.85);
+  --m-line-2: rgba(255,255,255,1);
+  --m-rule: rgba(0,0,0,.08);
+  --m-ink: rgba(20,22,28,.94);
+  --m-ink-2: rgba(20,22,28,.64);
+  --m-ink-3: rgba(20,22,28,.42);
+  --m-gold: #9a7d2e;
+  --m-knob: #ffffff;
+  --m-shadow: 0 24px 60px -30px rgba(30,40,60,.35), 0 2px 10px rgba(30,40,60,.10);
+  --m-shadow-2: 0 10px 30px rgba(30,40,60,.18);
+  --m-field: rgba(255,255,255,.7);
+  --m-image-bed: rgba(0,0,0,.05);
+  --m-sheet: rgba(248,248,250,.96);
+  --m-scrim: rgba(20,22,28,.35);
+  color-scheme: light;
+}
+
+/* ---------------------------------------------------------------------
+   1. The material. One recipe; everything that is a "sheet" uses it.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .card,
+body[data-skin="modern"] .nf-box,
+body[data-skin="modern"] .curtain-frame,
+body[data-skin="modern"] .prail,
+body[data-skin="modern"] .tile-slot > *,
+body[data-skin="modern"] .timeline li,
+body[data-skin="modern"] .settings-table,
+body[data-skin="modern"] .sbox,
+body[data-skin="modern"] .empty {
+  background: var(--m-glass);
+  background-image: none;
+  -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%);
+  border: 0;
+  border-radius: var(--m-r);
+  box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+}
+
+/* ---------------------------------------------------------------------
+   2. Page. The backdrop is space with two soft glows; no texture.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] {
+  color: var(--m-ink);
+  font-weight: 400;
+  background-color: var(--m-bg);
+  background-image:
+    radial-gradient(1200px 700px at 30% -10%, var(--m-glow-a), transparent 60%),
+    radial-gradient(900px 600px at 110% 80%, var(--m-glow-b), transparent 60%);
+  background-size: auto, auto;          /* classic tiles its textures at 200px; a gradient must not tile */
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+body[data-skin="modern"] a { color: var(--m-gold); }
+body[data-skin="modern"] a:hover { text-decoration: none; opacity: .85; }
+
+/* the fixed masthead + search: a floating ornament */
+body[data-skin="modern"] .masthead {
+  background: var(--m-glass); background-image: none;
+  -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%);
+  box-shadow: inset 0 -1px 0 var(--m-rule);
+}
+body[data-skin="modern"] .masthead::after { display: none; }
+body[data-skin="modern"] .masthead nav a,
+body[data-skin="modern"] .masthead nav button.link { color: var(--m-ink-2); }
+body[data-skin="modern"] .masthead nav a:hover,
+body[data-skin="modern"] .masthead nav button.link:hover { color: var(--m-ink); }
+body[data-skin="modern"] .searchbar input {
+  background: var(--m-field); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule);
+  border-radius: 999px; letter-spacing: .18em;
+}
+body[data-skin="modern"] .searchbar input::placeholder { color: var(--m-ink-3); }
+body[data-skin="modern"] .searchbar input:focus { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line-2), 0 0 0 3px rgba(220,194,122,.25); }
+
+/* the icon rail on the far left */
+body[data-skin="modern"] .sidebar, body[data-skin="modern"] .iconrail { background: transparent; }
+
+/* ---------------------------------------------------------------------
+   3. Feed and profile rail.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .feed { background: transparent; background-image: none; }
+body[data-skin="modern"] .feed-plain { background: transparent; }
+body[data-skin="modern"] .strip {
+  background: transparent; background-image: none; color: var(--m-ink-3);
+  font-size: .72rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; box-shadow: none;
+}
+body[data-skin="modern"] .strip::after, body[data-skin="modern"] .strip::before { display: none; }
+body[data-skin="modern"] .rail { background: transparent; color: var(--m-ink); }
+body[data-skin="modern"] .rail a { color: var(--m-ink-2); }
+body[data-skin="modern"] .prail { padding: 1.4rem 1rem 1.2rem; }
+body[data-skin="modern"] .prail-handle, body[data-skin="modern"] .rail-title { color: var(--m-ink); font-weight: 400; }
+body[data-skin="modern"] .prail .avatar, body[data-skin="modern"] .prail img.avatar {
+  box-shadow: 0 0 0 1px var(--m-line-2), var(--m-shadow-2);
+}
+body[data-skin="modern"] .prail-nav li a, body[data-skin="modern"] .rail-nav a {
+  background: transparent; border: 0; color: var(--m-ink-2); border-radius: 14px;
+  transition: background .18s var(--m-ease), color .18s var(--m-ease);
+}
+body[data-skin="modern"] .prail-nav li a:hover { background: var(--m-glass-2); color: var(--m-ink); }
+body[data-skin="modern"] .prail-nav li a.on { background: var(--m-glass-2); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .prail-nav li { border: 0; }
+body[data-skin="modern"] .rail h3.lbl { color: var(--m-ink-3); border-bottom: 1px solid var(--m-rule); }
+body[data-skin="modern"] .rail .search input {
+  background: var(--m-field); border: 0; color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line); border-radius: 999px;
+}
+
+/* ---------------------------------------------------------------------
+   4. Cards — note, mark, byline, date.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .card { color: var(--m-ink); padding: 0; }
+body[data-skin="modern"] .card .who, body[data-skin="modern"] .card .card-head .who {
+  color: var(--m-ink-2); font-weight: 700; letter-spacing: .12em; font-size: .68rem;
+}
+body[data-skin="modern"] .card .who a { color: var(--m-ink); }
+body[data-skin="modern"] .card .colls a {
+  color: var(--m-ink-3); background: var(--m-glass-2); border-radius: 999px; padding: .2rem .7rem; font-size: .7rem; letter-spacing: .06em;
+}
+body[data-skin="modern"] .card h2, body[data-skin="modern"] .card h2 a { color: var(--m-ink); font-weight: 400; letter-spacing: -.005em; }
+body[data-skin="modern"] .card .body, body[data-skin="modern"] .card .text .body { color: var(--m-ink-2); }
+body[data-skin="modern"] .card .tags a {
+  color: var(--m-ink-2); background: var(--m-glass-2); border-radius: 999px; padding: .2rem .65rem;
+  box-shadow: inset 0 1px 0 var(--m-line); font-size: .74rem; letter-spacing: .04em; margin-right: .3rem;
+  transition: background .15s var(--m-ease);
+}
+body[data-skin="modern"] .card .tags a:hover { background: var(--m-glass-3); color: var(--m-ink); }
+body[data-skin="modern"] .card .link, body[data-skin="modern"] .card .link .lbl { color: var(--m-ink-3); }
+body[data-skin="modern"] .card .figure { border-radius: var(--m-r2); overflow: hidden; background: var(--m-image-bed); box-shadow: inset 0 0 0 1px var(--m-line); }
+body[data-skin="modern"] .card .figure img { border: 0; box-shadow: none; }
+body[data-skin="modern"] .byline .avatar { box-shadow: 0 0 0 1px var(--m-line-2); }
+body[data-skin="modern"] .stackdate { color: var(--m-ink-3); }
+body[data-skin="modern"] .stackdate .mon, body[data-skin="modern"] .stackdate .yr { color: var(--m-ink-3); }
+body[data-skin="modern"] .stackdate .day { color: var(--m-ink-2); font-weight: 300; }
+body[data-skin="modern"] .card-edit { color: var(--m-ink-3); }
+body[data-skin="modern"] .card-edit:hover { color: var(--m-ink); }
+body[data-skin="modern"] .owned-row, body[data-skin="modern"] .noteit {
+  background: transparent; border: 0; border-top: 1px solid var(--m-rule); box-shadow: none;
+}
+body[data-skin="modern"] .owned-label, body[data-skin="modern"] .nf-lbl { color: var(--m-ink-3); }
+
+/* ---------------------------------------------------------------------
+   5. Controls — buttons, switch, fields. No 3D anywhere.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .btn3d, body[data-skin="modern"] .nf-post, body[data-skin="modern"] .btn-note,
+body[data-skin="modern"] .tile-cta, body[data-skin="modern"] .tile-cta-go, body[data-skin="modern"] .btn-dark,
+body[data-skin="modern"] button.btn3d, body[data-skin="modern"] .dbtn {
+  background: var(--m-glass-2); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line); border-radius: 999px; text-shadow: none;
+  font-weight: 600; letter-spacing: .08em;
+  transition: background .18s var(--m-ease), transform .18s var(--m-ease);
+}
+body[data-skin="modern"] .btn3d:hover, body[data-skin="modern"] .nf-post:hover, body[data-skin="modern"] .btn-note:hover,
+body[data-skin="modern"] .tile-cta:hover, body[data-skin="modern"] .btn-dark:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .btn3d:active, body[data-skin="modern"] .nf-post:active { transform: scale(.985); }
+body[data-skin="modern"] .nf-post { background: var(--m-ink); color: var(--m-bg); box-shadow: none; }
+body[data-skin="modern"] .nf-post:hover { background: var(--m-ink); opacity: .9; }
+
+body[data-skin="modern"] .switch span {
+  background: var(--m-glass-3); background-image: none;
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); transition: background .2s var(--m-ease);
+}
+body[data-skin="modern"] .switch span::after, body[data-skin="modern"] .switch span::before {
+  background: var(--m-knob); background-image: none; box-shadow: 0 2px 6px rgba(0,0,0,.35);
+}
+body[data-skin="modern"] .switch input:checked + span { background: var(--m-gold); }
+
+body[data-skin="modern"] .nf-box { padding: 20px 22px 24px; }
+body[data-skin="modern"] .nf-field {
+  background: var(--m-field); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); border-radius: var(--m-r3);
+}
+body[data-skin="modern"] .nf-field:focus { outline: none; box-shadow: inset 0 1px 0 var(--m-line-2), 0 0 0 3px rgba(220,194,122,.28); }
+body[data-skin="modern"] .nf-field::placeholder { color: var(--m-ink-3); }
+body[data-skin="modern"] .nf-link-btn { color: var(--m-ink-2); }
+body[data-skin="modern"] .nf-link-btn:hover { color: var(--m-ink); }
+body[data-skin="modern"] .dlg-title { color: var(--m-ink); }
+body[data-skin="modern"] .dlg-copy, body[data-skin="modern"] .nf-range, body[data-skin="modern"] .lookup-note { color: var(--m-ink-2); }
+body[data-skin="modern"] .nf-day, body[data-skin="modern"] .nf-days { border-color: var(--m-rule); }
+body[data-skin="modern"] .nf-day .tl-date { color: var(--m-ink-2); }
+body[data-skin="modern"] .nf-drop-menu { background: var(--m-glass-3); border: 0; box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); border-radius: var(--m-r3); }
+
+/* ---------------------------------------------------------------------
+   6. Sheets (curtains / dialogs).
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .curtain { background: rgba(0,0,0,.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+body[data-skin="modern"] .curtain-frame { background: var(--m-glass-3); border-radius: var(--m-r); }
+body[data-skin="modern"] .curtain-tail, body[data-skin="modern"] .tail-band, body[data-skin="modern"] .curtain-nub { display: none; }
+body[data-skin="modern"] .dialog a { color: var(--m-gold); }
+
+/* ---------------------------------------------------------------------
+   7. Tiles (collection carousel), timeline, tables.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .tile-slot > * { border-radius: var(--m-r2); overflow: hidden; }
+body[data-skin="modern"] .tile-name { color: var(--m-ink-2); }
+body[data-skin="modern"] .tile-count { color: var(--m-ink); background: transparent; border: 0; border-top: 1px solid var(--m-rule); }
+body[data-skin="modern"] .tiles-arrow { color: var(--m-ink-3); background: transparent; }
+body[data-skin="modern"] .timeline li { padding: 1rem 1.1rem; }
+body[data-skin="modern"] .timeline li::before { background: var(--m-ink-3); box-shadow: 0 0 0 3px var(--m-bg); }
+body[data-skin="modern"] .timeline::before { background: var(--m-rule); }
+body[data-skin="modern"] .tl-date { color: var(--m-ink-2); }
+body[data-skin="modern"] .tl-body { color: var(--m-ink); }
+body[data-skin="modern"] .tl-days { border-left-color: var(--m-rule); }
+body[data-skin="modern"] .settings-table, body[data-skin="modern"] .wtable { color: var(--m-ink); }
+body[data-skin="modern"] .settings-table td, body[data-skin="modern"] .wcell, body[data-skin="modern"] .wcell-wide { border-color: var(--m-rule); background: transparent; }
+body[data-skin="modern"] .slabel, body[data-skin="modern"] .fine, body[data-skin="modern"] .sbox-sub { color: var(--m-ink-3); }
+body[data-skin="modern"] .sbox-title { color: var(--m-ink); }
+body[data-skin="modern"] .section-rule, body[data-skin="modern"] .comment-rule { background: var(--m-rule); box-shadow: none; }
+body[data-skin="modern"] .empty { color: var(--m-ink-2); padding: 1.6rem; }
+body[data-skin="modern"] .err { color: #f0a5a0; }
+
+/* dark-page and welcome variants inherit the same backdrop */
+body[data-skin="modern"].is-dark-page, body[data-skin="modern"].is-welcome { background-color: var(--m-bg); }
+
+/* ---------------------------------------------------------------------
+   8. Corrections found by rendering: classic paints several INTERIOR
+   pieces independently of their container, and shows a closed sheet's
+   bottom edge as a deliberate "peek". Neither belongs in this skin.
+   --------------------------------------------------------------------- */
+/* card interiors are painted separately in classic; make them transparent
+   so the glass card shows through as one sheet */
+body[data-skin="modern"] .card .text,
+body[data-skin="modern"] .note:not(.travelmark) .card-head,
+body[data-skin="modern"] .card .card-head,
+body[data-skin="modern"] .card .figure { background: transparent; background-image: none; }
+body[data-skin="modern"] .card .text { padding: 1rem 1.2rem 1.1rem; }
+body[data-skin="modern"] .note:not(.travelmark) .card-head { padding: 1.1rem 1.2rem 0; }
+
+/* the "Post a new Note" tile */
+body[data-skin="modern"] .post-box {
+  background: var(--m-glass); -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%);
+  border-radius: var(--m-r); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); color: var(--m-ink-2);
+}
+body[data-skin="modern"] .post-box:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .post-box span { color: var(--m-ink); }
+body[data-skin="modern"] .post-box .plus { opacity: .8; filter: invert(0); }
+body[data-skin="modern"][data-mode="dark"] .post-box .plus,
+body[data-skin="modern"][data-mode="system"]:not(.m-light) .post-box .plus { filter: invert(1); }
+
+/* the top search strip and the left icon rail: transparent, so the
+   backdrop reads as one continuous space; the input is the only object */
+body[data-skin="modern"] .searchbar, body[data-skin="modern"] #searchbar {
+  background: transparent; background-image: none; box-shadow: none; border: 0;
+}
+body[data-skin="modern"] .iconrail { background: transparent; background-image: none; box-shadow: none; border: 0; }
+body[data-skin="modern"] .iconrail a, body[data-skin="modern"] .iconrail-btn { color: var(--m-ink-2); }
+body[data-skin="modern"] .iconrail a:hover, body[data-skin="modern"] .iconrail a.on { color: var(--m-ink); background: var(--m-glass-2); border-radius: 14px; }
+body[data-skin="modern"] .iconrail a::after, body[data-skin="modern"] .iconrail a::before { display: none; }
+
+/* the profile nav: no rules between rows, no 2px accent underline */
+body[data-skin="modern"] .prail-nav li::after { display: none; }
+body[data-skin="modern"] .prail-nav { border: 0; }
+
+/* the Public / Private segmented control: one glass track, pill selection */
+body[data-skin="modern"] .vis-tabs {
+  background: var(--m-glass); border-radius: 999px; padding: 3px; box-shadow: inset 0 1px 0 var(--m-line);
+  border: 0; overflow: hidden;
+}
+body[data-skin="modern"] .vis-tabs::after, body[data-skin="modern"] .vis-tabs a + a::before { display: none; }
+body[data-skin="modern"] .vis-tabs a {
+  background: transparent; background-image: none; color: var(--m-ink-3); border-radius: 999px; box-shadow: none;
+  font-weight: 600; letter-spacing: .06em; transition: background .18s var(--m-ease), color .18s var(--m-ease);
+}
+body[data-skin="modern"] .vis-tabs a:hover { color: var(--m-ink); }
+body[data-skin="modern"] .vis-tabs a.on { background: var(--m-glass-3); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line-2); }
+
+/* tiles: the count strip and arrows */
+body[data-skin="modern"] .tile-count { background: transparent; color: var(--m-ink); }
+body[data-skin="modern"] .tiles-arrow img { filter: invert(1); }
+body[data-skin="modern"][data-mode="light"] .tiles-arrow img,
+html.m-light body[data-skin="modern"][data-mode="system"] .tiles-arrow img { filter: none; }
+
+/* a closed sheet is CLOSED: no peek, no nub. It arrives fully when opened. */
+body[data-skin="modern"] .curtain { --peek: 0px; transform: translateY(-110%); }
+body[data-skin="modern"] .curtain:hover { --peek: 0px; }
+body[data-skin="modern"] .curtain.is-open, body[data-skin="modern"] .curtain.is-open:hover { transform: translateY(0); }
+body[data-skin="modern"] .curtain-frame { margin-top: 12px; }
+
+/* the "search within" input and rail search inherit the field recipe */
+body[data-skin="modern"] .feed input[type="search"], body[data-skin="modern"] .feed .search input,
+body[data-skin="modern"] input.search {
+  background: var(--m-field); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); border-radius: 999px;
+}
+
+/* the profile layout paints a dark column behind the rail (a linear-gradient
+   on .cols inside a media query); the rail is its own glass sheet now */
+body[data-skin="modern"] .cols, body[data-skin="modern"] .cols.profile-cols { background-image: none !important; }
+/* the search input: classic layers a chrome gradient over a transparent bg */
+body[data-skin="modern"] .searchbar input {
+  background-color: var(--m-field) !important; background-image: none !important; border: 0 !important;
+}
+body[data-skin="modern"] .searchbar::after { display: none; }
+
+/* ---------------------------------------------------------------------
+   9. Corrections from the mobile render.
+   --------------------------------------------------------------------- */
+/* the arched travel-mark title hard-codes a dark fill on its SVG text */
+body[data-skin="modern"] .arc-title text, body[data-skin="modern"] .arc-title textPath { fill: var(--m-ink); }
+
+/* the home feed's ALL / FOLLOWING / FOLLOWERS nav: one glass track */
+body[data-skin="modern"] .feednav { background: var(--m-glass); border-radius: 999px; padding: 3px; margin-left: 0; margin-right: 0;
+  display: flex; box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .feednav li { flex: 1; }
+body[data-skin="modern"] .feednav li + li::before, body[data-skin="modern"] .feednav li::after { display: none; }
+body[data-skin="modern"] .feednav a { justify-content: center; padding: .7rem 1rem; color: var(--m-ink-3); border-radius: 999px;
+  background: transparent; background-image: none; box-shadow: none; font-size: .78rem; font-weight: 600; letter-spacing: .08em; }
+body[data-skin="modern"] .feednav a:hover { color: var(--m-ink); }
+body[data-skin="modern"] .feednav a.on { background: var(--m-glass-3); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line-2); }
+body[data-skin="modern"] .feednav a span { color: var(--m-ink-3); }
+
+/* the welcome table: ONE sheet, cells divided by hairlines, not nested glass */
+body[data-skin="modern"] .wtable { background: var(--m-glass); border-radius: var(--m-r); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%); overflow: hidden; }
+body[data-skin="modern"] .wcell { background: transparent; border-color: var(--m-rule); color: var(--m-ink); }
+body[data-skin="modern"] .wcell .slabel, body[data-skin="modern"] .wcell small { color: var(--m-ink-3); }
+body[data-skin="modern"] .welcome-name { color: var(--m-ink); }
+
+/* the icon rail's active state was a heavy block; a soft pill is enough */
+body[data-skin="modern"] .iconrail a.on { background: var(--m-glass-2); border-radius: 16px; margin: 0 8px; width: auto; }
+
+/* ---- phones: the rail becomes a bottom tab bar — the ornament idiom ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .iconrail {
+    top: auto; bottom: 10px; left: 12px; right: 12px; width: auto; height: 62px;
+    flex-direction: row; justify-content: space-around; align-items: center;
+    background: var(--m-glass-3); background-image: none;
+    -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%);
+    border-radius: 999px; box-shadow: inset 0 1px 0 var(--m-line-2), var(--m-shadow);
+    padding: 0 6px; z-index: 7;
+  }
+  body[data-skin="modern"] .iconrail a, body[data-skin="modern"] .iconrail-btn { height: 48px; width: 48px; flex: 0 0 48px; border-radius: 999px; margin: 0; }
+  body[data-skin="modern"] .iconrail a + a::before, body[data-skin="modern"] .iconrail a + .iconrail-btn::before,
+  body[data-skin="modern"] .iconrail a.on::after { display: none; }
+  body[data-skin="modern"] .iconrail a.on { background: var(--m-ink); color: var(--m-bg); margin: 0; width: 48px; }
+  body[data-skin="modern"] .iconrail svg { width: 20px; height: 20px; }
+  /* content gets the full width back, and room above the bar at the bottom */
+  body[data-skin="modern"].is-in main.wrap, body[data-skin="modern"].is-in footer.wrap {
+    padding-left: 0 !important; padding-right: 0 !important; padding-bottom: 92px;
+  }
+  body[data-skin="modern"] .searchbar::after { display: none; }
+  /* sheets sit above the bar */
+  body[data-skin="modern"] .curtain.is-open { z-index: 9; }
+}
+/* the welcome/settings table draws thick rule borders as its frame; hairlines only */
+body[data-skin="modern"] .wtable, body[data-skin="modern"] .ruled-table { border: 0; }
+body[data-skin="modern"] .wtable > .wcell { border: 0; border-bottom: 1px solid var(--m-rule); border-right: 1px solid var(--m-rule); }
+body[data-skin="modern"] .wtable > .wcell:nth-child(2n), body[data-skin="modern"] .wtable > .wcell-wide { border-right: 0; }
+body[data-skin="modern"] .wtable > .wcell:last-child { border-bottom: 0; }
+body[data-skin="modern"] a.wcell:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .wcell b { color: var(--m-ink); }
+body[data-skin="modern"] .wcell span { color: var(--m-ink-3); }
+/* mobile profile tabs: one glass track, no dividers, no shadow band beneath */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .prail-nav { background: var(--m-glass); border-radius: 999px; padding: 3px; box-shadow: inset 0 1px 0 var(--m-line); gap: 2px; }
+  body[data-skin="modern"] .prail-nav::after, body[data-skin="modern"] .prail-nav li + li::before { display: none; }
+  body[data-skin="modern"] .prail-nav li a { border-radius: 999px; }
+  body[data-skin="modern"] .prail-nav li a.on { background: var(--m-glass-3); box-shadow: inset 0 1px 0 var(--m-line-2); }
+}
+/* tiles: gaps instead of rules between them */
+body[data-skin="modern"] .tile-slot + .tile-slot, body[data-skin="modern"] .tiles > .tile-new { border-left: 0; margin-left: 8px; }
+
+/* =====================================================================
+   STAGE 2 — the complex surfaces
+   ===================================================================== */
+
+/* ---- the whole-page texture: classic paints every main child with the
+   mottle (a 140px tile), which reads as a faint grid on the dark backdrop */
+body[data-skin="modern"] main > *:not(.cols), body[data-skin="modern"] main > .cols > * {
+  background-color: transparent; background-image: none;
+}
+
+/* ---- desktop icon rail: the active state as a contained pill ---- */
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] .iconrail a.on { margin: 0; width: 100%; background: transparent; border-radius: 0; }
+  body[data-skin="modern"] .iconrail a.on::after { display: none; }
+  body[data-skin="modern"] .iconrail a.on svg, body[data-skin="modern"] .iconrail a.on img { color: var(--m-ink); }
+  body[data-skin="modern"] .iconrail a { color: var(--m-ink-3); }
+  body[data-skin="modern"] .iconrail a.on { color: var(--m-ink); }
+  body[data-skin="modern"] .iconrail a.on::before {
+    content: ""; position: absolute; inset: 34px 12px; border-radius: 16px; background: var(--m-glass-2);
+    box-shadow: inset 0 1px 0 var(--m-line); z-index: -1; display: block; left: 12px; right: 12px; top: 34px; bottom: 34px; height: auto;
+  }
+}
+
+/* ---- the check-in sheet: the curtain's own box must not paint ---- */
+body[data-skin="modern"] .curtain { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-skin="modern"] .curtain-body { background: transparent; }
+
+/* ---- nested day logs in the timeline are LINES, not cards ---- */
+body[data-skin="modern"] .tl-days li {
+  background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-radius: 0; box-shadow: none; padding: 0; margin: .45rem 0 0;
+}
+body[data-skin="modern"] .tl-days li::before, body[data-skin="modern"] .tl-days li::after { display: none; }
+
+/* ---- forms: the collection picker and the image well ---- */
+body[data-skin="modern"] .nf-drop > summary {
+  background: var(--m-field); background-image: none; border: 0; color: var(--m-ink); border-radius: var(--m-r3);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule);
+}
+body[data-skin="modern"] .nf-drop > summary:hover { background: var(--m-glass-2); background-image: none; }
+body[data-skin="modern"] .nf-drop > summary::after { border-top-color: var(--m-ink-3); }
+body[data-skin="modern"] .nf-drop-label { color: var(--m-ink-2); }
+body[data-skin="modern"] .nf-image, body[data-skin="modern"] .img-pick {
+  background: transparent; background-image: none; color: var(--m-ink-3); border-radius: var(--m-r2);
+  box-shadow: inset 0 0 0 1px var(--m-rule); outline: 1.5px dashed var(--m-line-2); outline-offset: -8px;
+}
+body[data-skin="modern"] .nf-image:hover, body[data-skin="modern"] .img-pick:hover { background: var(--m-glass); }
+body[data-skin="modern"] .nf-image-preview { border-radius: var(--m-r2); }
+body[data-skin="modern"] .img-arrow { color: var(--m-ink-2); background: var(--m-glass-3); border-radius: 999px; }
+body[data-skin="modern"] .img-count { color: var(--m-ink-3); }
+body[data-skin="modern"] .nf-opt { color: var(--m-ink-2); }
+body[data-skin="modern"] .nf-warrant a, body[data-skin="modern"] .nf-warrant { color: var(--m-ink-2); }
+body[data-skin="modern"] .seg-tabs, body[data-skin="modern"] .nf-seg {
+  background: var(--m-glass); border-radius: 999px; padding: 3px; box-shadow: inset 0 1px 0 var(--m-line);
+}
+body[data-skin="modern"] .seg-tabs a, body[data-skin="modern"] .nf-seg a, body[data-skin="modern"] .nf-seg label {
+  background: transparent; background-image: none; color: var(--m-ink-3); border-radius: 999px; box-shadow: none; border: 0;
+}
+body[data-skin="modern"] .seg-tabs a.on, body[data-skin="modern"] .nf-seg .on { background: var(--m-ink); color: var(--m-bg); }
+
+/* ---- the Ensemble worksurface ---- */
+body[data-skin="modern"] .ens { background: transparent; }
+body[data-skin="modern"] .ens-head { padding-top: 1.8rem; }
+body[data-skin="modern"] .ens-title { color: var(--m-ink); }
+body[data-skin="modern"] .ens-desc { color: var(--m-ink-2); }
+body[data-skin="modern"] .ens-meta, body[data-skin="modern"] .ens-group, body[data-skin="modern"] .ens-saved,
+body[data-skin="modern"] .ens-comp-state, body[data-skin="modern"] .ens-tile-n, body[data-skin="modern"] .ens-tile-t i { color: var(--m-ink-3); }
+body[data-skin="modern"] .ens-pending { color: var(--m-gold); }
+body[data-skin="modern"] .ens-primary { border-radius: var(--m-r); overflow: hidden; margin: 0 1.5rem;
+  box-shadow: inset 0 0 0 1px var(--m-line), var(--m-shadow); background: var(--m-image-bed); }
+body[data-skin="modern"] .ens-primary img { display: block; }
+body[data-skin="modern"] .ens-alts { padding: 1rem 1.5rem; }
+body[data-skin="modern"] .ens-alt img { border-radius: var(--m-r3); box-shadow: inset 0 0 0 1px var(--m-line); }
+body[data-skin="modern"] .ens-parts, body[data-skin="modern"] .ens-comps {
+  margin: 1.2rem 1.5rem 0; background: var(--m-glass); border-radius: var(--m-r);
+  box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(150%); backdrop-filter: blur(28px) saturate(150%); overflow: hidden;
+}
+body[data-skin="modern"] .ens-comps .ens-comps { margin: 0; background: transparent; box-shadow: none; border-radius: 0; }
+body[data-skin="modern"] .ens-comp { border-top: 1px solid var(--m-rule); padding: .9rem 1.2rem; }
+body[data-skin="modern"] .ens-comp:first-child { border-top: 0; }
+body[data-skin="modern"] .ens-comp img, body[data-skin="modern"] .ens-comp-blank { border-radius: 10px; background: var(--m-image-bed); box-shadow: inset 0 0 0 1px var(--m-line); }
+body[data-skin="modern"] .ens-comp-label { color: var(--m-ink); }
+body[data-skin="modern"] .ens-comp.unresolved .ens-comp-label { color: var(--m-ink-2); }
+body[data-skin="modern"] .ens-comp-link { color: var(--m-gold); }
+body[data-skin="modern"] .ens-review {
+  margin: 1.2rem 1.5rem 0; padding: 1.1rem 1.4rem; background: var(--m-glass-2); border-radius: var(--m-r);
+  box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); color: var(--m-ink);
+}
+body[data-skin="modern"] .ens-review-q { color: var(--m-ink); }
+body[data-skin="modern"] .ens-edit { padding: 0 1.5rem; }
+body[data-skin="modern"] .ens-danger { color: #e2a29c; }
+
+/* ---- the Ensembles list ---- */
+body[data-skin="modern"] .ens-tile img, body[data-skin="modern"] .ens-tile-blank {
+  border-radius: var(--m-r2); background: var(--m-image-bed); box-shadow: inset 0 0 0 1px var(--m-line);
+  transition: transform .2s var(--m-ease);
+}
+body[data-skin="modern"] .ens-tile:hover img { transform: translateY(-2px); }
+body[data-skin="modern"] .ens-tile-t { color: var(--m-ink); }
+body[data-skin="modern"] .ens-tile-blank { color: var(--m-ink-3); }
+
+/* ---- settings: the tables become one sheet each ---- */
+body[data-skin="modern"] .settings-table .wcell { border-bottom: 1px solid var(--m-rule); border-right: 0; }
+body[data-skin="modern"] .settings-table .wcell:last-child { border-bottom: 0; }
+body[data-skin="modern"] .settings-table .nf-field, body[data-skin="modern"] .settings input { color: var(--m-ink); }
+body[data-skin="modern"] .settings a { color: var(--m-gold); }
+body[data-skin="modern"] code, body[data-skin="modern"] .mono, body[data-skin="modern"] .token {
+  background: var(--m-field); color: var(--m-ink); border-radius: 8px; padding: .15em .45em; border: 0;
+}
+
+/* ---- warrant crest + private tag on cards ---- */
+body[data-skin="modern"] .warrant-tag, body[data-skin="modern"] .priv-tag, body[data-skin="modern"] .card .badge {
+  background: var(--m-glass-2); color: var(--m-ink-2); border-radius: 999px; box-shadow: inset 0 1px 0 var(--m-line); border: 0;
+}
+body[data-skin="modern"] .crest, body[data-skin="modern"] .warrant-crest { filter: none; }
+
+/* ---- comments ---- */
+body[data-skin="modern"] .comment, body[data-skin="modern"] .cmt {
+  background: var(--m-glass); border-radius: var(--m-r2); box-shadow: inset 0 1px 0 var(--m-line); padding: .9rem 1.1rem; border: 0;
+}
+body[data-skin="modern"] .comment .who, body[data-skin="modern"] .cmt-who { color: var(--m-ink-2); }
+body[data-skin="modern"] .crumb, body[data-skin="modern"] .crumb a { color: var(--m-ink-3); }
+body[data-skin="modern"] .crumb b { color: var(--m-ink); }
+/* one sheet, not two: the frame is a positioning wrapper, the box is the material */
+body[data-skin="modern"] .curtain-frame {
+  background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; padding: 0;
+}
+body[data-skin="modern"] .curtain-frame .nf-box { box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+
+/* ---- modal sheets: heavy material + a full-viewport scrim ---- */
+body[data-skin="modern"] .curtain-frame .nf-box {
+  background: var(--m-sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(160%); backdrop-filter: blur(40px) saturate(160%);
+}
+/* the curtain is transformed, which makes it the containing block for any
+   fixed descendant — so a scrim inside it can never cover the viewport. Put
+   it on body instead, keyed off the open sheet. */
+body[data-skin="modern"]:has(.curtain.is-open)::after {
+  content: ""; position: fixed; inset: 0; background: var(--m-scrim); z-index: 8; pointer-events: none;
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+
+body[data-skin="modern"] .curtain.is-open { z-index: 9; }   /* above the scrim, which is above search and tab bar */
+
+/* ---- Ensemble on phones: reclaim the width ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .ens-primary, body[data-skin="modern"] .ens-parts, body[data-skin="modern"] .ens-comps,
+  body[data-skin="modern"] .ens-review, body[data-skin="modern"] .ens-edit { margin-left: .6rem; margin-right: .6rem; }
+  body[data-skin="modern"] .ens-alts { padding: .8rem .6rem; }
+  /* rows become lines inside the section, not raised cards */
+  body[data-skin="modern"] .ens-parts .ens-comps {
+    margin: 0 0 .4rem; background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border-radius: 0;
+  }
+  body[data-skin="modern"] .ens-comp {
+    background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; border-radius: 0;
+    padding: .8rem .9rem; gap: .8rem; margin: 0;
+  }
+  body[data-skin="modern"] .ens-comp img, body[data-skin="modern"] .ens-comp-blank { width: 2.6rem; height: 2.6rem; }
+  body[data-skin="modern"] .ens-comp-body { min-width: 0; }
+  body[data-skin="modern"] .ens-comp-label { font-size: .95rem; line-height: 1.3; }
+  body[data-skin="modern"] .ens-comp-state { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  body[data-skin="modern"] .ens-group { padding-left: .9rem; }
+}
