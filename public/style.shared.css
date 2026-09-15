@@ -26,3 +26,8 @@
   .is-app .searchbar { padding-top: calc(.55rem + max(env(safe-area-inset-top, 0px), 24px)); }
   .is-app .iconrail { top: calc(var(--searchbar-h, 52px) + max(env(safe-area-inset-top, 0px), 24px)); }
 }
+
+/* Cards carry their own `display: grid` (classic) — the browser's UA rule for
+   [hidden] has lower priority than ANY author rule regardless of specificity,
+   so setting the hidden property alone does nothing here. Force it. */
+.note[hidden] { display: none !important; }

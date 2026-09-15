@@ -1228,3 +1228,62 @@ body[data-skin="modern"] .profile-feed form.within input {
   box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); border-radius: 999px;
 }
 body[data-skin="modern"] .who-private { color: var(--m-accent); }
+
+/* =====================================================================
+   REFINEMENTS V — tiles committed to full bleed, the new tile rebuilt,
+   the mobile nav given presence, the welcome masthead unbanded
+   ===================================================================== */
+
+/* ---- the collection tile, as one object: picture to the edges, name and
+   count on the sheet beneath. Tokens for the tile so nothing is guessed. ---- */
+body[data-skin="modern"] { --m-tile-w: 9.2rem; --m-tile-img: 5.6rem; }
+body[data-skin="modern"] .tile-slot { flex-basis: var(--m-tile-w); }
+body[data-skin="modern"] .tile, body[data-skin="modern"] .tile-new {
+  grid-template-rows: var(--m-tile-img) auto auto; background: var(--m-glass); color: var(--m-ink);
+  border-radius: var(--m-r2); overflow: hidden; box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  transition: transform .22s var(--m-ease), background .18s var(--m-ease);
+}
+body[data-skin="modern"] .tile:hover, body[data-skin="modern"] .tile-new:hover { background: var(--m-glass-2); transform: translateY(-2px); }
+body[data-skin="modern"] .tile.on { background: var(--m-glass-3); }
+body[data-skin="modern"] .tile-slot:has(.tile.on)::after { display: none; }
+/* the picture: no margin, no inset, the tile's own top corners clip it */
+body[data-skin="modern"] .tile-img { margin: 0; height: var(--m-tile-img); width: 100%; border-radius: 0; background-color: var(--m-image-bed); }
+body[data-skin="modern"] .tile.on .tile-img { background-color: var(--m-image-bed); }
+body[data-skin="modern"] .tile.on .tile-count { background: transparent; }
+body[data-skin="modern"] .tile-name { padding: .55rem .4rem .1rem; font-size: .58rem; color: var(--m-ink-2); border: 0; }
+body[data-skin="modern"] .tile-count { border: 0; padding: 0 .4rem .6rem; font-size: 1.05rem; color: var(--m-ink); background: transparent; }
+
+/* ---- the "new collection" tile: it IS the card (a form), so it takes the
+   sheet itself; a dashed inner well marks it as an empty slot ---- */
+body[data-skin="modern"] .tile-new { flex-basis: var(--m-tile-w); position: relative; border: 0; margin-left: 10px; }
+body[data-skin="modern"] .tile-new::before { content: ""; position: absolute; inset: 7px; border-radius: 12px; border: 1.5px dashed var(--m-line-2); pointer-events: none; }
+body[data-skin="modern"] .tile-new > * { background: transparent; box-shadow: none; outline: none; border: 0; }
+body[data-skin="modern"] .tile-new .tile-img { background: transparent; display: grid; place-items: center; }
+body[data-skin="modern"] .tile-new .tile-img img { width: 1.8rem; height: 1.8rem; opacity: .7; filter: invert(1); }
+body[data-skin="modern"][data-mode="light"] .tile-new .tile-img img, html.m-light body[data-skin="modern"][data-mode="system"] .tile-new .tile-img img { filter: none; opacity: .5; }
+body[data-skin="modern"] .tile-new .tile-name { color: var(--m-ink-3); }
+body[data-skin="modern"] .tile-new .tile-count { display: flex; flex-direction: column; gap: .3rem; align-items: stretch; padding: .1rem .5rem .55rem; }
+body[data-skin="modern"] .tile-new input { font-size: .66rem; padding: .35rem .5rem; border-radius: 999px; background: var(--m-field); border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); text-align: center; letter-spacing: .06em; }
+body[data-skin="modern"] .tile-ctas { display: none; gap: .3rem; justify-content: center; flex-wrap: wrap; }
+body[data-skin="modern"] .tile-new.is-open .tile-ctas, body[data-skin="modern"] .tile-edit .tile-ctas { display: flex; }
+body[data-skin="modern"] .tile-new.is-open { flex-basis: 15rem; }
+body[data-skin="modern"] .tile-new .tile-count { padding: .1rem .5rem .55rem; }
+body[data-skin="modern"] .tile-cta { font-size: .56rem; padding: .32rem .6rem; letter-spacing: .06em; white-space: nowrap; line-height: 1; min-height: 0; height: auto; width: auto; }
+body[data-skin="modern"] .tile-ctas .tile-cta { flex: 0 0 auto; }
+body[data-skin="modern"] .tile-cta-go { background: var(--m-ink); color: var(--m-bg); }
+
+/* ---- the mobile profile tabs: the welcome table's type — a number that
+   reads at a glance, a label with room to breathe ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .prail-nav a { min-height: 54px; padding: .5rem .3rem; }
+  body[data-skin="modern"] .prail-nav a::before { font-size: .64rem; letter-spacing: .1em; font-weight: 700; line-height: 1.15; color: var(--m-ink-2); }
+  body[data-skin="modern"] .prail-nav a.on::before { color: var(--m-ink); }
+  body[data-skin="modern"] .prail-nav a[data-count]::after { font-size: 1.05rem; font-weight: 400; color: var(--m-ink); margin-top: .1rem; line-height: 1.1; }
+}
+
+/* ---- the welcome masthead: no material at all, so it cannot band the backdrop ---- */
+body[data-skin="modern"].is-welcome .masthead { background: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: none; }
+body[data-skin="modern"] .tile.on .tile-img, body[data-skin="modern"] .tile-img.tile-glyph { background-image: none; }
+body[data-skin="modern"] .tile.on .tile-img img, body[data-skin="modern"] .tile-glyph img { opacity: .55; }
