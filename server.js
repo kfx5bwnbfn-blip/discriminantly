@@ -19,8 +19,21 @@ const CSS_V = assetHash('style.css');
 const CSS_MODERN_V = assetHash('style.modern.css');
 // The classic skin is the default and the one every existing member sees.
 const SKINS = new Set(['classic', 'modern']), MODES = new Set(['system', 'light', 'dark']);
-const skinOf = (u) => (u && SKINS.has(u.ui_skin)) ? u.ui_skin : 'classic';
-const modeOf = (u) => (u && MODES.has(u.ui_mode)) ? u.ui_mode : 'system';
+// A member's skin is their setting. A signed-out visitor has none, so the
+// welcome, login and join pages follow a `skin` cookie (set whenever a member
+// changes theirs, so logging out does not snap the look back), and otherwise
+// DEFAULT_SKIN — classic unless the site is told otherwise.
+const DEFAULT_SKIN = SKINS.has(process.env.DEFAULT_SKIN) ? process.env.DEFAULT_SKIN : 'modern';
+const skinOf = (u, req) => {
+  if (u && SKINS.has(u.ui_skin)) return u.ui_skin;   // a member's explicit choice, either way
+  const c = req && /(?:^|;\s*)skin=(\w+)/.exec(req.headers.cookie || '');
+  return c && SKINS.has(c[1]) ? c[1] : DEFAULT_SKIN;
+};
+const modeOf = (u, req) => {
+  if (u && MODES.has(u.ui_mode)) return u.ui_mode;
+  const c = req && /(?:^|;\s*)mode=(\w+)/.exec(req.headers.cookie || '');
+  return c && MODES.has(c[1]) ? c[1] : 'system';
+};
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'discriminantly.db');
 const SECURE = process.env.NODE_ENV === 'production';
@@ -736,6 +749,13 @@ const MIGRATIONS = [
     if (!hasColumn('users', 'ui_mode')) db.exec("ALTER TABLE users ADD COLUMN ui_mode TEXT NOT NULL DEFAULT 'system'");
   }],
 
+  // Modern glass becomes the default (v1.48). 038 gave every row 'classic'
+  // as a column default, which recorded no choice at all — so move those rows
+  // to 'modern' and let the switch record real choices from here on.
+  ['039-modern-default', () => {
+    db.exec("UPDATE users SET ui_skin='modern' WHERE ui_skin='classic'");
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1015,7 +1035,7 @@ const ICONS = {
   lens: '<svg viewBox="0 0 44 48" width="44" height="48" aria-hidden="true"><defs><linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="18" cy="17" r="12.6" fill="url(%23glare)"/><circle cx="18" cy="17" r="12.6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M26.9 26.2 29.4 28.7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.3" fill="currentColor"/><circle cx="31.8" cy="36.4" r="1.7" fill="currentColor"/><circle cx="32" cy="41.4" r="1.3" fill="currentColor"/></svg>',
 };
 
-function layout({ title, body, me, flash, cls = '', nav = '' }) {
+function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <script>
@@ -1061,7 +1081,7 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
-<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}">${skinOf(me) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me) === 'modern' && modeOf(me) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me)}" data-mode="${modeOf(me)}">
+<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -3833,7 +3853,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <div class="wcell wcell-wide"><p class="fine center">Have an invite code? <a href="/join">Join discriminant.ly</a></p></div>
   </form>
 </div>`;
-    send(res, layout({ title: 'Sign in', body, me, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Sign in', body, me, req, cls: 'is-dark-page' }));
   },
 
   join(req, res, me, code = '', err = '') {
@@ -3853,7 +3873,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login">Sign in</a></p></div>
   </form>
 </div>`;
-    send(res, layout({ title: 'Join', body, me, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Join', body, me, req, cls: 'is-dark-page' }));
   },
 
   invites(req, res, me) {
@@ -3913,6 +3933,27 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     </div>
     <div class="settings-col settings-col-outward">
       <div class="settings-stack">
+        <div class="wtable settings-table settings-look">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Look and feel</p>
+            <p class="sbox-sub">Classic is the original design. Modern glass is the same discriminant.ly on a new material.</p>
+            <form method="post" action="/settings/skin" class="look-form">
+              <input type="hidden" name="mode" value="${modeOf(me)}">
+              <div class="nf-top look-row"><span class="nf-lbl">Modern glass</span>
+                <label class="switch"><input type="checkbox" name="skin" value="modern" ${skinOf(me) === 'modern' ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
+            </form>
+            ${skinOf(me) === 'modern' ? `<form method="post" action="/settings/skin" class="look-form" id="look-mode-form">
+              <input type="hidden" name="skin" value="modern"><input type="hidden" name="mode" value="${modeOf(me)}">
+              <span class="nf-lbl">Appearance</span>
+              <div class="vis-tabs look-modes">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
+                `<a class="${modeOf(me) === v ? 'on' : ''}" href="#" data-mode="${v}">${l}</a>`).join('')}
+              </div>
+              <p class="lookup-note">Auto follows your device.</p>
+            </form>
+            <script>document.querySelectorAll('#look-mode-form [data-mode]').forEach(function (a) { a.addEventListener('click', function (e) {
+              e.preventDefault(); var f = a.closest('form'); f.elements.mode.value = a.dataset.mode; f.submit(); }); });</script>` : ''}
+          </div>
+        </div>
         <div class="wtable settings-table settings-connector">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Connect to your AI</p>
@@ -3920,18 +3961,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
             <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
             <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
-            <form method="post" action="/settings/skin" class="ingest-mode">
-              <span class="nf-lbl">Look</span>
-              <select class="nf-field" name="skin" onchange="this.form.submit()">
-                <option value="classic"${skinOf(me) === 'classic' ? ' selected' : ''}>Classic — the original design</option>
-                <option value="modern"${skinOf(me) === 'modern' ? ' selected' : ''}>Modern — glass and depth</option>
-              </select>
-              ${skinOf(me) === 'modern' ? `<select class="nf-field" name="mode" onchange="this.form.submit()" style="margin-top:.4rem">
-                <option value="system"${modeOf(me) === 'system' ? ' selected' : ''}>Follow the device (light or dark)</option>
-                <option value="light"${modeOf(me) === 'light' ? ' selected' : ''}>Light</option>
-                <option value="dark"${modeOf(me) === 'dark' ? ' selected' : ''}>Dark</option>
-              </select>` : ''}
-            </form>
             <form method="post" action="/settings/ingest" class="ingest-mode">
               <span class="nf-lbl">How AI sends images</span>
               <select class="nf-field" name="mode" onchange="this.form.submit()">
@@ -4029,7 +4058,11 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   <div class="shot-shadow"></div>
   <div class="shot-frame">
     <div class="shot-chrome"><span></span><span></span><span></span></div>
-    <img src="/welcome-shot.jpg" alt="Discriminantly on the desktop" width="1800" height="1055">
+    ${skinOf(me, req) !== 'modern'
+      ? `<img src="/welcome-shot.jpg" alt="Discriminantly on the desktop" width="1800" height="1055">`
+      : modeOf(me, req) === 'light' ? `<img src="/welcome-shot-modern-light.jpg" alt="Discriminantly on the desktop" width="2000" height="1286">`
+      : modeOf(me, req) === 'dark' ? `<img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1286">`
+      : `<picture><source srcset="/welcome-shot-modern-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1286"></picture>`}
   </div>
 </div>
 <div class="curtain dialog" id="splash-install-dialog">
@@ -4063,7 +4096,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') dlg.classList.remove('is-open'); });
 })();
 </script>`;
-    send(res, layout({ title: 'Welcome', body, me, cls: 'is-welcome' }));
+    send(res, layout({ title: 'Welcome', body, me, req, cls: 'is-welcome' }));
   },
 
   about(req, res, me) {
@@ -5752,7 +5785,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg' };
+const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
@@ -5881,9 +5914,10 @@ async function handle(req, res) {
   if (p === '/settings/skin' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req);
-    const skin = SKINS.has(b.skin) ? b.skin : 'classic';
+    const skin = b.skin === 'modern' ? 'modern' : 'classic';     // the switch sends no value when off
     const mode = MODES.has(b.mode) ? b.mode : modeOf(me);
     q('UPDATE users SET ui_skin=?, ui_mode=? WHERE id=?').run(skin, mode, me.id);
+    res.setHeader('Set-Cookie', [`skin=${skin}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${mode}; Path=/; Max-Age=31536000; SameSite=Lax`]);
     return redirect(res, '/settings');
   }
   if (p === '/settings/ingest' && m === 'POST') {
@@ -5916,7 +5950,7 @@ async function handle(req, res) {
     const handle = slug(b.handle || ''); const email = (b.email || '').toLowerCase().trim();
     if (q('SELECT 1 FROM users WHERE handle=? OR email=?').get(handle, email)) return pages.join(req, res, me, code, 'That handle or email is already taken.');
     if ((b.password || '').length < 8) return pages.join(req, res, me, code, 'Password needs at least 8 characters.');
-    const r = q('INSERT INTO users(handle,name,email,pass) VALUES(?,?,?,?)').run(handle, (b.name || '').trim() || handle, email, hashPass(b.password));
+    const r = q("INSERT INTO users(handle,name,email,pass,ui_skin) VALUES(?,?,?,?,'modern')").run(handle, (b.name || '').trim() || handle, email, hashPass(b.password));
     q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
     return redirect(res, '/new', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
@@ -6286,7 +6320,7 @@ if (freshInstall && process.env.NODE_ENV === 'production') {
 }
 if (freshInstall) {
   const email = process.env.ADMIN_EMAIL || 'admin@discriminant.ly', pass = process.env.ADMIN_PASSWORD || 'changeme1';
-  q('INSERT INTO users(handle,name,email,pass,is_admin,avatar) VALUES(?,?,?,?,1,?)').run(process.env.ADMIN_HANDLE || 'elicierto', process.env.ADMIN_NAME || 'Brian Elicierto', email, hashPass(pass), '/avatars/elicierto.png');
+  q("INSERT INTO users(handle,name,email,pass,is_admin,avatar,ui_skin) VALUES(?,?,?,?,1,?,'modern')").run(process.env.ADMIN_HANDLE || 'elicierto', process.env.ADMIN_NAME || 'Brian Elicierto', email, hashPass(pass), '/avatars/elicierto.png');
   const code = token(6); q('INSERT INTO invites(code,from_user) VALUES(?,1)').run(code);
   console.log(`First run: admin ${email} / ${pass}. One invite code: ${code}`);
   if (process.env.SEED) require('./seed')(db);
