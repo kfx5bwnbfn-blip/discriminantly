@@ -1411,6 +1411,41 @@ function readImage(file, cb) {
     b.addEventListener('click', function () { document.getElementById('checkin-dialog').classList.remove('is-open'); });
   });
 
+  document.addEventListener('DOMContentLoaded', function () {
+  // ---- travel-mark cards fold in feeds. Tap the card body to open; links
+  // and buttons inside keep working as themselves. ----
+  document.querySelectorAll('.mark-collapsible').forEach(function (card) {
+    var more = card.querySelector('.mark-more'); var text = card.querySelector('.text'); if (!more || !text) return;
+    var toggle = function (open) {
+      card.classList.toggle('is-open', open); more.setAttribute('aria-hidden', open ? 'false' : 'true');
+      if (open) { var m = card.querySelector('.mark-map[data-map-src]'); if (m && !m.querySelector('iframe')) {
+        var f = document.createElement('iframe'); f.src = m.dataset.mapSrc; f.loading = 'lazy'; f.title = m.dataset.mapTitle || 'Map'; m.innerHTML = ''; m.appendChild(f); } }
+    };
+    text.addEventListener('click', function (e) {
+      if (e.target.closest('a, button, input, label, form, .switch')) return;
+      toggle(!card.classList.contains('is-open'));
+    });
+  });
+  // ---- profile tabs (All / Public / Private) filter the cards already on the
+  // page instead of reloading it, so the scroll position survives ----
+  document.querySelectorAll('.vis-tabs').forEach(function (tabs) {
+    if (tabs.classList.contains('look-modes')) return;
+    var links = tabs.querySelectorAll('a[href*="v="]'); if (!links.length) return;
+    links.forEach(function (a) { a.addEventListener('click', function (e) {
+      var v = new URL(a.href, location.href).searchParams.get('v'); if (!v) return;
+      e.preventDefault();
+      links.forEach(function (x) { x.classList.toggle('on', x === a); });
+      document.querySelectorAll('.grid .note').forEach(function (n) {
+        var priv = n.dataset.private === '1';
+        n.hidden = v === 'public' ? priv : v === 'private' ? !priv : false;
+      });
+      if (window.layoutFeed) try { window.layoutFeed(); } catch (err) {}
+      var u = new URL(location.href); u.searchParams.set('v', v); history.replaceState(null, '', u);
+    }); });
+  });
+
+  });
+
   // Check in asks first, and takes an optional line about the visit
   document.addEventListener('click', function (e) {
     var t = e.target.closest && e.target.closest('[data-checkin]');
@@ -2239,7 +2274,7 @@ function markCard(m, me, full = false) {
   const tags = tagList(m.tags);
   const cs = markCollections(m.id);
   const embed = mapEmbed(m);
-  return `<article class="note travelmark ${full ? 'note-full' : ''}">
+  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}">
   <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(m, 'mark', me)}
@@ -2250,6 +2285,7 @@ function markCard(m, me, full = false) {
       <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
       ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
+      ${full ? '' : '<div class="mark-more" aria-hidden="true"><div class="mark-more-inner">'}
       ${m.why ? `<p class="body">${esc(m.why)}</p>` : ''}
       ${tags.length ? `<p class="tags">${tags.map((t) => `<a href="/?t=${encodeURIComponent(t)}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
       ${m.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(m.url)}" rel="noopener">${esc(m.url.length > 34 ? m.url.slice(0, 34) + '…' : m.url)}</a></p>` : ''}
@@ -2257,6 +2293,7 @@ function markCard(m, me, full = false) {
         ? `<div class="mark-map"><iframe src="${embed}" loading="lazy" title="Map of ${esc(m.name)}"></iframe></div>`
         : `<div class="mark-map" data-map-src="${esc(embed)}" data-map-title="Map of ${esc(m.name)}"><div class="mark-map-placeholder">Show map</div></div>`}
       <p class="map-credit">© OpenStreetMap contributors</p>` : ''}
+      ${full ? '' : '</div></div><span class="mark-hint">Tap for more</span>'}
       <div class="noteit mark-visits">
         <div class="mark-buttons">
           <a class="btn-note" href="${mapLink(m)}" rel="noopener">Directions</a>
@@ -3147,7 +3184,7 @@ function objectCard(o, me, full = false) {
   const noted = adopted.length > 0;
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
-  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}">
+  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}">
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(o, 'object', me)}
@@ -3281,7 +3318,7 @@ const pages = {
     <p class="about">Discriminantly is an independent, personal and portable memory for your taste—the things you notice, the places you go, and the experiences worth remembering.</p>
     <p class="about">Keep it for yourself, share what you choose, and connect your taste to AI— ChatGPT or Claude.</p>
     <p class="about">Your taste is yours. Keep it private when you choose, connect it on your terms, and put it to use wherever you go.</p>
-    <ul class="members">${members.map((u) => `<li><a href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a></li>`).join('')}</ul>`}
+`}
   </aside>
   <section class="feed feed-plain is-tiled">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
@@ -3362,7 +3399,10 @@ ${noters.length ? `<div class="section-rule"></div>
     const v = ensembleView(e, me);
     const primary = v.artifacts.find((a) => a.is_primary) || v.artifacts[0];
     const alts = v.artifacts.filter((a) => !primary || a.artifact_uid !== primary.artifact_uid);
-    const body = `<section class="ens">
+    // Every post page keeps the member's rail beside it; the Ensemble is a post.
+    const author = q('SELECT * FROM users WHERE id=?').get(e.user_id);
+    const body = `<div class="cols profile-cols">${profileRail(author, me, 'ensembles')}
+<section class="feed profile-feed ens-feed"><section class="ens">
   <div class="ens-head">
     <h1 class="ens-title">${esc(v.title)}</h1>
     ${v.description ? `<p class="ens-desc">${esc(v.description)}</p>` : ''}
@@ -3433,7 +3473,7 @@ ${noters.length ? `<div class="section-rule"></div>
       </div>
     </div>
   </form>` : ''}
-</section>`;
+</section></section></div>`;
     send(res, layout({ title: v.title, body, me, nav: 'home' }));
   },
 
@@ -5946,7 +5986,10 @@ async function handle(req, res) {
     const b = await readBody(req); const u = q('SELECT * FROM users WHERE email=?').get((b.email || '').toLowerCase().trim());
     if (!u || !checkPass(b.password || '', u.pass)) return pages.login(req, res, me, 'That email and password do not match.');
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
-    return redirect(res, '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
+    // carry the member's look into the cookies too, so the signed-out pages
+    // they meet next (logout, a second tab) do not snap to a different theme
+    const lookCookies = [`skin=${skinOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${modeOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`];
+    return redirect(res, '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
   }
   if (p === '/logout' && m === 'POST') { const t = cookies(req).sid; if (t) q('DELETE FROM sessions WHERE token=?').run(t); return redirect(res, '/', { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' }); }
 

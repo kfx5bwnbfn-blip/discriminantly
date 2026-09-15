@@ -4,3 +4,25 @@
 .ens-tile-meta { display: grid; gap: .25rem; padding-top: .3rem; }
 .ens-note-grid { display: grid; gap: 1.2rem; padding: 0 0 1rem; }
 .ens-note-grid .note { max-width: none; }
+
+/* ---- travel-mark cards fold in the feed: the description, tags, link and
+   map open on tap and close again. Height is animated with a grid track so
+   no fixed max-height guess is needed. ---- */
+.mark-collapsible .mark-more { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .38s cubic-bezier(.2,.7,.2,1); }
+.mark-collapsible .mark-more-inner { min-height: 0; overflow: hidden; opacity: 0; transition: opacity .25s ease; }
+.mark-collapsible.is-open .mark-more { grid-template-rows: 1fr; }
+.mark-collapsible.is-open .mark-more-inner { opacity: 1; transition-delay: .12s; }
+.mark-collapsible .text { cursor: pointer; }
+.mark-collapsible .mark-title a, .mark-collapsible .mark-buttons a, .mark-collapsible .mark-buttons button, .mark-collapsible .who a,
+.mark-collapsible .colls a, .mark-collapsible .tags a, .mark-collapsible .link a { cursor: pointer; }
+.mark-collapsible .mark-hint { display: block; text-align: center; font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; opacity: .55; margin: .3rem 0 .2rem; }
+.mark-collapsible.is-open .mark-hint { display: none; }
+@media (prefers-reduced-motion: reduce) { .mark-collapsible .mark-more, .mark-collapsible .mark-more-inner { transition: none; } }
+
+/* ---- tablets running as a home-screen app: env(safe-area-inset-top) reads
+   0 on iPad even when the status bar is drawn over the page, so the search
+   bar slid under it. Reserve the status bar explicitly at tablet widths. ---- */
+@media (display-mode: standalone) and (min-width: 52.01rem) {
+  .is-app .searchbar { padding-top: calc(.55rem + max(env(safe-area-inset-top, 0px), 24px)); }
+  .is-app .iconrail { top: calc(var(--searchbar-h, 52px) + max(env(safe-area-inset-top, 0px), 24px)); }
+}

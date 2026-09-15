@@ -1080,3 +1080,151 @@ body[data-skin="modern"] .warrant-seal { z-index: 2; }
    override had been flattening this */
 body[data-skin="modern"] .card:has(.warrant-seal) .card-head,
 body[data-skin="modern"] .travelmark .card:has(.warrant-seal) .text { padding-top: 3.4rem; }
+
+/* =====================================================================
+   REFINEMENTS IV
+   ===================================================================== */
+
+/* ---- desktop welcome counters: the same quiet cells as on phones ---- */
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] .rail .wtable:not(.settings-table) { padding: .5rem; gap: .4rem; }
+  body[data-skin="modern"] .rail .wtable:not(.settings-table) > .wcell:not(.wcell-wide) {
+    border: 0; border-radius: 14px; background: rgba(255,255,255,.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.07);
+    transition: background .18s var(--m-ease);
+  }
+  body[data-skin="modern"][data-mode="light"] .rail .wtable:not(.settings-table) > .wcell:not(.wcell-wide),
+  html.m-light body[data-skin="modern"][data-mode="system"] .rail .wtable:not(.settings-table) > .wcell:not(.wcell-wide) {
+    background: rgba(255,255,255,.34); box-shadow: inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  body[data-skin="modern"] .rail .wtable:not(.settings-table) > a.wcell:hover { background: var(--m-glass-2); }
+  body[data-skin="modern"] .rail .wtable:not(.settings-table) > .wcell-wide { border: 0; }
+  body[data-skin="modern"] .rail .wtable:not(.settings-table) .wcell:has(.btn3d) { border: 0; }
+}
+
+/* ---- profile > notes: one width, one edge, for everything in the stack ---- */
+body[data-skin="modern"] .profile-feed .tiles-wrap, body[data-skin="modern"] .profile-feed .tiles,
+body[data-skin="modern"] .profile-feed .feed-search, body[data-skin="modern"] .profile-feed .vis-tabs,
+body[data-skin="modern"] .profile-feed .post-box, body[data-skin="modern"] .profile-feed .search input,
+body[data-skin="modern"] .profile-feed form.search { width: 100%; max-width: none; margin-left: 0; margin-right: 0; box-sizing: border-box; }
+body[data-skin="modern"] .profile-feed .tiles-nav { padding: 0 0 .5rem; }
+body[data-skin="modern"] .profile-feed .vis-tabs { margin: .8rem 0 1rem; }
+body[data-skin="modern"] .profile-feed .post-box { margin: 0 0 1.4rem; }
+body[data-skin="modern"] .profile-feed .search, body[data-skin="modern"] .profile-feed .feed-search { margin: 0 0 .8rem; }
+
+/* ---- the collections carousel as material: full-bleed pictures, one
+   sheet per tile, no rules between them; placeholders drawn from the
+   backdrop rather than the seed's pastel squares ---- */
+body[data-skin="modern"] .tiles { border: 0; padding: 2px 2px 8px; gap: 10px; }
+body[data-skin="modern"] .tile-slot { flex-basis: 9.2rem; }
+body[data-skin="modern"] .tile-slot + .tile-slot, body[data-skin="modern"] .tiles > .tile-new { border-left: 0; margin-left: 0; }
+body[data-skin="modern"] .tile-slot > * { border-radius: var(--m-r2); overflow: hidden; display: flex; flex-direction: column; width: 100%; }
+body[data-skin="modern"] .tile-img { border-radius: 0; height: 5.6rem; object-fit: cover; width: 100%; background: var(--m-image-bed); }
+body[data-skin="modern"] .tile-glyph { background: var(--m-image-bed); color: var(--m-ink-3); height: 5.6rem; display: grid; place-items: center; }
+body[data-skin="modern"] .tile-glyph img { opacity: .45; filter: invert(1); width: 30px; }
+body[data-skin="modern"][data-mode="light"] .tile-glyph img, html.m-light body[data-skin="modern"][data-mode="system"] .tile-glyph img { filter: none; opacity: .38; }
+body[data-skin="modern"] .tile-name { padding: .55rem .5rem .1rem; font-size: .58rem; }
+body[data-skin="modern"] .tile-count { border: 0; padding: 0 .5rem .6rem; font-size: 1.05rem; }
+/* the "new collection" tile: the same sheet, dashed inside, a plus that reads in both modes */
+body[data-skin="modern"] .tile-new, body[data-skin="modern"] .tile-new > * {
+  background: transparent; color: var(--m-ink-3); box-shadow: none; border: 0;
+}
+body[data-skin="modern"] .tile-new > * { box-shadow: inset 0 0 0 1px var(--m-rule); outline: 1.5px dashed var(--m-line-2); outline-offset: -8px; justify-content: center; align-items: center; gap: .4rem; border-radius: var(--m-r2); }
+body[data-skin="modern"] .tile-new img, body[data-skin="modern"] .tile-new .plus { filter: invert(1); opacity: .6; width: 28px; }
+body[data-skin="modern"][data-mode="light"] .tile-new img, html.m-light body[data-skin="modern"][data-mode="system"] .tile-new img { filter: none; }
+body[data-skin="modern"] .tile-new:hover > * { background: var(--m-glass); color: var(--m-ink); }
+body[data-skin="modern"] .tile-ctas, body[data-skin="modern"] .tile-edit, body[data-skin="modern"] .tile-del, body[data-skin="modern"] .tile-ren { color: var(--m-ink-3); background: transparent; }
+
+/* ---- forms: fields grouped into a sheet within the sheet ---- */
+body[data-skin="modern"] .nf-stack {
+  gap: 1px; background: var(--m-rule); border-radius: var(--m-r3); overflow: hidden; box-shadow: inset 0 0 0 1px var(--m-rule); margin: .35rem 0 .7rem;
+}
+body[data-skin="modern"] .nf-stack .nf-field, body[data-skin="modern"] .nf-stack > .nf-field:first-child {
+  border: 0; border-radius: 0; box-shadow: none; background: var(--m-field);
+}
+body[data-skin="modern"] .nf-stack .nf-field:focus { box-shadow: inset 0 0 0 2px rgba(185,170,242,.5); }
+body[data-skin="modern"] .nf-stack .nf-lbl, body[data-skin="modern"] .nf-stack > label { background: transparent; padding: .5rem .8rem 0; }
+body[data-skin="modern"] .nf-box > .nf-lbl { margin-top: .6rem; }
+body[data-skin="modern"] .nf-lookup { color: var(--m-ink-3); }
+body[data-skin="modern"] .nf-box .nf-image { margin: .35rem 0 .7rem; }
+
+/* ---- "show more": a quieter presence ---- */
+body[data-skin="modern"] .more-link, body[data-skin="modern"] .more .nf-post {
+  background: var(--m-glass); color: var(--m-ink-2); box-shadow: inset 0 1px 0 var(--m-line); font-weight: 600;
+}
+body[data-skin="modern"] .more-link:hover { background: var(--m-glass-2); color: var(--m-ink); opacity: 1; }
+
+/* ---- settings on phones: one rhythm between the sheets ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .settings-stack { gap: 0; }
+  body[data-skin="modern"] .settings-stack > .wtable, body[data-skin="modern"] .settings-col > .wtable,
+  body[data-skin="modern"] .settings-table, body[data-skin="modern"] .install-box, body[data-skin="modern"] .sbox { margin: 0 0 1rem !important; }
+  body[data-skin="modern"] .settings-col { display: grid; gap: 0; }
+}
+
+/* ---- welcome page, light: the standard light field tokens; the mark darkens ---- */
+body[data-skin="modern"][data-mode="light"].is-welcome .signin input, html.m-light body[data-skin="modern"][data-mode="system"].is-welcome .signin input {
+  background: rgba(255,255,255,.62); box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(20,22,28,.08); color: var(--m-ink);
+}
+body[data-skin="modern"][data-mode="light"] .splash-mark, html.m-light body[data-skin="modern"][data-mode="system"] .splash-mark { filter: brightness(.35) saturate(.6); opacity: 1; }
+body[data-skin="modern"] .rail .about { color: var(--m-ink-2); }
+body[data-skin="modern"] .rail .lbl.ruled { color: var(--m-ink-3); }
+body[data-skin="modern"] .rail .lbl.ruled::before { display: none; }              /* the 2px rule between "Tags" and the list */
+body[data-skin="modern"] .rail h3.lbl { border-bottom: 1px solid var(--m-rule); }
+body[data-skin="modern"] .invite-code, body[data-skin="modern"] .code, body[data-skin="modern"] .join code,
+body[data-skin="modern"][data-mode="light"] .settings-table code, html.m-light body[data-skin="modern"][data-mode="system"] .settings-table code {
+  background: rgba(255,255,255,.55); box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(20,22,28,.08);
+}
+
+/* ---- the rule above the tags on cards: lighter in the light ---- */
+body[data-skin="modern"][data-mode="light"] .owned-row, html.m-light body[data-skin="modern"][data-mode="system"] .owned-row,
+body[data-skin="modern"][data-mode="light"] .noteit, html.m-light body[data-skin="modern"][data-mode="system"] .noteit,
+body[data-skin="modern"][data-mode="light"] .section-rule, html.m-light body[data-skin="modern"][data-mode="system"] .section-rule {
+  border-top-color: rgba(255,255,255,.75); background: rgba(255,255,255,.75);
+}
+body[data-skin="modern"][data-mode="light"] .owned-row, html.m-light body[data-skin="modern"][data-mode="system"] .owned-row,
+body[data-skin="modern"][data-mode="light"] .noteit, html.m-light body[data-skin="modern"][data-mode="system"] .noteit { background: transparent; }
+
+/* ---- rail hover on inactive icons: the icon itself glows, no box ---- */
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] .iconrail a:not(.on):hover::before { display: none; }
+  body[data-skin="modern"] .iconrail a:not(.on):hover svg, body[data-skin="modern"] .iconrail a:not(.on):hover img {
+    animation: m-icon-glow 1.8s ease-in-out infinite;
+  }
+}
+@keyframes m-icon-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(185,170,242,0)); opacity: .75; }
+  50%      { filter: drop-shadow(0 0 8px rgba(185,170,242,.85)); opacity: 1; }
+}
+
+/* ---- mark page: comments follow the card, never the taller timeline ---- */
+body[data-skin="modern"] .mark-layout.has-log { align-items: start; }
+body[data-skin="modern"] .mark-layout.has-log > .comments, body[data-skin="modern"] .mark-layout.has-log ~ .comments { grid-column: 1; }
+
+/* ---- ensemble page beside the rail; notes to the right of the picture when there is room ---- */
+body[data-skin="modern"] .ens-feed { padding-top: 0; }
+body[data-skin="modern"] .ens-feed .ens { max-width: none; }
+@media (min-width: 80rem) {
+  body[data-skin="modern"] .ens-feed .ens { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(22rem, .85fr); gap: 1.4rem; align-items: start; }
+  body[data-skin="modern"] .ens-feed .ens-head { grid-column: 1 / -1; }
+  body[data-skin="modern"] .ens-feed .ens-primary, body[data-skin="modern"] .ens-feed .ens-alts, body[data-skin="modern"] .ens-feed .ens-review, body[data-skin="modern"] .ens-feed .ens-edit { grid-column: 1; }
+  body[data-skin="modern"] .ens-feed .ens-parts { grid-column: 2; grid-row: 2 / span 4; margin-top: 0; }
+  body[data-skin="modern"] .ens-feed .ens-note-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- the folded mark card: a hint, and the tap target reads as one ---- */
+body[data-skin="modern"] .mark-hint { color: var(--m-ink-3); }
+body[data-skin="modern"] .mark-collapsible .text:hover { background: rgba(255,255,255,.02); }
+/* note cards inside the ensemble's side column stack, as they do on phones */
+@media (min-width: 80rem) {
+  body[data-skin="modern"] .ens-note-grid .note.has-image .card { grid-template-areas: "head" "figure" "text" "owned"; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; }
+  body[data-skin="modern"] .ens-note-grid .note.has-image .figure { grid-row: auto; border-radius: 0; }
+  body[data-skin="modern"] .ens-note-grid .note.has-image .figure img { max-height: 14rem; width: 100%; }
+  body[data-skin="modern"] .ens-note-grid .note { grid-template-columns: 52px 1fr; gap: .8rem; }
+}
+/* the "search within" field joins the aligned stack */
+body[data-skin="modern"] .profile-feed form.within { width: 100%; margin: 0 0 .8rem; }
+body[data-skin="modern"] .profile-feed form.within input {
+  width: 100%; box-sizing: border-box; margin: 0; background: var(--m-field); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); border-radius: 999px;
+}
+body[data-skin="modern"] .who-private { color: var(--m-accent); }
