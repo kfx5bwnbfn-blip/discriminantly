@@ -17,6 +17,7 @@ const assetHash = (rel) => {
 };
 const CSS_V = assetHash('style.css');
 const CSS_MODERN_V = assetHash('style.modern.css');
+const CSS_SHARED_V = assetHash('style.shared.css');
 // The classic skin is the default and the one every existing member sees.
 const SKINS = new Set(['classic', 'modern']), MODES = new Set(['system', 'light', 'dark']);
 // A member's skin is their setting. A signed-out visitor has none, so the
@@ -1081,7 +1082,7 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
-<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">
+<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -3343,9 +3344,10 @@ ${noters.length ? `<div class="section-rule"></div>
       const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
       const n = ensComponents(e.id).length;
       return `<a class="ens-tile" href="/e/${e.id}">
-        ${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}
-        <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
-        <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
+        <span class="ens-tile-media">${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}</span>
+        <span class="ens-tile-meta">
+          <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
+          <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></span></a>`;
     }).join('') || '<p class="about">No ensembles yet. Ask your AI to compose one.</p>'}</div></section>`;
     send(res, layout({ title: 'Ensembles', body, me, nav: 'home' }));
   },
@@ -3390,7 +3392,13 @@ ${noters.length ? `<div class="section-rule"></div>
       ].filter(([, list]) => list.length);
       if (!groups.length) return '<ul class="ens-comps"><li class="ens-comp"><span class="ens-comp-body">No components.</span></li></ul>';
       return groups.map(([heading, list]) => `<p class="ens-group">${heading} <i>${list.length}</i></p>
-      <ul class="ens-comps">${list.map((c) => {
+      ${list.every((c) => c.note_available) ? (() => {
+        // A resolved component IS one of the member's notes, so show it as
+        // one — the same card the feed uses — rather than a row that merely
+        // points at it. Unresolved pieces have no note to show and stay rows.
+        const cards = list.map((c) => { const o = q(OBJ_SQL + ' WHERE o.id=?').get(c.note_id); return o && canSee(o, me) ? objectCard(o, me) : ''; }).filter(Boolean);
+        return cards.length ? `<div class="grid ens-note-grid">${cards.join('')}</div>` : '';
+      })() : `<ul class="ens-comps">${list.map((c) => {
         const media = c.image ? imgTag(c.image, c.label) : '<span class="ens-comp-blank"></span>';
         const label = esc(c.label || 'Unidentified');
         // The whole row is the link when there is a note behind it — a label
@@ -3407,7 +3415,7 @@ ${noters.length ? `<div class="section-rule"></div>
         return `<li class="ens-comp ${c.state}${c.note_available ? ' is-linked' : ''}">${body}
         ${mine ? `<form method="post" action="/e/${e.id}/component/remove"><input type="hidden" name="component_uid" value="${c.component_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
       </li>`;
-      }).join('')}</ul>`).join('');
+      }).join('')}</ul>`}`).join('');
     })()}
   </div>
   ${mine ? `<form class="nf ens-edit" method="post" action="/e/${e.id}/edit" data-autosave>
@@ -3946,7 +3954,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               <input type="hidden" name="skin" value="modern"><input type="hidden" name="mode" value="${modeOf(me)}">
               <span class="nf-lbl">Appearance</span>
               <div class="vis-tabs look-modes">${[['system', 'Auto'], ['light', 'Light'], ['dark', 'Dark']].map(([v, l]) =>
-                `<a class="${modeOf(me) === v ? 'on' : ''}" href="#" data-mode="${v}">${l}</a>`).join('')}
+                `<a class="${modeOf(me) === v ? 'on' : ''}" href="#" data-mode="${v}" data-short="${l}">${l}</a>`).join('')}
               </div>
               <p class="lookup-note">Auto follows your device.</p>
             </form>
@@ -5785,7 +5793,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
+const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');

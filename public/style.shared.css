@@ -1,0 +1,6 @@
+/* Structural rules for markup added after the classic sheet was frozen.
+   Loaded for EVERY skin; paint-neutral so classic keeps its look. */
+.ens-tile-media, .ens-tile-meta { display: block; }
+.ens-tile-meta { display: grid; gap: .25rem; padding-top: .3rem; }
+.ens-note-grid { display: grid; gap: 1.2rem; padding: 0 0 1rem; }
+.ens-note-grid .note { max-width: none; }
