@@ -1336,3 +1336,92 @@ body[data-skin="modern"] .tile-ren:focus-visible { opacity: 1; }
 @media (max-width: 52rem) {
   body[data-skin="modern"] .prail-nav a[data-short-modern]::before { content: attr(data-short-modern); }
 }
+
+/* =====================================================================
+   REFINEMENTS VII — smoke, and motion that gives the glass something to do
+   ===================================================================== */
+
+/* ---- the signed-out masthead mark: dark on light, light on dark ---- */
+body[data-skin="modern"] .masthead .mark { color: var(--m-ink-2); }
+body[data-skin="modern"] .masthead .mark:hover { color: var(--m-ink); }
+body[data-skin="modern"] .masthead .mark img { filter: invert(1) brightness(1.3); opacity: .9; }
+body[data-skin="modern"][data-mode="light"] .masthead .mark img, html.m-light body[data-skin="modern"][data-mode="system"] .masthead .mark img { filter: brightness(.3) saturate(.5); opacity: 1; }
+
+/* ---- light mode: the same smoke as dark. A coarser, lower-frequency
+   turbulence at higher opacity, blended so it reads as haze in the colour
+   fields rather than grit on top of them ---- */
+body[data-skin="modern"][data-mode="light"]::before, html.m-light body[data-skin="modern"][data-mode="system"]::before {
+  opacity: .30; mix-blend-mode: multiply; background-size: 160px 160px, 620px 620px;
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='620' height='620'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='.007' numOctaves='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.45 0 0 0 0 0.5 0 0 0 1.2 0'/></filter><rect width='620' height='620' filter='url(%23m)'/></svg>");
+}
+
+/* ---- the smoke layer: a slow, continuous drift behind everything.
+   Two soft plumes and a wide turbulence, on their own fixed layer, moved
+   with transform only (no repaint of the gradients themselves). The drift is
+   60s per cycle — felt, not watched. ---- */
+body[data-skin="modern"]::after {
+  content: ""; position: fixed; inset: -20%; z-index: 0; pointer-events: none;
+  background-image:
+    radial-gradient(38% 30% at 30% 40%, rgba(255,255,255,.10), transparent 70%),
+    radial-gradient(30% 26% at 72% 62%, rgba(255,255,255,.07), transparent 70%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900'><filter id='s'><feTurbulence type='fractalNoise' baseFrequency='.004' numOctaves='3' seed='4' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/></filter><rect width='900' height='900' filter='url(%23s)'/></svg>");
+  background-size: auto, auto, 900px 900px; mix-blend-mode: soft-light; opacity: .55;
+  animation: m-smoke 60s ease-in-out infinite alternate;
+  will-change: transform; transform: translate3d(var(--m-px, 0px), var(--m-py, 0px), 0) scale(1.04);
+}
+body[data-skin="modern"][data-mode="light"]::after, html.m-light body[data-skin="modern"][data-mode="system"]::after { mix-blend-mode: overlay; opacity: .5; }
+@keyframes m-smoke {
+  0%   { transform: translate3d(calc(var(--m-px, 0px) - 2%), calc(var(--m-py, 0px) - 1%), 0) scale(1.04) rotate(0deg); }
+  50%  { transform: translate3d(calc(var(--m-px, 0px) + 1.5%), calc(var(--m-py, 0px) + 2%), 0) scale(1.08) rotate(.6deg); }
+  100% { transform: translate3d(calc(var(--m-px, 0px) + 2%), calc(var(--m-py, 0px) - 1.5%), 0) scale(1.05) rotate(-.4deg); }
+}
+body[data-skin="modern"] main { position: relative; z-index: 1; }
+
+/* ---- arrival: the sheets settle into place on load, the way a visionOS
+   window appears — rising a few points and clearing, not sliding ---- */
+@keyframes m-settle { from { opacity: 0; transform: translateY(10px) scale(.992); } to { opacity: 1; transform: none; } }
+body[data-skin="modern"].m-arrive .card, body[data-skin="modern"].m-arrive .prail, body[data-skin="modern"].m-arrive .wtable,
+body[data-skin="modern"].m-arrive .tile, body[data-skin="modern"].m-arrive .ens-tile, body[data-skin="modern"].m-arrive .post-box,
+body[data-skin="modern"].m-arrive .timeline li, body[data-skin="modern"].m-arrive .ens-parts, body[data-skin="modern"].m-arrive .empty {
+  animation: m-settle .55s var(--m-ease) both; animation-delay: calc(var(--m-i, 0) * 45ms);
+}
+
+/* ---- specular: a soft highlight that follows the pointer across a sheet,
+   as light catching glass. Pointer devices only; set by a few lines of JS. ---- */
+@media (hover: hover) {
+  body[data-skin="modern"] .card, body[data-skin="modern"] .tile, body[data-skin="modern"] .ens-tile, body[data-skin="modern"] .post-box,
+  body[data-skin="modern"] .prail-nav li a, body[data-skin="modern"] .wtable { position: relative; }
+  body[data-skin="modern"] .card::after, body[data-skin="modern"] .ens-tile::after, body[data-skin="modern"] .post-box::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+    background: radial-gradient(260px 200px at var(--m-sx, 50%) var(--m-sy, -20%), rgba(255,255,255,.16), rgba(255,255,255,0) 70%);
+    opacity: 0; transition: opacity .35s var(--m-ease);
+  }
+  body[data-skin="modern"] .card:hover::after, body[data-skin="modern"] .ens-tile:hover::after, body[data-skin="modern"] .post-box:hover::after { opacity: 1; }
+  html.m-light body[data-skin="modern"] .card::after, body[data-skin="modern"][data-mode="light"] .card::after {
+    background: radial-gradient(260px 200px at var(--m-sx, 50%) var(--m-sy, -20%), rgba(255,255,255,.55), rgba(255,255,255,0) 70%);
+  }
+  /* the highlight sits above the picture but below the card's controls */
+  body[data-skin="modern"] .card .owned-row, body[data-skin="modern"] .card .noteit, body[data-skin="modern"] .card .tags, body[data-skin="modern"] .card .link,
+  body[data-skin="modern"] .card h2, body[data-skin="modern"] .card .card-head, body[data-skin="modern"] .card .body { position: relative; z-index: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-skin="modern"]::after { animation: none; }
+  body[data-skin="modern"].m-arrive .card, body[data-skin="modern"].m-arrive .prail, body[data-skin="modern"].m-arrive .wtable, body[data-skin="modern"].m-arrive .tile,
+  body[data-skin="modern"].m-arrive .ens-tile, body[data-skin="modern"].m-arrive .post-box, body[data-skin="modern"].m-arrive .timeline li { animation: none; }
+}
+
+/* ---- the masthead sign-in form on ANY signed-out page (not only /welcome):
+   the same field tokens as everywhere else, in both modes ---- */
+body[data-skin="modern"] .masthead .signin input {
+  background: var(--m-field) !important; background-image: none !important; border: 0 !important; color: var(--m-ink);
+  border-radius: 999px; padding: .5rem .9rem; box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule);
+}
+body[data-skin="modern"] .masthead .signin input::placeholder { color: var(--m-ink-3); }
+body[data-skin="modern"] .masthead .signin button, body[data-skin="modern"] .masthead .signin button.caps { color: var(--m-ink-2); background: transparent; }
+body[data-skin="modern"] .masthead .signin button:hover { color: var(--m-ink); }
+body[data-skin="modern"][data-mode="light"] .masthead .signin input, html.m-light body[data-skin="modern"][data-mode="system"] .masthead .signin input {
+  background: rgba(255,255,255,.62) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(20,22,28,.08);
+}

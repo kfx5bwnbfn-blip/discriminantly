@@ -1417,6 +1417,34 @@ function readImage(file, cb) {
   });
 
   document.addEventListener('DOMContentLoaded', function () {
+  // ---- modern glass: motion. Stagger the sheets' arrival, let the smoke
+  // layer answer scroll and pointer, and give each sheet a specular that
+  // tracks the pointer. All of it is CSS-driven; this only sets numbers. ----
+  (function () {
+    var body = document.body; if (body.dataset.skin !== 'modern') return;
+    var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduce) {
+      var i = 0;
+      document.querySelectorAll('.card, .prail, .wtable, .tile, .ens-tile, .post-box, .timeline li, .ens-parts, .empty').forEach(function (el) { el.style.setProperty('--m-i', String(Math.min(i++, 14))); });
+      body.classList.add('m-arrive');
+      setTimeout(function () { body.classList.remove('m-arrive'); }, 1600);
+      // parallax: the smoke drifts a little against the scroll, and leans toward the pointer
+      var px = 0, py = 0, sy = 0, raf = null;
+      var apply = function () { raf = null; body.style.setProperty('--m-px', (px * 10).toFixed(1) + 'px'); body.style.setProperty('--m-py', (py * 8 - sy * 0.06).toFixed(1) + 'px'); };
+      var queue = function () { if (!raf) raf = requestAnimationFrame(apply); };
+      addEventListener('scroll', function () { sy = scrollY; queue(); }, { passive: true });
+      if (matchMedia('(hover: hover)').matches) addEventListener('pointermove', function (e) { px = e.clientX / innerWidth - .5; py = e.clientY / innerHeight - .5; queue(); }, { passive: true });
+    }
+    if (matchMedia('(hover: hover)').matches) {
+      document.addEventListener('pointermove', function (e) {
+        var el = e.target.closest && e.target.closest('.card, .ens-tile, .post-box'); if (!el) return;
+        var r = el.getBoundingClientRect();
+        el.style.setProperty('--m-sx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
+        el.style.setProperty('--m-sy', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+      }, { passive: true });
+    }
+  })();
+
   // ---- travel-mark cards fold in feeds. Tap the card body to open; links
   // and buttons inside keep working as themselves. ----
   document.querySelectorAll('.mark-collapsible').forEach(function (card) {
