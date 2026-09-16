@@ -1499,7 +1499,11 @@ body[data-skin="modern"] .act-follow .follow-verb, body[data-skin="modern"] .act
 body[data-skin="modern"] .act-follow .follow-line { background: var(--m-accent); opacity: .6; }
 
 /* ---- people lists (followers / following): glass rows ---- */
-body[data-skin="modern"] .people { display: grid; gap: .6rem; }
+/* grid, not flex — but a grid item's default min-width:auto lets it grow to
+   its content, so the fixed-width chips were pushing the row past the feed.
+   The explicit track plus min-width:0 keeps each row at the feed's width. */
+body[data-skin="modern"] .people { display: grid; grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+body[data-skin="modern"] .people li { min-width: 0; }
 body[data-skin="modern"] .people li {
   background: var(--m-glass); border: 0; border-radius: var(--m-r2); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
   -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%); padding: .8rem 1rem .8rem .9rem;
@@ -1508,7 +1512,7 @@ body[data-skin="modern"] .people li {
 body[data-skin="modern"] .people li:hover { background: var(--m-glass-2); transform: translateY(-2px); }
 body[data-skin="modern"] .person { color: var(--m-ink); }
 body[data-skin="modern"] .person .avatar { width: 48px; height: 48px; box-shadow: 0 0 0 1px var(--m-line-2); }
-body[data-skin="modern"] .person-name { font-size: 1.05rem; }
+body[data-skin="modern"] .person-name { font-size: .78rem; }
 body[data-skin="modern"] .person-name em { color: var(--m-ink-3); }
 body[data-skin="modern"] .people .btn3d, body[data-skin="modern"] .people button { padding: .5rem 1rem; font-size: .68rem; }
 body[data-skin="modern"] .act-follow .follow-card {
@@ -1600,7 +1604,7 @@ body[data-skin="modern"] .ens-tile-d {
 }
 /* the chips replace the old single-line piece count */
 body[data-skin="modern"] .ens-tile .statchips { margin-top: .7rem; }
-body[data-skin="modern"] .people .person-name { display: block; font-size: 1.05rem; margin-bottom: .1rem; }
+body[data-skin="modern"] .people .person-name { display: block; font-size: .78rem; margin: 0; color: var(--m-ink); }
 
 /* ---- the standalone note/mark form sat flush against the left edge on a
    phone. Classic pins it with `margin: 1rem var(--m-gutter) 2rem 0 !important`

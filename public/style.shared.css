@@ -97,3 +97,34 @@
 /* Three fixed-width chips need a tile wide enough to hold them, or the row
    scrolls and the last one reads as clipped. 3 x 5.9rem + gaps + padding. */
 .ens-grid { grid-template-columns: repeat(auto-fill, minmax(20.5rem, 1fr)); }
+
+/* A people row must behave like a note card in a feed: it takes the feed's
+   width and no more. The chips are fixed-width and cannot shrink, so without
+   min-width:0 on every flex ancestor they push the <li> past the viewport and
+   the whole page scrolls sideways. min-width:0 lets the chip row's own
+   overflow-x do the scrolling instead. */
+.people li { max-width: 100%; box-sizing: border-box; }
+.people .person { flex: 1 1 auto; min-width: 0; }
+.people .person-body { min-width: 0; }
+.people .statchips { min-width: 0; }
+/* The chip row scrolls on a narrow card. It follows the same pattern the
+   profile rail's nav already uses on mobile: hidden scrollbar, snap points,
+   and a partially-visible next item as the affordance — no fade overlay. */
+.people .statchips, .ens-tile .statchips {
+  overscroll-behavior-x: contain; touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; scroll-behavior: smooth;
+}
+.people .statchip, .ens-tile .statchip { scroll-snap-align: start; }
+.people .statchips::-webkit-scrollbar, .ens-tile .statchips::-webkit-scrollbar { display: none; }
+
+/* The follower row is two columns, both centred against each other: an
+   identity lock-up (avatar over handle, as in the welcome table) and the
+   chip row beside it. Previously the handle sat above the chips and read as
+   floating, because it was in the same column as them. */
+.people .person { display: flex; align-items: center; gap: 1rem; }
+.people .person-id { display: flex; flex-direction: column; align-items: center; gap: .4rem; flex: 0 0 auto; text-align: center; }
+.people .person-id .avatar { width: 48px; height: 48px; }
+.people .person-name { display: block; font-size: .78rem; font-weight: 700; letter-spacing: .04em; max-width: 6.5rem;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people .person-body { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; }
+.people .statchips { margin-top: 0; }

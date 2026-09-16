@@ -3709,9 +3709,11 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         // sense of the person, so the row carries their counts instead.
         const pc = followCounts(p.id);
         const pub = (t) => q(`SELECT COUNT(*) c FROM ${t} WHERE user_id=?` + (me && me.id === p.id ? '' : ' AND private=0')).get(p.id).c;
-        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}
-          <span class="person-body"><span class="person-name">${esc(p.handle)}</span>
-          ${statChips([['notes', pub('objects')], ['marks', pub('marks')],
+        // avatar and handle are one lock-up, as in the welcome table; the
+        // chips are their own column beside it, both centred in the row.
+        return `<li><a class="person" href="/u/${esc(p.handle)}">
+          <span class="person-id">${avatar(p)}<span class="person-name">${esc(p.handle)}</span></span>
+          <span class="person-body">${statChips([['notes', pub('objects')], ['marks', pub('marks')],
             ['ensembles', q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === p.id ? '' : ' AND private=0')).get(p.id).c],
             ['warrants', warrantedSubjectUids(p.id, 'object').size + warrantedSubjectUids(p.id, 'mark').size],
             ['followers', pc.followers], ['following', pc.following]])}</span></a></li>`;
