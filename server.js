@@ -1436,15 +1436,14 @@ function readImage(file, cb) {
       if (matchMedia('(hover: hover)').matches) addEventListener('pointermove', function (e) { px = e.clientX / innerWidth - .5; py = e.clientY / innerHeight - .5; queue(); }, { passive: true });
     }
     if (matchMedia('(hover: hover)').matches) {
-      // specular position, and a gentle 3D tilt toward the pointer with the
-      // picture drifting a touch more than the sheet (parallax within the card)
+      // the lift, plus a picture parallax inside the card — no rotation, and
+      // no pointer-following highlight; both were tried in earlier passes
+      // and read as more distracting than the depth cue was worth
       var tilted = null;
       document.addEventListener('pointermove', function (e) {
         var el = e.target.closest && e.target.closest('.card, .ens-tile, .post-box'); if (!el) { if (tilted) { tilted.classList.remove('m-tilt'); tilted.style.removeProperty('--m-rx'); tilted.style.removeProperty('--m-ry'); tilted = null; } return; }
         var r = el.getBoundingClientRect();
         var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
-        el.style.setProperty('--m-sx', (nx * 100).toFixed(1) + '%');
-        el.style.setProperty('--m-sy', (ny * 100).toFixed(1) + '%');
         if (reduce) return;
         // the lift, plus a picture parallax inside the card — no rotation
         if (tilted && tilted !== el) tilted.classList.remove('m-tilt');
@@ -2209,13 +2208,25 @@ function unfurl(html, base) {
   const titleTag = (head.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
   // Gather every image the page offers, best first, so the member can flip
   // through them rather than being handed whichever one came first.
-  const candidates = [];
-  const push = (v) => {
+  //
+  // Ranking matters more than collecting: shops put a header logo, payment
+  // badges and "you may also like" thumbnails in the same document as the one
+  // product shot you actually want. So each candidate carries a score, and the
+  // list is sorted by it — structured product data first, then the social
+  // share image, then body pictures weighted by how product-like they look.
+  const scored = new Map();
+  const JUNK = /(logo|icon|sprite|badge|avatar|placeholder|spinner|loading|pixel|1x1|blank|payment|visa|mastercard|paypal|amex|klarna|trustpilot|flag[-_/]|social|facebook|twitter|instagram|pinterest|youtube|newsletter|banner|swatch)/i;
+  const push = (v, score = 0) => {
     if (!v) return;
     let abs; try { abs = new URL(v, base).href; } catch { return; }
     if (!/^https?:/i.test(abs)) return;
     if (/\.svg($|\?)/i.test(abs)) return;             // logos and sprites, rarely the subject
-    if (!candidates.includes(abs)) candidates.push(abs);
+    if (/\.(gif)($|\?)/i.test(abs)) return;           // spacers and spinners
+    if (JUNK.test(abs)) score -= 60;
+    // data URIs and tracking pixels are never the product
+    if (/^data:/i.test(abs)) return;
+    const prev = scored.get(abs);
+    if (prev === undefined || score > prev) scored.set(abs, score);
   };
   // Structured data first: a Product node's image array is usually the real
   // gallery, so it goes ahead of the single social-share image below.
@@ -2223,21 +2234,50 @@ function unfurl(html, base) {
   const ldProduct = ldNodes.find((n) => ldTypeIs(n, 'product'));
   const ldItem = ldProduct || ldNodes.find((n) =>
     ['article', 'newsarticle', 'blogposting', 'recipe', 'event'].some((t) => ldTypeIs(n, t)));
-  if (ldItem && ldItem.image) ldImages(ldItem.image).forEach(push);
+  // A Product's own gallery is the most trustworthy signal on the page.
+  if (ldItem && ldItem.image) ldImages(ldItem.image).forEach((u, i) => push(u, (ldProduct ? 1000 : 700) - i));
 
   for (const tag of metaTags) {
     const key = (attr(tag, 'property') || attr(tag, 'name')).toLowerCase();
-    if (/^(og:image(:secure_url|:url)?|twitter:image(:src)?)$/.test(key)) push(attr(tag, 'content'));
+    if (/^(og:image(:secure_url|:url)?|twitter:image(:src)?)$/.test(key)) push(attr(tag, 'content'), 600);
   }
   const linkImg = head.match(/<link[^>]+rel\s*=\s*["']image_src["'][^>]*>/i);
-  if (linkImg) push((linkImg[0].match(/href\s*=\s*["']([^"']+)["']/i) || [])[1]);
-  // then the body's own pictures, skipping obvious chrome
-  for (const m2 of html.matchAll(/<img\b[^>]*>/gi)) {
-    if (candidates.length >= 8) break;
-    const tag = m2[0];
-    if (/class\s*=\s*["'][^"']*(logo|icon|avatar|sprite|badge)/i.test(tag)) continue;
-    push(attr(tag, 'src') || attr(tag, 'data-src'));
-  }
+  if (linkImg) push((linkImg[0].match(/href\s*=\s*["']([^"']+)["']/i) || [])[1], 550);
+
+  // Then the body's own pictures. Prefer the main/product region, prefer large
+  // declared dimensions, and read the lazy-loading attributes shops actually
+  // use — a plain src= scan misses most modern product galleries entirely.
+  const main = (html.match(/<(?:main|article)\b[\s\S]*?<\/(?:main|article)>/i) || [])[0] || '';
+  const gallery = (html.match(/<[^>]+(?:class|id)\s*=\s*["'][^"']*(?:product|gallery|pdp|hero|main-image|photo)[^"']*["'][\s\S]{0,20000}/i) || [])[0] || '';
+  const scanImgs = (source, bonus) => {
+    if (!source) return;
+    for (const m2 of source.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
+      const tag = m2[0];
+      if (/class\s*=\s*["'][^"']*(logo|icon|avatar|sprite|badge)/i.test(tag)) continue;
+      // biggest srcset entry wins — that is the full-resolution product shot
+      const srcset = attr(tag, 'srcset') || attr(tag, 'data-srcset');
+      let best = '', bestW = 0;
+      if (srcset) for (const part of srcset.split(',')) {
+        const [u, w] = part.trim().split(/\s+/);
+        const n = w && w.endsWith('w') ? parseInt(w) : 0;
+        if (u && n >= bestW) { best = u; bestW = n; }
+      }
+      const w = parseInt(attr(tag, 'width')) || 0, h = parseInt(attr(tag, 'height')) || 0;
+      if ((w && w < 80) || (h && h < 80)) continue;          // thumbnails and chrome
+      let size = 0;
+      if (bestW >= 1200) size = 90; else if (bestW >= 600) size = 60; else if (bestW) size = 30;
+      if (!size && w >= 800) size = 80; else if (!size && w >= 400) size = 50;
+      const src = best || attr(tag, 'data-zoom-image') || attr(tag, 'data-large_image')
+        || attr(tag, 'data-src') || attr(tag, 'data-original') || attr(tag, 'src');
+      push(src, bonus + size);
+    }
+  };
+  scanImgs(gallery, 400);      // an explicit product/gallery container
+  scanImgs(main, 300);         // the page's main content
+  scanImgs(html, 100);         // anything else, last resort
+  const candidates = [...scored.entries()]
+    .filter(([, s]) => s > -40)                 // drop the clearly-junk matches
+    .sort((a, b) => b[1] - a[1]).map(([u]) => u);
   const ldTitle = ldItem && ldItem.name ? decodeEntities(stripTags(ldItem.name)) : '';
   let ldDesc = '';
   if (ldItem && ldItem.description) {
@@ -2771,6 +2811,19 @@ const ensCanSee = (e, me) => (e.status === 'pending_review')
 function ensComponents(ensembleId) {
   return q('SELECT * FROM ensemble_components WHERE ensemble_id=? ORDER BY position, id').all(ensembleId);
 }
+// A snapshot of what an Ensemble is made of, for the listing chips. "Source
+// images" reads better than "unresolved items": from the member's side these
+// are the pictures the composition drew on that aren't (yet) their own notes.
+function ensStats(ensembleId) {
+  const comps = ensComponents(ensembleId);
+  const fromNotes = comps.filter((c) => c.note_uid).length;
+  return { total: comps.length, fromNotes, sourceImages: comps.length - fromNotes };
+}
+// Small labelled chips, in the welcome table's voice: a value over a caption.
+// Used by the Ensemble tiles and the people cards so both read as one system.
+const statChips = (pairs) => `<span class="statchips">${pairs
+  .filter(([, v]) => v !== null && v !== undefined)
+  .map(([label, v]) => `<span class="statchip"><b>${v}</b><span>${esc(label)}</span></span>`).join('')}</span>`;
 function ensArtifacts(ensembleId) {
   return q('SELECT * FROM ensemble_artifacts WHERE ensemble_id=? ORDER BY id').all(ensembleId);
 }
@@ -3420,16 +3473,23 @@ ${noters.length ? `<div class="section-rule"></div>
   ensembles(req, res, me) {
     if (!me) return need();
     const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(me.id);
-    const body = `<section class="feed"><h3 class="strip">Your ensembles</h3>
+    const main = `<h3 class="strip">Your ensembles</h3>
+    ${rows.length ? '<p class="ens-grid-sub">Compositions your AI put together from your notes and travel marks.</p>' : ''}
     <div class="ens-grid">${rows.map((e) => {
       const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
-      const n = ensComponents(e.id).length;
+      const st = ensStats(e.id);
       return `<a class="ens-tile" href="/e/${e.id}">
         <span class="ens-tile-media">${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}</span>
         <span class="ens-tile-meta">
           <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
-          <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></span></a>`;
-    }).join('') || '<p class="about">No ensembles yet. Ask your AI to compose one.</p>'}</div></section>`;
+          ${e.description ? `<span class="ens-tile-d">${esc(e.description)}</span>` : ''}
+          ${statChips([['pieces', st.total], ['from notes', st.fromNotes], ['sources', st.sourceImages]])}</span></a>`;
+    }).join('')}</div>${rows.length ? '' : emptyState(me, 'ensembles')}`;
+    // "profiles > ensembles" — this stands beside every other post page, so
+    // it keeps the same rail rather than floating as a bare, chromeless screen.
+    const body = `<div class="cols profile-cols">${profileRail(me, me, 'ensembles')}
+  <section class="feed profile-feed">${main}</section>
+</div>`;
     send(res, layout({ title: 'Ensembles', body, me, nav: 'home' }));
   },
 
@@ -3644,9 +3704,17 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         : q('SELECT u.* FROM follows f JOIN users u ON u.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC').all(u.id);
       main = `<h3 class="strip">${tab === 'followers' ? `${fc.followers} ${fc.followers === 1 ? 'person follows' : 'people follow'} ${esc(u.handle)}` : `${esc(u.handle)} follows ${fc.following} ${fc.following === 1 ? 'person' : 'people'}`}</h3>
       <ul class="people">${rows.map((p) => {
-        const pc = followCounts(p.id); const following = me && isFollowing(me.id, p.id);
-        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c} notes · ${pc.followers} followers</em></span></a>
-        ${me && me.id !== p.id ? `<form method="post" action="/u/${esc(p.handle)}/${following ? 'unfollow' : 'follow'}"><input type="hidden" name="back" value="${esc(url.pathname + url.search)}"><button class="btn ${following ? 'btn-on' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}</li>`;
+        // The card itself is the way in — a Follow button here competed with
+        // it for the tap. What the member actually wants at a glance is a
+        // sense of the person, so the row carries their counts instead.
+        const pc = followCounts(p.id);
+        const pub = (t) => q(`SELECT COUNT(*) c FROM ${t} WHERE user_id=?` + (me && me.id === p.id ? '' : ' AND private=0')).get(p.id).c;
+        return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}
+          <span class="person-body"><span class="person-name">${esc(p.handle)}</span>
+          ${statChips([['notes', pub('objects')], ['marks', pub('marks')],
+            ['ensembles', q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === p.id ? '' : ' AND private=0')).get(p.id).c],
+            ['warrants', warrantedSubjectUids(p.id, 'object').size + warrantedSubjectUids(p.id, 'mark').size],
+            ['followers', pc.followers], ['following', pc.following]])}</span></a></li>`;
       }).join('')}</ul>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'warrants') {
       const objUids = warrantedSubjectUids(u.id, 'object'), markUids = warrantedSubjectUids(u.id, 'mark');
@@ -3674,13 +3742,17 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       // public ensembles; the owner sees their own private ones too.
       const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(u.id)
         .filter((e) => ensCanSee(e, me));
-      main = `<h3 class="strip">${esc(u.handle)}\u2019s ensembles</h3><div class="ens-grid">${rows.map((e) => {
+      main = `<h3 class="strip">${esc(u.handle)}\u2019s ensembles</h3>
+      ${rows.length ? '<p class="ens-grid-sub">Compositions ' + (owner ? 'your' : esc(u.handle) + '\u2019s') + ' AI put together from ' + (owner ? 'your' : 'their') + ' notes and travel marks.</p>' : ''}
+      <div class="ens-grid">${rows.map((e) => {
         const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
-        const n = ensComponents(e.id).length;
+        const st = ensStats(e.id);
         return `<a class="ens-tile" href="/e/${e.id}">
-          ${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}
-          <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
-          <span class="ens-tile-n">${n} ${n === 1 ? 'piece' : 'pieces'}</span></a>`;
+          <span class="ens-tile-media">${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}</span>
+          <span class="ens-tile-meta">
+            <span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
+            ${e.description ? `<span class="ens-tile-d">${esc(e.description)}</span>` : ''}
+            ${statChips([['pieces', st.total], ['from notes', st.fromNotes], ['sources', st.sourceImages]])}</span></a>`;
       }).join('')}</div>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'marks') {
       let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)

@@ -1057,9 +1057,31 @@ body[data-skin="modern"] .ens-tile img, body[data-skin="modern"] .ens-tile-blank
 }
 body[data-skin="modern"] .ens-tile:hover img { transform: none; }
 body[data-skin="modern"] .ens-tile-meta { display: grid; gap: .25rem; padding: .9rem 1.1rem 1rem; }
-body[data-skin="modern"] .ens-tile-t { color: var(--m-ink); font-size: 1.05rem; }
-body[data-skin="modern"] .ens-tile-t i { color: var(--m-ink-3); }
-body[data-skin="modern"] .ens-tile-n { color: var(--m-ink-3); }
+body[data-skin="modern"] .ens-tile-t { color: var(--m-ink); font-size: 1.15rem; font-weight: 600; letter-spacing: -.005em; }
+body[data-skin="modern"] .ens-tile-t i {
+  display: inline-block; margin-left: .5rem; vertical-align: .1em; font-size: .56rem; font-weight: 700; letter-spacing: .1em;
+  color: var(--m-ink-3); background: var(--m-glass-3); border-radius: 999px; padding: .16em .55em .2em; font-style: normal;
+}
+body[data-skin="modern"] .ens-tile-n {
+  display: block; color: var(--m-ink-3); font-size: .64rem; font-weight: 600; letter-spacing: .12em; padding-top: .1rem;
+  border-top: 1px solid var(--m-rule); margin-top: .35rem;
+}
+
+/* ---- chrome and typography for the ensemble listings ---- */
+body[data-skin="modern"] .ens-grid { padding: 1.6rem 1.4rem 2rem; gap: 1.5rem; grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr)); }
+body[data-skin="modern"] .ens-grid-sub { color: var(--m-ink-2); opacity: 1; padding: 0 1.4rem; font-size: .92rem; margin-top: .1rem; }
+body[data-skin="modern"] .ens-tile-media { position: relative; }
+body[data-skin="modern"] .ens-tile img, body[data-skin="modern"] .ens-tile-blank { height: 13rem; }
+/* a soft gradient at the picture's foot keeps a light image from washing
+   into the meta panel below it, the way full-bleed note images are treated */
+body[data-skin="modern"] .ens-tile-media::after {
+  content: ""; position: absolute; inset: auto 0 0 0; height: 3.2rem; pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(0,0,0,.16));
+}
+body[data-skin="modern"] .ens-tile-meta { padding: 1rem 1.2rem 1.05rem; }
+/* the empty state: the same quiet watermark line used elsewhere, not a
+   loose paragraph sitting on the bare backdrop */
+body[data-skin="modern"] .profile-feed .empty-line { margin: 2.4rem auto 3rem; }
 body[data-skin="modern"] .ens-note-grid { display: grid; gap: 1.2rem; padding: .4rem 1.2rem 1.2rem; }
 body[data-skin="modern"] .ens-note-grid .note { max-width: none; }
 @media (min-width: 70rem) { body[data-skin="modern"] .ens-note-grid { grid-template-columns: 1fr 1fr; } }
@@ -1394,24 +1416,9 @@ body[data-skin="modern"].m-arrive .timeline li, body[data-skin="modern"].m-arriv
   animation: m-settle .55s var(--m-ease) both; animation-delay: calc(var(--m-i, 0) * 45ms);
 }
 
-/* ---- specular: a soft highlight that follows the pointer across a sheet,
-   as light catching glass. Pointer devices only; set by a few lines of JS. ---- */
-@media (hover: hover) {
-  body[data-skin="modern"] .card, body[data-skin="modern"] .tile, body[data-skin="modern"] .ens-tile, body[data-skin="modern"] .post-box,
-  body[data-skin="modern"] .prail-nav li a, body[data-skin="modern"] .wtable { position: relative; }
-  body[data-skin="modern"] .card::after, body[data-skin="modern"] .ens-tile::after, body[data-skin="modern"] .post-box::after {
-    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
-    background: radial-gradient(260px 200px at var(--m-sx, 50%) var(--m-sy, -20%), rgba(255,255,255,.16), rgba(255,255,255,0) 70%);
-    opacity: 0; transition: opacity .35s var(--m-ease);
-  }
-  body[data-skin="modern"] .card:hover::after, body[data-skin="modern"] .ens-tile:hover::after, body[data-skin="modern"] .post-box:hover::after { opacity: 1; }
-  html.m-light body[data-skin="modern"] .card::after, body[data-skin="modern"][data-mode="light"] .card::after {
-    background: radial-gradient(260px 200px at var(--m-sx, 50%) var(--m-sy, -20%), rgba(255,255,255,.55), rgba(255,255,255,0) 70%);
-  }
-  /* the highlight sits above the picture but below the card's controls */
-  body[data-skin="modern"] .card .owned-row, body[data-skin="modern"] .card .noteit, body[data-skin="modern"] .card .tags, body[data-skin="modern"] .card .link,
-  body[data-skin="modern"] .card h2, body[data-skin="modern"] .card .card-head, body[data-skin="modern"] .card .body { position: relative; z-index: 2; }
-}
+/* the pointer-following specular highlight was removed — it read as
+   distracting rather than as glass catching light. The lift and picture
+   parallax carry the depth cue instead. */
 
 @media (prefers-reduced-motion: reduce) {
   body[data-skin="modern"]::after { animation: none; }
@@ -1517,16 +1524,89 @@ body[data-skin="modern"] .btn.btn-on:hover { opacity: .9; }
 
 /* the follow button on a profile's own rail: classic's .is-following rule is
    a 3-class selector and outranks the plain .btn3d rule above on specificity
-   alone, so it was winning even here. Matched to override it. */
+   alone, so it was winning even here. Matched to override it — as real glass,
+   blurred, rather than the flat solid fill used for other confirmed states. */
 body[data-skin="modern"] .prail-follow .btn3d {
   background: var(--m-glass-2); background-image: none; border: 0; color: var(--m-ink);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
   box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.45); text-shadow: none;
+  transition: background .18s var(--m-ease);
 }
 body[data-skin="modern"] .prail-follow .btn3d:hover { background: var(--m-glass-3); }
 body[data-skin="modern"] .prail-follow .btn3d.is-following {
-  background: var(--m-ink); color: var(--m-bg); box-shadow: 0 6px 16px -6px rgba(0,0,0,.45);
+  background: var(--m-glass-3); color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line-2), 0 6px 16px -6px rgba(0,0,0,.4);
 }
-body[data-skin="modern"] .prail-follow .btn3d.is-following:hover { opacity: .9; background: var(--m-ink); }
+body[data-skin="modern"] .prail-follow .btn3d.is-following:hover { background: var(--m-glass-2); }
 html.m-light body[data-skin="modern"] .prail-follow .btn3d, body[data-skin="modern"][data-mode="light"] .prail-follow .btn3d {
   box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(30,40,60,.28);
+}
+html.m-light body[data-skin="modern"] .prail-follow .btn3d.is-following, body[data-skin="modern"][data-mode="light"] .prail-follow .btn3d.is-following {
+  background: var(--m-glass-3); box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 6px 16px -6px rgba(30,40,60,.24);
+}
+
+/* =====================================================================
+   REFINEMENTS X — dropdown legibility, z-order, chips
+   ===================================================================== */
+
+/* ---- dropdown menus were near-transparent: a blurred pane over a busy
+   backdrop with no opaque floor, so the list ran into the page behind it.
+   The fix is a heavier *material* — the modal-sheet token — rather than a
+   flat solid, so it still refracts and still reads as glass. ---- */
+body[data-skin="modern"] .nf-drop-menu {
+  background: var(--m-sheet);
+  -webkit-backdrop-filter: blur(40px) saturate(180%); backdrop-filter: blur(40px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--m-line-2), 0 20px 50px -20px rgba(0,0,0,.7), 0 2px 8px rgba(0,0,0,.3);
+  border-radius: var(--m-r3); overflow: hidden; padding: .3rem;
+}
+/* Items are separated by a hairline, not wrapped in individual pills — the
+   pills read as unresolved buttons stacked inside a panel. Classic already
+   divides its options with a border-top; this follows the same idea. */
+body[data-skin="modern"] .nf-drop-menu { padding: 0; }
+body[data-skin="modern"] .nf-drop-menu label, body[data-skin="modern"] .nf-drop-menu a,
+body[data-skin="modern"] .nf-drop-menu button, body[data-skin="modern"] .nf-opt {
+  color: var(--m-ink); border-radius: 0; box-shadow: none;
+  border-top: 1px solid var(--m-rule); background: transparent;
+}
+body[data-skin="modern"] .nf-drop-menu .nf-opt:first-child { border-top: 0; }
+body[data-skin="modern"] .nf-drop-menu label:hover, body[data-skin="modern"] .nf-drop-menu a:hover,
+body[data-skin="modern"] .nf-drop-menu button:hover, body[data-skin="modern"] .nf-opt:hover {
+  background: var(--m-glass-2);
+}
+body[data-skin="modern"] .nf-drop-menu input[type="text"] { background: var(--m-field); border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); border-radius: 999px; }
+
+/* ---- an open dropdown must clear the image picker beneath it. Both were
+   z-index:3, so the later element in the DOM (the picker) won. ---- */
+body[data-skin="modern"] .nf-drop[open] { position: relative; z-index: 40; }
+body[data-skin="modern"] .nf-drop-menu { z-index: 41; }
+body[data-skin="modern"] .nf-drop[open] ~ * .img-pick,
+body[data-skin="modern"] .nf-drop[open] ~ .nf-image .img-pick { z-index: 1; }
+body[data-skin="modern"] .img-pick, body[data-skin="modern"] .img-arrow { z-index: 2; }
+
+/* ---- stat chips as glass ---- */
+body[data-skin="modern"] .statchip {
+  background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); color: var(--m-ink);
+}
+body[data-skin="modern"] .statchip span { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .ens-tile-d {
+  display: block; color: var(--m-ink-2); font-size: .88rem; line-height: 1.4; margin-top: .3rem;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+/* the chips replace the old single-line piece count */
+body[data-skin="modern"] .ens-tile .statchips { margin-top: .7rem; }
+body[data-skin="modern"] .people .person-name { display: block; font-size: 1.05rem; margin-bottom: .1rem; }
+
+/* ---- the standalone note/mark form sat flush against the left edge on a
+   phone. Classic pins it with `margin: 1rem var(--m-gutter) 2rem 0 !important`
+   — a right-only gutter, correct for classic because its icon rail occupies
+   the left. In this skin the rail is a floating bottom bar, so there is no
+   left rail to clear and the form should simply centre. ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] main > .notecard-page {
+    margin: 1rem auto 2rem !important; padding: 0 .7rem 5.5rem !important; max-width: 34rem !important;
+  }
+}
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] main > .notecard-page { margin: 1.4rem auto 3rem !important; }
 }
