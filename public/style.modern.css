@@ -1425,3 +1425,87 @@ body[data-skin="modern"] .masthead .signin button:hover { color: var(--m-ink); }
 body[data-skin="modern"][data-mode="light"] .masthead .signin input, html.m-light body[data-skin="modern"][data-mode="system"] .masthead .signin input {
   background: rgba(255,255,255,.62) !important; box-shadow: inset 0 1px 0 rgba(255,255,255,.9), inset 0 0 0 1px rgba(20,22,28,.08);
 }
+
+/* =====================================================================
+   REFINEMENTS VIII — tilt, seamless smoke, follow cards, people lists
+   ===================================================================== */
+
+/* ---- 3D tilt: the sheet leans toward the pointer; the picture inside
+   drifts a little further, so the card has depth of its own ---- */
+body[data-skin="modern"] .card, body[data-skin="modern"] .ens-tile, body[data-skin="modern"] .post-box { transform-style: preserve-3d; }
+body[data-skin="modern"] .grid, body[data-skin="modern"] .activity-feed, body[data-skin="modern"] .ens-tiles, body[data-skin="modern"] .profile-feed { perspective: 1400px; }
+@media (hover: hover) {
+  /* must outrank the plain hover-lift rule (which carries :hover), so :hover is
+     repeated here — the tilt is the hover state once the pointer is inside */
+  body[data-skin="modern"] .card.m-tilt, body[data-skin="modern"] .card.m-tilt:hover,
+  body[data-skin="modern"] .ens-tile.m-tilt, body[data-skin="modern"] .ens-tile.m-tilt:hover,
+  body[data-skin="modern"] .post-box.m-tilt, body[data-skin="modern"] .post-box.m-tilt:hover {
+    transform: perspective(1400px) rotateX(var(--m-rx, 0deg)) rotateY(var(--m-ry, 0deg)) translateY(-2px);
+    transition: transform .12s ease-out, box-shadow .22s var(--m-ease);
+  }
+  body[data-skin="modern"] .card:not(.m-tilt) { transition: transform .5s var(--m-ease), box-shadow .22s var(--m-ease); }
+  body[data-skin="modern"] .m-tilt .figure img { transform: translate3d(var(--m-tx, 0px), var(--m-ty, 0px), 0) scale(1.06); transition: transform .12s ease-out; }
+  body[data-skin="modern"] .card .figure img { transition: transform .5s var(--m-ease); }
+  body[data-skin="modern"] .card .figure { overflow: hidden; }
+}
+@media (prefers-reduced-motion: reduce) { body[data-skin="modern"] .m-tilt { transform: none; } body[data-skin="modern"] .m-tilt .figure img { transform: none; } }
+
+/* ---- seamless smoke. feTurbulence stitches cleanly only when the tile
+   size × baseFrequency is a whole number; .004 × 900 was 3.6, which left a
+   hard edge on every repeat. Frequencies are now exact tile multiples, the
+   plumes are gradients (no tile at all), and a blur softens what remains. ---- */
+body[data-skin="modern"]::after {
+  background-image:
+    radial-gradient(42% 34% at 28% 38%, rgba(255,255,255,.11), transparent 70%),
+    radial-gradient(34% 28% at 74% 64%, rgba(255,255,255,.08), transparent 70%),
+    radial-gradient(50% 40% at 50% 100%, rgba(255,255,255,.05), transparent 70%),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='1000' height='1000'><filter id='s' x='0' y='0' width='100%' height='100%'><feTurbulence type='fractalNoise' baseFrequency='0.004' numOctaves='3' seed='4' stitchTiles='stitch'/><feGaussianBlur stdDeviation='6'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .9 0'/></filter><rect width='1000' height='1000' filter='url(%23s)'/></svg>");
+  background-size: auto, auto, auto, 1000px 1000px;
+}
+/* the fine and coarse grain: same rule — 160 × .95 = 152 ✓, 420 needs 5/420, 620 needs 4/620 */
+body[data-skin="modern"]::before {
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='420' height='420'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='0.0119047619' numOctaves='3' stitchTiles='stitch'/><feGaussianBlur stdDeviation='1.5'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/></filter><rect width='420' height='420' filter='url(%23m)'/></svg>");
+}
+body[data-skin="modern"][data-mode="light"]::before, html.m-light body[data-skin="modern"][data-mode="system"]::before {
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 1 0'/></filter><rect width='160' height='160' filter='url(%23n)'/></svg>"),
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='620' height='620'><filter id='m'><feTurbulence type='fractalNoise' baseFrequency='0.0064516129' numOctaves='4' stitchTiles='stitch'/><feGaussianBlur stdDeviation='2'/><feColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.45 0 0 0 0 0.5 0 0 0 1.2 0'/></filter><rect width='620' height='620' filter='url(%23m)'/></svg>");
+}
+
+/* ---- the follow card as glass ---- */
+body[data-skin="modern"] .act-follow .follow-card { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+body[data-skin="modern"] .act-follow .follow-who { color: var(--m-ink); }
+body[data-skin="modern"] .act-follow .follow-who .avatar { box-shadow: 0 0 0 2px var(--m-line-2), 0 6px 18px -6px rgba(0,0,0,.5); }
+body[data-skin="modern"] .act-follow .follow-verb, body[data-skin="modern"] .act-follow .follow-when { color: var(--m-ink-3); }
+body[data-skin="modern"] .act-follow .follow-line { background: var(--m-accent); opacity: .6; }
+
+/* ---- people lists (followers / following): glass rows ---- */
+body[data-skin="modern"] .people { display: grid; gap: .6rem; }
+body[data-skin="modern"] .people li {
+  background: var(--m-glass); border: 0; border-radius: var(--m-r2); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%); padding: .8rem 1rem .8rem .9rem;
+  transition: transform .22s var(--m-ease), background .18s var(--m-ease);
+}
+body[data-skin="modern"] .people li:hover { background: var(--m-glass-2); transform: translateY(-2px); }
+body[data-skin="modern"] .person { color: var(--m-ink); }
+body[data-skin="modern"] .person .avatar { width: 48px; height: 48px; box-shadow: 0 0 0 1px var(--m-line-2); }
+body[data-skin="modern"] .person-name { font-size: 1.05rem; }
+body[data-skin="modern"] .person-name em { color: var(--m-ink-3); }
+body[data-skin="modern"] .people .btn3d, body[data-skin="modern"] .people button { padding: .5rem 1rem; font-size: .68rem; }
+body[data-skin="modern"] .act-follow .follow-card {
+  border-radius: var(--m-r); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  padding: 1.2rem 1.5rem 1.1rem; max-width: 640px;
+}
+body[data-skin="modern"] .act-follow .follow-when { top: .75rem; right: 1.1rem; }
+body[data-skin="modern"] .act-follow .follow-when { position: static; }
+/* follow / following buttons in people lists and on profiles */
+body[data-skin="modern"] .btn, body[data-skin="modern"] .people .btn {
+  background: var(--m-glass-2); background-image: none; border: 0; color: var(--m-ink); border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.45); font-weight: 600; letter-spacing: .08em;
+  padding: .5rem 1.1rem; font-size: .68rem; text-shadow: none; transition: background .18s var(--m-ease);
+}
+body[data-skin="modern"] .btn:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .btn.btn-on { background: var(--m-ink); color: var(--m-bg); box-shadow: 0 6px 16px -6px rgba(0,0,0,.45); }
+body[data-skin="modern"] .btn.btn-on:hover { opacity: .9; }

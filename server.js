@@ -1436,12 +1436,24 @@ function readImage(file, cb) {
       if (matchMedia('(hover: hover)').matches) addEventListener('pointermove', function (e) { px = e.clientX / innerWidth - .5; py = e.clientY / innerHeight - .5; queue(); }, { passive: true });
     }
     if (matchMedia('(hover: hover)').matches) {
+      // specular position, and a gentle 3D tilt toward the pointer with the
+      // picture drifting a touch more than the sheet (parallax within the card)
+      var tilted = null;
       document.addEventListener('pointermove', function (e) {
-        var el = e.target.closest && e.target.closest('.card, .ens-tile, .post-box'); if (!el) return;
+        var el = e.target.closest && e.target.closest('.card, .ens-tile, .post-box'); if (!el) { if (tilted) { tilted.classList.remove('m-tilt'); tilted.style.removeProperty('--m-rx'); tilted.style.removeProperty('--m-ry'); tilted = null; } return; }
         var r = el.getBoundingClientRect();
-        el.style.setProperty('--m-sx', ((e.clientX - r.left) / r.width * 100).toFixed(1) + '%');
-        el.style.setProperty('--m-sy', ((e.clientY - r.top) / r.height * 100).toFixed(1) + '%');
+        var nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
+        el.style.setProperty('--m-sx', (nx * 100).toFixed(1) + '%');
+        el.style.setProperty('--m-sy', (ny * 100).toFixed(1) + '%');
+        if (reduce) return;
+        if (tilted && tilted !== el) { tilted.classList.remove('m-tilt'); tilted.style.removeProperty('--m-rx'); tilted.style.removeProperty('--m-ry'); }
+        tilted = el; el.classList.add('m-tilt');
+        el.style.setProperty('--m-ry', ((nx - .5) * 5).toFixed(2) + 'deg');     /* left/right */
+        el.style.setProperty('--m-rx', ((.5 - ny) * 4).toFixed(2) + 'deg');     /* up/down */
+        el.style.setProperty('--m-tx', ((nx - .5) * -8).toFixed(1) + 'px');     /* picture parallax */
+        el.style.setProperty('--m-ty', ((ny - .5) * -6).toFixed(1) + 'px');
       }, { passive: true });
+      document.addEventListener('pointerleave', function () { if (tilted) { tilted.classList.remove('m-tilt'); tilted = null; } }, true);
     }
   })();
 
@@ -3905,12 +3917,18 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
       for (const x of q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
         if (!x.private || owner) acts.push({ at: x.created_at, card: null, html: null, mark: x });
-      for (const f of q('SELECT f.created_at, u2.handle FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
-        acts.push({ at: f.created_at, html: `followed <a href="/u/${esc(f.handle)}">${esc(f.handle)}</a>` });
+      for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
+        acts.push({ at: f.created_at, follow: f });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       main = `<h3 class="strip">All activity</h3>
       <div class="activity-feed" id="feed-grid">${pageOf(acts, url).slice.map((a) => a.mark
         ? `<div class="act-note">${markCard(a.mark, me)}</div>`
+        : a.follow
+        ? `<div class="act-note"><article class="act-follow"><div class="follow-card">
+             <a class="follow-who" href="/u/${esc(u.handle)}">${avatar(u)}<span>${esc(u.handle)}</span></a>
+             <span class="follow-verb"><span class="follow-line"></span>followed<span class="follow-line"></span></span>
+             <a class="follow-who" href="/u/${esc(a.follow.handle)}">${avatar(a.follow)}<span>${esc(a.follow.handle)}</span></a>
+             <span class="follow-when">${timeAgo(a.at)}</span></div></article></div>`
         : a.card
         ? `<div class="act-note">${objectCard(a.card, me)}</div>`
         : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}`;
