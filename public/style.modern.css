@@ -1153,9 +1153,15 @@ body[data-skin="modern"] .nf-box .nf-image { margin: .35rem 0 .7rem; }
 
 /* ---- "show more": a quieter presence ---- */
 body[data-skin="modern"] .more-link, body[data-skin="modern"] .more .nf-post {
-  background: var(--m-glass); color: var(--m-ink-2); box-shadow: inset 0 1px 0 var(--m-line); font-weight: 600;
+  background: var(--m-glass); background-image: none; color: var(--m-ink-2); font-weight: 600;
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.35);
+  border-radius: 999px; transition: background .18s var(--m-ease), box-shadow .18s var(--m-ease);
 }
 body[data-skin="modern"] .more-link:hover { background: var(--m-glass-2); color: var(--m-ink); opacity: 1; }
+html.m-light body[data-skin="modern"] .more-link, body[data-skin="modern"][data-mode="light"] .more-link {
+  background: var(--m-glass-2); box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 6px 16px -6px rgba(30,40,60,.22);
+}
 
 /* ---- settings on phones: one rhythm between the sheets ---- */
 @media (max-width: 52rem) {
@@ -1432,16 +1438,15 @@ body[data-skin="modern"][data-mode="light"] .masthead .signin input, html.m-ligh
 
 /* ---- 3D tilt: the sheet leans toward the pointer; the picture inside
    drifts a little further, so the card has depth of its own ---- */
-body[data-skin="modern"] .card, body[data-skin="modern"] .ens-tile, body[data-skin="modern"] .post-box { transform-style: preserve-3d; }
-body[data-skin="modern"] .grid, body[data-skin="modern"] .activity-feed, body[data-skin="modern"] .ens-tiles, body[data-skin="modern"] .profile-feed { perspective: 1400px; }
 @media (hover: hover) {
-  /* must outrank the plain hover-lift rule (which carries :hover), so :hover is
-     repeated here — the tilt is the hover state once the pointer is inside */
+  /* the lift, not a tilt — rotation read as too much. Kept as its own rule
+     (rather than folding back into the plain :hover lift) so the picture
+     parallax below still has a hook to key off. */
   body[data-skin="modern"] .card.m-tilt, body[data-skin="modern"] .card.m-tilt:hover,
   body[data-skin="modern"] .ens-tile.m-tilt, body[data-skin="modern"] .ens-tile.m-tilt:hover,
   body[data-skin="modern"] .post-box.m-tilt, body[data-skin="modern"] .post-box.m-tilt:hover {
-    transform: perspective(1400px) rotateX(var(--m-rx, 0deg)) rotateY(var(--m-ry, 0deg)) translateY(-2px);
-    transition: transform .12s ease-out, box-shadow .22s var(--m-ease);
+    transform: translateY(-2px);
+    transition: transform .18s var(--m-ease), box-shadow .22s var(--m-ease);
   }
   body[data-skin="modern"] .card:not(.m-tilt) { transition: transform .5s var(--m-ease), box-shadow .22s var(--m-ease); }
   body[data-skin="modern"] .m-tilt .figure img { transform: translate3d(var(--m-tx, 0px), var(--m-ty, 0px), 0) scale(1.06); transition: transform .12s ease-out; }
@@ -1509,3 +1514,19 @@ body[data-skin="modern"] .btn, body[data-skin="modern"] .people .btn {
 body[data-skin="modern"] .btn:hover { background: var(--m-glass-3); }
 body[data-skin="modern"] .btn.btn-on { background: var(--m-ink); color: var(--m-bg); box-shadow: 0 6px 16px -6px rgba(0,0,0,.45); }
 body[data-skin="modern"] .btn.btn-on:hover { opacity: .9; }
+
+/* the follow button on a profile's own rail: classic's .is-following rule is
+   a 3-class selector and outranks the plain .btn3d rule above on specificity
+   alone, so it was winning even here. Matched to override it. */
+body[data-skin="modern"] .prail-follow .btn3d {
+  background: var(--m-glass-2); background-image: none; border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.45); text-shadow: none;
+}
+body[data-skin="modern"] .prail-follow .btn3d:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .prail-follow .btn3d.is-following {
+  background: var(--m-ink); color: var(--m-bg); box-shadow: 0 6px 16px -6px rgba(0,0,0,.45);
+}
+body[data-skin="modern"] .prail-follow .btn3d.is-following:hover { opacity: .9; background: var(--m-ink); }
+html.m-light body[data-skin="modern"] .prail-follow .btn3d, body[data-skin="modern"][data-mode="light"] .prail-follow .btn3d {
+  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(30,40,60,.28);
+}

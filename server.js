@@ -1446,11 +1446,10 @@ function readImage(file, cb) {
         el.style.setProperty('--m-sx', (nx * 100).toFixed(1) + '%');
         el.style.setProperty('--m-sy', (ny * 100).toFixed(1) + '%');
         if (reduce) return;
-        if (tilted && tilted !== el) { tilted.classList.remove('m-tilt'); tilted.style.removeProperty('--m-rx'); tilted.style.removeProperty('--m-ry'); }
+        // the lift, plus a picture parallax inside the card — no rotation
+        if (tilted && tilted !== el) tilted.classList.remove('m-tilt');
         tilted = el; el.classList.add('m-tilt');
-        el.style.setProperty('--m-ry', ((nx - .5) * 5).toFixed(2) + 'deg');     /* left/right */
-        el.style.setProperty('--m-rx', ((.5 - ny) * 4).toFixed(2) + 'deg');     /* up/down */
-        el.style.setProperty('--m-tx', ((nx - .5) * -8).toFixed(1) + 'px');     /* picture parallax */
+        el.style.setProperty('--m-tx', ((nx - .5) * -8).toFixed(1) + 'px');
         el.style.setProperty('--m-ty', ((ny - .5) * -6).toFixed(1) + 'px');
       }, { passive: true });
       document.addEventListener('pointerleave', function () { if (tilted) { tilted.classList.remove('m-tilt'); tilted = null; } }, true);
