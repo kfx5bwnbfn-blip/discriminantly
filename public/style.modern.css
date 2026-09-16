@@ -1020,16 +1020,21 @@ body[data-skin="modern"] .card .colls a {
 }
 body[data-skin="modern"] .card .colls a:hover { color: var(--m-ink); }
 
-/* ---- 7. the backdrop: mottle against banding, and warmth in the dark ---- */
+/* ---- 7. the backdrop: mottle against banding, and warmth in the dark.
+   The graphite fields added earlier for warmth were also desaturating the
+   chromatic ones — grey over colour reads as grey. So the hues come back up
+   in both saturation and weight, the graphite stays but thinner and warmer,
+   and the base gains a slight blue cast so the fields have something to sit
+   against rather than washing into near-black. ---- */
 body[data-skin="modern"] {
   background-image:
-    radial-gradient(1100px 800px at 12% -8%,  rgba(96,118,170,.44), transparent 62%),
-    radial-gradient(900px 700px at 100% 18%,   rgba(178,124,82,.40),  transparent 60%),
-    radial-gradient(1000px 900px at 45% 105%,  rgba(72,104,110,.40),  transparent 62%),
-    radial-gradient(700px 500px at 82% 78%,    rgba(160,96,130,.26),  transparent 60%),
-    radial-gradient(900px 700px at 30% 60%,    rgba(92,84,78,.34),    transparent 62%),   /* graphite warmth */
-    radial-gradient(600px 500px at 66% 40%,    rgba(120,104,92,.22),  transparent 60%),
-    linear-gradient(180deg, #14141a 0%, #0f1013 55%, #0c0d11 100%);
+    radial-gradient(1150px 840px at 10% -8%,   rgba(78,110,205,.60),  transparent 63%),   /* indigo */
+    radial-gradient(940px 740px at 102% 16%,   rgba(205,124,62,.54),  transparent 61%),   /* copper */
+    radial-gradient(1050px 940px at 44% 106%,  rgba(46,120,132,.56),  transparent 63%),   /* teal */
+    radial-gradient(760px 560px at 84% 76%,    rgba(190,80,140,.40),  transparent 61%),   /* magenta */
+    radial-gradient(620px 520px at 24% 52%,    rgba(124,92,190,.32),  transparent 60%),   /* violet */
+    radial-gradient(900px 700px at 32% 62%,    rgba(104,90,78,.26),   transparent 62%),   /* graphite warmth, thinned */
+    linear-gradient(180deg, #15161f 0%, #101119 55%, #0c0d14 100%);
 }
 /* two grains: a fine one that dithers the gradient, a coarse one that gives it
    the mottle classic had — both blended so the fields stay soft */
