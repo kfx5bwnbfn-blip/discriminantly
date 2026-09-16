@@ -594,9 +594,9 @@ body[data-skin="modern"] .curtain.is-open { z-index: 9; }   /* above the scrim, 
    ===================================================================== */
 
 /* ---- the welcome page ---- */
-body[data-skin="modern"].is-welcome { background-color: var(--m-bg); background-image:
-  radial-gradient(1200px 700px at 30% -10%, var(--m-glow-a), transparent 60%),
-  radial-gradient(900px 600px at 110% 80%, var(--m-glow-b), transparent 60%); }
+/* the welcome page uses the SAME backdrop as every other page; an earlier
+   two-field version lived here and won on specificity, leaving this one page
+   flatter than the rest. Inherit from the body rule instead. */
 body[data-skin="modern"].is-welcome .masthead { background: transparent; box-shadow: none; }
 body[data-skin="modern"].is-welcome .signin input {
   background: var(--m-field); border: 0; color: var(--m-ink); border-radius: 999px; padding: .55rem .9rem;
@@ -1118,7 +1118,11 @@ body[data-skin="modern"] .tiles { border: 0; padding: 2px 2px 8px; gap: 10px; }
 body[data-skin="modern"] .tile-slot { flex-basis: 9.2rem; }
 body[data-skin="modern"] .tile-slot + .tile-slot, body[data-skin="modern"] .tiles > .tile-new { border-left: 0; margin-left: 0; }
 body[data-skin="modern"] .tile-slot > * { border-radius: var(--m-r2); overflow: hidden; display: flex; flex-direction: column; width: 100%; }
-body[data-skin="modern"] .tile-img { border-radius: 0; height: 5.6rem; object-fit: cover; width: 100%; background: var(--m-image-bed); }
+/* the tile picture is a background-image on a span; the `background`
+   SHORTHAND resets center/cover to auto 0% 0%, which broke the crop. Set the
+   colour alone and state the sizing explicitly. */
+body[data-skin="modern"] .tile-img { border-radius: 0; height: 5.6rem; width: 100%;
+  background-color: var(--m-image-bed); background-size: cover; background-position: 50% 50%; background-repeat: no-repeat; }
 body[data-skin="modern"] .tile-glyph { background: var(--m-image-bed); color: var(--m-ink-3); height: 5.6rem; display: grid; place-items: center; }
 body[data-skin="modern"] .tile-glyph img { opacity: .45; filter: invert(1); width: 30px; }
 body[data-skin="modern"][data-mode="light"] .tile-glyph img, html.m-light body[data-skin="modern"][data-mode="system"] .tile-glyph img { filter: none; opacity: .38; }
@@ -1248,7 +1252,8 @@ body[data-skin="modern"] .tile:hover, body[data-skin="modern"] .tile-new:hover {
 body[data-skin="modern"] .tile.on { background: var(--m-glass-3); }
 body[data-skin="modern"] .tile-slot:has(.tile.on)::after { display: none; }
 /* the picture: no margin, no inset, the tile's own top corners clip it */
-body[data-skin="modern"] .tile-img { margin: 0; height: var(--m-tile-img); width: 100%; border-radius: 0; background-color: var(--m-image-bed); }
+body[data-skin="modern"] .tile-img { margin: 0; height: var(--m-tile-img); width: 100%; border-radius: 0;
+  background-color: var(--m-image-bed); background-size: cover; background-position: 50% 50%; background-repeat: no-repeat; }
 body[data-skin="modern"] .tile.on .tile-img { background-color: var(--m-image-bed); }
 body[data-skin="modern"] .tile.on .tile-count { background: transparent; }
 body[data-skin="modern"] .tile-name { padding: .55rem .4rem .1rem; font-size: .58rem; color: var(--m-ink-2); border: 0; }
@@ -1259,7 +1264,7 @@ body[data-skin="modern"] .tile-count { border: 0; padding: 0 .4rem .6rem; font-s
 body[data-skin="modern"] .tile-new { flex-basis: var(--m-tile-w); position: relative; border: 0; margin-left: 10px; }
 body[data-skin="modern"] .tile-new::before { content: ""; position: absolute; inset: 7px; border-radius: 12px; border: 1.5px dashed var(--m-line-2); pointer-events: none; }
 body[data-skin="modern"] .tile-new > * { background: transparent; box-shadow: none; outline: none; border: 0; }
-body[data-skin="modern"] .tile-new .tile-img { background: transparent; display: grid; place-items: center; }
+body[data-skin="modern"] .tile-new .tile-img { background-color: transparent; background-image: none; display: grid; place-items: center; }
 body[data-skin="modern"] .tile-new .tile-img img { width: 1.8rem; height: 1.8rem; opacity: .7; filter: invert(1); }
 body[data-skin="modern"][data-mode="light"] .tile-new .tile-img img, html.m-light body[data-skin="modern"][data-mode="system"] .tile-new .tile-img img { filter: none; opacity: .5; }
 body[data-skin="modern"] .tile-new .tile-name { color: var(--m-ink-3); }
@@ -1287,3 +1292,47 @@ body[data-skin="modern"] .tile-cta-go { background: var(--m-ink); color: var(--m
 body[data-skin="modern"].is-welcome .masthead { background: transparent !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; box-shadow: none; }
 body[data-skin="modern"] .tile.on .tile-img, body[data-skin="modern"] .tile-img.tile-glyph { background-image: none; }
 body[data-skin="modern"] .tile.on .tile-img img, body[data-skin="modern"] .tile-glyph img { opacity: .55; }
+
+/* =====================================================================
+   REFINEMENTS VI — the collection tile's "…" control
+   ===================================================================== */
+/* the blanket ".tile-slot > *" rule above (full-bleed tiles) accidentally
+   overrode this form's own display:none with display:flex, so hovering an
+   active tile showed the rename field with no tap at all. Reassert it with
+   higher specificity — none by default, shown only while actively renaming. */
+body[data-skin="modern"] .tile-slot > .tile-edit { display: none; }
+body[data-skin="modern"] .tile-slot.is-renaming > .tile-edit { display: flex; flex-direction: column; gap: .5rem; }
+body[data-skin="modern"] .tile-edit {
+  position: absolute; left: 0; right: 0; bottom: 0; background: var(--m-glass-3);
+  -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%);
+  border-top: 0; border-radius: 0 0 var(--m-r2) var(--m-r2); padding: .55rem .55rem .6rem;
+  box-shadow: inset 0 1px 0 var(--m-line);
+}
+body[data-skin="modern"] .tile-edit input {
+  background: var(--m-field); border: 0; color: var(--m-ink); border-radius: 999px; text-align: center;
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); font-size: .68rem; letter-spacing: .06em;
+  text-transform: none; padding: .35rem .6rem;
+}
+
+/* the "…" itself: a small round glass badge at the tile's top-right, shown
+   for the active tile without needing a hover, or on hover of any tile —
+   never a persistent presence beyond that */
+body[data-skin="modern"] .tile-ren {
+  top: 8px; right: 8px; left: auto; bottom: auto; z-index: 5;
+  width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
+  background: var(--m-glass-2); border-radius: 999px; box-shadow: inset 0 1px 0 var(--m-line);
+  color: var(--m-ink); font-size: .85rem; letter-spacing: 0; line-height: 1;
+  transition: opacity .18s var(--m-ease), background .15s var(--m-ease);
+}
+body[data-skin="modern"] .tile-ren:hover { color: var(--m-ink); background: var(--m-glass-3); }
+body[data-skin="modern"] .tile-slot:hover .tile-ren,
+body[data-skin="modern"] .tile-slot:has(.tile.on) .tile-ren,
+body[data-skin="modern"] .tile-ren:focus-visible { opacity: 1; }
+/* while the rename form is open, classic already hides both buttons —
+   modern inherits that via the shared opacity:0 rule; nothing more needed */
+
+/* ---- the mobile nav's first tab reads just "All" in this skin; classic
+   keeps its two-line "All / Activity" label untouched ---- */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .prail-nav a[data-short-modern]::before { content: attr(data-short-modern); }
+}

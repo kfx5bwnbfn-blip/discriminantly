@@ -25,6 +25,10 @@ const SKINS = new Set(['classic', 'modern']), MODES = new Set(['system', 'light'
 // changes theirs, so logging out does not snap the look back), and otherwise
 // DEFAULT_SKIN — classic unless the site is told otherwise.
 const DEFAULT_SKIN = SKINS.has(process.env.DEFAULT_SKIN) ? process.env.DEFAULT_SKIN : 'modern';
+// The request currently being rendered. layout() reads the look cookies from
+// it so that EVERY page — not just the three that happened to pass `req` —
+// resolves a signed-out visitor's theme the same way.
+let CURRENT_REQ = null;
 const skinOf = (u, req) => {
   if (u && SKINS.has(u.ui_skin)) return u.ui_skin;   // a member's explicit choice, either way
   const c = req && /(?:^|;\s*)skin=(\w+)/.exec(req.headers.cookie || '');
@@ -1037,6 +1041,7 @@ const ICONS = {
 };
 
 function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
+  req = req || CURRENT_REQ;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <script>
@@ -2427,7 +2432,7 @@ function profileRail(u, me, tab) {
     ${u.bio ? `<p class="prail-bio">${esc(u.bio)}</p>` : ''}${u.site ? `<p class="prail-site"><a href="${esc(u.site)}" rel="noopener">${esc(u.site.replace(/^https?:\/\//, ''))}</a></p>` : ''}
     ${me && me.id !== u.id ? `<form method="post" action="/u/${esc(u.handle)}/${following ? 'unfollow' : 'follow'}" class="prail-follow"><button class="btn3d block ${following ? 'is-following' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}
     <ul class="prail-nav">
-      <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" href="${link('activity')}">All Activity <span>›</span></a></li>
+      <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" data-short-modern="All" href="${link('activity')}">All Activity <span>›</span></a></li>
       <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
       <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
       <li><a class="${tab === 'warrants' ? 'on' : ''}" data-short="Warrant" data-count="${warrantCount}" href="${link('warrants')}">Warrant: ${warrantCount} <span>›</span></a></li>
@@ -5843,7 +5848,19 @@ async function handle(req, res) {
   const isHead = req.method === 'HEAD';
   const m = isHead ? 'GET' : req.method;
   if (isHead) { const end = res.end.bind(res); res.end = () => end(); }
+  CURRENT_REQ = req;
   const me = currentUser(req);
+  // Keep the look cookies in step with the member's stored setting on every
+  // request, so signing out (or opening /welcome in another tab) never lands
+  // on a different theme than the one they were just using.
+  if (me) {
+    const ck = cookies(req);
+    if (ck.skin !== skinOf(me) || ck.mode !== modeOf(me)) {
+      res.setHeader('Set-Cookie', [
+        `skin=${skinOf(me)}; Path=/; Max-Age=31536000; SameSite=Lax`,
+        `mode=${modeOf(me)}; Path=/; Max-Age=31536000; SameSite=Lax`]);
+    }
+  }
   const need = () => { redirect(res, '/login'); return true; };
   let mt;
 
