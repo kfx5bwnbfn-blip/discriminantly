@@ -38,14 +38,14 @@
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: .6rem;
   padding: 1rem 1.2rem .9rem; position: relative; background: var(--card, #f4f4f2); box-shadow: 0 1px 2px rgba(0,0,0,.1), 0 0 0 1px rgba(0,0,0,.06);
 }
-.act-follow .follow-who { display: flex; flex-direction: column; align-items: center; gap: .45rem; text-decoration: none; color: var(--ink, #222); min-width: 0; }
+.act-follow .follow-who { display: flex; flex-direction: column; align-items: center; gap: .45rem; text-decoration: none; color: inherit; min-width: 0; }
 .act-follow .follow-who:first-of-type { justify-self: start; }
 .act-follow .follow-who:last-of-type { justify-self: end; }
 .act-follow .follow-who .avatar { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; }
 .act-follow .follow-who span { font-size: .7rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
-.act-follow .follow-verb { display: flex; align-items: center; gap: .6rem; font-size: .68rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft, #777); white-space: nowrap; }
+.act-follow .follow-verb { display: flex; align-items: center; gap: .6rem; font-size: .68rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: inherit; opacity: .65; white-space: nowrap; }
 .act-follow .follow-line { display: block; width: 2.2rem; height: 1px; background: currentColor; opacity: .45; }
-.act-follow .follow-when { position: absolute; top: .6rem; right: .9rem; font-size: .6rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft, #777); }
+.act-follow .follow-when { position: absolute; top: .6rem; right: .9rem; font-size: .6rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: inherit; opacity: .65; }
 @media (max-width: 52rem) { .act-follow .follow-line { width: 1.2rem; } .act-follow .follow-who .avatar { width: 52px; height: 52px; } }
 .act-follow { display: block; margin: 0 0 1.2rem; }
 .act-follow .follow-card { border-radius: 4px; }
@@ -89,8 +89,8 @@
 .statchip b, .statchip span { color: inherit; text-decoration: none; }
 /* the tile is a link, so its title/description/chips inherit link colour.
    Anchor the text to the page's own ink tokens instead. */
-.ens-tile { color: var(--ink, #222); }
-.ens-tile-t, .ens-tile-d, .ens-tile .statchip { color: var(--ink, #222); }
+.ens-tile { color: inherit; }
+.ens-tile-t, .ens-tile-d, .ens-tile .statchip { color: inherit; }
 .ens-tile-d, .ens-tile .statchip span { opacity: .68; }
 .ens-tile .statchip { background: rgba(0,0,0,.05); }
 .ens-tile-d { color: inherit; text-decoration: none; }
@@ -128,3 +128,6 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .people .person-body { display: flex; align-items: center; min-width: 0; flex: 1 1 auto; }
 .people .statchips { margin-top: 0; }
+/* Each skin supplies its own ink. Classic's page ink is inherited from body;
+   modern restates its own in style.modern.css. Nothing here hard-codes a
+   colour, so neither skin can leak into the other. */
