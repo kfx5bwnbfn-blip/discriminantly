@@ -3397,10 +3397,12 @@ const pages = {
     const s = (url.searchParams.get('q') || '').trim();
     const tag = (url.searchParams.get('t') || '').trim().toLowerCase();
     const feed = me && ['following', 'followers'].includes(url.searchParams.get('feed')) ? url.searchParams.get('feed') : 'all';
-    // Searching looks through the member's own private entries too — the point
-    // of a search is to find your own things. Browsing the feed unsearched is
-    // unchanged: it stays the public network view it has always been.
-    const mineToo = !!(me && s);
+    // A signed-in member's own entries — private ones included — always belong
+    // in their feed. It is their journal as much as the network's: leaving a
+    // private note out of your own home page means the thing you just recorded
+    // vanishes from the one place you'd look for it. Other members' private
+    // entries are excluded by the query and again by canSee below.
+    const mineToo = !!me;
     let rows = mineToo
       ? q(OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id)
       : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
@@ -3425,7 +3427,8 @@ const pages = {
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
-    const heading = { all: 'Activity from the entire network', following: 'From people you follow', followers: 'From your followers' }[feed];
+    const heading = { all: 'Activity from the entire network', following: 'From people you follow', followers: 'From your followers' }[feed]
+      + (me && feed === 'all' ? '<span class="strip-sub">Your private items remain visible only to you</span>' : '');
 
     let rail;
     if (me) {

@@ -1841,3 +1841,4 @@ body[data-skin="modern"] .timeline li > .tl-date { padding-right: 4.2rem; }
 body[data-skin="modern"] .tl-actions {
   top: 1rem; bottom: auto; height: 1rem; align-items: center;
 }
+body[data-skin="modern"] .strip .strip-sub { color: var(--m-ink-3); opacity: 1; }

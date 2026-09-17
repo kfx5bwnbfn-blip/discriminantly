@@ -97,6 +97,11 @@
 /* Three fixed-width chips need a tile wide enough to hold them, or the row
    scrolls and the last one reads as clipped. 3 x 5.9rem + gaps + padding. */
 .ens-grid { grid-template-columns: repeat(auto-fill, minmax(20.5rem, 1fr)); }
+/* 20.5rem is wide enough for three fixed-width chips on a roomy screen, but on
+   a phone it exceeds the column once the rail is subtracted and pushes the
+   page sideways. Below the breakpoint the grid drops to a single track and the
+   chip row scrolls within the card, as it does on the follower cards. */
+@media (max-width: 52rem) { .ens-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* A people row must behave like a note card in a feed: it takes the feed's
    width and no more. The chips are fixed-width and cannot shrink, so without
@@ -131,3 +136,7 @@
 /* Each skin supplies its own ink. Classic's page ink is inherited from body;
    modern restates its own in style.modern.css. Nothing here hard-codes a
    colour, so neither skin can leak into the other. */
+
+/* the feed heading's second line: a quiet reassurance under the strip title */
+.strip .strip-sub { display: block; margin-top: .3rem; font-style: italic; font-weight: 400;
+  font-size: .82rem; letter-spacing: .01em; text-transform: none; opacity: .62; }
