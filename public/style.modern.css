@@ -1841,7 +1841,9 @@ body[data-skin="modern"] .strip .strip-sub { color: var(--m-ink-3); opacity: 1; 
    merely next. ---- */
 body[data-skin="modern"] .resurface-eyebrow { color: var(--m-accent); opacity: 1; }
 body[data-skin="modern"] .resurface-eyebrow::before, body[data-skin="modern"] .resurface-eyebrow::after { color: var(--m-ink-3); }
-body[data-skin="modern"] .resurface > .note > .card { box-shadow: inset 0 1px 0 var(--m-line-2), 0 26px 60px -26px rgba(0,0,0,.7), 0 0 0 1px rgba(185,170,242,.18); }
+/* no ring and no extra lift: the eyebrow is the whole annotation. If the
+   record cannot hold the eye on its own, decoration will not rescue it. */
+body[data-skin="modern"] .resurface-eyebrow .fact { color: var(--m-ink-2); }
 
 /* ---- The segmented tab bar read as though two tabs were selected. Nothing
    was wrong with the state — only one ever carries .on — but the bar is
@@ -1869,4 +1871,72 @@ body[data-skin="modern"] .vis-tabs a:not(.on):hover { color: var(--m-ink); backg
   body[data-skin="modern"] .prail-nav { display: grid; gap: .3rem; }
   body[data-skin="modern"] .prail-nav li { margin: 0; }
   body[data-skin="modern"] .prail-nav li a { padding-top: .62rem; padding-bottom: .62rem; border-radius: 14px; }
+}
+
+/* =====================================================================
+   PROVENANCE COLOPHON — the whole composition is the watermark
+   ---------------------------------------------------------------------
+   Not faint text behind a solid logo: heading, device, rules, labels and
+   values all sit at ONE opacity, directly on the atmospheric field with no
+   glass, no panel and no elevation beneath them. The backdrop's specks and
+   smoke remain visible through it, which is the point — the history reads as
+   impressed into the substrate rather than printed on a surface.
+
+   The opacity is a token per mode so the two can be tuned independently;
+   light sits closer to its legibility floor than dark does.
+   ===================================================================== */
+body[data-skin="modern"] { --m-colophon: .30; }
+body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern"][data-mode="system"] { --m-colophon: .26; }
+
+body[data-skin="modern"] .colophon {
+  color: var(--m-ink); opacity: var(--m-colophon);
+  background: none; box-shadow: none; backdrop-filter: none; border: 0;
+}
+body[data-skin="modern"] .colo-mark { filter: invert(1) brightness(1.25); width: 26px; }
+body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-skin="modern"][data-mode="system"] .colo-mark { filter: brightness(.28); }
+
+/* Desktop: editorial marginalia in the right-hand margin, outside the note's
+   glass. Set low rather than aligned to the card's top edge — aligned high it
+   reads as a sidebar; low it reads as a note in the margin. It scrolls with
+   the page; it is not pinned. */
+/* The feed column runs fluid to the viewport edge, so there is no margin to
+   put marginalia in — measured at 1400px the column ended 34px from the edge.
+   On the canonical record page only (identified by the colophon's own
+   presence, so no new body class is needed) the column yields a strip of
+   width for it. The note stays dominant; the strip is otherwise empty. */
+@media (min-width: 78rem) {
+  body[data-skin="modern"] .profile-feed:has(> .colophon) { position: relative; padding-right: 15rem; }
+  body[data-skin="modern"] .colophon {
+    position: absolute; right: 0; top: 26rem; width: 12.5rem; margin: 0;
+  }
+}
+/* Below that, it reflows to the foot of the page under the comments, keeping
+   the same composition — not a timeline, not an accordion, not a card. */
+
+/* The reveal: opacity only, the whole block as one object, after everything
+   else has settled. No stagger, no translation, no scale. */
+@keyframes m-colophon-in { from { opacity: 0; } to { opacity: var(--m-colophon); } }
+body[data-skin="modern"] .colophon { animation: m-colophon-in 1400ms ease-out 900ms both; }
+@media (prefers-reduced-motion: reduce) {
+  body[data-skin="modern"] .colophon { animation: none; opacity: var(--m-colophon); }
+}
+
+/* ---- the resurfacing frame: the same translucent container the itinerary
+   block uses on a travel-mark page, given rounded corners. Enough to offset
+   the record from the organic column beneath it; not so much that it competes
+   with the card it holds. ---- */
+body[data-skin="modern"] .resurface {
+  background: var(--m-glass);
+  -webkit-backdrop-filter: blur(26px) saturate(150%); backdrop-filter: blur(26px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--m-line), 0 18px 44px -24px rgba(0,0,0,.55);
+  border-radius: var(--m-r);
+}
+body[data-skin="modern"][data-mode="light"] .resurface, html.m-light body[data-skin="modern"][data-mode="system"] .resurface {
+  background: var(--m-glass-2); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 18px 44px -26px rgba(30,40,60,.3);
+}
+body[data-skin="modern"] .resurface-eyebrow { margin: .15rem 0 .85rem; }
+/* the card inside keeps its own material; it is held, not restyled */
+body[data-skin="modern"] .resurface-body .note { max-width: none; }
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .resurface { padding: .85rem .7rem .9rem; border-radius: var(--m-r2); }
 }

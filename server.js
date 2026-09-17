@@ -760,6 +760,14 @@ const MIGRATIONS = [
   ['039-modern-default', () => {
     db.exec("UPDATE users SET ui_skin='modern' WHERE ui_skin='classic'");
   }],
+  ['040-resurfaced', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS resurfaced (
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject_type TEXT NOT NULL,
+      subject_id   INTEGER NOT NULL,
+      surfaced_on  TEXT NOT NULL,
+      PRIMARY KEY (user_id, subject_type, subject_id))`);
+  }],
 
 ];
 
@@ -912,122 +920,210 @@ const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid
 // owned something is not other people's business. Thresholds are the ones
 // Brian specified: new, a day, a week, three months, a year, three years.
 // ============================================================================
-// RESURFACING — editorial interruptions in the browse feeds
+// RESURFACING — v1
 // ----------------------------------------------------------------------------
-// Governing rule: resurfacing belongs where the member is browsing, not where
-// they are completing a task. So it lives ONLY in the three home feeds. Note
-// and mark pages, forms, collections, settings and search are never touched.
+// The corpus occasionally returns one of the member's own records to the All
+// feed because something factual about its history makes it worth encountering
+// again. Not recommendation, not inferred sentiment, not a Memories product.
 //
-// Rhythm: one block near the top (after the third item), then at most one
-// every nine, capped at three per page. A block appears only when there is
-// genuinely meaningful material — each module has a floor below which it
-// returns nothing — so on a thin history the feed is simply the feed.
+// Scope is deliberately narrow: the signed-in All feed only, at most ONE
+// insertion per page, and nothing at all when no candidate clears its floor.
+// Following and Followers are out — the network is not developed enough for
+// social resurfacing to teach us anything yet.
 //
-// Persistence: choices are seeded by (member, day). Refreshing does not
-// reshuffle; tomorrow is different. The feed should feel like an editor picked
-// something this morning, not like a slot machine.
+// The evidence contract governs the copy. Each type is a verb tied to a
+// specific column, and the interface may not claim more than the column says:
 //
-// The three feeds differ in KIND, not just source:
-//   All        — the member's own history: the primary surface.
-//   Following  — an older public record from someone they follow, but only when
-//                it is grounded in the member's own prior interaction (they
-//                commented on, or re-noted from, that person). Never "popular".
-//   Followers  — an explicit relationship event: someone adopted one of their
-//                notes, or commented on one. Never engagement bait.
+//   visits.visited_on      -> "You checked in here"   (a day they were there)
+//   objects.created_at     -> "You recorded this"     (a day they wrote it down)
+//   COUNT(visits) >= 2     -> "N recorded visits"
+//   ensembles.created_at   -> "Composed together"
+//
+// Note creation is NEVER rendered as discovery, purchase, or affection, and
+// repeated visits are NEVER rendered as a favourite. Ownership timestamps are
+// deliberately absent: ownership_assertions.created_at supports only "marked
+// as owned", which is a colophon fact, not a resurfacing headline.
 // ============================================================================
+const WORDS = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+const inWords = (n) => (n > 0 && n < WORDS.length ? WORDS[n] : String(n));
+// How long ago, said the way a person would say it. Still strictly derived
+// from the stored date — the phrasing changes, the evidence does not.
+const yearsAgoWords = (iso) => {
+  const then = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
+  const y = new Date().getUTCFullYear() - then.getUTCFullYear();
+  return y <= 0 ? 'earlier this year' : y === 1 ? 'a year ago today' : `${inWords(y)} years ago today`;
+};
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const longDate = (iso) => { const d = String(iso).slice(0, 10).split('-');
+  return d.length === 3 ? `${MONTHS[+d[1] - 1]} ${+d[2]}, ${d[0]}` : String(iso); };
+const monthYear = (iso) => { const d = String(iso).slice(0, 10).split('-');
+  return d.length >= 2 ? `${MONTHS[+d[1] - 1]} ${d[0]}` : String(iso); };
+
+// Deterministic per (member, day): a refresh does not reshuffle, tomorrow may
+// differ. No ranking — eligibility plus a floor plus a cooldown is the whole
+// selection model, and it stays explainable in one sentence.
 function seededPick(seedStr, list) {
   if (!list.length) return null;
   let h = 2166136261;
   for (const ch of seedStr) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
   return list[h % list.length];
 }
-const yearsAgo = (iso) => (Date.now() - Date.parse(String(iso).replace(' ', 'T') + 'Z')) / (365.25 * 86400000);
 
-function resurfaceModules(me, feed) {
+// A record surfaced recently is not eligible again, in any type, for 60 days.
+const RESURFACE_COOLDOWN_DAYS = 60;
+// Today is deliberately excluded from the cooldown: a record surfaced this
+// morning must stay eligible for the rest of the day, or the block vanishes on
+// the first refresh. The cooldown starts tomorrow and runs for 60 days.
+const recentlySurfaced = (userId) => new Set(
+  q(`SELECT subject_type || ':' || subject_id k FROM resurfaced
+     WHERE user_id=? AND surfaced_on > date('now', ?) AND surfaced_on < date('now')`)
+    .all(userId, `-${RESURFACE_COOLDOWN_DAYS} days`).map((r) => r.k));
+const noteCooldown = (set, o) => !set.has('note:' + o.id);
+const markCooldown = (set, m) => !set.has('mark:' + m.id);
+
+// Every candidate carries the evidence that produced it, so the copy can never
+// drift away from the column it came from.
+function resurfaceCandidate(me) {
   const today = new Date().toISOString().slice(0, 10);
   const seed = (k) => `${me.id}:${today}:${k}`;
-  const mm = today.slice(5, 7), dd = today.slice(8, 10);
-  const out = [];
+  const md = today.slice(5, 10);
+  const cold = recentlySurfaced(me.id);
+  const types = [];
 
-  if (feed === 'all') {
-    // ON THIS DAY — something recorded on today's date in an earlier year.
-    const day = [...q(OBJ_SQL + " WHERE o.user_id=? AND strftime('%m-%d', o.created_at)=? AND o.created_at < date('now','-1 year')").all(me.id, `${mm}-${dd}`).map((o) => ({ o })),
-                 ...q(MARK_SQL + " WHERE m.user_id=? AND strftime('%m-%d', m.created_at)=? AND m.created_at < date('now','-1 year')").all(me.id, `${mm}-${dd}`).map((m) => ({ m }))];
-    const pick = seededPick(seed('day'), day);
-    if (pick) { const at = (pick.o || pick.m).created_at; out.push({ kind: 'on-this-day', eyebrow: `On this day · ${at.slice(0, 4)}`, ...pick }); }
+  // 1. ON THIS DAY — a check-in on this calendar date in an earlier year.
+  const visitDay = q(`SELECT v.visited_on, m.id mark_id FROM visits v JOIN marks m ON m.id=v.mark_id
+    WHERE v.user_id=? AND v.visited_on IS NOT NULL AND v.visited_on <> ''
+      AND strftime('%m-%d', v.visited_on)=? AND v.visited_on < date('now','-1 year')`).all(me.id, md);
+  const vd = seededPick(seed('visit-day'), visitDay);
+  if (vd) { const m = q(MARK_SQL + ' WHERE m.id=?').get(vd.mark_id);
+    if (m && markCooldown(cold, m)) types.push({ kind: 'on-this-day', label: 'On this day',
+      fact: `You checked in here ${yearsAgoWords(vd.visited_on)}`, m }); }
 
-    // LONG-HELD — something owned for a year or more (patina tier 5+).
-    const held = q(`SELECT a.created_at since, o.* , u.handle, u.name uname, u.avatar FROM ownership_assertions a
-      JOIN objects o ON o.id=a.object_id JOIN users u ON u.id=o.user_id
-      WHERE a.user_id=? AND a.state='owned' AND a.created_at < date('now','-1 year')
-      AND a.id = (SELECT MAX(id) FROM ownership_assertions b WHERE b.user_id=a.user_id AND b.object_id=a.object_id)`).all(me.id);
-    const h = seededPick(seed('held'), held);
-    if (h) { const y = Math.floor(yearsAgo(h.since)); out.push({ kind: 'long-held', eyebrow: `Long-held · ${y === 1 ? 'a year' : y + ' years'}`, o: h }); }
+  // 2. ON THIS DAY — a note recorded on this date in an earlier year. Recorded,
+  //    not discovered: created_at is the day it was written down, nothing more.
+  const noteDay = q(OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m-%d', o.created_at)=?
+    AND o.created_at < date('now','-1 year')`).all(me.id, md).filter((o) => noteCooldown(cold, o));
+  const nd = seededPick(seed('note-day'), noteDay);
+  if (nd) types.push({ kind: 'on-this-day', label: 'On this day',
+    fact: `You wrote this down ${yearsAgoWords(nd.created_at)}`, o: nd });
 
-    // A PLACE YOU RETURNED TO — a mark with two or more check-ins.
-    const ret = q(MARK_SQL + ` WHERE m.user_id=? AND (SELECT COUNT(*) FROM visits v WHERE v.mark_id=m.id) >= 2`).all(me.id);
-    const r = seededPick(seed('return'), ret);
-    if (r) { const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(r.id).c; out.push({ kind: 'returned', eyebrow: `A place you returned to · ${n} visits`, m: r }); }
-
-    // USED TOGETHER BEFORE — an ensemble that brought two or more notes together.
-    const ens = q(`SELECT e.* FROM ensembles e WHERE e.user_id=? AND
-      (SELECT COUNT(*) FROM ensemble_components c WHERE c.ensemble_id=e.id AND c.note_uid IS NOT NULL) >= 2`).all(me.id);
-    const e = seededPick(seed('ens'), ens);
-    if (e) { const comp = q('SELECT o.* , u.handle, u.name uname, u.avatar FROM ensemble_components c JOIN objects o ON o.uid=c.note_uid JOIN users u ON u.id=o.user_id WHERE c.ensemble_id=? AND c.note_uid IS NOT NULL ORDER BY c.position LIMIT 1').get(e.id);
-      if (comp) out.push({ kind: 'together', eyebrow: `Used together before · ${e.title}`, o: comp, href: `/e/${e.id}` }); }
+  // 3. THIS MONTH BEFORE — the understudy, used only when no exact-day
+  //    candidate exists, so the two never appear on the same day.
+  if (!types.length) {
+    const monthNotes = q(OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m', o.created_at)=?
+      AND o.created_at < date('now','-1 year')`).all(me.id, today.slice(5, 7)).filter((o) => noteCooldown(cold, o));
+    const mn = seededPick(seed('month'), monthNotes);
+    if (mn) types.push({ kind: 'this-month', label: 'Earlier in ' + MONTHS[+today.slice(5, 7) - 1],
+      fact: `You wrote this down in ${monthYear(mn.created_at)}`, o: mn });
   }
 
-  if (feed === 'following') {
-    // Grounded in prior interaction only: people the member has commented on or
-    // re-noted from. From those, an older public note they have not seen lately.
-    const engaged = new Set([
-      ...q('SELECT DISTINCT o.user_id id FROM comments c JOIN objects o ON o.id=c.object_id WHERE c.user_id=? AND o.user_id<>?').all(me.id, me.id).map((r) => r.id),
-      ...q('SELECT DISTINCT src.user_id id FROM objects mine JOIN objects src ON src.uid=mine.renoted_from_uid WHERE mine.user_id=?').all(me.id).map((r) => r.id)]);
-    const followed = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id));
-    const ids = [...engaged].filter((id) => followed.has(id));
-    if (ids.length) {
-      const older = q(OBJ_SQL + ` WHERE o.private=0 AND o.user_id IN (${ids.map(() => '?').join(',')}) AND o.created_at < date('now','-90 days')`).all(...ids);
-      const p = seededPick(seed('fol'), older);
-      if (p) out.push({ kind: 'from-someone', eyebrow: `From ${p.handle}, earlier · someone you've talked with`, o: p });
-    }
-  }
+  // 4. RETURNED TO — explicit repeated check-ins. Repetition is reported as a
+  //    count; it is never converted into a preference.
+  const returned = q(MARK_SQL + ` WHERE m.user_id=? AND
+    (SELECT COUNT(*) FROM visits v WHERE v.mark_id=m.id) >= 2`).all(me.id).filter((m) => markCooldown(cold, m));
+  const rt = seededPick(seed('returned'), returned);
+  if (rt) { const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(rt.id).c;
+    types.push({ kind: 'returned', label: 'Somewhere you\u2019ve been back to',
+      fact: `You\u2019ve checked in ${inWords(n)} times`, m: rt }); }
 
-  if (feed === 'followers') {
-    // Explicit relationship events around the member's own public records.
-    const adopted = q(`SELECT mine.name src_name, theirs.*, u.handle, u.name uname, u.avatar FROM objects theirs
-      JOIN objects mine ON mine.uid=theirs.renoted_from_uid JOIN users u ON u.id=theirs.user_id
-      WHERE mine.user_id=? AND theirs.user_id<>? AND theirs.private=0 ORDER BY theirs.id DESC LIMIT 20`).all(me.id, me.id);
-    const a = seededPick(seed('adopt'), adopted);
-    if (a) out.push({ kind: 'adopted', eyebrow: `${a.handle} took this from your notes`, o: a });
-    const talked = q(OBJ_SQL + ` WHERE o.user_id=? AND o.private=0 AND EXISTS (SELECT 1 FROM comments c WHERE c.object_id=o.id AND c.user_id<>?)`).all(me.id, me.id);
-    const t = seededPick(seed('talk'), talked);
-    if (t) { const who = q('SELECT u.handle FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? AND c.user_id<>? ORDER BY c.id DESC LIMIT 1').get(t.id, me.id);
-      if (who) out.push({ kind: 'talked', eyebrow: `${who.handle} wrote about this one of yours`, o: t }); }
-  }
-  // privacy is enforced on the record itself, never assumed from the query
-  return out.filter((b) => (b.o ? canSee(b.o, me) : b.m ? canSee(b.m, me) : false));
+  // 5. USED TOGETHER BEFORE — an explicit Ensemble relationship, at least a
+  //    season old so it is history rather than this week's work.
+  const ens = q(`SELECT * FROM ensembles WHERE user_id=? AND created_at < date('now','-90 days')
+    AND (SELECT COUNT(*) FROM ensemble_components c WHERE c.ensemble_id=ensembles.id AND c.note_uid IS NOT NULL) >= 2`).all(me.id);
+  const en = seededPick(seed('ens'), ens);
+  if (en) { const comp = q(OBJ_SQL + ` JOIN ensemble_components c ON c.note_uid=o.uid
+      WHERE c.ensemble_id=? ORDER BY c.position LIMIT 1`).get(en.id);
+    if (comp && noteCooldown(cold, comp)) types.push({ kind: 'together', label: 'You put these together',
+      fact: `Composed with another note in ${monthYear(en.created_at)}`, o: comp, href: `/e/${en.id}` }); }
+
+  // One insertion. Rotate which type wins by the day, so a member with several
+  // eligible histories does not see the same kind every morning.
+  const eligible = types.filter((b) => (b.o ? canSee(b.o, me) : b.m ? canSee(b.m, me) : false));
+  return seededPick(seed('type'), eligible);
 }
 
 function resurfaceCard(block, me) {
   const inner = block.o ? objectCard(block.o, me) : markCard(block.m, me);
-  return `<div class="act-note resurface" data-kind="${block.kind}">
-    <p class="resurface-eyebrow">${block.href ? `<a href="${block.href}">${esc(block.eyebrow)}</a>` : esc(block.eyebrow)}</p>
-    ${inner}</div>`;
+  const label = block.href ? `<a href="${block.href}">${esc(block.label)}</a>` : esc(block.label);
+  return `<aside class="resurface" data-kind="${block.kind}" aria-label="Resurfaced from your records">
+    <p class="resurface-eyebrow">${label}<span class="fact">${esc(block.fact)}</span></p>
+    <div class="resurface-body">${inner}</div>
+  </aside>`;
 }
 
-// Splice blocks into a page of feed entries: after the third item, then every
-// ninth, no more than three. Returns the entries untouched if nothing is eligible.
-function withResurfacing(entries, me, feed) {
-  if (!me) return entries;
-  const blocks = resurfaceModules(me, feed).slice(0, 3);
-  if (!blocks.length) return entries;
-  const out = [...entries]; let at = 3, i = 0;
-  for (const b of blocks) {
-    if (at > out.length) break;
-    out.splice(at, 0, { at: null, html: resurfaceCard(b, me), resurfaced: true });
-    at += 9 + 1; i++;
+// The block sits ABOVE the feed grid, not inside it. Spliced among the
+// organic entries it would be an editorial interruption masquerading as one
+// of the member's own posts — a small dishonesty. Standing above the stream
+// in its own frame, it can be read as furniture and skipped past.
+function resurfaceBanner(me, feed) {
+  if (!me || feed !== 'all') return { html: '', skip: null };   // All feed only
+  const block = resurfaceCandidate(me);
+  if (!block) return { html: '', skip: null };                  // nothing eligible: show nothing
+  const rec = block.o ? ['note', block.o.id] : ['mark', block.m.id];
+  q(`INSERT INTO resurfaced(user_id, subject_type, subject_id, surfaced_on)
+     VALUES(?,?,?,date('now'))
+     ON CONFLICT(user_id, subject_type, subject_id) DO UPDATE SET surfaced_on=date('now')`).run(me.id, rec[0], rec[1]);
+  // A record shown in the frame must not also appear in the column beneath it.
+  // Usually it is old enough not to collide, but a recent one would otherwise
+  // be presented twice on the same screen.
+  return { html: resurfaceCard(block, me), skip: rec.join(':') };
+}
+
+// ============================================================================
+// PROVENANCE COLOPHON
+// ----------------------------------------------------------------------------
+// The record's history inscribed into the page around it — marginalia on
+// desktop, below the comments on a phone. Not an activity log and not a
+// metadata panel: the substrate underneath may be comprehensive, the
+// inscription above it is a selective editorial projection.
+//
+// Same evidence discipline as resurfacing. In particular
+// ownership_assertions.created_at supports "Marked as owned" and NOT "Owned
+// since" — the schema has no explicit ownership start date, and the interface
+// may not launder a row's timestamp into a biographical claim.
+//
+// Implementation history (edits, image swaps, privacy toggles, migrations) is
+// never included; none of it is provenance.
+// ============================================================================
+function colophonEntries(o) {
+  const out = [];
+  out.push(['Recorded', monthYear(o.created_at)]);
+
+  if (o.renoted_from_uid) {
+    const src = q('SELECT u.handle FROM objects s JOIN users u ON u.id=s.user_id WHERE s.uid=?').get(o.renoted_from_uid);
+    if (src) out.push(['Re-noted from', src.handle]);
   }
+  // the owner's own assertion, latest wins
+  const own = q(`SELECT created_at, state FROM ownership_assertions WHERE user_id=? AND object_id=?
+    ORDER BY id DESC LIMIT 1`).get(o.user_id, o.id);
+  if (own && own.state === 'owned') out.push(['Marked as owned', monthYear(own.created_at)]);
+
+  const war = q(`SELECT created_at FROM warrants w1 WHERE user_id=? AND subject_type='object' AND subject_uid=? AND state='active'
+    AND id=(SELECT MAX(id) FROM warrants w2 WHERE w2.user_id=w1.user_id AND w2.subject_type=w1.subject_type AND w2.subject_uid=w1.subject_uid)`)
+    .get(o.user_id, o.uid);
+  if (war) out.push(['Warranted', monthYear(war.created_at)]);
+
+  const ens = q('SELECT COUNT(DISTINCT ensemble_id) c FROM ensemble_components WHERE note_uid=?').get(o.uid).c;
+  if (ens) out.push(['Composed in', `${ens} ${ens === 1 ? 'Ensemble' : 'Ensembles'}`]);
   return out;
+}
+
+// The whole composition is the watermark — heading, mark, rules and type all
+// at one opacity, sitting directly on the atmospheric field with no glass
+// beneath it. The device is placed after the first entry so it sits inside the
+// history rather than crowning it; the crest-like silhouette comes from the
+// type widths alone, never from a drawn shape.
+function colophon(o) {
+  const rows = colophonEntries(o);
+  if (!rows.length) return '';
+  const entry = ([k, v]) => `<span class="colo-k">${esc(k)}</span><span class="colo-v">${esc(v)}</span>`;
+  return `<aside class="colophon" aria-label="Provenance">
+  <span class="colo-head">Provenance</span><span class="colo-rule"></span>
+  ${entry(rows[0])}
+  <img class="colo-mark" src="/mark.png" alt="" width="17" height="23">
+  ${rows.slice(1).map(entry).join('\n  ')}
+  <span class="colo-rule"></span>
+</aside>`;
 }
 
 // A travel mark's wear comes from the oldest check-in, not from when the mark
@@ -1035,7 +1131,7 @@ function withResurfacing(entries, me, feed) {
 // first time they actually went, which is the date that means something.
 function markPatinaTier(markId) {
   const r = q(`SELECT MIN(COALESCE(NULLIF(visited_on,''), date(created_at))) first FROM visits WHERE mark_id=?`).get(markId);
-  if (!r || !r.first) return 0;                       // never visited — no wear
+  if (!r || !r.first) return 0;
   const days = (Date.now() - Date.parse(r.first + 'T00:00:00Z')) / 86400000;
   if (!isFinite(days)) return 0;
   if (days < 1) return 1;
@@ -3556,11 +3652,12 @@ const pages = {
     if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); marks = marks.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
     marks = marks.filter((x) => canSee(x, me));
-    const entries = [...rows.map((o) => ({ at: o.created_at, html: objectCard(o, me) })),
-                     ...marks.map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
+    const entries = [...rows.map((o) => ({ at: o.created_at, key: 'note:' + o.id, html: objectCard(o, me) })),
+                     ...marks.map((x) => ({ at: x.created_at, key: 'mark:' + x.id, html: markCard(x, me) }))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
-    const page = pageOf(entries, url);
-    page.slice = withResurfacing(page.slice, me, feed);
+    const banner = resurfaceBanner(me, feed);
+    const shown = banner.skip;
+    const page = pageOf(shown ? entries.filter((e) => e.key !== shown) : entries, url);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
@@ -3602,6 +3699,7 @@ const pages = {
   </aside>
   <section class="feed feed-plain is-tiled">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
+    ${banner.html}
     ${entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
@@ -3637,6 +3735,7 @@ ${noters.length ? `<div class="section-rule"></div>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
+${skinOf(me, req) === 'modern' ? colophon(o) : ''}
 <script>
 (function () {
   var f = document.getElementById('noters-fold'); if (!f) return;
