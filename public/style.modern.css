@@ -713,7 +713,7 @@ body[data-skin="modern"] .flash, body[data-skin="modern"] .notice {
    fields, layered, that the glass can pick up and the blur can soften. ---- */
 body[data-skin="modern"] {
   --m-bg: #0b0d12;
-  background-image:
+  --m-fields:
     radial-gradient(1100px 800px at 12% -8%,  rgba(96,118,170,.42), transparent 62%),
     radial-gradient(900px 700px at 100% 18%,   rgba(168,120,84,.34),  transparent 60%),
     radial-gradient(1000px 900px at 45% 105%,  rgba(72,104,110,.40),  transparent 62%),
@@ -724,7 +724,7 @@ body[data-skin="modern"] {
 }
 body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern"][data-mode="system"] {
   --m-bg: #e6e7ec;
-  background-image:
+  --m-fields:
     radial-gradient(1100px 800px at 12% -8%,  rgba(150,170,225,.55), transparent 62%),
     radial-gradient(900px 700px at 100% 18%,   rgba(240,200,160,.55), transparent 60%),
     radial-gradient(1000px 900px at 45% 105%,  rgba(160,200,200,.50), transparent 62%),
@@ -841,7 +841,7 @@ body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern
   --m-glass: rgba(255,255,255,.50);
   --m-glass-2: rgba(255,255,255,.66);
   --m-glass-3: rgba(255,255,255,.84);
-  background-image:
+  --m-fields:
     radial-gradient(1100px 820px at 6% -8%,    rgba(96,132,235,.92),   transparent 64%),
     radial-gradient(960px 760px at 104% 12%,   rgba(255,178,110,.95),  transparent 62%),
     radial-gradient(1100px 940px at 40% 110%,  rgba(80,185,185,.88),   transparent 64%),
@@ -1030,7 +1030,7 @@ body[data-skin="modern"] .card .colls a:hover { color: var(--m-ink); }
    and the base gains a slight blue cast so the fields have something to sit
    against rather than washing into near-black. ---- */
 body[data-skin="modern"] {
-  background-image:
+  --m-fields:
     radial-gradient(1150px 840px at 10% -8%,   rgba(78,110,205,.60),  transparent 63%),   /* indigo */
     radial-gradient(940px 740px at 102% 16%,   rgba(205,124,62,.54),  transparent 61%),   /* copper */
     radial-gradient(1050px 940px at 44% 106%,  rgba(46,120,132,.56),  transparent 63%),   /* teal */
@@ -1696,3 +1696,48 @@ html:has(body[data-skin="modern"][data-mode="light"])::after { opacity: .26; fil
   html:has(body[data-skin="modern"])::before,
   html:has(body[data-skin="modern"])::after { animation: none; }
 }
+
+/* ---- travel-mark cards: the location line and the street address had no
+   modern rules at all, so they fell through to classic's --gold (#d9b859
+   darkened by its own opacity) and --ink-soft (#949494) — greys chosen for a
+   white paper card, and muddy on dark glass. Given this skin's own ink. ---- */
+body[data-skin="modern"] .mark-where { color: var(--m-accent); opacity: 1; }
+body[data-skin="modern"] .mark-address { color: var(--m-ink-2); }
+body[data-skin="modern"] .mark-hint { color: var(--m-ink-3); }
+
+/* ---- Remaining classic-token leaks in this skin. Each of these had no
+   modern rule, so it inherited a colour picked for classic's white paper:
+   near-black breadcrumbs, mid-grey chevrons and edit links, and the light
+   accent on links. All given this skin's own ink. ---- */
+body[data-skin="modern"] .crumb-here { color: var(--m-ink); }
+body[data-skin="modern"] .card-edit, body[data-skin="modern"] .prail-nav a > span,
+body[data-skin="modern"] .feednav a > span { color: var(--m-ink-3); }
+body[data-skin="modern"] .settings li, body[data-skin="modern"] .settings-table li { color: var(--m-ink-2); }
+body[data-skin="modern"] .seg-btn { color: var(--m-ink-2); }
+body[data-skin="modern"] .seg-btn.on { color: var(--m-bg); }
+body[data-skin="modern"] .fine a, body[data-skin="modern"] .fine.center a { color: var(--m-accent); }
+
+/* =====================================================================
+   The backdrop moves onto its own fixed layer.
+   ---------------------------------------------------------------------
+   It was painted on <body> with background-attachment: fixed, which ties
+   the gradient geometry to the VIEWPORT height. Safari's viewport (URL bar
+   plus toolbar) is shorter than a home-screen app's, so the identical page
+   resolved to visibly different colour in each — measured at 13 RGB levels
+   apart at the same on-screen point.
+
+   Sizing this layer in `lvh` (the viewport with browser chrome retracted)
+   makes the two agree: standalone has no retractable chrome, and Safari's
+   lvh equals that same full height. vh is kept as a fallback.
+   ===================================================================== */
+body[data-skin="modern"] > .m-backdrop {
+  position: fixed; left: 0; top: 0; width: 100vw;
+  height: 100vh; height: 100lvh;      /* lvh = chrome-retracted height; standalone matches it */
+  z-index: -1; pointer-events: none;
+  background-color: var(--m-bg);
+  background-image: var(--m-fields);  /* the field stack, held as a custom property */
+  background-size: auto; background-repeat: no-repeat; background-attachment: scroll;
+}
+/* body now paints only the flat base — the fields belong to the layer, so
+   nothing is painted twice and nothing depends on document height */
+body[data-skin="modern"] { background-image: none; background-attachment: scroll; }
