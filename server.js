@@ -911,6 +911,140 @@ const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid
 // rendered for the owner themselves, because the length of time someone has
 // owned something is not other people's business. Thresholds are the ones
 // Brian specified: new, a day, a week, three months, a year, three years.
+// ============================================================================
+// RESURFACING — editorial interruptions in the browse feeds
+// ----------------------------------------------------------------------------
+// Governing rule: resurfacing belongs where the member is browsing, not where
+// they are completing a task. So it lives ONLY in the three home feeds. Note
+// and mark pages, forms, collections, settings and search are never touched.
+//
+// Rhythm: one block near the top (after the third item), then at most one
+// every nine, capped at three per page. A block appears only when there is
+// genuinely meaningful material — each module has a floor below which it
+// returns nothing — so on a thin history the feed is simply the feed.
+//
+// Persistence: choices are seeded by (member, day). Refreshing does not
+// reshuffle; tomorrow is different. The feed should feel like an editor picked
+// something this morning, not like a slot machine.
+//
+// The three feeds differ in KIND, not just source:
+//   All        — the member's own history: the primary surface.
+//   Following  — an older public record from someone they follow, but only when
+//                it is grounded in the member's own prior interaction (they
+//                commented on, or re-noted from, that person). Never "popular".
+//   Followers  — an explicit relationship event: someone adopted one of their
+//                notes, or commented on one. Never engagement bait.
+// ============================================================================
+function seededPick(seedStr, list) {
+  if (!list.length) return null;
+  let h = 2166136261;
+  for (const ch of seedStr) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  return list[h % list.length];
+}
+const yearsAgo = (iso) => (Date.now() - Date.parse(String(iso).replace(' ', 'T') + 'Z')) / (365.25 * 86400000);
+
+function resurfaceModules(me, feed) {
+  const today = new Date().toISOString().slice(0, 10);
+  const seed = (k) => `${me.id}:${today}:${k}`;
+  const mm = today.slice(5, 7), dd = today.slice(8, 10);
+  const out = [];
+
+  if (feed === 'all') {
+    // ON THIS DAY — something recorded on today's date in an earlier year.
+    const day = [...q(OBJ_SQL + " WHERE o.user_id=? AND strftime('%m-%d', o.created_at)=? AND o.created_at < date('now','-1 year')").all(me.id, `${mm}-${dd}`).map((o) => ({ o })),
+                 ...q(MARK_SQL + " WHERE m.user_id=? AND strftime('%m-%d', m.created_at)=? AND m.created_at < date('now','-1 year')").all(me.id, `${mm}-${dd}`).map((m) => ({ m }))];
+    const pick = seededPick(seed('day'), day);
+    if (pick) { const at = (pick.o || pick.m).created_at; out.push({ kind: 'on-this-day', eyebrow: `On this day · ${at.slice(0, 4)}`, ...pick }); }
+
+    // LONG-HELD — something owned for a year or more (patina tier 5+).
+    const held = q(`SELECT a.created_at since, o.* , u.handle, u.name uname, u.avatar FROM ownership_assertions a
+      JOIN objects o ON o.id=a.object_id JOIN users u ON u.id=o.user_id
+      WHERE a.user_id=? AND a.state='owned' AND a.created_at < date('now','-1 year')
+      AND a.id = (SELECT MAX(id) FROM ownership_assertions b WHERE b.user_id=a.user_id AND b.object_id=a.object_id)`).all(me.id);
+    const h = seededPick(seed('held'), held);
+    if (h) { const y = Math.floor(yearsAgo(h.since)); out.push({ kind: 'long-held', eyebrow: `Long-held · ${y === 1 ? 'a year' : y + ' years'}`, o: h }); }
+
+    // A PLACE YOU RETURNED TO — a mark with two or more check-ins.
+    const ret = q(MARK_SQL + ` WHERE m.user_id=? AND (SELECT COUNT(*) FROM visits v WHERE v.mark_id=m.id) >= 2`).all(me.id);
+    const r = seededPick(seed('return'), ret);
+    if (r) { const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(r.id).c; out.push({ kind: 'returned', eyebrow: `A place you returned to · ${n} visits`, m: r }); }
+
+    // USED TOGETHER BEFORE — an ensemble that brought two or more notes together.
+    const ens = q(`SELECT e.* FROM ensembles e WHERE e.user_id=? AND
+      (SELECT COUNT(*) FROM ensemble_components c WHERE c.ensemble_id=e.id AND c.note_uid IS NOT NULL) >= 2`).all(me.id);
+    const e = seededPick(seed('ens'), ens);
+    if (e) { const comp = q('SELECT o.* , u.handle, u.name uname, u.avatar FROM ensemble_components c JOIN objects o ON o.uid=c.note_uid JOIN users u ON u.id=o.user_id WHERE c.ensemble_id=? AND c.note_uid IS NOT NULL ORDER BY c.position LIMIT 1').get(e.id);
+      if (comp) out.push({ kind: 'together', eyebrow: `Used together before · ${e.title}`, o: comp, href: `/e/${e.id}` }); }
+  }
+
+  if (feed === 'following') {
+    // Grounded in prior interaction only: people the member has commented on or
+    // re-noted from. From those, an older public note they have not seen lately.
+    const engaged = new Set([
+      ...q('SELECT DISTINCT o.user_id id FROM comments c JOIN objects o ON o.id=c.object_id WHERE c.user_id=? AND o.user_id<>?').all(me.id, me.id).map((r) => r.id),
+      ...q('SELECT DISTINCT src.user_id id FROM objects mine JOIN objects src ON src.uid=mine.renoted_from_uid WHERE mine.user_id=?').all(me.id).map((r) => r.id)]);
+    const followed = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id));
+    const ids = [...engaged].filter((id) => followed.has(id));
+    if (ids.length) {
+      const older = q(OBJ_SQL + ` WHERE o.private=0 AND o.user_id IN (${ids.map(() => '?').join(',')}) AND o.created_at < date('now','-90 days')`).all(...ids);
+      const p = seededPick(seed('fol'), older);
+      if (p) out.push({ kind: 'from-someone', eyebrow: `From ${p.handle}, earlier · someone you've talked with`, o: p });
+    }
+  }
+
+  if (feed === 'followers') {
+    // Explicit relationship events around the member's own public records.
+    const adopted = q(`SELECT mine.name src_name, theirs.*, u.handle, u.name uname, u.avatar FROM objects theirs
+      JOIN objects mine ON mine.uid=theirs.renoted_from_uid JOIN users u ON u.id=theirs.user_id
+      WHERE mine.user_id=? AND theirs.user_id<>? AND theirs.private=0 ORDER BY theirs.id DESC LIMIT 20`).all(me.id, me.id);
+    const a = seededPick(seed('adopt'), adopted);
+    if (a) out.push({ kind: 'adopted', eyebrow: `${a.handle} took this from your notes`, o: a });
+    const talked = q(OBJ_SQL + ` WHERE o.user_id=? AND o.private=0 AND EXISTS (SELECT 1 FROM comments c WHERE c.object_id=o.id AND c.user_id<>?)`).all(me.id, me.id);
+    const t = seededPick(seed('talk'), talked);
+    if (t) { const who = q('SELECT u.handle FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? AND c.user_id<>? ORDER BY c.id DESC LIMIT 1').get(t.id, me.id);
+      if (who) out.push({ kind: 'talked', eyebrow: `${who.handle} wrote about this one of yours`, o: t }); }
+  }
+  // privacy is enforced on the record itself, never assumed from the query
+  return out.filter((b) => (b.o ? canSee(b.o, me) : b.m ? canSee(b.m, me) : false));
+}
+
+function resurfaceCard(block, me) {
+  const inner = block.o ? objectCard(block.o, me) : markCard(block.m, me);
+  return `<div class="act-note resurface" data-kind="${block.kind}">
+    <p class="resurface-eyebrow">${block.href ? `<a href="${block.href}">${esc(block.eyebrow)}</a>` : esc(block.eyebrow)}</p>
+    ${inner}</div>`;
+}
+
+// Splice blocks into a page of feed entries: after the third item, then every
+// ninth, no more than three. Returns the entries untouched if nothing is eligible.
+function withResurfacing(entries, me, feed) {
+  if (!me) return entries;
+  const blocks = resurfaceModules(me, feed).slice(0, 3);
+  if (!blocks.length) return entries;
+  const out = [...entries]; let at = 3, i = 0;
+  for (const b of blocks) {
+    if (at > out.length) break;
+    out.splice(at, 0, { at: null, html: resurfaceCard(b, me), resurfaced: true });
+    at += 9 + 1; i++;
+  }
+  return out;
+}
+
+// A travel mark's wear comes from the oldest check-in, not from when the mark
+// was written down: the place has been part of the member's life since the
+// first time they actually went, which is the date that means something.
+function markPatinaTier(markId) {
+  const r = q(`SELECT MIN(COALESCE(NULLIF(visited_on,''), date(created_at))) first FROM visits WHERE mark_id=?`).get(markId);
+  if (!r || !r.first) return 0;                       // never visited — no wear
+  const days = (Date.now() - Date.parse(r.first + 'T00:00:00Z')) / 86400000;
+  if (!isFinite(days)) return 0;
+  if (days < 1) return 1;
+  if (days < 7) return 2;
+  if (days < 90) return 3;
+  if (days < 365) return 4;
+  if (days < 365 * 3) return 5;
+  return 6;
+}
 function ownedPatinaTier(since) {
   if (!since) return 1;
   const days = (Date.now() - Date.parse(since.replace(' ', 'T') + 'Z')) / 86400000;
@@ -2393,7 +2527,9 @@ function markCard(m, me, full = false) {
   const tags = tagList(m.tags);
   const cs = markCollections(m.id);
   const embed = mapEmbed(m);
-  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}">
+  // Wear is private evidence, shown only to the member whose mark it is.
+  const markTier = (me && m.user_id === me.id) ? markPatinaTier(m.id) : 0;
+  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}"${markTier ? ` data-patina="${markTier}"` : ''}>
   <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(m, 'mark', me)}
@@ -3424,6 +3560,7 @@ const pages = {
                      ...marks.map((x) => ({ at: x.created_at, html: markCard(x, me) }))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
     const page = pageOf(entries, url);
+    page.slice = withResurfacing(page.slice, me, feed);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);

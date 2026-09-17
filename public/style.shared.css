@@ -140,3 +140,14 @@
 /* the feed heading's second line: a quiet reassurance under the strip title */
 .strip .strip-sub { display: block; margin-top: .3rem; font-style: italic; font-weight: 400;
   font-size: .82rem; letter-spacing: .01em; text-transform: none; opacity: .62; }
+
+/* ---- Resurfacing: an editorial interruption in the feed. The card inside
+   is the ordinary note or mark card; only the eyebrow marks it as chosen
+   rather than merely recent. Structural here; each skin paints its own. ---- */
+.resurface { position: relative; }
+.resurface-eyebrow { margin: 0 0 .55rem; font-size: .62rem; font-weight: 700; letter-spacing: .16em;
+  text-transform: uppercase; text-align: center; opacity: .72; }
+.resurface-eyebrow::before { content: "—  "; opacity: .5; }
+.resurface-eyebrow::after  { content: "  —"; opacity: .5; }
+.resurface-eyebrow a { color: inherit; text-decoration: none; }
+.resurface-eyebrow a:hover { text-decoration: underline; }

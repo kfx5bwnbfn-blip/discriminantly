@@ -1770,36 +1770,29 @@ body[data-skin="modern"] .note[data-patina] .card::before {
      Several light motes carry a dark companion offset a fraction down-right:
      a highlight with its own shadow is what gives a speck relief. */
   background-image:
-    radial-gradient(1.13px 1.13px at 64.6% 71.7%, rgba(144,144,135,0.51) 0%, rgba(144,144,135,0.51) 45%, transparent 100%),
-    radial-gradient(2.10px 2.10px at 19.5% 31.2%, rgba(255,250,249,0.71) 0%, rgba(255,250,249,0.71) 45%, transparent 100%),
-    radial-gradient(1.39px 1.39px at 74.2% 40.1%, rgba(50,48,45,0.76) 0%, rgba(50,48,45,0.76) 45%, transparent 100%),
-    radial-gradient(0.62px 0.62px at 42.0% 10.4%, rgba(27,25,25,0.68) 0%, rgba(27,25,25,0.68) 45%, transparent 100%),
-    radial-gradient(1.75px 1.75px at 1.5% 61.4%, rgba(154,153,151,0.37) 0%, rgba(154,153,151,0.37) 45%, transparent 100%),
-    radial-gradient(0.57px 0.57px at 8.3% 6.1%, rgba(250,246,240,0.66) 0%, rgba(250,246,240,0.66) 45%, transparent 100%),
-    radial-gradient(1.53px 1.53px at 38.5% 47.6%, rgba(230,218,214,0.86) 0%, rgba(230,218,214,0.86) 45%, transparent 100%),
-    radial-gradient(0.87px 0.87px at 57.3% 20.3%, rgba(54,54,50,0.54) 0%, rgba(54,54,50,0.54) 45%, transparent 100%),
-    radial-gradient(1.88px 1.88px at 73.7% 6.4%, rgba(57,55,53,0.56) 0%, rgba(57,55,53,0.56) 45%, transparent 100%),
-    radial-gradient(1.15px 1.15px at 4.2% 25.2%, rgba(218,215,210,0.51) 0%, rgba(218,215,210,0.51) 45%, transparent 100%),
-    radial-gradient(1.29px 1.29px at 18.2% 36.4%, rgba(36,35,33,0.48) 0%, rgba(36,35,33,0.48) 45%, transparent 100%),
-    radial-gradient(0.55px 0.55px at 61.8% 85.9%, rgba(105,103,100,0.50) 0%, rgba(105,103,100,0.50) 45%, transparent 100%),
-    radial-gradient(1.41px 1.41px at 84.8% 73.8%, rgba(48,46,44,0.50) 0%, rgba(48,46,44,0.50) 45%, transparent 100%),
-    radial-gradient(0.57px 0.57px at 44.9% 27.5%, rgba(27,27,26,0.51) 0%, rgba(27,27,26,0.51) 45%, transparent 100%),
-    radial-gradient(3.33px 3.33px at 60.5% 39.1%, rgba(244,238,237,0.85) 0%, rgba(244,238,237,0.85) 45%, transparent 100%),
-    radial-gradient(0.64px 0.64px at 95.9% 8.6%, rgba(140,139,135,0.58) 0%, rgba(140,139,135,0.58) 45%, transparent 100%),
-    radial-gradient(3.06px 3.06px at 36.2% 87.6%, rgba(129,128,120,0.35) 0%, rgba(129,128,120,0.35) 45%, transparent 100%),
-    radial-gradient(2.49px 2.49px at 87.7% 90.0%, rgba(24,23,21,0.76) 0%, rgba(24,23,21,0.76) 45%, transparent 100%),
-    radial-gradient(0.55px 0.55px at 18.2% 91.7%, rgba(46,46,45,0.68) 0%, rgba(46,46,45,0.68) 45%, transparent 100%),
-    radial-gradient(0.97px 0.97px at 61.9% 6.6%, rgba(255,252,237,0.88) 0%, rgba(255,252,237,0.88) 45%, transparent 100%),
-    radial-gradient(0.55px 0.55px at 12.9% 91.3%, rgba(135,131,130,0.60) 0%, rgba(135,131,130,0.60) 45%, transparent 100%),
-    radial-gradient(0.63px 0.63px at 19.1% 61.3%, rgba(235,225,217,0.87) 0%, rgba(235,225,217,0.87) 45%, transparent 100%),
-    radial-gradient(0.56px 0.56px at 95.1% 21.0%, rgba(239,236,218,0.81) 0%, rgba(239,236,218,0.81) 45%, transparent 100%),
-    radial-gradient(1.27px 1.27px at 70.7% 93.0%, rgba(255,249,245,0.70) 0%, rgba(255,249,245,0.70) 45%, transparent 100%),
-    radial-gradient(2.45px 2.45px at 52.7% 51.3%, rgba(24,23,21,0.45) 0%, rgba(24,23,21,0.45) 45%, transparent 100%),
-    radial-gradient(0.55px 0.55px at 79.9% 71.7%, rgba(37,37,35,0.70) 0%, rgba(37,37,35,0.70) 45%, transparent 100%),
-    radial-gradient(0.75px 0.75px at 81.7% 60.9%, rgba(238,226,224,0.89) 0%, rgba(238,226,224,0.89) 45%, transparent 100%),
-    radial-gradient(3.37px 3.37px at 37.1% 73.2%, rgba(214,210,200,0.84) 0%, rgba(214,210,200,0.84) 45%, transparent 100%),
-    radial-gradient(0.55px 0.55px at 80.8% 28.7%, rgba(168,161,159,0.47) 0%, rgba(168,161,159,0.47) 45%, transparent 100%),
-    radial-gradient(0.57px 0.57px at 47.3% 60.1%, rgba(34,32,30,0.53) 0%, rgba(34,32,30,0.53) 45%, transparent 100%);
+    radial-gradient(1.79px 1.79px at 39.1% 89.2%, rgba(89,68,52,0.46) 0%, rgba(89,68,52,0.46) 45%, transparent 100%),
+    radial-gradient(3.12px 3.12px at 68.8% 27.6%, rgba(214,183,160,0.82) 0%, rgba(214,183,160,0.82) 45%, transparent 100%),
+    radial-gradient(1.41px 1.41px at 35.1% 80.6%, rgba(107,135,215,0.41) 0%, rgba(107,135,215,0.41) 45%, transparent 100%),
+    radial-gradient(1.31px 1.31px at 88.2% 70.8%, rgba(231,193,145,0.31) 0%, rgba(231,193,145,0.31) 45%, transparent 100%),
+    radial-gradient(2.50px 2.50px at 49.1% 66.7%, rgba(61,73,69,0.44) 0%, rgba(61,73,69,0.44) 45%, transparent 100%),
+    radial-gradient(2.00px 2.00px at 43.2% 84.9%, rgba(82,75,66,0.54) 0%, rgba(82,75,66,0.54) 45%, transparent 100%),
+    radial-gradient(1.38px 1.38px at 39.0% 45.8%, rgba(44,65,68,0.69) 0%, rgba(44,65,68,0.69) 45%, transparent 100%),
+    radial-gradient(0.85px 0.85px at 20.5% 18.5%, rgba(50,66,68,0.58) 0%, rgba(50,66,68,0.58) 45%, transparent 100%),
+    radial-gradient(3.34px 3.34px at 54.0% 98.6%, rgba(223,203,178,0.43) 0%, rgba(223,203,178,0.43) 45%, transparent 100%),
+    radial-gradient(1.06px 1.06px at 42.9% 33.4%, rgba(128,107,171,0.31) 0%, rgba(128,107,171,0.31) 45%, transparent 100%),
+    radial-gradient(2.05px 2.05px at 79.7% 91.6%, rgba(203,168,141,0.70) 0%, rgba(203,168,141,0.70) 45%, transparent 100%),
+    radial-gradient(1.09px 1.09px at 36.8% 9.6%, rgba(153,191,177,0.52) 0%, rgba(153,191,177,0.52) 45%, transparent 100%),
+    radial-gradient(0.59px 0.59px at 14.9% 31.5%, rgba(55,50,66,0.55) 0%, rgba(55,50,66,0.55) 45%, transparent 100%),
+    radial-gradient(3.03px 3.03px at 79.3% 85.5%, rgba(97,137,143,0.47) 0%, rgba(97,137,143,0.47) 45%, transparent 100%),
+    radial-gradient(1.12px 1.12px at 91.4% 39.2%, rgba(123,160,146,0.45) 0%, rgba(123,160,146,0.45) 45%, transparent 100%),
+    radial-gradient(0.88px 0.88px at 82.6% 16.7%, rgba(66,37,53,0.57) 0%, rgba(66,37,53,0.57) 45%, transparent 100%),
+    radial-gradient(1.83px 1.83px at 76.6% 50.2%, rgba(47,31,39,0.65) 0%, rgba(47,31,39,0.65) 45%, transparent 100%),
+    radial-gradient(0.62px 0.62px at 25.1% 25.6%, rgba(239,198,145,0.57) 0%, rgba(239,198,145,0.57) 45%, transparent 100%),
+    radial-gradient(1.88px 1.88px at 88.3% 87.7%, rgba(222,198,211,0.84) 0%, rgba(222,198,211,0.84) 45%, transparent 100%),
+    radial-gradient(2.76px 2.76px at 42.9% 44.9%, rgba(161,99,133,0.44) 0%, rgba(161,99,133,0.44) 45%, transparent 100%),
+    radial-gradient(1.97px 1.97px at 91.5% 54.2%, rgba(147,110,82,0.52) 0%, rgba(147,110,82,0.52) 45%, transparent 100%),
+    radial-gradient(1.23px 1.23px at 15.8% 65.3%, rgba(210,200,231,0.52) 0%, rgba(210,200,231,0.52) 45%, transparent 100%),
+    radial-gradient(0.60px 0.60px at 61.2% 67.5%, rgba(211,203,228,0.64) 0%, rgba(211,203,228,0.64) 45%, transparent 100%);
 }
 /* the same two inks in both modes — the texture is not re-polarised */
 body[data-skin="modern"] .note[data-patina] .card {
@@ -1809,12 +1802,12 @@ body[data-skin="modern"] .note[data-patina] .card {
 
 /* new · a day · a week · three months · a year · three years and beyond
    — opacity climbs and the tile shrinks, so the dust both deepens and thickens */
-body[data-skin="modern"] .note[data-patina="1"] .card { --patina-o: .18; --patina-tile: 320px; }
-body[data-skin="modern"] .note[data-patina="2"] .card { --patina-o: .30; --patina-tile: 270px; }
-body[data-skin="modern"] .note[data-patina="3"] .card { --patina-o: .45; --patina-tile: 225px; }
-body[data-skin="modern"] .note[data-patina="4"] .card { --patina-o: .62; --patina-tile: 185px; }
-body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: .80; --patina-tile: 150px; }
-body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 120px; }
+body[data-skin="modern"] .note[data-patina="1"] .card { --patina-o: 0.18; --patina-tile: 760px; }
+body[data-skin="modern"] .note[data-patina="2"] .card { --patina-o: 0.3; --patina-tile: 640px; }
+body[data-skin="modern"] .note[data-patina="3"] .card { --patina-o: 0.45; --patina-tile: 540px; }
+body[data-skin="modern"] .note[data-patina="4"] .card { --patina-o: 0.62; --patina-tile: 450px; }
+body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: 0.8; --patina-tile: 380px; }
+body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 320px; }
 
 /* the picture keeps its own surface; dust settles on the card, not the photo */
 body[data-skin="modern"] .note[data-patina] .figure { z-index: 4; }
@@ -1842,3 +1835,38 @@ body[data-skin="modern"] .tl-actions {
   top: 1rem; bottom: auto; height: 1rem; align-items: center;
 }
 body[data-skin="modern"] .strip .strip-sub { color: var(--m-ink-3); opacity: 1; }
+
+/* ---- resurfacing in the modern skin: the eyebrow in the accent, and the
+   card beneath given a hair more lift than its neighbours — chosen, not
+   merely next. ---- */
+body[data-skin="modern"] .resurface-eyebrow { color: var(--m-accent); opacity: 1; }
+body[data-skin="modern"] .resurface-eyebrow::before, body[data-skin="modern"] .resurface-eyebrow::after { color: var(--m-ink-3); }
+body[data-skin="modern"] .resurface > .note > .card { box-shadow: inset 0 1px 0 var(--m-line-2), 0 26px 60px -26px rgba(0,0,0,.7), 0 0 0 1px rgba(185,170,242,.18); }
+
+/* ---- The segmented tab bar read as though two tabs were selected. Nothing
+   was wrong with the state — only one ever carries .on — but the bar is
+   translucent, and the backdrop beneath it is much brighter under the left
+   third than the middle (measured 87 vs 65). That variance alone was within
+   17 levels of the genuinely selected tab, so the left segment looked lit.
+
+   Two corrections: the track gets its own slightly denser, even fill so the
+   field behind stops showing through as segments, and the selected pill is
+   made unmistakable rather than merely lighter. ---- */
+body[data-skin="modern"] .vis-tabs {
+  background: var(--m-glass-2);
+  -webkit-backdrop-filter: blur(34px) saturate(150%); backdrop-filter: blur(34px) saturate(150%);
+}
+body[data-skin="modern"] .vis-tabs a.on {
+  background: var(--m-ink); color: var(--m-bg);
+  box-shadow: 0 2px 10px -3px rgba(0,0,0,.5); font-weight: 700;
+}
+body[data-skin="modern"] .vis-tabs a:not(.on) { color: var(--m-ink-2); background: transparent; }
+body[data-skin="modern"] .vis-tabs a:not(.on):hover { color: var(--m-ink); background: var(--m-glass); }
+
+/* ---- Profile rail nav: the highlight pills met edge to edge, so an active
+   item touched its neighbours. Given breathing room and a tighter pill. ---- */
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] .prail-nav { display: grid; gap: .3rem; }
+  body[data-skin="modern"] .prail-nav li { margin: 0; }
+  body[data-skin="modern"] .prail-nav li a { padding-top: .62rem; padding-bottom: .62rem; border-radius: 14px; }
+}
