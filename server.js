@@ -1113,6 +1113,30 @@ function colophonEntries(o) {
 // beneath it. The device is placed after the first entry so it sits inside the
 // history rather than crowning it; the crest-like silhouette comes from the
 // type widths alone, never from a drawn shape.
+// The colophon is centred against the note card's height on wide screens.
+// The card's height is not knowable in CSS — it depends on the image, the
+// description and how many tags wrap — so it is measured once after layout
+// settles and written to a custom property. Below the breakpoint the rule
+// does not apply and this is inert.
+const COLOPHON_SCRIPT = `<script>
+(function () {
+  var colo = document.querySelector('.colophon'); if (!colo) return;
+  var card = document.querySelector('.grid-single .note') || document.querySelector('.grid-single');
+  if (!card) return;
+  var place = function () {
+    if (!matchMedia('(min-width: 78rem)').matches) { colo.style.removeProperty('--colo-top'); return; }
+    var feed = colo.parentElement.getBoundingClientRect();
+    var c = card.getBoundingClientRect();
+    var mid = (c.top - feed.top) + c.height / 2;          // card centre, feed-relative
+    colo.style.setProperty('--colo-top', Math.max(0, Math.round(mid - colo.offsetHeight / 2)) + 'px');
+  };
+  place();
+  addEventListener('resize', place);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
+  var img = card.querySelector('img'); if (img && !img.complete) img.addEventListener('load', place);
+})();
+<\/script>`;
+
 function colophon(o) {
   const rows = colophonEntries(o);
   if (!rows.length) return '';
@@ -1123,7 +1147,7 @@ function colophon(o) {
   <img class="colo-mark" src="/mark.png" alt="" width="17" height="23">
   ${rows.slice(1).map(entry).join('\n  ')}
   <span class="colo-rule"></span>
-</aside>`;
+</aside>` + COLOPHON_SCRIPT;
 }
 
 // A travel mark's wear comes from the oldest check-in, not from when the mark

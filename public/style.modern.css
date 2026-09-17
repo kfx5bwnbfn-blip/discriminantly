@@ -1858,9 +1858,14 @@ body[data-skin="modern"] .vis-tabs {
   background: var(--m-glass-2);
   -webkit-backdrop-filter: blur(34px) saturate(150%); backdrop-filter: blur(34px) saturate(150%);
 }
+/* The selected pill stays glass — a solid ink fill read as a black slab in
+   light mode and broke the skin's material logic. The separation problem it
+   was solving is already handled by the denser track above: with the backdrop
+   no longer showing through as segments, the glass pill plus its edge
+   highlight is enough to be unambiguous. */
 body[data-skin="modern"] .vis-tabs a.on {
-  background: var(--m-ink); color: var(--m-bg);
-  box-shadow: 0 2px 10px -3px rgba(0,0,0,.5); font-weight: 700;
+  background: var(--m-glass-3); color: var(--m-ink); font-weight: 700;
+  box-shadow: inset 0 1px 0 var(--m-line-2), 0 2px 10px -4px rgba(0,0,0,.35);
 }
 body[data-skin="modern"] .vis-tabs a:not(.on) { color: var(--m-ink-2); background: transparent; }
 body[data-skin="modern"] .vis-tabs a:not(.on):hover { color: var(--m-ink); background: var(--m-glass); }
@@ -1892,8 +1897,14 @@ body[data-skin="modern"] .colophon {
   color: var(--m-ink); opacity: var(--m-colophon);
   background: none; box-shadow: none; backdrop-filter: none; border: 0;
 }
-body[data-skin="modern"] .colo-mark { filter: invert(1) brightness(1.25); width: 26px; }
-body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-skin="modern"][data-mode="system"] .colo-mark { filter: brightness(.28); }
+/* The device is struck at exactly the text's value — pure white in dark,
+   pure black in light — so the whole colophon is one ink. Any brightness
+   boost here makes the mark read as a logo sitting on top of the watermark
+   rather than as part of it. */
+body[data-skin="modern"] .colophon { color: #fff; }
+body[data-skin="modern"] .colo-mark { filter: invert(1); opacity: 1; width: 26px; }
+body[data-skin="modern"][data-mode="light"] .colophon, html.m-light body[data-skin="modern"][data-mode="system"] .colophon { color: #000; }
+body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-skin="modern"][data-mode="system"] .colo-mark { filter: brightness(0); }
 
 /* Desktop: editorial marginalia in the right-hand margin, outside the note's
    glass. Set low rather than aligned to the card's top edge — aligned high it
@@ -1905,9 +1916,14 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
    presence, so no new body class is needed) the column yields a strip of
    width for it. The note stays dominant; the strip is otherwise empty. */
 @media (min-width: 78rem) {
-  body[data-skin="modern"] .profile-feed:has(> .colophon) { position: relative; padding-right: 15rem; }
+  body[data-skin="modern"] .profile-feed:has(> .colophon) { position: relative; padding-right: var(--colo-strip, 15rem); }
+  /* Centred in the strip it occupies, not flush to the edge, and centred
+     against the note card's height rather than parked at a guessed offset —
+     --colo-top is measured from the card once the page has settled. */
   body[data-skin="modern"] .colophon {
-    position: absolute; right: 0; top: 26rem; width: 12.5rem; margin: 0;
+    position: absolute; width: var(--colo-w, 12.5rem); margin: 0;
+    right: calc((var(--colo-strip, 15rem) - var(--colo-w, 12.5rem)) / 2);
+    top: var(--colo-top, 24rem);
   }
 }
 /* Below that, it reflows to the foot of the page under the comments, keeping
@@ -1925,18 +1941,20 @@ body[data-skin="modern"] .colophon { animation: m-colophon-in 1400ms ease-out 90
    block uses on a travel-mark page, given rounded corners. Enough to offset
    the record from the organic column beneath it; not so much that it competes
    with the card it holds. ---- */
+/* Identical to the itinerary container on a travel-mark page (.timeline li):
+   the same glass fill, the same 30px/180% blur, the same inset edge and
+   ambient shadow, the same radius. Measured rather than approximated — the
+   earlier version used a 26px/150% blur and a bespoke shadow, which read as
+   a slightly different material. */
 body[data-skin="modern"] .resurface {
   background: var(--m-glass);
-  -webkit-backdrop-filter: blur(26px) saturate(150%); backdrop-filter: blur(26px) saturate(150%);
-  box-shadow: inset 0 1px 0 var(--m-line), 0 18px 44px -24px rgba(0,0,0,.55);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
   border-radius: var(--m-r);
-}
-body[data-skin="modern"][data-mode="light"] .resurface, html.m-light body[data-skin="modern"][data-mode="system"] .resurface {
-  background: var(--m-glass-2); box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 18px 44px -26px rgba(30,40,60,.3);
 }
 body[data-skin="modern"] .resurface-eyebrow { margin: .15rem 0 .85rem; }
 /* the card inside keeps its own material; it is held, not restyled */
 body[data-skin="modern"] .resurface-body .note { max-width: none; }
 @media (max-width: 52rem) {
-  body[data-skin="modern"] .resurface { padding: .85rem .7rem .9rem; border-radius: var(--m-r2); }
+  body[data-skin="modern"] .resurface { padding: .85rem .7rem .9rem; }
 }

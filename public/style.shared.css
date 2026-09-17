@@ -161,12 +161,18 @@
    composition and modern paints it as a watermark. ---- */
 .colophon { display: block; text-align: center; margin: 3rem auto 4rem; max-width: 16rem;
   text-transform: uppercase; letter-spacing: .16em; }
-.colo-head { display: block; font-size: .5rem; letter-spacing: .24em; opacity: .8; }
-.colo-k { display: block; font-size: .5rem; letter-spacing: .2em; opacity: .78; margin-top: .9rem; }
-/* the value is the SAME size as the label, not merely the same family of
-   size — every line in the colophon reads at one scale, distinguished only
-   by weight and opacity, not by a size step */
-.colo-v { display: block; font-size: .5rem; font-weight: 700; letter-spacing: .2em;
-  text-transform: uppercase; opacity: .96; margin-top: .35rem; }
-.colo-rule { display: block; width: 2.6rem; height: 1px; background: currentColor; margin: .6rem auto .2rem; opacity: .7; }
+/* Every line of the colophon is the same ink: one size, one weight, one
+   tracking, one opacity. Labels and values are distinguished by position and
+   by what they say, never by weight or colour — the whole block is a single
+   watermark, and the device in the middle is struck at that same value. */
+.colo-head,
+.colo-k,
+.colo-v { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em;
+  text-transform: uppercase; opacity: 1; }
+.colo-k { margin-top: .9rem; }
+.colo-v { margin-top: .3rem; }
+.colo-rule { display: block; width: 2.6rem; height: 1px; background: currentColor; margin: .6rem auto .2rem; opacity: 1; }
+
+
+
 .colo-mark { display: block; margin: 1.1rem auto .5rem; width: 26px; height: auto; }
