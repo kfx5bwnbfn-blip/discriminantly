@@ -1087,7 +1087,8 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
-<meta name="theme-color" content="#262727"><link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">
+<meta name="theme-color" content="${skinOf(me, req) !== 'modern' ? '#262727' : modeOf(me, req) === 'light' ? '#e4e7f0' : modeOf(me, req) === 'dark' ? '#15161f' : '#15161f'}">${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `
+<meta name="theme-color" content="#e4e7f0" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#15161f" media="(prefers-color-scheme: dark)">` : ''}<link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">
 ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -1430,7 +1431,8 @@ function readImage(file, cb) {
       setTimeout(function () { body.classList.remove('m-arrive'); }, 1600);
       // parallax: the smoke drifts a little against the scroll, and leans toward the pointer
       var px = 0, py = 0, sy = 0, raf = null;
-      var apply = function () { raf = null; body.style.setProperty('--m-px', (px * 10).toFixed(1) + 'px'); body.style.setProperty('--m-py', (py * 8 - sy * 0.06).toFixed(1) + 'px'); };
+      var root = document.documentElement;
+      var apply = function () { raf = null; root.style.setProperty('--m-px', (px * 10).toFixed(1) + 'px'); root.style.setProperty('--m-py', (py * 8 - sy * 0.06).toFixed(1) + 'px'); };
       var queue = function () { if (!raf) raf = requestAnimationFrame(apply); };
       addEventListener('scroll', function () { sy = scrollY; queue(); }, { passive: true });
       if (matchMedia('(hover: hover)').matches) addEventListener('pointermove', function (e) { px = e.clientX / innerWidth - .5; py = e.clientY / innerHeight - .5; queue(); }, { passive: true });
@@ -1464,8 +1466,20 @@ function readImage(file, cb) {
       if (open) { var m = card.querySelector('.mark-map[data-map-src]'); if (m && !m.querySelector('iframe')) {
         var f = document.createElement('iframe'); f.src = m.dataset.mapSrc; f.loading = 'lazy'; f.title = m.dataset.mapTitle || 'Map'; m.innerHTML = ''; m.appendChild(f); } }
     };
+    // On touch, a scroll that starts on the card body still fires a click
+    // when the finger lifts — so dragging past a card was opening it, and an
+    // opened card looks exactly like the old always-expanded one. Only treat
+    // it as a tap if the pointer barely moved and the press was brief.
+    var sx = 0, sy = 0, st = 0, moved = false;
+    text.addEventListener('pointerdown', function (e) {
+      sx = e.clientX; sy = e.clientY; st = Date.now(); moved = false;
+    }, { passive: true });
+    text.addEventListener('pointermove', function (e) {
+      if (Math.abs(e.clientX - sx) > 8 || Math.abs(e.clientY - sy) > 8) moved = true;
+    }, { passive: true });
     text.addEventListener('click', function (e) {
       if (e.target.closest('a, button, input, label, form, .switch')) return;
+      if (moved || Date.now() - st > 700) return;          // a drag or a long press, not a tap
       toggle(!card.classList.contains('is-open'));
     });
   });
