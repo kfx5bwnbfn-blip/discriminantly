@@ -1741,3 +1741,103 @@ body[data-skin="modern"] > .m-backdrop {
 /* body now paints only the flat base — the fields belong to the layer, so
    nothing is painted twice and nothing depends on document height */
 body[data-skin="modern"] { background-image: none; background-attachment: scroll; }
+
+/* =====================================================================
+   PATINA — dust settling on things you own
+   ---------------------------------------------------------------------
+   Discrete specks, not a wash. An earlier turbulence-and-mottle version
+   lifted the card's mean luminance by 35 levels across the range, so a
+   well-worn note read as a paler panel rather than a dustier one. This
+   version is a field of individual motes: the space between them is fully
+   transparent, so the sheet's own tone is untouched and only the specks
+   accumulate.
+
+   Age raises two things together — the specks get more opaque, and the tile
+   shrinks so they sit denser. The glass fill, blur and edge are untouched.
+
+   The tier is emitted server-side and only for the owner, so a card in
+   someone else's feed carries no attribute at all.
+   ===================================================================== */
+body[data-skin="modern"] .note[data-patina] .card { position: relative; }
+body[data-skin="modern"] .note[data-patina] .card::before {
+  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  border-radius: inherit; opacity: var(--patina-o, 0);
+  background-size: var(--patina-tile, 200px) var(--patina-tile, 200px);
+  /* One texture, both polarities. Some motes catch the light and some occlude
+     it, so the field reads as particles sitting ABOVE the sheet rather than as
+     marks printed on it — and it needs no inversion between modes, because
+     whichever way the backdrop goes, half the specks still register.
+     Several light motes carry a dark companion offset a fraction down-right:
+     a highlight with its own shadow is what gives a speck relief. */
+  background-image:
+    radial-gradient(1.13px 1.13px at 64.6% 71.7%, rgba(144,144,135,0.51) 0%, rgba(144,144,135,0.51) 45%, transparent 100%),
+    radial-gradient(2.10px 2.10px at 19.5% 31.2%, rgba(255,250,249,0.71) 0%, rgba(255,250,249,0.71) 45%, transparent 100%),
+    radial-gradient(1.39px 1.39px at 74.2% 40.1%, rgba(50,48,45,0.76) 0%, rgba(50,48,45,0.76) 45%, transparent 100%),
+    radial-gradient(0.62px 0.62px at 42.0% 10.4%, rgba(27,25,25,0.68) 0%, rgba(27,25,25,0.68) 45%, transparent 100%),
+    radial-gradient(1.75px 1.75px at 1.5% 61.4%, rgba(154,153,151,0.37) 0%, rgba(154,153,151,0.37) 45%, transparent 100%),
+    radial-gradient(0.57px 0.57px at 8.3% 6.1%, rgba(250,246,240,0.66) 0%, rgba(250,246,240,0.66) 45%, transparent 100%),
+    radial-gradient(1.53px 1.53px at 38.5% 47.6%, rgba(230,218,214,0.86) 0%, rgba(230,218,214,0.86) 45%, transparent 100%),
+    radial-gradient(0.87px 0.87px at 57.3% 20.3%, rgba(54,54,50,0.54) 0%, rgba(54,54,50,0.54) 45%, transparent 100%),
+    radial-gradient(1.88px 1.88px at 73.7% 6.4%, rgba(57,55,53,0.56) 0%, rgba(57,55,53,0.56) 45%, transparent 100%),
+    radial-gradient(1.15px 1.15px at 4.2% 25.2%, rgba(218,215,210,0.51) 0%, rgba(218,215,210,0.51) 45%, transparent 100%),
+    radial-gradient(1.29px 1.29px at 18.2% 36.4%, rgba(36,35,33,0.48) 0%, rgba(36,35,33,0.48) 45%, transparent 100%),
+    radial-gradient(0.55px 0.55px at 61.8% 85.9%, rgba(105,103,100,0.50) 0%, rgba(105,103,100,0.50) 45%, transparent 100%),
+    radial-gradient(1.41px 1.41px at 84.8% 73.8%, rgba(48,46,44,0.50) 0%, rgba(48,46,44,0.50) 45%, transparent 100%),
+    radial-gradient(0.57px 0.57px at 44.9% 27.5%, rgba(27,27,26,0.51) 0%, rgba(27,27,26,0.51) 45%, transparent 100%),
+    radial-gradient(3.33px 3.33px at 60.5% 39.1%, rgba(244,238,237,0.85) 0%, rgba(244,238,237,0.85) 45%, transparent 100%),
+    radial-gradient(0.64px 0.64px at 95.9% 8.6%, rgba(140,139,135,0.58) 0%, rgba(140,139,135,0.58) 45%, transparent 100%),
+    radial-gradient(3.06px 3.06px at 36.2% 87.6%, rgba(129,128,120,0.35) 0%, rgba(129,128,120,0.35) 45%, transparent 100%),
+    radial-gradient(2.49px 2.49px at 87.7% 90.0%, rgba(24,23,21,0.76) 0%, rgba(24,23,21,0.76) 45%, transparent 100%),
+    radial-gradient(0.55px 0.55px at 18.2% 91.7%, rgba(46,46,45,0.68) 0%, rgba(46,46,45,0.68) 45%, transparent 100%),
+    radial-gradient(0.97px 0.97px at 61.9% 6.6%, rgba(255,252,237,0.88) 0%, rgba(255,252,237,0.88) 45%, transparent 100%),
+    radial-gradient(0.55px 0.55px at 12.9% 91.3%, rgba(135,131,130,0.60) 0%, rgba(135,131,130,0.60) 45%, transparent 100%),
+    radial-gradient(0.63px 0.63px at 19.1% 61.3%, rgba(235,225,217,0.87) 0%, rgba(235,225,217,0.87) 45%, transparent 100%),
+    radial-gradient(0.56px 0.56px at 95.1% 21.0%, rgba(239,236,218,0.81) 0%, rgba(239,236,218,0.81) 45%, transparent 100%),
+    radial-gradient(1.27px 1.27px at 70.7% 93.0%, rgba(255,249,245,0.70) 0%, rgba(255,249,245,0.70) 45%, transparent 100%),
+    radial-gradient(2.45px 2.45px at 52.7% 51.3%, rgba(24,23,21,0.45) 0%, rgba(24,23,21,0.45) 45%, transparent 100%),
+    radial-gradient(0.55px 0.55px at 79.9% 71.7%, rgba(37,37,35,0.70) 0%, rgba(37,37,35,0.70) 45%, transparent 100%),
+    radial-gradient(0.75px 0.75px at 81.7% 60.9%, rgba(238,226,224,0.89) 0%, rgba(238,226,224,0.89) 45%, transparent 100%),
+    radial-gradient(3.37px 3.37px at 37.1% 73.2%, rgba(214,210,200,0.84) 0%, rgba(214,210,200,0.84) 45%, transparent 100%),
+    radial-gradient(0.55px 0.55px at 80.8% 28.7%, rgba(168,161,159,0.47) 0%, rgba(168,161,159,0.47) 45%, transparent 100%),
+    radial-gradient(0.57px 0.57px at 47.3% 60.1%, rgba(34,32,30,0.53) 0%, rgba(34,32,30,0.53) 45%, transparent 100%);
+}
+/* the same two inks in both modes — the texture is not re-polarised */
+body[data-skin="modern"] .note[data-patina] .card {
+  --dust-hi: rgba(255,255,255,.90);
+  --dust-lo: rgba(26,24,20,.72);
+}
+
+/* new · a day · a week · three months · a year · three years and beyond
+   — opacity climbs and the tile shrinks, so the dust both deepens and thickens */
+body[data-skin="modern"] .note[data-patina="1"] .card { --patina-o: .18; --patina-tile: 320px; }
+body[data-skin="modern"] .note[data-patina="2"] .card { --patina-o: .30; --patina-tile: 270px; }
+body[data-skin="modern"] .note[data-patina="3"] .card { --patina-o: .45; --patina-tile: 225px; }
+body[data-skin="modern"] .note[data-patina="4"] .card { --patina-o: .62; --patina-tile: 185px; }
+body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: .80; --patina-tile: 150px; }
+body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 120px; }
+
+/* the picture keeps its own surface; dust settles on the card, not the photo */
+body[data-skin="modern"] .note[data-patina] .figure { z-index: 4; }
+
+/* ---- the warrant seal presses in after the card has settled ---- */
+@keyframes m-seal-press {
+  0%   { opacity: 0; transform: translateY(-14px) scale(1.06); filter: drop-shadow(0 10px 18px rgba(0,0,0,.45)); }
+  60%  { opacity: 1; transform: translateY(1px) scale(1); filter: drop-shadow(0 6px 12px rgba(0,0,0,.4)); }
+  100% { opacity: 1; transform: none; filter: drop-shadow(0 2px 5px rgba(0,0,0,.35)); }
+}
+body[data-skin="modern"].m-arrive .note .warrant-seal {
+  animation: m-seal-press .62s var(--m-ease) both;
+  animation-delay: calc(var(--m-i, 0) * 45ms + 340ms);   /* after its own card lands */
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-skin="modern"].m-arrive .note .warrant-seal { animation: none; }
+}
+
+/* ---- check-in rows: the edit/delete actions sit on the date's line.
+   `top: 0` anchors to the li's border box, but the date begins one padding
+   step lower — so the actions floated 13px above it. Anchoring to the same
+   padding edge and giving the box the date's own line height centres them. */
+body[data-skin="modern"] .timeline li > .tl-date { padding-right: 4.2rem; }
+body[data-skin="modern"] .tl-actions {
+  top: 1rem; bottom: auto; height: 1rem; align-items: center;
+}

@@ -907,6 +907,20 @@ const uidOf = (table, id) => { const r = q(`SELECT uid FROM ${table} WHERE rowid
 // Three-valued on purpose: null means NEVER ASSERTED, which is not the same as
 // 'released'/'revoked' and is emphatically not negative evidence. Nothing
 // downstream may collapse these.
+// How worn an owned thing looks. Patina is private evidence — it is only ever
+// rendered for the owner themselves, because the length of time someone has
+// owned something is not other people's business. Thresholds are the ones
+// Brian specified: new, a day, a week, three months, a year, three years.
+function ownedPatinaTier(since) {
+  if (!since) return 1;
+  const days = (Date.now() - Date.parse(since.replace(' ', 'T') + 'Z')) / 86400000;
+  if (!isFinite(days) || days < 1) return 1;      // new
+  if (days < 7) return 2;                          // a day
+  if (days < 90) return 3;                         // a week
+  if (days < 365) return 4;                        // three months
+  if (days < 365 * 3) return 5;                    // a year
+  return 6;                                        // three years and beyond
+}
 function ownedState(userId, objectId) {
   const rows = q(`SELECT * FROM ownership_assertions
     WHERE user_id=? AND object_id=? ORDER BY id`).all(userId, objectId);
@@ -1413,8 +1427,15 @@ function readImage(file, cb) {
     dlg.classList.add('is-open');
     setTimeout(function () { (o.editing ? dlg.querySelector('#ck-body') : startEl).focus(); }, 60);
   };
-  document.querySelectorAll('#checkin-dialog [data-dismiss]').forEach(function (b) {
-    b.addEventListener('click', function () { document.getElementById('checkin-dialog').classList.remove('is-open'); });
+  // Delegated: this script runs before the dialog markup exists further down
+  // the document, so binding directly to the buttons matched nothing and
+  // Cancel did nothing at all.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('#checkin-dialog [data-dismiss]');
+    if (!b) return;
+    e.preventDefault();
+    var d = document.getElementById('checkin-dialog');
+    if (d) d.classList.remove('is-open');
   });
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -3295,7 +3316,15 @@ function objectCard(o, me, full = false) {
   const noted = adopted.length > 0;
   const tags = tagList(o.tags);
   const shortUrl = o.url ? (o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url) : '';
-  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}">
+  // Computed inside the owned-row block below, which already runs only for the
+  // owner; the article reads it after the template literal is evaluated, so it
+  // is resolved here first rather than inside the string.
+  let patinaTier = 0;
+  if (me && o.user_id === me.id) {
+    const ow = ownedState(me.id, o.id);
+    if (ow.state === 'owned') patinaTier = ownedPatinaTier(ow.since);
+  }
+  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}"${patinaTier ? ` data-patina="${patinaTier}"` : ''}>
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(o, 'object', me)}
