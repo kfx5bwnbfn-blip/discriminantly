@@ -2019,16 +2019,20 @@ body[data-skin="modern"] .note[data-patina] .card::before {
    Welcome page and signed-out rail
    ===================================================================== */
 
-/* The splash Enter button used the raw nf-post pill — solid ink, which reads
-   as a black (or white) slab against the atmospheric field. Same glass pill
-   the rest of the skin uses for a primary action. */
-body[data-skin="modern"].is-welcome .splash-install .nf-post,
-body[data-skin="modern"].is-welcome .splash .nf-post {
-  background: var(--m-glass-2); background-image: none; color: var(--m-ink);
+/* Enter is `.btn.splash-enter`, not `.nf-post` — the earlier rule was styling
+   the hidden Install button and never touched this one. The glass pill the
+   skin uses for a primary action. */
+body[data-skin="modern"].is-welcome .splash-enter {
+  background: var(--m-glass-2); background-image: none; color: var(--m-ink); border: 0;
   -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
-  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.35);
+  box-shadow: inset 0 1px 0 var(--m-line), 0 8px 22px -10px rgba(0,0,0,.45);
+  border-radius: 999px; text-shadow: none;
 }
-body[data-skin="modern"].is-welcome .splash .nf-post:hover { background: var(--m-glass-3); }
+body[data-skin="modern"].is-welcome .splash-enter:hover { background: var(--m-glass-3); }
+body[data-skin="modern"].is-welcome .splash-install .nf-post {
+  background: var(--m-glass-2); background-image: none; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line); border-radius: 999px;
+}
 
 /* The sign-in form on the welcome page sits without the fixed masthead, so it
    was left to fall where it may. Pinned to the same top-right position it
@@ -2043,12 +2047,13 @@ body[data-skin="modern"].is-welcome .signin input {
   border-radius: 999px; padding: .5rem .85rem; font-size: .8rem; line-height: 1.2; height: auto;
 }
 body[data-skin="modern"].is-welcome .signin input::placeholder { color: var(--m-ink-3); }
+/* The signed-out home renders this as a bare `.link.caps` — transparent, no
+   radius, no padding. Matched here; the pill was mine and did not belong. */
 body[data-skin="modern"].is-welcome .signin button {
-  background: var(--m-glass-2); color: var(--m-ink); border: 0; border-radius: 999px;
-  padding: .5rem 1.1rem; font-size: .68rem; line-height: 1.2; height: auto;
-  box-shadow: inset 0 1px 0 var(--m-line);
+  background: none; border: 0; box-shadow: none; border-radius: 0;
+  padding: 0 .2rem; color: var(--m-ink-2); font-size: .68rem; letter-spacing: .14em;
 }
-body[data-skin="modern"].is-welcome .signin button:hover { background: var(--m-glass-3); }
+body[data-skin="modern"].is-welcome .signin button:hover { background: none; color: var(--m-ink); }
 @media (min-width: 52.01rem) {
   body[data-skin="modern"].is-welcome .masthead { position: absolute; top: 0; left: 0; right: 0; z-index: 5; }
   /* the wordmark is hidden here, so the sign-in is the only child and
@@ -2056,12 +2061,13 @@ body[data-skin="modern"].is-welcome .signin button:hover { background: var(--m-g
   body[data-skin="modern"].is-welcome .masthead .wrap { display: flex; align-items: center; justify-content: flex-end; }
   body[data-skin="modern"].is-welcome .masthead .signin { margin-left: auto; }
 }
-/* one height for the field and the button, or they sit off each other's centre */
-body[data-skin="modern"].is-welcome .signin input,
-body[data-skin="modern"].is-welcome .signin button {
-  height: 2.1rem; box-sizing: border-box; display: inline-flex; align-items: center;
+/* the fields set the row's height; the link is centred against them by the
+   flex row rather than being stretched to match */
+body[data-skin="modern"].is-welcome .signin input {
+  height: 2.1rem; box-sizing: border-box;
 }
-body[data-skin="modern"].is-welcome .signin button { justify-content: center; }
+body[data-skin="modern"].is-welcome .signin { align-items: center; }
+body[data-skin="modern"].is-welcome .signin button { align-self: center; height: auto; }
 /* the classic sheet gives these their own margins, which pushed the button off
    the inputs' centre line even once the heights matched */
 body[data-skin="modern"].is-welcome .signin input,
