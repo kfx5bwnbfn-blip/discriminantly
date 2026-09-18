@@ -1935,13 +1935,18 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
    presence, so no new body class is needed) the column yields a strip of
    width for it. The note stays dominant; the strip is otherwise empty. */
 @media (min-width: 78rem) {
-  body[data-skin="modern"] .profile-feed.has-colophon { position: relative; padding-right: var(--colo-strip, 15rem); }
-  /* Centred in the strip it occupies, not flush to the edge, and centred
-     against the note card's height rather than parked at a guessed offset —
-     --colo-top is measured from the card once the page has settled. */
+  body[data-skin="modern"] .profile-feed.has-colophon { position: relative; padding-right: 15rem; }
+  /* The box spans the WHOLE strip and its contents centre themselves — the
+     composition is already a centred flex column. The previous version sized
+     the box narrower and centred it with
+     `right: calc((var(--colo-strip,15rem) - var(--colo-w,12.5rem)) / 2)`,
+     arithmetic over two custom properties that are never actually defined.
+     Chromium resolved the fallbacks; Safari left the box flush right. No
+     calc, no custom properties, nothing to mis-parse.
+     --colo-top is still measured from the card after layout settles. */
   body[data-skin="modern"] .colophon {
-    position: absolute; width: var(--colo-w, 12.5rem); margin: 0;
-    right: calc((var(--colo-strip, 15rem) - var(--colo-w, 12.5rem)) / 2);
+    position: absolute; right: 0; width: 15rem; margin: 0;
+    padding: 0 1.25rem; box-sizing: border-box;
     top: var(--colo-top, 24rem);
   }
 }
