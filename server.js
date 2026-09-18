@@ -1166,6 +1166,14 @@ function markPatinaTier(markId) {
   if (days < 365 * 3) return 5;
   return 6;
 }
+// Two aged cards side by side were showing the same constellation, because the
+// dust is one tiled image. Each record offsets the tile by its own amount —
+// derived from its id so it is stable across reloads, and a prime-ish stride
+// so consecutive ids land far apart rather than drifting by a few pixels.
+function patinaOffset(kind, id) {
+  const h = (kind === 'mark' ? 7919 : 6271) * (id + 13);
+  return ` style="--patina-x:${h % 997}px;--patina-y:${(h * 31) % 991}px"`;
+}
 function ownedPatinaTier(since) {
   if (!since) return 1;
   const days = (Date.now() - Date.parse(since.replace(' ', 'T') + 'Z')) / 86400000;
@@ -2650,7 +2658,7 @@ function markCard(m, me, full = false) {
   const embed = mapEmbed(m);
   // Wear is private evidence, shown only to the member whose mark it is.
   const markTier = (me && m.user_id === me.id) ? markPatinaTier(m.id) : 0;
-  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}"${markTier ? ` data-patina="${markTier}"` : ''}>
+  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}"${markTier ? ` data-patina="${markTier}"` + patinaOffset('mark', m.id) : ''}>
   <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(m, 'mark', me)}
@@ -3581,7 +3589,7 @@ function objectCard(o, me, full = false) {
     const ow = ownedState(me.id, o.id);
     if (ow.state === 'owned') patinaTier = ownedPatinaTier(ow.since);
   }
-  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}"${patinaTier ? ` data-patina="${patinaTier}"` : ''}>
+  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}"${patinaTier ? ` data-patina="${patinaTier}"` + patinaOffset('note', o.id) : ''}>
   <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
   <div class="card">
     ${warrantSeal(o, 'object', me)}

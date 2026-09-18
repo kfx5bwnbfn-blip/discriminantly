@@ -159,7 +159,11 @@
 
 /* ---- Provenance colophon: structure only, so classic gets a sane stacked
    composition and modern paints it as a watermark. ---- */
-.colophon { display: block; text-align: center; margin: 3rem auto 4rem; max-width: 16rem;
+/* Every line sits on one rhythm. The gap is owned by the column, not by the
+   individual lines — per-element margins were what produced a two-tier
+   spacing (tight within a label/value pair, loose between pairs). */
+.colophon { display: flex; flex-direction: column; align-items: center; gap: .55rem;
+  text-align: center; margin: 3rem auto 4rem; max-width: 16rem;
   text-transform: uppercase; letter-spacing: .16em; }
 /* Every line of the colophon is the same ink: one size, one weight, one
    tracking, one opacity. Labels and values are distinguished by position and
@@ -168,12 +172,10 @@
 .colo-head,
 .colo-k,
 .colo-v { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em;
-  text-transform: uppercase; opacity: 1; }
-.colo-k { margin-top: .9rem; }
-.colo-v { margin-top: .3rem; }
-.colo-rule { display: block; width: 2.6rem; height: 1px; background: currentColor; margin: .6rem auto .2rem; opacity: 1; }
+  text-transform: uppercase; opacity: 1; margin: 0; }
+.colo-rule { display: block; width: 2.6rem; height: 1px; background: currentColor; margin: 0; opacity: 1; }
 
 
 
-.colo-mark { display: block; margin: 1.1rem auto .5rem; width: 26px; height: auto; }
-.colo-lead { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em; text-transform: uppercase; opacity: 1; margin-top: .9rem; }
+.colo-mark { display: block; margin: 0; width: 26px; height: auto; }
+.colo-lead { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em; text-transform: uppercase; opacity: 1; margin: 0; }

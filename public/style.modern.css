@@ -1855,14 +1855,14 @@ body[data-skin="modern"] .resurface-eyebrow::before, body[data-skin="modern"] .r
    size, then the fact in roman beneath — left-set inside the frame, with a
    short hairline under it before the card. Nothing large, nothing new. */
 body[data-skin="modern"] .resurface-eyebrow {
-  text-align: left; text-transform: none; letter-spacing: 0; font-weight: 400;
+  text-align: center; text-transform: none; letter-spacing: 0; font-weight: 400;
   font-size: 1.02rem; font-style: italic; color: var(--m-ink); margin: .1rem .25rem 1rem;
   padding-bottom: .7rem; border-bottom: 1px solid var(--m-rule);
 }
 body[data-skin="modern"] .resurface-eyebrow::before { content: "\2767\00a0\00a0"; font-style: normal; color: var(--m-accent); }
 body[data-skin="modern"] .resurface-eyebrow .fact {
   display: block; font-style: normal; font-size: .8rem; letter-spacing: .01em;
-  color: var(--m-ink-2); opacity: 1; margin: .2rem 0 0 1.55rem;
+  color: var(--m-ink-2); opacity: 1; margin: .2rem 0 0;
 }
 body[data-skin="modern"] .resurface-eyebrow a { color: inherit; }
 
@@ -1994,4 +1994,25 @@ body[data-skin="modern"] .comment-form .nf-post:hover { background: var(--m-glas
 body[data-skin="modern"][data-mode="light"] .searchbar, html.m-light body[data-skin="modern"][data-mode="system"] .searchbar {
   background: rgba(255,255,255,.78) !important;
   box-shadow: inset 0 -1px 0 rgba(20,22,28,.06), 0 8px 30px -22px rgba(30,40,60,.25);
+}
+
+/* ---- The Warrant CTA needed repeated taps. An invisible seal (opacity 0,
+   34x52) sits over it with pointer-events: auto, so clicks landing on that
+   patch hit the seal instead — and the handler ignores the seal until the
+   control is already warranted, so nothing happened. The seal only becomes a
+   target once there is a Warrant to withdraw. The CTA also gets a taller hit
+   area than its 15px text box. ---- */
+body[data-skin="modern"] .nf-warrant:not(.is-warranted) .warrant-seal-form,
+.nf-warrant:not(.is-warranted) .warrant-seal-form { pointer-events: none; }
+body[data-skin="modern"] .nf-warrant-cta {
+  position: relative; z-index: 3; padding: .5rem .3rem; margin: -.5rem -.3rem; cursor: pointer;
+}
+body[data-skin="modern"] .nf-warrant.is-warranted .warrant-seal-form { cursor: pointer; z-index: 4; }
+
+/* ---- Patina is a tiled field, so two aged cards stacked in a feed showed
+   the identical constellation. Each card offsets the tile by an amount
+   derived from its own record id — deterministic, so it does not reshuffle
+   on reload, but different from its neighbour. ---- */
+body[data-skin="modern"] .note[data-patina] .card::before {
+  background-position: var(--patina-x, 0) var(--patina-y, 0);
 }
