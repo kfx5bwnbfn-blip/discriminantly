@@ -1770,34 +1770,32 @@ body[data-skin="modern"] .note[data-patina] .card::before {
      Several light motes carry a dark companion offset a fraction down-right:
      a highlight with its own shadow is what gives a speck relief. */
   background-image:
-    radial-gradient(6.41px 6.41px at 13.1% 23.0%, rgba(184,222,208,0.74) 0%, rgba(184,222,208,0.74) 30%, transparent 100%),
-    radial-gradient(3.60px 3.60px at 20.4% 28.8%, rgba(182,207,227,0.81) 0%, rgba(182,207,227,0.81) 45%, transparent 100%),
-    radial-gradient(3.00px 3.00px at 8.0% 35.8%, rgba(136,173,203,0.39) 0%, rgba(136,173,203,0.39) 45%, transparent 100%),
-    radial-gradient(1.50px 1.50px at 76.4% 69.1%, rgba(86,74,49,0.40) 0%, rgba(86,74,49,0.40) 45%, transparent 100%),
-    radial-gradient(1.26px 1.26px at 5.4% 50.6%, rgba(140,187,170,0.44) 0%, rgba(140,187,170,0.44) 45%, transparent 100%),
-    radial-gradient(12.30px 12.30px at 16.9% 81.8%, rgba(70,86,98,0.23) 0%, rgba(70,86,98,0.23) 30%, transparent 100%),
-    radial-gradient(1.34px 1.34px at 43.2% 79.4%, rgba(185,173,150,0.50) 0%, rgba(185,173,150,0.50) 45%, transparent 100%),
-    radial-gradient(0.86px 0.86px at 61.5% 73.2%, rgba(179,163,210,0.62) 0%, rgba(179,163,210,0.62) 45%, transparent 100%),
-    radial-gradient(1.51px 1.51px at 25.5% 28.9%, rgba(174,87,135,0.52) 0%, rgba(174,87,135,0.52) 45%, transparent 100%),
-    radial-gradient(1.28px 1.28px at 99.3% 64.2%, rgba(186,161,186,0.64) 0%, rgba(186,161,186,0.64) 45%, transparent 100%),
-    radial-gradient(1.01px 1.01px at 79.3% 68.9%, rgba(129,97,129,0.28) 0%, rgba(129,97,129,0.28) 45%, transparent 100%),
-    radial-gradient(2.94px 2.94px at 38.0% 61.8%, rgba(186,84,140,0.42) 0%, rgba(186,84,140,0.42) 45%, transparent 100%),
-    radial-gradient(1.35px 1.35px at 23.3% 63.6%, rgba(208,229,246,0.83) 0%, rgba(208,229,246,0.83) 45%, transparent 100%),
-    radial-gradient(0.60px 0.60px at 58.7% 79.7%, rgba(70,122,130,0.44) 0%, rgba(70,122,130,0.44) 45%, transparent 100%),
-    radial-gradient(6.67px 6.67px at 14.3% 73.6%, rgba(245,237,221,0.41) 0%, rgba(245,237,221,0.41) 30%, transparent 100%),
-    radial-gradient(0.79px 0.79px at 63.8% 20.7%, rgba(82,68,39,0.36) 0%, rgba(82,68,39,0.36) 45%, transparent 100%),
-    radial-gradient(6.35px 6.35px at 20.2% 2.7%, rgba(52,59,48,0.57) 0%, rgba(52,59,48,0.57) 30%, transparent 100%),
-    radial-gradient(0.75px 0.75px at 34.7% 82.3%, rgba(101,84,62,0.44) 0%, rgba(101,84,62,0.44) 45%, transparent 100%),
-    radial-gradient(12.56px 12.56px at 41.4% 41.2%, rgba(62,42,53,0.25) 0%, rgba(62,42,53,0.25) 30%, transparent 100%),
-    radial-gradient(1.61px 1.61px at 35.6% 60.9%, rgba(136,155,123,0.44) 0%, rgba(136,155,123,0.44) 45%, transparent 100%),
-    radial-gradient(3.99px 3.99px at 12.7% 90.9%, rgba(62,55,40,0.66) 0%, rgba(62,55,40,0.66) 45%, transparent 100%),
-    radial-gradient(3.87px 3.87px at 97.1% 37.2%, rgba(82,68,41,0.68) 0%, rgba(82,68,41,0.68) 45%, transparent 100%),
-    radial-gradient(4.34px 4.34px at 78.7% 39.1%, rgba(71,59,33,0.67) 0%, rgba(71,59,33,0.67) 45%, transparent 100%),
-    radial-gradient(4.06px 4.06px at 58.5% 19.7%, rgba(98,73,54,0.46) 0%, rgba(98,73,54,0.46) 45%, transparent 100%),
-    radial-gradient(8.61px 8.61px at 34.0% 85.9%, rgba(84,63,74,0.25) 0%, rgba(84,63,74,0.25) 30%, transparent 100%),
-    radial-gradient(1.06px 1.06px at 55.2% 82.2%, rgba(201,226,217,0.77) 0%, rgba(201,226,217,0.77) 45%, transparent 100%),
-    radial-gradient(4.03px 4.03px at 83.4% 15.4%, rgba(124,104,78,0.61) 0%, rgba(124,104,78,0.61) 45%, transparent 100%),
-    radial-gradient(1.16px 1.16px at 51.5% 14.4%, rgba(172,105,141,0.33) 0%, rgba(172,105,141,0.33) 45%, transparent 100%);
+    radial-gradient(1.49px 1.49px at 79.2% 11.3%, rgba(226,187,200,0.50) 0%, rgba(226,187,200,0.50) 45%, transparent 100%),
+    radial-gradient(1.94px 1.94px at 0.2% 41.1%, rgba(68,97,86,0.42) 0%, rgba(68,97,86,0.42) 45%, transparent 100%),
+    radial-gradient(1.11px 1.11px at 31.0% 70.6%, rgba(203,238,225,0.61) 0%, rgba(203,238,225,0.61) 45%, transparent 100%),
+    radial-gradient(0.66px 0.66px at 92.3% 40.3%, rgba(90,63,42,0.66) 0%, rgba(90,63,42,0.66) 45%, transparent 100%),
+    radial-gradient(2.88px 2.88px at 81.8% 1.0%, rgba(184,196,150,0.77) 0%, rgba(184,196,150,0.77) 45%, transparent 100%),
+    radial-gradient(0.45px 0.45px at 96.8% 77.0%, rgba(98,127,207,0.36) 0%, rgba(98,127,207,0.36) 45%, transparent 100%),
+    radial-gradient(1.55px 1.55px at 40.3% 9.3%, rgba(152,125,89,0.41) 0%, rgba(152,125,89,0.41) 45%, transparent 100%),
+    radial-gradient(4.90px 4.90px at 78.8% 74.5%, rgba(110,137,191,0.62) 0%, rgba(110,137,191,0.62) 32%, transparent 100%),
+    radial-gradient(0.45px 0.45px at 53.0% 19.0%, rgba(228,174,180,0.66) 0%, rgba(228,174,180,0.66) 45%, transparent 100%),
+    radial-gradient(0.44px 0.44px at 32.3% 14.8%, rgba(139,156,190,0.77) 0%, rgba(139,156,190,0.77) 45%, transparent 100%),
+    radial-gradient(1.39px 1.39px at 16.3% 90.9%, rgba(217,189,228,0.75) 0%, rgba(217,189,228,0.75) 45%, transparent 100%),
+    radial-gradient(3.85px 3.85px at 15.0% 63.5%, rgba(144,165,130,0.58) 0%, rgba(144,165,130,0.58) 32%, transparent 100%),
+    radial-gradient(1.00px 1.00px at 19.1% 82.3%, rgba(223,200,151,0.73) 0%, rgba(223,200,151,0.73) 45%, transparent 100%),
+    radial-gradient(0.53px 0.53px at 78.4% 75.7%, rgba(93,66,46,0.71) 0%, rgba(93,66,46,0.71) 45%, transparent 100%),
+    radial-gradient(0.47px 0.47px at 39.3% 53.6%, rgba(206,191,163,0.54) 0%, rgba(206,191,163,0.54) 45%, transparent 100%),
+    radial-gradient(5.06px 5.06px at 18.9% 53.1%, rgba(72,84,64,0.33) 0%, rgba(72,84,64,0.33) 32%, transparent 100%),
+    radial-gradient(0.59px 0.59px at 25.0% 25.0%, rgba(232,219,192,0.45) 0%, rgba(232,219,192,0.45) 45%, transparent 100%),
+    radial-gradient(1.12px 1.12px at 52.7% 42.5%, rgba(150,188,218,0.57) 0%, rgba(150,188,218,0.57) 45%, transparent 100%),
+    radial-gradient(2.26px 2.26px at 46.2% 61.9%, rgba(106,131,203,0.43) 0%, rgba(106,131,203,0.43) 45%, transparent 100%),
+    radial-gradient(6.47px 6.47px at 0.6% 14.0%, rgba(123,146,108,0.22) 0%, rgba(123,146,108,0.22) 32%, transparent 100%),
+    radial-gradient(2.22px 2.22px at 59.2% 71.1%, rgba(236,196,209,0.77) 0%, rgba(236,196,209,0.77) 45%, transparent 100%),
+    radial-gradient(1.28px 1.28px at 98.0% 76.4%, rgba(42,82,89,0.50) 0%, rgba(42,82,89,0.50) 45%, transparent 100%),
+    radial-gradient(0.64px 0.64px at 99.7% 84.1%, rgba(90,63,90,0.49) 0%, rgba(90,63,90,0.49) 45%, transparent 100%),
+    radial-gradient(1.20px 1.20px at 57.9% 15.7%, rgba(232,198,209,0.65) 0%, rgba(232,198,209,0.65) 45%, transparent 100%),
+    radial-gradient(1.37px 1.37px at 63.0% 37.1%, rgba(147,164,135,0.53) 0%, rgba(147,164,135,0.53) 45%, transparent 100%),
+    radial-gradient(0.82px 0.82px at 49.8% 22.3%, rgba(224,175,191,0.35) 0%, rgba(224,175,191,0.35) 45%, transparent 100%);
 }
 /* the same two inks in both modes — the texture is not re-polarised */
 body[data-skin="modern"] .note[data-patina] .card {
@@ -1807,12 +1805,12 @@ body[data-skin="modern"] .note[data-patina] .card {
 
 /* new · a day · a week · three months · a year · three years and beyond
    — opacity climbs and the tile shrinks, so the dust both deepens and thickens */
-body[data-skin="modern"] .note[data-patina="1"] .card { --patina-o: 0.18; --patina-tile: 760px; }
-body[data-skin="modern"] .note[data-patina="2"] .card { --patina-o: 0.3; --patina-tile: 640px; }
-body[data-skin="modern"] .note[data-patina="3"] .card { --patina-o: 0.45; --patina-tile: 540px; }
-body[data-skin="modern"] .note[data-patina="4"] .card { --patina-o: 0.62; --patina-tile: 450px; }
-body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: 0.8; --patina-tile: 380px; }
-body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 320px; }
+body[data-skin="modern"] .note[data-patina="1"] .card { --patina-o: 0.07; --patina-tile: 560px; }
+body[data-skin="modern"] .note[data-patina="2"] .card { --patina-o: 0.13; --patina-tile: 480px; }
+body[data-skin="modern"] .note[data-patina="3"] .card { --patina-o: 0.24; --patina-tile: 410px; }
+body[data-skin="modern"] .note[data-patina="4"] .card { --patina-o: 0.42; --patina-tile: 340px; }
+body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: 0.7; --patina-tile: 280px; }
+body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 235px; }
 
 /* the picture keeps its own surface; dust settles on the card, not the photo */
 /* dust settles on the card surface only: every child of the card — the
