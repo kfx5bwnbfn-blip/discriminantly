@@ -1397,7 +1397,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 </div>
 `
   : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" alt="" width="17" height="23"><span>discriminant.ly</span></a>
+  <a class="mark" href="/welcome"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant.ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}
 
@@ -1774,13 +1774,31 @@ function readImage(file, cb) {
     var links = tabs.querySelectorAll('a[href*="v="]'); if (!links.length) return;
     links.forEach(function (a) { a.addEventListener('click', function (e) {
       var v = new URL(a.href, location.href).searchParams.get('v'); if (!v) return;
+      var notes = [].slice.call(document.querySelectorAll('.grid .note[data-private]'));
+      // Filtering in place is only honest when the whole list is in the DOM.
+      // These tabs sit above a paginated feed: with 25 of 60 notes loaded, a
+      // client-side pass can only hide what it can see, so a member whose
+      // recent notes are all private saw an empty Public tab — and then a
+      // mixed one, because the Show more link still carried the old view.
+      // When there are more pages, let the link navigate and let the server
+      // filter the full set.
+      if (document.querySelector('.more-link')) return;
+      var expected = notes.filter(function (n) {
+        var priv = n.dataset.private === '1';
+        return v === 'public' ? !priv : v === 'private' ? priv : true;
+      }).length;
+      if (!notes.length) return;                        // nothing to filter: navigate
       e.preventDefault();
       links.forEach(function (x) { x.classList.toggle('on', x === a); });
-      document.querySelectorAll('.grid .note').forEach(function (n) {
+      notes.forEach(function (n) {
         var priv = n.dataset.private === '1';
         n.hidden = v === 'public' ? priv : v === 'private' ? !priv : false;
       });
       if (window.layoutFeed) try { window.layoutFeed(); } catch (err) {}
+      var shown = notes.filter(function (n) {
+        return n.isConnected && getComputedStyle(n).display !== 'none';
+      }).length;
+      if (shown !== expected) { location.href = a.href; return; }
       var u = new URL(location.href); u.searchParams.set('v', v); history.replaceState(null, '', u);
     }); });
   });
@@ -2450,6 +2468,9 @@ const moreLink = (url, off, more) => {
   if (!more) return '';
   const sp = new URLSearchParams(url.search);
   sp.set('offset', String(off + PAGE));
+  // `url` already carries v= when the server rendered a filtered view, so the
+  // next page stays in the same view. (The client tab handler no longer
+  // rewrites the URL behind this link's back.)
   return `<div class="more"><a class="nf-post more-link" href="?${sp}">Show more</a></div>`;
 };
 
@@ -4532,7 +4553,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   welcome(req, res, me) {
     const body = `
 <section class="splash">
-  <img class="splash-mark" src="/mark.png" alt="" width="60" height="80">
+  <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
   <p class="splash-word">discriminant.ly</p>
   <h1 class="splash-h">Your taste. Remembered.</h1>
   <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Discriminantly builds a personal, portable memory of your taste—one that grows richer over time and travels with you.</p>
@@ -6272,7 +6293,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/mark.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
+const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/mark.png': 'image/png', '/mark@4x.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
