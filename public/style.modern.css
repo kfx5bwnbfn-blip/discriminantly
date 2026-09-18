@@ -1464,7 +1464,7 @@ body[data-skin="modern"][data-mode="light"] .masthead .signin input, html.m-ligh
     transition: transform .18s var(--m-ease), box-shadow .22s var(--m-ease);
   }
   body[data-skin="modern"] .card:not(.m-tilt) { transition: transform .5s var(--m-ease), box-shadow .22s var(--m-ease); }
-  body[data-skin="modern"] .m-tilt .figure img { transform: translate3d(var(--m-tx, 0px), var(--m-ty, 0px), 0) scale(1.06); transition: transform .12s ease-out; }
+  /* image parallax on hover removed — the card lifts, the picture stays still */
   body[data-skin="modern"] .card .figure img { transition: transform .5s var(--m-ease); }
   body[data-skin="modern"] .card .figure { overflow: hidden; }
 }
@@ -1760,7 +1760,7 @@ body[data-skin="modern"] { background-image: none; background-attachment: scroll
    ===================================================================== */
 body[data-skin="modern"] .note[data-patina] .card { position: relative; }
 body[data-skin="modern"] .note[data-patina] .card::before {
-  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
   border-radius: inherit; opacity: var(--patina-o, 0);
   background-size: var(--patina-tile, 200px) var(--patina-tile, 200px);
   /* One texture, both polarities. Some motes catch the light and some occlude
@@ -1770,29 +1770,34 @@ body[data-skin="modern"] .note[data-patina] .card::before {
      Several light motes carry a dark companion offset a fraction down-right:
      a highlight with its own shadow is what gives a speck relief. */
   background-image:
-    radial-gradient(1.79px 1.79px at 39.1% 89.2%, rgba(89,68,52,0.46) 0%, rgba(89,68,52,0.46) 45%, transparent 100%),
-    radial-gradient(3.12px 3.12px at 68.8% 27.6%, rgba(214,183,160,0.82) 0%, rgba(214,183,160,0.82) 45%, transparent 100%),
-    radial-gradient(1.41px 1.41px at 35.1% 80.6%, rgba(107,135,215,0.41) 0%, rgba(107,135,215,0.41) 45%, transparent 100%),
-    radial-gradient(1.31px 1.31px at 88.2% 70.8%, rgba(231,193,145,0.31) 0%, rgba(231,193,145,0.31) 45%, transparent 100%),
-    radial-gradient(2.50px 2.50px at 49.1% 66.7%, rgba(61,73,69,0.44) 0%, rgba(61,73,69,0.44) 45%, transparent 100%),
-    radial-gradient(2.00px 2.00px at 43.2% 84.9%, rgba(82,75,66,0.54) 0%, rgba(82,75,66,0.54) 45%, transparent 100%),
-    radial-gradient(1.38px 1.38px at 39.0% 45.8%, rgba(44,65,68,0.69) 0%, rgba(44,65,68,0.69) 45%, transparent 100%),
-    radial-gradient(0.85px 0.85px at 20.5% 18.5%, rgba(50,66,68,0.58) 0%, rgba(50,66,68,0.58) 45%, transparent 100%),
-    radial-gradient(3.34px 3.34px at 54.0% 98.6%, rgba(223,203,178,0.43) 0%, rgba(223,203,178,0.43) 45%, transparent 100%),
-    radial-gradient(1.06px 1.06px at 42.9% 33.4%, rgba(128,107,171,0.31) 0%, rgba(128,107,171,0.31) 45%, transparent 100%),
-    radial-gradient(2.05px 2.05px at 79.7% 91.6%, rgba(203,168,141,0.70) 0%, rgba(203,168,141,0.70) 45%, transparent 100%),
-    radial-gradient(1.09px 1.09px at 36.8% 9.6%, rgba(153,191,177,0.52) 0%, rgba(153,191,177,0.52) 45%, transparent 100%),
-    radial-gradient(0.59px 0.59px at 14.9% 31.5%, rgba(55,50,66,0.55) 0%, rgba(55,50,66,0.55) 45%, transparent 100%),
-    radial-gradient(3.03px 3.03px at 79.3% 85.5%, rgba(97,137,143,0.47) 0%, rgba(97,137,143,0.47) 45%, transparent 100%),
-    radial-gradient(1.12px 1.12px at 91.4% 39.2%, rgba(123,160,146,0.45) 0%, rgba(123,160,146,0.45) 45%, transparent 100%),
-    radial-gradient(0.88px 0.88px at 82.6% 16.7%, rgba(66,37,53,0.57) 0%, rgba(66,37,53,0.57) 45%, transparent 100%),
-    radial-gradient(1.83px 1.83px at 76.6% 50.2%, rgba(47,31,39,0.65) 0%, rgba(47,31,39,0.65) 45%, transparent 100%),
-    radial-gradient(0.62px 0.62px at 25.1% 25.6%, rgba(239,198,145,0.57) 0%, rgba(239,198,145,0.57) 45%, transparent 100%),
-    radial-gradient(1.88px 1.88px at 88.3% 87.7%, rgba(222,198,211,0.84) 0%, rgba(222,198,211,0.84) 45%, transparent 100%),
-    radial-gradient(2.76px 2.76px at 42.9% 44.9%, rgba(161,99,133,0.44) 0%, rgba(161,99,133,0.44) 45%, transparent 100%),
-    radial-gradient(1.97px 1.97px at 91.5% 54.2%, rgba(147,110,82,0.52) 0%, rgba(147,110,82,0.52) 45%, transparent 100%),
-    radial-gradient(1.23px 1.23px at 15.8% 65.3%, rgba(210,200,231,0.52) 0%, rgba(210,200,231,0.52) 45%, transparent 100%),
-    radial-gradient(0.60px 0.60px at 61.2% 67.5%, rgba(211,203,228,0.64) 0%, rgba(211,203,228,0.64) 45%, transparent 100%);
+    radial-gradient(6.41px 6.41px at 13.1% 23.0%, rgba(184,222,208,0.74) 0%, rgba(184,222,208,0.74) 30%, transparent 100%),
+    radial-gradient(3.60px 3.60px at 20.4% 28.8%, rgba(182,207,227,0.81) 0%, rgba(182,207,227,0.81) 45%, transparent 100%),
+    radial-gradient(3.00px 3.00px at 8.0% 35.8%, rgba(136,173,203,0.39) 0%, rgba(136,173,203,0.39) 45%, transparent 100%),
+    radial-gradient(1.50px 1.50px at 76.4% 69.1%, rgba(86,74,49,0.40) 0%, rgba(86,74,49,0.40) 45%, transparent 100%),
+    radial-gradient(1.26px 1.26px at 5.4% 50.6%, rgba(140,187,170,0.44) 0%, rgba(140,187,170,0.44) 45%, transparent 100%),
+    radial-gradient(12.30px 12.30px at 16.9% 81.8%, rgba(70,86,98,0.23) 0%, rgba(70,86,98,0.23) 30%, transparent 100%),
+    radial-gradient(1.34px 1.34px at 43.2% 79.4%, rgba(185,173,150,0.50) 0%, rgba(185,173,150,0.50) 45%, transparent 100%),
+    radial-gradient(0.86px 0.86px at 61.5% 73.2%, rgba(179,163,210,0.62) 0%, rgba(179,163,210,0.62) 45%, transparent 100%),
+    radial-gradient(1.51px 1.51px at 25.5% 28.9%, rgba(174,87,135,0.52) 0%, rgba(174,87,135,0.52) 45%, transparent 100%),
+    radial-gradient(1.28px 1.28px at 99.3% 64.2%, rgba(186,161,186,0.64) 0%, rgba(186,161,186,0.64) 45%, transparent 100%),
+    radial-gradient(1.01px 1.01px at 79.3% 68.9%, rgba(129,97,129,0.28) 0%, rgba(129,97,129,0.28) 45%, transparent 100%),
+    radial-gradient(2.94px 2.94px at 38.0% 61.8%, rgba(186,84,140,0.42) 0%, rgba(186,84,140,0.42) 45%, transparent 100%),
+    radial-gradient(1.35px 1.35px at 23.3% 63.6%, rgba(208,229,246,0.83) 0%, rgba(208,229,246,0.83) 45%, transparent 100%),
+    radial-gradient(0.60px 0.60px at 58.7% 79.7%, rgba(70,122,130,0.44) 0%, rgba(70,122,130,0.44) 45%, transparent 100%),
+    radial-gradient(6.67px 6.67px at 14.3% 73.6%, rgba(245,237,221,0.41) 0%, rgba(245,237,221,0.41) 30%, transparent 100%),
+    radial-gradient(0.79px 0.79px at 63.8% 20.7%, rgba(82,68,39,0.36) 0%, rgba(82,68,39,0.36) 45%, transparent 100%),
+    radial-gradient(6.35px 6.35px at 20.2% 2.7%, rgba(52,59,48,0.57) 0%, rgba(52,59,48,0.57) 30%, transparent 100%),
+    radial-gradient(0.75px 0.75px at 34.7% 82.3%, rgba(101,84,62,0.44) 0%, rgba(101,84,62,0.44) 45%, transparent 100%),
+    radial-gradient(12.56px 12.56px at 41.4% 41.2%, rgba(62,42,53,0.25) 0%, rgba(62,42,53,0.25) 30%, transparent 100%),
+    radial-gradient(1.61px 1.61px at 35.6% 60.9%, rgba(136,155,123,0.44) 0%, rgba(136,155,123,0.44) 45%, transparent 100%),
+    radial-gradient(3.99px 3.99px at 12.7% 90.9%, rgba(62,55,40,0.66) 0%, rgba(62,55,40,0.66) 45%, transparent 100%),
+    radial-gradient(3.87px 3.87px at 97.1% 37.2%, rgba(82,68,41,0.68) 0%, rgba(82,68,41,0.68) 45%, transparent 100%),
+    radial-gradient(4.34px 4.34px at 78.7% 39.1%, rgba(71,59,33,0.67) 0%, rgba(71,59,33,0.67) 45%, transparent 100%),
+    radial-gradient(4.06px 4.06px at 58.5% 19.7%, rgba(98,73,54,0.46) 0%, rgba(98,73,54,0.46) 45%, transparent 100%),
+    radial-gradient(8.61px 8.61px at 34.0% 85.9%, rgba(84,63,74,0.25) 0%, rgba(84,63,74,0.25) 30%, transparent 100%),
+    radial-gradient(1.06px 1.06px at 55.2% 82.2%, rgba(201,226,217,0.77) 0%, rgba(201,226,217,0.77) 45%, transparent 100%),
+    radial-gradient(4.03px 4.03px at 83.4% 15.4%, rgba(124,104,78,0.61) 0%, rgba(124,104,78,0.61) 45%, transparent 100%),
+    radial-gradient(1.16px 1.16px at 51.5% 14.4%, rgba(172,105,141,0.33) 0%, rgba(172,105,141,0.33) 45%, transparent 100%);
 }
 /* the same two inks in both modes — the texture is not re-polarised */
 body[data-skin="modern"] .note[data-patina] .card {
@@ -1810,7 +1815,10 @@ body[data-skin="modern"] .note[data-patina="5"] .card { --patina-o: 0.8; --patin
 body[data-skin="modern"] .note[data-patina="6"] .card { --patina-o: 1;   --patina-tile: 320px; }
 
 /* the picture keeps its own surface; dust settles on the card, not the photo */
-body[data-skin="modern"] .note[data-patina] .figure { z-index: 4; }
+/* dust settles on the card surface only: every child of the card — the
+   picture, the text, the tags, the owned row, the buttons — sits above it */
+body[data-skin="modern"] .note[data-patina] .card > *:not(.warrant-seal) { position: relative; z-index: 2; }
+body[data-skin="modern"] .note[data-patina] .card > .warrant-seal { z-index: 2; }   /* keeps its absolute placement */
 
 /* ---- the warrant seal presses in after the card has settled ---- */
 @keyframes m-seal-press {
@@ -1841,9 +1849,22 @@ body[data-skin="modern"] .strip .strip-sub { color: var(--m-ink-3); opacity: 1; 
    merely next. ---- */
 body[data-skin="modern"] .resurface-eyebrow { color: var(--m-accent); opacity: 1; }
 body[data-skin="modern"] .resurface-eyebrow::before, body[data-skin="modern"] .resurface-eyebrow::after { color: var(--m-ink-3); }
-/* no ring and no extra lift: the eyebrow is the whole annotation. If the
-   record cannot hold the eye on its own, decoration will not rescue it. */
-body[data-skin="modern"] .resurface-eyebrow .fact { color: var(--m-ink-2); }
+/* The eyebrow is an editorial voice, not post metadata. Organic cards use
+   tracked small caps for their bylines, so small caps here read as more of
+   the same. Instead: a fleuron, then the kicker in Chaparral italic at reading
+   size, then the fact in roman beneath — left-set inside the frame, with a
+   short hairline under it before the card. Nothing large, nothing new. */
+body[data-skin="modern"] .resurface-eyebrow {
+  text-align: left; text-transform: none; letter-spacing: 0; font-weight: 400;
+  font-size: 1.02rem; font-style: italic; color: var(--m-ink); margin: .1rem .25rem 1rem;
+  padding-bottom: .7rem; border-bottom: 1px solid var(--m-rule);
+}
+body[data-skin="modern"] .resurface-eyebrow::before { content: "\2767\00a0\00a0"; font-style: normal; color: var(--m-accent); }
+body[data-skin="modern"] .resurface-eyebrow .fact {
+  display: block; font-style: normal; font-size: .8rem; letter-spacing: .01em;
+  color: var(--m-ink-2); opacity: 1; margin: .2rem 0 0 1.55rem;
+}
+body[data-skin="modern"] .resurface-eyebrow a { color: inherit; }
 
 /* ---- The segmented tab bar read as though two tabs were selected. Nothing
    was wrong with the state — only one ever carries .on — but the bar is
@@ -1916,7 +1937,7 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
    presence, so no new body class is needed) the column yields a strip of
    width for it. The note stays dominant; the strip is otherwise empty. */
 @media (min-width: 78rem) {
-  body[data-skin="modern"] .profile-feed:has(> .colophon) { position: relative; padding-right: var(--colo-strip, 15rem); }
+  body[data-skin="modern"] .profile-feed.has-colophon { position: relative; padding-right: var(--colo-strip, 15rem); }
   /* Centred in the strip it occupies, not flush to the edge, and centred
      against the note card's height rather than parked at a guessed offset —
      --colo-top is measured from the card once the page has settled. */
@@ -1941,20 +1962,36 @@ body[data-skin="modern"] .colophon { animation: m-colophon-in 1400ms ease-out 90
    block uses on a travel-mark page, given rounded corners. Enough to offset
    the record from the organic column beneath it; not so much that it competes
    with the card it holds. ---- */
-/* Identical to the itinerary container on a travel-mark page (.timeline li):
-   the same glass fill, the same 30px/180% blur, the same inset edge and
-   ambient shadow, the same radius. Measured rather than approximated — the
-   earlier version used a 26px/150% blur and a bespoke shadow, which read as
-   a slightly different material. */
+/* The visit-log material from a travel-mark page: a flat, faintly tinted
+   box. No blur, no inset highlight, no drop shadow, no 3D — just enough tint
+   to set the frame apart from the column beneath it. Rounded corners are the
+   one addition over the reference. */
 body[data-skin="modern"] .resurface {
-  background: var(--m-glass);
-  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
-  box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
-  border-radius: var(--m-r);
+  background: rgba(0,0,0,.035); background-image: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  box-shadow: none; border-radius: var(--m-r);
 }
 body[data-skin="modern"] .resurface-eyebrow { margin: .15rem 0 .85rem; }
 /* the card inside keeps its own material; it is held, not restyled */
 body[data-skin="modern"] .resurface-body .note { max-width: none; }
 @media (max-width: 52rem) {
   body[data-skin="modern"] .resurface { padding: .85rem .7rem .9rem; }
+}
+
+/* ---- the comment form's button: a solid ink pill read as a black slab in
+   light and a white one in dark. The follow button's glass pill is the right
+   weight for a secondary action like this. ---- */
+body[data-skin="modern"] .comment-form .nf-post {
+  background: var(--m-glass-2); background-image: none; color: var(--m-ink);
+  -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.35);
+}
+body[data-skin="modern"] .comment-form .nf-post:hover { background: var(--m-glass-3); }
+
+/* ---- light mode: the fixed search bar's scrim was the same glass as the
+   dark skin's, which sat heavy over a pale backdrop. Lighter and whiter,
+   nearer the signed-out masthead; dark mode is untouched. ---- */
+body[data-skin="modern"][data-mode="light"] .searchbar, html.m-light body[data-skin="modern"][data-mode="system"] .searchbar {
+  background: rgba(255,255,255,.78) !important;
+  box-shadow: inset 0 -1px 0 rgba(20,22,28,.06), 0 8px 30px -22px rgba(30,40,60,.25);
 }

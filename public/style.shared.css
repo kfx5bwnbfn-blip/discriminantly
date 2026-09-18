@@ -176,3 +176,4 @@
 
 
 .colo-mark { display: block; margin: 1.1rem auto .5rem; width: 26px; height: auto; }
+.colo-lead { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em; text-transform: uppercase; opacity: 1; margin-top: .9rem; }

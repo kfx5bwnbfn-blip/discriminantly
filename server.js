@@ -1143,6 +1143,7 @@ function colophon(o) {
   const entry = ([k, v]) => `<span class="colo-k">${esc(k)}</span><span class="colo-v">${esc(v)}</span>`;
   return `<aside class="colophon" aria-label="Provenance">
   <span class="colo-head">Provenance</span><span class="colo-rule"></span>
+  <span class="colo-lead">This note was</span>
   ${entry(rows[0])}
   <img class="colo-mark" src="/mark.png" alt="" width="17" height="23">
   ${rows.slice(1).map(entry).join('\n  ')}
@@ -3743,7 +3744,7 @@ const pages = {
     const ld = { '@context': 'https://schema.org', '@type': 'Product', name: o.name, url: o.url || undefined, image: o.image || undefined, description: o.why, keywords: tags.join(', ') || undefined };
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'notes')}
-<section class="feed profile-feed">
+<section class="feed profile-feed${skinOf(me, req) === 'modern' ? ' has-colophon' : ''}">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=notes">Notes</a> › <span class="crumb-here">Note</span></h3>
 <div class="grid grid-single">${objectCard(o, me, true)}</div>
 ${noters.length ? `<div class="section-rule"></div>
