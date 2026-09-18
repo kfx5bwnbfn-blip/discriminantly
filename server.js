@@ -3746,9 +3746,9 @@ const pages = {
     ${rail}
     ${topTags.length ? `<h3 class="lbl ruled">Tags</h3><p class="tags rail-tags">${topTags.map(([t]) => `<a href="/?t=${encodeURIComponent(t)}" class="${t === tag ? 'on' : ''}">#${esc(t)}</a>`).join(', ')}</p>` : ''}
     ${me ? '' : `<h3 class="lbl ruled">About us</h3>
-    <p class="about">Discriminantly is an independent, personal and portable memory for your taste—the things you notice, the places you go, and the experiences worth remembering.</p>
-    <p class="about">Keep it for yourself, share what you choose, and connect your taste to AI— ChatGPT or Claude.</p>
-    <p class="about">Your taste is yours. Keep it private when you choose, connect it on your terms, and put it to use wherever you go.</p>
+    <p class="about">Discriminantly is a home for your interests and travels—the things you notice, the places you go, the experiences worth remembering, and what you want to explore next.</p>
+    <p class="about">Effortlessly add what you encounter, share what you choose, and connect Discriminantly to your AI to enrich what you’ve kept and discover what comes next.</p>
+    <p class="about">What you keep is yours—private when you want it, connected on your terms, and with you wherever you go.</p>
 `}
   </aside>
   <section class="feed feed-plain is-tiled">
@@ -4555,8 +4555,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 <section class="splash">
   <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
   <p class="splash-word">discriminant.ly</p>
-  <h1 class="splash-h">Your taste. Remembered.</h1>
-  <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Discriminantly builds a personal, portable memory of your taste—one that grows richer over time and travels with you.</p>
+  <h1 class="splash-h">Your interests. Your travels. Wherever you go.</h1>
+  <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Connects to your AI to help you add, enrich, explore, and discover what comes next.</p>
   <a class="btn splash-enter" href="/">Enter</a>
   <div class="splash-install" id="splash-install" hidden>
     <button type="button" class="nf-post" id="splash-install-btn">Install Discriminantly</button>
