@@ -462,7 +462,7 @@
 .itin-sugg-more > summary::-webkit-details-marker { display: none; }
 .itin-sugg-more[open] > summary { display: none; }
 /* listing previews in feed columns: the shell fills its column */
-.grid .itp, .feed-col .itp { width: 100%; box-sizing: border-box; }
+.grid .itin-note, .feed-col .itin-note { width: 100%; box-sizing: border-box; }
 /* the shell keeps the card at standard width whatever the page allows; the
    extra page width exists only to hold the side column beside it */
 .itin-shell, .itin-page > .itin-actions { max-width: 41.5rem; }
@@ -497,12 +497,10 @@
 /* An itinerary preview is a large tinted container, not a plain card, so it
    needs more air beneath it than a note does before the next card’s avatar
    rail begins. The activity feed’s .act-note wrapper gets the same. */
-.act-note > .itp { margin-bottom: 0; }
-#feed-grid > .itp, .feed-col > .itp { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
 .act-note:has(> .itp) { padding-bottom: 1.5rem; }
 /* .itp IS the shell: one element carries both classes. In the activity feed
    the .act-note wrapper supplies the separation, so the preview adds none. */
-.act-note > .itp.itin-shell { margin-bottom: 0; }
+.act-note > .itin-note > .itp.itin-shell { margin-bottom: 0; }
 
 /* the suggestions disclosure is not the feed pager: its own class, so the
    global .more-link handler never sees it */
@@ -532,3 +530,54 @@
    same gap themselves. */
 /* the page already sits 65px below the masthead, the same as a .strip page */
 .itin-page, .itin-list { padding-top: 0; }
+
+/* ---- itinerary byline: the same row every first-class object carries ---- */
+.itin-note > .byline { margin: 0; }
+/* The Edit affordance lives in the byline rail, exactly where a note or a mark
+   puts it, and drives the edit form through a label -- a <details> summary
+   cannot be reached from outside the card. */
+.itin-head-edit { display: none; margin-top: 1rem; }
+.itin-edit-toggle:checked ~ .itin-head-edit { display: block; }
+.itin-note > .byline .card-edit { cursor: pointer; }
+.itin-edit-form { margin-top: .4rem; }
+
+/* the timing line takes the mark card's locality typography */
+.itin-when, .itp .itin-when { font-size: .8rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+
+/* ---- the move control: up / grip / down, in the card's left indent ---- */
+.stop-move { position: absolute; left: -2.9rem; top: .35rem; display: flex; flex-direction: column;
+  align-items: center; gap: .1rem; opacity: 0; transition: opacity .18s; }
+.stop:hover .stop-move, .stop-move:focus-within { opacity: .75; }
+.stop-arrow { background: none; border: 0; padding: .1rem .3rem; cursor: pointer; font-size: .8rem; line-height: 1; color: inherit; }
+.stop-arrow:hover { opacity: 1; }
+.stop-handle { position: static; opacity: 1; font-size: 1.05rem; padding: .1rem .3rem; }
+.stop:hover .stop-handle { opacity: 1; }
+@media (max-width: 52rem) {
+  .stop-move { opacity: .55; left: -2.7rem; }
+  .stop-arrow { padding: .18rem .3rem; }
+}
+
+
+/* ---- an itinerary is a .note: a byline rail, then the card. Same grid, same
+   gap, same rail width as every other first-class object. ---- */
+.itin-note { margin: 0; }
+.itin-note > .itin-shell, .itin-note > .itp { margin: 0; min-width: 0; }
+.itin-main > .itin-note { max-width: none; }
+#feed-grid > .itin-note, .feed-col > .itin-note { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
+.act-note > .itin-note { margin-bottom: 0; }
+
+/* ---- an itinerary is a .note: byline rail, then the card. Same grid, same
+   3.4rem rail, same gap as every other first-class object. ---- */
+.itin-note { margin: 0; }
+.itin-note > .itin-shell, .itin-note > .itp { margin: 0; min-width: 0; }
+.itin-main > .itin-note { max-width: none; }
+.itin-note > .byline .card-edit { cursor: pointer; }
+/* Edit lives in the rail and drives the form from outside the card, which a
+   <details> summary cannot do -- hence the label and hidden checkbox. */
+.itin-head-edit { display: none; margin-top: 1rem; }
+.itin-edit-toggle:checked ~ .itin-head-edit { display: block; }
+#feed-grid > .itin-note, .feed-col > .itin-note { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
+.act-note > .itin-note { margin-bottom: 0; }
+.grid .itin-note, .feed-col .itin-note { width: 100%; box-sizing: border-box; }
+
+.itin-edit-toggle { display: none !important; }

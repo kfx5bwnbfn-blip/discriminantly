@@ -3887,6 +3887,27 @@ const ITIN_JS = `
     over=null;
   }
   page.addEventListener('pointerup', finish); page.addEventListener('pointercancel', finish);
+
+  // The Edit affordance in the byline opens the itinerary's own edit form --
+  // the same place the Edit link sits on every other object.
+  page.addEventListener('click', function(e){
+    var cancel=e.target.closest('[data-itin-cancel],[data-stop-cancel]');
+    if(cancel){ e.preventDefault();
+      if(cancel.hasAttribute('data-itin-cancel')){ var tog=document.querySelector('.itin-edit-toggle'); if(tog) tog.checked=false; return; }
+      var dd=cancel.closest('details'); if(dd) dd.open=false; return; }
+    // Arrows are an alternative to dragging, writing the same canonical order.
+    var mv=e.target.closest('[data-move]');
+    if(mv){ e.preventDefault();
+      var li=mv.closest('.stop'); var ol=li.closest('.itin-tl');
+      var seq=Array.prototype.slice.call(ol.querySelectorAll('.stop.is-seq'));
+      var all=Array.prototype.slice.call(ol.querySelectorAll('.stop[data-stop]'));
+      var i=seq.indexOf(li);
+      var pos;
+      if(i<0){ pos = mv.dataset.move==='up' ? 1 : seq.length+1; }         // unsequenced: join the prefix
+      else { pos = mv.dataset.move==='up' ? i : i+2; if(pos<1) return; if(pos>seq.length) return; }
+      post(base+'/stops/'+li.getAttribute('data-stop'), {position:String(pos)});
+    }
+  });
 })();`;
 
 // ---- reading ----------------------------------------------------------------
@@ -4505,7 +4526,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const dayOpts = groups.map((g) => `<option value="${g.uid}" ${g.id === st.group_id ? 'selected' : ''}>${esc(g.label || tf(g) || 'A day')}</option>`).join('');
       const menu = ctl ? `<details class="stop-menu"><summary aria-label="Stop actions">\u00b7\u00b7\u00b7</summary>
         <div class="stop-sheet">
-          <form method="post" action="${base}/stops/${st.uid}" class="nf nf-compact stop-form"><div class="nf-stack">
+          <form method="post" action="${base}/stops/${st.uid}" class="nf nf-compact stop-form"><div class="nf-box"><div class="nf-stack">
             <input class="nf-field" name="label" value="${esc(st.label)}" placeholder="WORDING" maxlength="200">
             ${st.mark_uid ? '' : `<select class="nf-field" name="resolution">
               <option value="particular" ${st.resolution === 'particular' ? 'selected' : ''}>A PARTICULAR PLACE</option>
@@ -4514,7 +4535,9 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             <select class="nf-field" name="t_daypart"><option value="">TIME OF DAY</option>${['morning', 'afternoon', 'evening', 'night'].map((d) => `<option ${st.t_daypart === d ? 'selected' : ''}>${d}</option>`).join('')}</select>
             <input class="nf-field" name="t_clock" value="${esc(st.t_clock || '')}" placeholder="CLOCK, E.G. 19:30" pattern="([01]\\d|2[0-3]):[0-5]\\d">
             <select class="nf-field" name="group_uid"><option value="">NOT ON A DAY</option>${dayOpts}</select>
+            </div>
             <button class="nf-post">Save</button>
+            <div class="nf-foot nf-foot-3"><span></span><span></span><button type="button" class="nf-link-btn" data-stop-cancel>Cancel</button></div>
           </div></form>
           <div class="stop-links">
             ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
@@ -4525,7 +4548,13 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
         </div></details>` : '';
       const time = when ? `<span class="stop-when">${esc(when)}</span>` : '';
       const flag = withheld ? '<span class="stop-withheld">Withheld from public view</span>' : '';
-      const handle = ctl ? `<span class="stop-handle" data-drag title="Drag to place in the order">\u2261</span>` : '';
+      // Dragging asserts order; the arrows do the same thing for anyone who
+      // would rather not drag. Both write a position through the same route.
+      const handle = ctl ? `<span class="stop-move">
+        <button type="button" class="stop-arrow" data-move="up" title="Move up" aria-label="Move up">\u2191</button>
+        <span class="stop-handle" data-drag title="Drag to place in the order">\u2261</span>
+        <button type="button" class="stop-arrow" data-move="down" title="Move down" aria-label="Move down">\u2193</button>
+      </span>` : '';
       const attrs = `class="stop ${seqd ? 'is-seq' : ''} ${st.resolution === 'linked' ? 'is-mark' : st.resolution === 'allocation' ? 'is-open' : 'is-loose'} ${withheld ? 'is-withheld' : ''}" data-stop="${st.uid}"`;
 
       if (vis.mark) {
@@ -4724,9 +4753,12 @@ function itineraryPreview(it, me) {
   const shown = 3;
   const rendered = itineraryBody(it, me, { interactive: false, limit: shown });
   const when = tf(it);
-  return `<div class="itp itin-shell">
+  const au = q('SELECT handle, avatar FROM users WHERE id=?').get(it.user_id);
+  return `<article class="note itin-note">
+    <div class="byline"><span class="byline-who"><a href="/u/${esc(au.handle)}">${avatar({ handle: au.handle, avatar: au.avatar })}</a>${stackDate(it.created_at)}</span></div>
+    <div class="itp itin-shell">
     <a class="itp-head ens-head itin-head" href="/t/${it.id}">
-      <p class="who"><span>${esc(q('SELECT handle FROM users WHERE id=?').get(it.user_id).handle)}</span> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
+      <p class="who"><span>${esc(au.handle)}</span> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
       <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
       ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
       ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}
@@ -4734,7 +4766,7 @@ function itineraryPreview(it, me) {
     <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
     <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
     ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
-  </div>`;
+  </div></article>`;
 }
 
 const pages = {
@@ -4952,12 +4984,16 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         </div><button class="nf-post">Add day</button></div></form></details>` : '';
 
     const when = tf(it);
+    // the byline and edit affordance every first-class object carries
+    const bylineRow = `<div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(it.created_at)}</span>${owner ? `<label class="card-edit" for="itin-edit-${it.id}">Edit</label>` : ''}</div>`;
     const titleBlock = `<div class="ens-head itin-head">
         <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
         <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
         ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
-    const head = owner ? `<details class="itin-head-edit"><summary>${titleBlock}<i class="itin-day-hint">edit</i></summary>
-      <form method="post" action="${base}" class="nf nf-compact itin-new"><div class="nf-box"><div class="nf-stack">
+    const head = owner ? `${titleBlock}<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-edit">
+      <form method="post" action="${base}" class="nf nf-compact itin-new itin-edit-form"><div class="nf-box">
+        <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${it.private ? 'checked' : ''}><span></span></label></div>
+        <div class="nf-stack">
         <input class="nf-field" name="title" value="${esc(it.title)}" placeholder="WHERE (REQUIRED)" maxlength="120">
         <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW">${esc(it.context)}</textarea>
         <input class="nf-field" name="t_year" type="number" value="${it.t_year ?? ''}" placeholder="YEAR">
@@ -4965,13 +5001,19 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         <select class="nf-field" name="t_period"><option value="">SEASON</option>${T_PERIODS.map((p2) => `<option ${it.t_period === p2 ? 'selected' : ''}>${p2}</option>`).join('')}</select>
         <select class="nf-field" name="t_modifier"><option value="">EARLY / MID / LATE</option>${T_MODS.map((m2) => `<option ${it.t_modifier === m2 ? 'selected' : ''}>${m2}</option>`).join('')}</select>
         <select class="nf-field" name="t_modifier_scope"><option value="">\u2026 OF THE YEAR / SEASON / MONTH</option>${T_SCOPES.map((sc2) => `<option value="${sc2}" ${it.t_modifier_scope === sc2 ? 'selected' : ''}>of the ${sc2}</option>`).join('')}</select>
-        </div><button class="nf-post itin-start">Save</button></div></form></details>`
+        </div>
+        <button class="nf-post itin-start">Save</button>
+        <div class="nf-foot nf-foot-3">
+          <button type="button" class="nf-link-btn nf-del" data-del="${base}/delete" data-kind="itinerary" data-title="${esc(it.title || 'Untitled')}">Delete</button>
+          <span></span>
+          <button type="button" class="nf-link-btn" data-itin-cancel>Cancel</button>
+        </div></div></form></div>`
       : titleBlock;
 
-    const foot = owner ? `<div class="itin-actions">
-      <form method="post" action="${base}/${it.private ? 'publish' : 'unpublish'}"><button class="btn">${it.private ? 'Publish' : 'Make private'}</button></form>
-      <form method="post" action="${base}/delete" onsubmit="return confirm('Delete this itinerary? Travel marks and check-ins are untouched.')"><button class="link caps stop-del">Delete itinerary</button></form>
-    </div>` : '';
+    // Publishing is the private switch inside the edit form now, as it is on a
+    // note or a mark. The delete form is submitted by the button in the form's
+    // foot, following the same convention.
+    const foot = '';   // publishing is the switch in the edit form; delete is in its foot
 
     // One container holds the whole itinerary -- title, overview, days -- so
     // the article page is the fully expanded card and the listing shows the
@@ -4983,9 +5025,9 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     const sideMap = itineraryMap(it, me, ordered);
     const sideSugg = itinerarySuggestions(it, me);
     const main = `<div class="itin-cols">
-      <div class="itin-main"><div class="itin-shell">${head}
+      <div class="itin-main"><article class="note itin-note">${bylineRow}<div class="itin-shell">${head}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
-      ${dayBlocks}${looseBlock}${addDay}</div>${foot}</div>
+      ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
       ${sideMap || sideSugg ? `<aside class="itin-side">${sideMap}${sideSugg}</aside>` : ''}
     </div>
     ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
