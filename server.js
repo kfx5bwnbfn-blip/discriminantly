@@ -4652,10 +4652,16 @@ function itineraryMap(it, me, ordered) {
   // mark-map carries the existing per-skin, per-mode tile filters, so the map
   // is tinted for classic and modern, light and dark, by the same rules the
   // mark page already uses. Nothing map-specific is invented here.
+  // The pins are an overlay in bbox space, so they are only in register while
+  // the map shows exactly that bbox. OSM's embed exposes no pan/zoom events to
+  // follow, so the inline map is deliberately NOT interactive -- scrolling or
+  // zooming it would leave the pins pointing at nothing. The caption opens the
+  // real, interactive map instead.
+  const big = `https://www.openstreetmap.org/?mlat=${pts[0].lat}&mlon=${pts[0].lng}#map=13/${pts[0].lat}/${pts[0].lng}`;
   return `<figure class="itin-map mark-map">
-    <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Map of ${esc(it.title)}"></iframe>
+    <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" tabindex="-1" title="Map of ${esc(it.title)}"></iframe>
     <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}</svg>
-    <figcaption>${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops on the map`}</figcaption>
+    <figcaption><a href="${big}" target="_blank" rel="noopener">${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops`} \u00b7 open the map</a></figcaption>
   </figure>`;
 }
 
@@ -4700,7 +4706,7 @@ function itinerarySuggestions(it, me) {
     return `<section class="itin-sugg-group">
       <h4 class="itin-day"><b>${title}</b><span>${items.length}</span><span class="rule"></span></h4>
       <div class="itin-sugg-list">${first}</div>
-      ${rest ? `<details class="itin-sugg-more"><summary class="nf-post more-link">Show more</summary><div class="itin-sugg-list">${rest}</div></details>` : ''}
+      ${rest ? `<details class="itin-sugg-more"><summary class="nf-post sugg-more-btn">Show more</summary><div class="itin-sugg-list">${rest}</div></details>` : ''}
     </section>`;
   };
   const markRow = (m) => `<div class="sugg"><a class="sugg-name" href="/m/${m.id}">${esc(m.name)}</a><span class="sugg-sub">${esc([m.locality, m.country].filter(Boolean).join(', '))}</span>
@@ -4976,10 +4982,12 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     for (const st of itineraryStops(it.id, null)) if (st.mark_uid) ordered.push(st.uid);
     const sideMap = itineraryMap(it, me, ordered);
     const sideSugg = itinerarySuggestions(it, me);
-    const main = `<div class="itin-shell">${head}
-    ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
-    ${dayBlocks}${looseBlock}${addDay}</div>${foot}
-    ${sideMap || sideSugg ? `<aside class="itin-side">${sideMap}${sideSugg}</aside>` : ''}
+    const main = `<div class="itin-cols">
+      <div class="itin-main"><div class="itin-shell">${head}
+      ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
+      ${dayBlocks}${looseBlock}${addDay}</div>${foot}</div>
+      ${sideMap || sideSugg ? `<aside class="itin-side">${sideMap}${sideSugg}</aside>` : ''}
+    </div>
     ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>

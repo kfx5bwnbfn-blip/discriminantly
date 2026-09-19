@@ -264,7 +264,9 @@
 /* grid-single is 42rem and left-aligned; the itinerary wraps its cards in a
    day container and a timeline indent, so the column is that much wider and
    the card inside lands at exactly the width it has on its own page. */
-.itin-page { max-width: 65rem; margin-left: 0; margin-right: 0; }
+/* wide enough for two full-width tiles side by side (2 x 41.5rem + the gap +
+   the feed padding); below that they stack */
+.itin-page { max-width: 88.5rem; margin-left: 0; margin-right: 0; }
 
 /* Each day is one flat container -- the visit-log / resurfacing tint -- and its
    stops sit bare inside it: no tint-within-tint. The unplaced cluster gets the
@@ -439,13 +441,6 @@
 /* the side column is absolutely placed beside the shell, so the page must
    reserve room for it or it runs past the viewport (it did, in classic at
    1500px). The column is limited to the shell's width plus the side. */
-/* beside the shell only when the viewport can hold the full-width card AND
-   the side column; below that the side drops beneath, and the card keeps its
-   standard width rather than shrinking to make room. */
-@media (min-width: 92rem) {
-  .itin-page { position: relative; padding-right: 20.6rem; }
-  .itin-side { position: absolute; top: 0; right: 0; width: 19rem; margin: 0; }
-}
 /* square, and overriding mark-map's own fixed iframe height so the tile fills
    the square. The colour filters from mark-map are deliberately inherited. */
 .itin-map { position: relative; margin: 0 0 1.4rem; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; max-width: none; }
@@ -468,7 +463,6 @@
 .itin-sugg-more[open] > summary { display: none; }
 /* listing previews in feed columns: the shell fills its column */
 .grid .itp, .feed-col .itp { width: 100%; box-sizing: border-box; }
-.grid .itp .itin-shell, .feed-col .itp { margin-bottom: 0; }
 /* the shell keeps the card at standard width whatever the page allows; the
    extra page width exists only to hold the side column beside it */
 .itin-shell, .itin-page > .itin-actions { max-width: 41.5rem; }
@@ -491,3 +485,50 @@
   .itin-shell { padding: 1.1rem .9rem 1rem; }
   .itin-side { margin-top: 1.4rem; }
 }
+
+
+/* ---- standard top spacing: the itinerary page's content begins at the same
+   distance below the masthead as every other page's does, and both columns
+   start on that line. ---- */
+
+/* Itinerary previews in a feed need the same gap beneath them as any other
+   card. In the profile activity feed .act-note supplies it; in the home feed
+   the preview is a direct grid child, so it carries its own. */
+/* An itinerary preview is a large tinted container, not a plain card, so it
+   needs more air beneath it than a note does before the next card’s avatar
+   rail begins. The activity feed’s .act-note wrapper gets the same. */
+.act-note > .itp { margin-bottom: 0; }
+#feed-grid > .itp, .feed-col > .itp { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
+.act-note:has(> .itp) { padding-bottom: 1.5rem; }
+/* .itp IS the shell: one element carries both classes. In the activity feed
+   the .act-note wrapper supplies the separation, so the preview adds none. */
+.act-note > .itp.itin-shell { margin-bottom: 0; }
+
+/* the suggestions disclosure is not the feed pager: its own class, so the
+   global .more-link handler never sees it */
+.sugg-more-btn { display: block; text-align: center; cursor: pointer; list-style: none; margin: .6rem 0 .2rem; }
+.sugg-more-btn::-webkit-details-marker { display: none; }
+.itin-sugg-more[open] > .sugg-more-btn { display: none; }
+
+/* the inline map is a still: interacting with it would drift the pins out of
+   register, so pointer events go to the figure, not the tiles */
+.itin-map iframe { pointer-events: none; }
+.itin-map figcaption a { color: inherit; text-decoration: none; pointer-events: auto; }
+.itin-map figcaption a:hover { text-decoration: underline; }
+
+
+/* ---- the article page is two tiles: the itinerary and its side column. They
+   are the same width, stack on narrow viewports and spread when there is room,
+   exactly as feed columns do. ---- */
+.itin-cols { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.6rem; }
+.itin-main, .itin-side { flex: 1 1 41.5rem; min-width: 0; max-width: 41.5rem; }
+.itin-main > .itin-shell { max-width: none; margin-bottom: 0; }
+.itin-main > .itin-actions { max-width: none; }
+.itin-side { margin: 0; padding-top: 0; }
+.itin-side > :first-child { margin-top: 0; }
+
+/* Other pages open with a .strip heading, which sets their first content 65px
+   below the masthead. These pages open with a card instead, so they carry the
+   same gap themselves. */
+/* the page already sits 65px below the masthead, the same as a .strip page */
+.itin-page, .itin-list { padding-top: 0; }
