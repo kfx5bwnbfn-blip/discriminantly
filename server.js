@@ -4604,6 +4604,133 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
     return { html: dayBlocks + looseBlock, groups, owner };
 }
 
+// An itinerary as it appears in a feed or listing: the article's own shell,
+// truncated after a few stops and faded. Used by the listing page, the home
+// feed and the profile activity tab, so an itinerary is a first-class feed
+// object with the same visibility rules as a note or a mark.
+// ---- itinerary geography ----------------------------------------------------
+// The linked marks that carry coordinates. Everything below is derived from
+// these at read time; nothing is stored.
+function itineraryGeo(it, me) {
+  const rows = q(`SELECT s.uid stop_uid, s.label, s.position, s.group_id, m.* FROM itinerary_stops s
+                  JOIN marks m ON m.uid = s.mark_uid
+                  WHERE s.itinerary_id=? AND m.lat IS NOT NULL AND m.lng IS NOT NULL`).all(it.id)
+    .filter((r) => canSeeStop({ visibility: 'visible', resolution: 'linked', mark_uid: r.uid }, it, me).see);
+  return rows;
+}
+
+// A square map of the region the stops span, with numbered pins for each.
+// OSM's embed takes one marker, so the pins are an SVG overlay mapped into
+// the same bbox in Mercator space -- the bbox is what the embed displays, and
+// it is made square in that space to match the square iframe, so the mapping
+// is faithful. Shown only when at least one stop has coordinates.
+function itineraryMap(it, me, ordered) {
+  const pts = itineraryGeo(it, me);
+  if (!pts.length) return '';
+  const merc = (la) => Math.log(Math.tan(Math.PI / 4 + (la * Math.PI / 180) / 2));
+  const lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
+  let minLa = Math.min(...lats), maxLa = Math.max(...lats), minLn = Math.min(...lngs), maxLn = Math.max(...lngs);
+  // pad, then square in Mercator
+  const padLn = Math.max((maxLn - minLn) * 0.25, 0.01), padLa = Math.max((maxLa - minLa) * 0.25, 0.006);
+  minLn -= padLn; maxLn += padLn; minLa -= padLa; maxLa += padLa;
+  let y0 = merc(minLa), y1 = merc(maxLa);
+  const w = (maxLn - minLn) * Math.PI / 180, h = y1 - y0;
+  if (w > h) { const c = (y0 + y1) / 2; y0 = c - w / 2; y1 = c + w / 2; }
+  else { const c = (minLn + maxLn) / 2, half = (h * 180 / Math.PI) / 2; minLn = c - half; maxLn = c + half; }
+  const unmerc = (y) => (2 * Math.atan(Math.exp(y)) - Math.PI / 2) * 180 / Math.PI;
+  const bLa0 = unmerc(y0), bLa1 = unmerc(y1);
+  const bbox = [minLn, bLa0, maxLn, bLa1].map((v) => v.toFixed(6)).join('%2C');
+  const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${pts[0].lat}%2C${pts[0].lng}`;
+  // number the pins in reading order where the page has one
+  const order = new Map(ordered.map((uid, i) => [uid, i + 1]));
+  const pins = pts.map((p) => {
+    const x = ((p.lng - minLn) / (maxLn - minLn)) * 100;
+    const y = (1 - (merc(p.lat) - y0) / (y1 - y0)) * 100;
+    const n = order.get(p.stop_uid);
+    return `<g transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/>${n ? `<text y="0.9" text-anchor="middle" class="pin-n">${n}</text>` : ''}<title>${esc(p.name)}</title></g>`;
+  }).join('');
+  // mark-map carries the existing per-skin, per-mode tile filters, so the map
+  // is tinted for classic and modern, light and dark, by the same rules the
+  // mark page already uses. Nothing map-specific is invented here.
+  return `<figure class="itin-map mark-map">
+    <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" title="Map of ${esc(it.title)}"></iframe>
+    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}</svg>
+    <figcaption>${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops on the map`}</figcaption>
+  </figure>`;
+}
+
+// Marks and notes near this itinerary that are not already in it. Marks by
+// coordinates within the stops' region (widened), or by matching locality or
+// country; notes by tags or names carrying the same place words. Only the
+// member's own records, only those they can see. Shown only when there is
+// something to show.
+function itinerarySuggestions(it, me) {
+  if (!me || me.id !== it.user_id) return '';
+  const pts = itineraryGeo(it, me);
+  const inItin = new Set(q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id).map((r) => r.mark_uid));
+  const linked = q(`SELECT m.locality, m.country FROM itinerary_stops s JOIN marks m ON m.uid=s.mark_uid WHERE s.itinerary_id=?`).all(it.id);
+  const words = new Set();
+  const addWords = (t) => String(t || '').toLowerCase().split(/[\s,\u2014\-\/]+/).filter((w) => w.length > 3 && !['next','time','when','trip','with','from','that','this','somewhere'].includes(w)).forEach((w) => words.add(w));
+  addWords(it.title); for (const l of linked) { addWords(l.locality); addWords(l.country); }
+  if (!words.size && !pts.length) return '';
+
+  let marks = [];
+  if (pts.length) {
+    const lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
+    const dLa = Math.max((Math.max(...lats) - Math.min(...lats)) * 2, 0.15), dLn = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 2, 0.15);
+    marks = q(MARK_SQL + ` WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?`)
+      .all(me.id, Math.min(...lats) - dLa, Math.max(...lats) + dLa, Math.min(...lngs) - dLn, Math.max(...lngs) + dLn);
+  }
+  const byPlace = q(MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((m) => {
+    const hay = `${m.locality || ''} ${m.country || ''} ${m.name || ''}`.toLowerCase();
+    return [...words].some((w) => hay.includes(w));
+  });
+  const seen = new Set();
+  marks = [...marks, ...byPlace].filter((m) => !inItin.has(m.uid) && !seen.has(m.uid) && (seen.add(m.uid), true));
+
+  const notes = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id).filter((o) => {
+    const hay = `${o.tags || ''} ${o.name || ''} ${o.category || ''}`.toLowerCase();
+    return [...words].some((w) => hay.includes(w));
+  });
+  if (!marks.length && !notes.length) return '';
+
+  const group = (title, items, render, kind) => {
+    if (!items.length) return '';
+    const first = items.slice(0, 3).map(render).join(''), rest = items.slice(3).map(render).join('');
+    return `<section class="itin-sugg-group">
+      <h4 class="itin-day"><b>${title}</b><span>${items.length}</span><span class="rule"></span></h4>
+      <div class="itin-sugg-list">${first}</div>
+      ${rest ? `<details class="itin-sugg-more"><summary class="nf-post more-link">Show more</summary><div class="itin-sugg-list">${rest}</div></details>` : ''}
+    </section>`;
+  };
+  const markRow = (m) => `<div class="sugg"><a class="sugg-name" href="/m/${m.id}">${esc(m.name)}</a><span class="sugg-sub">${esc([m.locality, m.country].filter(Boolean).join(', '))}</span>
+    <form method="post" action="/t/${it.id}/stops"><input type="hidden" name="mark_uid" value="${esc(m.uid)}"><input type="hidden" name="label" value="${esc(m.name)}"><button class="link caps">Add to itinerary</button></form></div>`;
+  const noteRow = (o) => `<div class="sugg"><a class="sugg-name" href="/o/${o.id}">${esc(o.name)}</a><span class="sugg-sub">${esc(tagList(o.tags).slice(0, 3).map((t) => '#' + t).join(' '))}</span></div>`;
+  return `<aside class="itin-sugg">
+    <h3 class="strip">Nearby, from your catalogue</h3>
+    ${group('Travel marks', marks, markRow)}${group('Notes', notes, noteRow)}
+  </aside>`;
+}
+
+function itineraryPreview(it, me) {
+  const tf = (row) => temporalFormat(temporalOf(row));
+  const total = q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(it.id).c;
+  const shown = 3;
+  const rendered = itineraryBody(it, me, { interactive: false, limit: shown });
+  const when = tf(it);
+  return `<div class="itp itin-shell">
+    <a class="itp-head ens-head itin-head" href="/t/${it.id}">
+      <p class="who"><span>${esc(q('SELECT handle FROM users WHERE id=?').get(it.user_id).handle)}</span> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
+      <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
+      ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
+      ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}
+    </a>
+    <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
+    <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
+    ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
+  </div>`;
+}
+
 const pages = {
   home(req, res, me, url) {
     const s = (url.searchParams.get('q') || '').trim();
@@ -4632,8 +4759,14 @@ const pages = {
     if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
     if (s) { const k = s.toLowerCase(); marks = marks.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
     marks = marks.filter((x) => canSee(x, me));
+    // Itineraries are first-class feed objects: the same visibility rule as a
+    // note or a mark (canSee), shown as the article shell truncated.
+    const itins = feed === 'all'
+      ? q('SELECT * FROM itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
+      : [];
     const entries = [...rows.map((o) => ({ at: o.created_at, key: 'note:' + o.id, html: objectCard(o, me) })),
-                     ...marks.map((x) => ({ at: x.created_at, key: 'mark:' + x.id, html: markCard(x, me) }))]
+                     ...marks.map((x) => ({ at: x.created_at, key: 'mark:' + x.id, html: markCard(x, me) })),
+                     ...itins.filter((it) => canSee(it, me)).map((it) => ({ at: it.created_at, key: 'itin:' + it.id, html: itineraryPreview(it, me) }))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
     const banner = resurfaceBanner(me, feed);
     const shown = banner.skip;
@@ -4754,31 +4887,8 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     // the mark cards, the intention cards -- cut off after a few stops and
     // faded, so what the member sees on the list is exactly what they will see
     // on the page, just less of it.
-    const preview = (it) => {
-      const total = q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(it.id).c;
-      const shown = 3;
-      const rendered = itineraryBody(it, me, { interactive: false, limit: shown });
-      const when = tf(it);
-      // Not an <a>: the mark cards inside carry their own links, and an anchor
-      // cannot contain anchors -- the parser closes the outer one and the
-      // cards fall out of the preview. A div, with a link overlay for the
-      // whole preview and the heading as a link of its own.
-      return `<div class="itp itin-shell">
-        <a class="itp-head ens-head itin-head" href="/t/${it.id}">
-          <h1 class="ens-title">${esc(it.title || 'Untitled')}${it.private ? ' <i class="itin-priv">private</i>' : ''}</h1>
-          ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
-          ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}
-        </a>
-        <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
-        <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
-        ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
-      </div>`;
-    };
+    const preview = (it) => itineraryPreview(it, me);
 
-    // The create card is the note post card's shape: the nf-box, the private
-    // switch top-right in nf-top, and the primary CTA the comment form uses.
-    // Timing is behind a second disclosure, because most itineraries start
-    // without a date and the fields should not suggest otherwise.
     // The mark post card's language, verbatim: nf-box, the private switch in
     // nf-top, nf-field inputs stacked in nf-stack with their tracked-caps
     // placeholders as labels. Timing is behind a button, closed by default.
@@ -4806,7 +4916,7 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     const main = `<h3 class="strip">${own ? 'Your itineraries' : esc(subject.handle) + '\u2019s itineraries'}</h3>
     ${own ? '<p class="ens-grid-sub">Places you mean to go, at whatever precision you have.</p>' : ''}
     ${create}
-    <div class="itp-list">${rows.map(preview).join('')}</div>
+    ${rows.length ? `<div class="grid" id="feed-grid">${rows.map(preview).join('')}</div>` : ''}
     ${rows.length || own ? '' : emptyState(me, 'itineraries')}`;
     const body = `<div class="cols profile-cols">${profileRail(subject, me, 'itineraries')}
   <section class="feed profile-feed itin-list">${main}</section>
@@ -4836,7 +4946,9 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         </div><button class="nf-post">Add day</button></div></form></details>` : '';
 
     const when = tf(it);
-    const titleBlock = `<div class="ens-head itin-head"><h1 class="ens-title">${esc(it.title || 'Untitled')}${it.private ? ' <i class="itin-priv">private</i>' : ''}</h1>
+    const titleBlock = `<div class="ens-head itin-head">
+        <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
+        <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
         ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
     const head = owner ? `<details class="itin-head-edit"><summary>${titleBlock}<i class="itin-day-hint">edit</i></summary>
       <form method="post" action="${base}" class="nf nf-compact itin-new"><div class="nf-box"><div class="nf-stack">
@@ -4858,9 +4970,16 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     // One container holds the whole itinerary -- title, overview, days -- so
     // the article page is the fully expanded card and the listing shows the
     // same card truncated.
+    // reading order of linked stops, for numbering the pins
+    const ordered = [];
+    for (const g of groups) for (const st of itineraryStops(it.id, g.id)) if (st.mark_uid) ordered.push(st.uid);
+    for (const st of itineraryStops(it.id, null)) if (st.mark_uid) ordered.push(st.uid);
+    const sideMap = itineraryMap(it, me, ordered);
+    const sideSugg = itinerarySuggestions(it, me);
     const main = `<div class="itin-shell">${head}
     ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
     ${dayBlocks}${looseBlock}${addDay}</div>${foot}
+    ${sideMap || sideSugg ? `<aside class="itin-side">${sideMap}${sideSugg}</aside>` : ''}
     ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>
@@ -5390,9 +5509,14 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         if (!x.private || owner) acts.push({ at: x.created_at, card: null, html: null, mark: x });
       for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
         acts.push({ at: f.created_at, follow: f });
+      // itineraries: first-class, same visibility rule as marks and notes
+      for (const it of q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT 20').all(u.id))
+        if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       main = `<h3 class="strip">All activity</h3>
-      <div class="activity-feed" id="feed-grid">${pageOf(acts, url).slice.map((a) => a.mark
+      <div class="activity-feed" id="feed-grid">${pageOf(acts, url).slice.map((a) => a.itin
+        ? `<div class="act-note">${itineraryPreview(a.itin, me)}</div>`
+        : a.mark
         ? `<div class="act-note">${markCard(a.mark, me)}</div>`
         : a.follow
         ? `<div class="act-note"><article class="act-follow"><div class="follow-card">

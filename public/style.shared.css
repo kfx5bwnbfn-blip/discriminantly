@@ -264,7 +264,7 @@
 /* grid-single is 42rem and left-aligned; the itinerary wraps its cards in a
    day container and a timeline indent, so the column is that much wider and
    the card inside lands at exactly the width it has on its own page. */
-.itin-page { max-width: 44.4rem; margin-left: 0; margin-right: 0; }
+.itin-page { max-width: 65rem; margin-left: 0; margin-right: 0; }
 
 /* Each day is one flat container -- the visit-log / resurfacing tint -- and its
    stops sit bare inside it: no tint-within-tint. The unplaced cluster gets the
@@ -432,3 +432,62 @@
 /* the listing keeps the feed's normal width, so Start an itinerary follows
    the same rule as Post a new Note; only the article page is column-limited */
 .itin-list .post-box { margin-bottom: 1.4rem; }
+
+/* ---- itinerary article: the map and the nearby suggestions sit in a side
+   column on desktop, to the right of the shell; below it on a phone. ---- */
+.itin-side { display: block; margin: 0 0 1.4rem; }
+/* the side column is absolutely placed beside the shell, so the page must
+   reserve room for it or it runs past the viewport (it did, in classic at
+   1500px). The column is limited to the shell's width plus the side. */
+/* beside the shell only when the viewport can hold the full-width card AND
+   the side column; below that the side drops beneath, and the card keeps its
+   standard width rather than shrinking to make room. */
+@media (min-width: 92rem) {
+  .itin-page { position: relative; padding-right: 20.6rem; }
+  .itin-side { position: absolute; top: 0; right: 0; width: 19rem; margin: 0; }
+}
+/* square, and overriding mark-map's own fixed iframe height so the tile fills
+   the square. The colour filters from mark-map are deliberately inherited. */
+.itin-map { position: relative; margin: 0 0 1.4rem; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; max-width: none; }
+.itin-map iframe { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; border: 0; display: block; }
+.itin-map svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.itin-map .pin { fill: currentColor; stroke: #fff; stroke-width: .6; }
+.itin-map .pin-n { font-size: 2.6px; font-weight: 700; fill: #fff; font-family: inherit; }
+.itin-map figcaption { position: absolute; left: 0; right: 0; bottom: 0; padding: .45rem .8rem; font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; }
+.itin-sugg { display: block; }
+.itin-sugg .strip { margin-bottom: .8rem; }
+.itin-sugg-group { margin: 0 0 1.2rem; }
+.itin-sugg-list { display: grid; gap: .3rem; }
+.sugg { display: grid; grid-template-columns: 1fr auto; gap: 0 .6rem; align-items: baseline; padding: .5rem .2rem; }
+.sugg-name { grid-column: 1; font-size: .98rem; text-decoration: none; color: inherit; }
+.sugg-sub { grid-column: 1; font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
+.sugg form { grid-column: 2; grid-row: 1 / 3; margin: 0; align-self: center; }
+.sugg form .link { font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; }
+.itin-sugg-more > summary { list-style: none; cursor: pointer; display: block; text-align: center; margin: .5rem 0 .2rem; }
+.itin-sugg-more > summary::-webkit-details-marker { display: none; }
+.itin-sugg-more[open] > summary { display: none; }
+/* listing previews in feed columns: the shell fills its column */
+.grid .itp, .feed-col .itp { width: 100%; box-sizing: border-box; }
+.grid .itp .itin-shell, .feed-col .itp { margin-bottom: 0; }
+/* the shell keeps the card at standard width whatever the page allows; the
+   extra page width exists only to hold the side column beside it */
+.itin-shell, .itin-page > .itin-actions { max-width: 41.5rem; }
+
+
+/* ---- itinerary spacing: one rhythm. The shell's head sits on the feed's
+   standard top padding, and the side column starts on the same line as the
+   shell so the two columns share a baseline. ---- */
+.itin-page > .itin-shell:first-child, .itin-page > .itin-shell { margin-top: 0; }
+.itin-shell { padding: 1.4rem 1.25rem 1.2rem; }
+.itin-shell .itin-head { padding: 0 .5rem .2rem; }
+.itin-shell .itin-head .who { margin: 0 0 .5rem; }
+.itin-shell .itin-head .ens-title { margin: 0 0 .4rem; padding-top: 0; }
+
+.itin-side { padding-top: 0; }
+.itin-side > .itin-map:first-child { margin-top: 0; }
+.itin-sugg { margin-top: 0; }
+.itp .itin-head { padding-top: 1.1rem; }
+@media (max-width: 52rem) {
+  .itin-shell { padding: 1.1rem .9rem 1rem; }
+  .itin-side { margin-top: 1.4rem; }
+}

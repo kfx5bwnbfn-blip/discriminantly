@@ -2199,3 +2199,20 @@ body[data-skin="modern"][data-mode="light"] .itin-shell, html.m-light body[data-
 body[data-skin="modern"] .itin-shell .itin-head .ens-title { color: var(--m-ink); }
 body[data-skin="modern"] .itin-priv { color: var(--m-ink-3); opacity: 1; }
 body[data-skin="modern"] .itp-head.itin-head:hover .ens-title { color: var(--m-ink); }
+body[data-skin="modern"] .itin-map { box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+body[data-skin="modern"] .itin-map .pin { fill: var(--m-accent); }
+body[data-skin="modern"] .itin-map figcaption { background: linear-gradient(to top, rgba(20,22,30,.78), transparent); color: #fff; }
+body[data-skin="modern"] .itin-sugg { padding: 1.1rem 1.25rem 1rem; border-radius: 16px; background: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] .itin-sugg, html.m-light body[data-skin="modern"][data-mode="system"] .itin-sugg { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .sugg-name { color: var(--m-ink); }
+body[data-skin="modern"] .sugg-name:hover { color: var(--m-accent); }
+body[data-skin="modern"] .sugg-sub { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .sugg { border-bottom: 1px solid var(--m-rule); }
+body[data-skin="modern"] .sugg:last-child { border-bottom: 0; }
+body[data-skin="modern"] .itin-sugg-more > summary.more-link { display: inline-block; }
+/* the itinerary eyebrow is the card eyebrow: same who / who-private tokens */
+body[data-skin="modern"] .itin-shell .who { text-align: center; }
+
+/* the shell provides the top padding; ens-head must not add its own or the
+   modern skin sits 30px lower than classic for the same content */
+body[data-skin="modern"] .itin-shell .ens-head, body[data-skin="modern"] .itp .ens-head { padding-top: 0; }
