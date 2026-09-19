@@ -4505,17 +4505,17 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const dayOpts = groups.map((g) => `<option value="${g.uid}" ${g.id === st.group_id ? 'selected' : ''}>${esc(g.label || tf(g) || 'A day')}</option>`).join('');
       const menu = ctl ? `<details class="stop-menu"><summary aria-label="Stop actions">\u00b7\u00b7\u00b7</summary>
         <div class="stop-sheet">
-          <form method="post" action="${base}/stops/${st.uid}" class="stop-form">
-            <label>Wording <input name="label" value="${esc(st.label)}"></label>
-            ${st.mark_uid ? '' : `<label>Kind <select name="resolution">
-              <option value="particular" ${st.resolution === 'particular' ? 'selected' : ''}>a particular place</option>
-              <option value="experiential" ${st.resolution === 'experiential' ? 'selected' : ''}>an intention</option>
-              <option value="allocation" ${st.resolution === 'allocation' ? 'selected' : ''}>open time</option></select></label>`}
-            <label>Time of day <select name="t_daypart"><option value="">\u2014</option>${['morning', 'afternoon', 'evening', 'night'].map((d) => `<option ${st.t_daypart === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
-            <label>Clock <input name="t_clock" value="${esc(st.t_clock || '')}" placeholder="19:30" pattern="([01]\\d|2[0-3]):[0-5]\\d"></label>
-            <label>Day <select name="group_uid"><option value="">Not on a day</option>${dayOpts}</select></label>
-            <button class="btn">Save</button>
-          </form>
+          <form method="post" action="${base}/stops/${st.uid}" class="nf nf-compact stop-form"><div class="nf-stack">
+            <input class="nf-field" name="label" value="${esc(st.label)}" placeholder="WORDING" maxlength="200">
+            ${st.mark_uid ? '' : `<select class="nf-field" name="resolution">
+              <option value="particular" ${st.resolution === 'particular' ? 'selected' : ''}>A PARTICULAR PLACE</option>
+              <option value="experiential" ${st.resolution === 'experiential' ? 'selected' : ''}>AN INTENTION</option>
+              <option value="allocation" ${st.resolution === 'allocation' ? 'selected' : ''}>OPEN TIME</option></select>`}
+            <select class="nf-field" name="t_daypart"><option value="">TIME OF DAY</option>${['morning', 'afternoon', 'evening', 'night'].map((d) => `<option ${st.t_daypart === d ? 'selected' : ''}>${d}</option>`).join('')}</select>
+            <input class="nf-field" name="t_clock" value="${esc(st.t_clock || '')}" placeholder="CLOCK, E.G. 19:30" pattern="([01]\\d|2[0-3]):[0-5]\\d">
+            <select class="nf-field" name="group_uid"><option value="">NOT ON A DAY</option>${dayOpts}</select>
+            <button class="nf-post">Save</button>
+          </div></form>
           <div class="stop-links">
             ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
             ${st.mark_uid ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="unlink" value="1"><button class="link caps">Unlink the mark</button></form>` : ''}
@@ -4560,11 +4560,12 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       // on the same line at that height, so the row reads as one control.
       const add = ctl ? `<li class="stop-add"><details class="stop-add-disc">
         <summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>${groupUid ? 'Add to this day' : 'Add somewhere, or something'}</span></summary>
-        <form method="post" action="${base}/stops" class="stop-add-form">
-          <input type="hidden" name="group_uid" value="${groupUid || ''}">
-          <input name="label" placeholder="${groupUid ? 'What, or where' : 'Somewhere, or something, you mean to do'}" required autocomplete="off">
-          <select name="resolution" aria-label="Kind"><option value="experiential">an intention</option><option value="particular">a particular place</option><option value="allocation">open time</option></select>
-          <button class="btn stop-add-btn">Add</button></form></details></li>` : '';
+        <form method="post" action="${base}/stops" class="nf nf-compact stop-add-form">
+          <div class="nf-box"><div class="nf-stack">
+            <input type="hidden" name="group_uid" value="${groupUid || ''}">
+            <input class="nf-field" name="label" placeholder="${groupUid ? 'WHAT, OR WHERE (REQUIRED)' : 'SOMEWHERE, OR SOMETHING, YOU MEAN TO DO'}" required maxlength="200" autocomplete="off">
+            <select class="nf-field" name="resolution" aria-label="Kind"><option value="experiential">AN INTENTION</option><option value="particular">A PARTICULAR PLACE</option><option value="allocation">OPEN TIME</option></select>
+          </div><button class="nf-post stop-add-btn">Add</button></div></form></details></li>` : '';
       if (!rows.length && !add) return '';
       return `<ol class="itin-tl" data-seq="${seq}" data-group="${groupUid || ''}">${rows.join('')}${add}</ol>`;
     };
@@ -4578,15 +4579,14 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const read = `<b>${esc(g.label || (when ? '' : 'A day'))}</b>${when ? `<span>${esc(when)}</span>` : ''}`;
       if (!ctl) return `<h4 class="itin-day">${read}<span class="rule"></span></h4>`;
       return `<details class="itin-day-edit"><summary class="itin-day">${read}<span class="rule"></span><i class="itin-day-hint">edit</i></summary>
-        <form method="post" action="${base}/groups/${g.uid}" class="day-form">
-          <label>Label <input name="label" value="${esc(g.label)}" placeholder="Day 1, Friday\u2026"></label>
-          <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${g.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
-          <label>Day <input name="t_day" type="number" min="1" max="31" value="${g.t_day ?? ''}"></label>
-          <label>Year <input name="t_year" type="number" min="1" max="9999" value="${g.t_year ?? ''}" placeholder="unknown"></label>
-          <label>Weekday <select name="t_weekday"><option value="">\u2014</option>${T_WEEKDAYS.map((w) => `<option ${g.t_weekday === w ? 'selected' : ''}>${w}</option>`).join('')}</select></label>
+        <form method="post" action="${base}/groups/${g.uid}" class="nf nf-compact day-form"><div class="nf-box"><div class="nf-stack">
+          <input class="nf-field" name="label" value="${esc(g.label)}" placeholder="LABEL \u2014 DAY 1, FRIDAY\u2026" maxlength="60">
+          <select class="nf-field" name="t_month"><option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${g.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select>
+          <input class="nf-field" name="t_day" type="number" min="1" max="31" value="${g.t_day ?? ''}" placeholder="DAY OF MONTH">
+          <input class="nf-field" name="t_year" type="number" min="1" max="9999" value="${g.t_year ?? ''}" placeholder="YEAR">
+          <select class="nf-field" name="t_weekday"><option value="">WEEKDAY</option>${T_WEEKDAYS.map((w) => `<option ${g.t_weekday === w ? 'selected' : ''}>${w}</option>`).join('')}</select>
           <input type="hidden" name="intent" value="">
-          <button class="btn">Save</button>
-        </form>
+          </div><button class="nf-post">Save</button></div></form>
         <div class="stop-links"><form method="post" action="${base}/groups/${g.uid}/delete" onsubmit="return confirm('Remove this day? Its stops stay, unplaced.')"><button class="link caps stop-del">Remove this day</button></form></div>
       </details>`;
     };
@@ -4773,20 +4773,26 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     // switch top-right in nf-top, and the primary CTA the comment form uses.
     // Timing is behind a second disclosure, because most itineraries start
     // without a date and the fields should not suggest otherwise.
-    const create = own ? `<details class="itin-create" ${rows.length ? '' : 'open'}>
+    // The mark post card's language, verbatim: nf-box, the private switch in
+    // nf-top, nf-field inputs stacked in nf-stack with their tracked-caps
+    // placeholders as labels. Timing is behind a button, closed by default.
+    const monthOpts = `<option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}`;
+    const create = own ? `<details class="itin-create">
       <summary class="post-box"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Start an itinerary</span></summary>
       <form method="post" action="/t/new" class="nf nf-compact itin-new">
         <div class="nf-box">
           <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" checked><span></span></label></div>
-          <label class="nf-field"><span class="nf-lbl">Where</span><input name="title" placeholder="Singapore, or Next time I\u2019m in London" required autocomplete="off"></label>
-          <label class="nf-field"><span class="nf-lbl">Overview</span><textarea name="context" rows="3" placeholder="More street food this trip. Staying near Orchard. Don\u2019t over-plan the afternoons."></textarea></label>
-          <details class="itin-timing"><summary class="link caps">+ When, if you know</summary>
-            <div class="itin-timing-fields">
-              <label class="nf-field"><span class="nf-lbl">Year</span><input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
-              <label class="nf-field"><span class="nf-lbl">Month</span><select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
-              <label class="nf-field"><span class="nf-lbl">Season</span><select name="t_period"><option value="">\u2014</option>${T_PERIODS.map((p2) => `<option>${p2}</option>`).join('')}</select></label>
-              <label class="nf-field"><span class="nf-lbl">Part</span><select name="t_modifier"><option value="">\u2014</option>${T_MODS.map((m2) => `<option>${m2}</option>`).join('')}</select></label>
-              <label class="nf-field"><span class="nf-lbl">Part of</span><select name="t_modifier_scope"><option value="">\u2014</option>${T_SCOPES.map((sc2) => `<option>${sc2}</option>`).join('')}</select></label>
+          <div class="nf-stack">
+            <input class="nf-field" name="title" placeholder="WHERE (REQUIRED)" required maxlength="120" autocomplete="off">
+            <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW \u2014 WHAT YOU HAVE IN MIND"></textarea>
+          </div>
+          <details class="itin-timing"><summary class="btn itin-when">When, if you know</summary>
+            <div class="nf-stack itin-timing-fields">
+              <input class="nf-field" name="t_year" type="number" min="1" max="9999" placeholder="YEAR">
+              <select class="nf-field" name="t_month">${monthOpts}</select>
+              <select class="nf-field" name="t_period"><option value="">SEASON</option>${T_PERIODS.map((p2) => `<option>${p2}</option>`).join('')}</select>
+              <select class="nf-field" name="t_modifier"><option value="">EARLY / MID / LATE</option>${T_MODS.map((m2) => `<option>${m2}</option>`).join('')}</select>
+              <select class="nf-field" name="t_modifier_scope"><option value="">\u2026 OF THE YEAR / SEASON / MONTH</option>${T_SCOPES.map((sc2) => `<option value="${sc2}">of the ${sc2}</option>`).join('')}</select>
             </div></details>
           <button class="nf-post itin-start">Start</button>
         </div>
@@ -4815,27 +4821,27 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     const rendered = itineraryBody(it, me);
     const dayBlocks = rendered.html, looseBlock = '';
 
-    const addDay = owner ? `<details class="itin-add-day"><summary class="link caps">+ Add a day</summary>
-      <form method="post" action="${base}/groups" class="day-form">
-        <label>Label <input name="label" placeholder="Day ${groups.length + 1}"></label>
-        <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
-        <label>Day <input name="t_day" type="number" min="1" max="31"></label>
-        <label>Year <input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
-        <button class="btn">Add day</button></form></details>` : '';
+    const addDay = owner ? `<details class="itin-add-day"><summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a day</span></summary>
+      <form method="post" action="${base}/groups" class="nf nf-compact day-form"><div class="nf-box"><div class="nf-stack">
+        <input class="nf-field" name="label" placeholder="LABEL \u2014 DAY ${groups.length + 1}, FRIDAY\u2026" maxlength="60">
+        <select class="nf-field" name="t_month"><option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select>
+        <input class="nf-field" name="t_day" type="number" min="1" max="31" placeholder="DAY OF MONTH">
+        <input class="nf-field" name="t_year" type="number" min="1" max="9999" placeholder="YEAR">
+        </div><button class="nf-post">Add day</button></div></form></details>` : '';
 
     const when = tf(it);
     const head = owner ? `<details class="itin-head-edit"><summary><h3 class="strip">${esc(it.title || 'Untitled')}${it.private ? ' <i>private</i>' : ''}</h3>
         ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}
         <i class="itin-day-hint">edit</i></summary>
-      <form method="post" action="${base}" class="day-form itin-form">
-        <label>Title <input name="title" value="${esc(it.title)}"></label>
-        <label>Context <textarea name="context" rows="3" placeholder="More street food this trip. Staying near Orchard.">${esc(it.context)}</textarea></label>
-        <label>Year <input name="t_year" type="number" value="${it.t_year ?? ''}" placeholder="unknown"></label>
-        <label>Season <select name="t_period"><option value="">\u2014</option>${T_PERIODS.map((p2) => `<option ${it.t_period === p2 ? 'selected' : ''}>${p2}</option>`).join('')}</select></label>
-        <label>Part <select name="t_modifier"><option value="">\u2014</option>${T_MODS.map((m2) => `<option ${it.t_modifier === m2 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
-        <label>Part of <select name="t_modifier_scope"><option value="">\u2014</option>${T_SCOPES.map((sc2) => `<option ${it.t_modifier_scope === sc2 ? 'selected' : ''}>${sc2}</option>`).join('')}</select></label>
-        <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${it.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
-        <button class="btn">Save</button></form></details>`
+      <form method="post" action="${base}" class="nf nf-compact itin-new"><div class="nf-box"><div class="nf-stack">
+        <input class="nf-field" name="title" value="${esc(it.title)}" placeholder="WHERE (REQUIRED)" maxlength="120">
+        <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW">${esc(it.context)}</textarea>
+        <input class="nf-field" name="t_year" type="number" value="${it.t_year ?? ''}" placeholder="YEAR">
+        <select class="nf-field" name="t_month"><option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${it.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select>
+        <select class="nf-field" name="t_period"><option value="">SEASON</option>${T_PERIODS.map((p2) => `<option ${it.t_period === p2 ? 'selected' : ''}>${p2}</option>`).join('')}</select>
+        <select class="nf-field" name="t_modifier"><option value="">EARLY / MID / LATE</option>${T_MODS.map((m2) => `<option ${it.t_modifier === m2 ? 'selected' : ''}>${m2}</option>`).join('')}</select>
+        <select class="nf-field" name="t_modifier_scope"><option value="">\u2026 OF THE YEAR / SEASON / MONTH</option>${T_SCOPES.map((sc2) => `<option value="${sc2}" ${it.t_modifier_scope === sc2 ? 'selected' : ''}>of the ${sc2}</option>`).join('')}</select>
+        </div><button class="nf-post itin-start">Save</button></div></form></details>`
       : `<h3 class="strip">${esc(it.title || 'Untitled')}</h3>${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}`;
 
     const foot = owner ? `<div class="itin-actions">

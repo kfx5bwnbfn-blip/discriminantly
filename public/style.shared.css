@@ -236,20 +236,10 @@
 .stop-links form { margin: 0; }
 .stop-del { opacity: .7; }
 
-/* forms: small, inline, in the page's own register */
-.stop-form, .day-form { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem .8rem; margin: 0; }
-.stop-form label, .day-form label { display: flex; flex-direction: column; gap: .25rem; font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
-.stop-form input, .stop-form select, .day-form input, .day-form select, .day-form textarea { font-size: .92rem; letter-spacing: 0; text-transform: none; padding: .45rem .6rem; border-radius: 10px; }
-.stop-form .btn, .day-form .btn { grid-column: 1 / -1; justify-self: start; }
-.itin-form { grid-template-columns: 1fr 1fr 1fr; }
-.itin-form label:first-child, .itin-form label:nth-child(2) { grid-column: 1 / -1; }
-.itin-check { flex-direction: row !important; align-items: center; gap: .5rem !important; }
+
 .stop-add { margin-top: .4rem; }
 .stop-add::before { display: none; }
 .stop-add-form { display: flex; gap: .5rem; align-items: center; margin: 0; }
-.stop-add-form input[name="label"] { flex: 1 1 auto; min-width: 8rem; }
-.stop-add-form select { flex: 0 0 auto; width: auto; max-width: 11rem; }
-.stop-add-form .btn { flex: 0 0 auto; }
 .itin-add-day, .itin-create { margin: .4rem 0 1.4rem; }
 .itin-add-day .day-form, .itin-create .day-form { margin-top: .8rem; }
 .itin-actions { display: flex; gap: 1.4rem; align-items: center; margin-top: 2rem; padding-top: 1.2rem; }
@@ -318,25 +308,13 @@
 .stop-loose { display: none; }
 @media (max-width: 52rem) { .stop-card { padding: 1rem 1rem 1.1rem; } .stop-card .stop-label { font-size: 1.25rem; } }
 
-/* ---- add-stop: a disclosure. Closed, it is one post-box button. Open, the
-   fields and the Add button are one row at one height. ---- */
+/* ---- add-stop: one post-box button, opening a card of fields ---- */
 .stop-add-disc > summary { list-style: none; cursor: pointer; }
 .stop-add-disc > summary::-webkit-details-marker { display: none; }
 .stop-add-open { margin: .2rem 0 0; padding: .55rem 1rem; min-height: 0; }
 .stop-add-open .plus { width: 2.1rem; height: 2.1rem; }
 .stop-add-open span { font-size: .95rem; }
 .stop-add-disc[open] > summary { display: none; }
-.stop-add-form { --row-h: 2.6rem; display: grid; grid-template-columns: 1fr auto auto; gap: .5rem; align-items: stretch; margin: .2rem 0 0; }
-.stop-add-form input[name="label"], .stop-add-form select, .stop-add-form .stop-add-btn {
-  height: var(--row-h); box-sizing: border-box; margin: 0; line-height: 1; }
-.stop-add-form input[name="label"] { min-width: 0; padding: 0 .8rem; font-size: .95rem; }
-.stop-add-form select { padding: 0 2rem 0 .75rem; font-size: .88rem; max-width: 12rem; }
-.stop-add-form .stop-add-btn { padding: 0 1.4rem; display: inline-flex; align-items: center; justify-content: center; min-width: 5.5rem; }
-@media (max-width: 52rem) {
-  .stop-add-form { grid-template-columns: 1fr; }
-  .stop-add-form select { max-width: none; }
-  .stop-add-form .stop-add-btn { width: 100%; }
-}
 
 /* =====================================================================
    Itinerary listing: each itinerary is the article page's own rendering,
@@ -392,21 +370,34 @@
 .itin-create > summary.post-box::-webkit-details-marker { display: none; }
 .itin-create[open] > summary.post-box { margin-bottom: 1rem; }
 
-/* ---- the create-itinerary card: the note post card's structure ---- */
-.itin-create[open] > summary.post-box { margin-bottom: 1rem; }
-.itin-new { margin: 0; }
-.itin-new .nf-box { position: relative; padding-top: 2.4rem; }
+/* ---- itinerary forms: the mark post card's own components, nothing new.
+   nf-box, nf-top, nf-stack and nf-field are inherited untouched; these rules
+   only place the switch and size the primary button. ---- */
+.itin-create > summary.post-box, .itin-add-day > summary.post-box { list-style: none; cursor: pointer; }
+.itin-create > summary.post-box::-webkit-details-marker, .itin-add-day > summary.post-box::-webkit-details-marker { display: none; }
+.itin-create[open] > summary.post-box, .itin-add-day[open] > summary.post-box { margin-bottom: 1rem; }
+.itin-new, .day-form, .stop-form, .stop-add-form { margin: 0; }
+.itin-new .nf-box { position: relative; }
 .itin-new .nf-top { position: absolute; top: .9rem; right: 1rem; display: flex; align-items: center; gap: .6rem; margin: 0; }
-.itin-new .nf-field { display: flex; flex-direction: column; gap: .35rem; margin: 0 0 1rem; }
-.itin-new .nf-field .nf-lbl { font-size: .6rem; letter-spacing: .16em; text-transform: uppercase; }
-.itin-new input[name="title"], .itin-new textarea, .itin-timing-fields input, .itin-timing-fields select { width: 100%; box-sizing: border-box; font-size: 1rem; padding: .6rem .8rem; border-radius: 12px; }
-.itin-new textarea { resize: vertical; min-height: 4.6rem; }
-.itin-timing { margin: .2rem 0 1.1rem; }
-.itin-timing > summary { list-style: none; cursor: pointer; font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; }
+.itin-new .nf-top + .nf-stack { margin-top: 2rem; }
+.itin-timing { margin: .6rem 0 .2rem; }
+.itin-timing > summary { list-style: none; }
 .itin-timing > summary::-webkit-details-marker { display: none; }
-.itin-timing[open] > summary { margin-bottom: .8rem; }
-.itin-timing-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem .8rem; }
-.itin-timing-fields .nf-field { margin-bottom: .4rem; }
-/* the primary CTA, sized as a primary CTA */
-.itin-new .itin-start { display: block; width: 100%; font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; margin-top: .4rem; }
-@media (max-width: 52rem) { .itin-timing-fields { grid-template-columns: 1fr 1fr; } }
+.itin-when { display: inline-flex; align-items: center; cursor: pointer; }
+.itin-timing[open] > .itin-when { margin-bottom: .8rem; }
+.itin-timing[open] > .itin-when::after { content: "\00a0\00a0\2212"; }
+.itin-timing:not([open]) > .itin-when::after { content: "\00a0\00a0+"; }
+/* the primary action, at primary size, full width, below the stack */
+.itin-new .nf-post, .day-form .nf-post, .stop-form .nf-post, .stop-add-form .nf-post { display: block; width: 100%; margin-top: .9rem;
+  font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; }
+.stop-add-form .nf-box, .day-form .nf-box { padding: 1rem; }
+.stop-form .nf-stack { margin: 0; }
+.stop-sheet .nf-post { margin-top: .6rem; }
+/* the itinerary's title field is its "name" field: same primary-field size
+   the mark form gives input[name="name"] */
+.nf-stack input.nf-field[name="title"] { text-transform: none; letter-spacing: .01em; font-size: var(--nf-body-size); line-height: 1.45; }
+.nf-stack input.nf-field[name="title"]::placeholder { text-transform: uppercase; letter-spacing: .12em; }
+/* in-day cards fill their column; nf-compact would otherwise fit them to content */
+.stop-add-form, .day-form, .stop-form, .itin-new { display: block; width: 100%; }
+.stop-add-form .nf-box, .day-form .nf-box, .itin-new .nf-box { width: 100%; max-width: none; box-sizing: border-box; }
+.stop-add-form .nf-stack, .day-form .nf-stack, .stop-form .nf-stack, .itin-new .nf-stack { width: 100%; }
