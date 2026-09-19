@@ -2169,9 +2169,9 @@ body[data-skin="modern"] .itin-new .itin-start:hover { background: var(--m-glass
 /* itinerary forms inherit the mark form's field paint. Only the additions are
    painted here: the When button as the skin's glass pill, and the primary
    buttons as the comment form's glass primary. */
-body[data-skin="modern"] .itin-when { background: var(--m-glass-2); color: var(--m-ink); border: 0; border-radius: 999px;
+body[data-skin="modern"] .itin-when-btn { background: var(--m-glass-2); color: var(--m-ink); border: 0; border-radius: 999px;
   box-shadow: inset 0 1px 0 var(--m-line); padding: .55rem 1.1rem; font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; }
-body[data-skin="modern"] .itin-when:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .itin-when-btn:hover { background: var(--m-glass-3); }
 body[data-skin="modern"] .itin-new .nf-post, body[data-skin="modern"] .day-form .nf-post,
 body[data-skin="modern"] .stop-form .nf-post, body[data-skin="modern"] .stop-add-form .nf-post {
   background: var(--m-glass-2); background-image: none; color: var(--m-ink); border: 0; border-radius: 999px;
@@ -2181,3 +2181,21 @@ body[data-skin="modern"] .itin-new .nf-post:hover, body[data-skin="modern"] .day
 body[data-skin="modern"] .stop-form .nf-post:hover, body[data-skin="modern"] .stop-add-form .nf-post:hover { background: var(--m-glass-3); }
 body[data-skin="modern"] .stop-sheet { background: none; box-shadow: none; padding: 0; }
 body[data-skin="modern"] .stop-sheet .stop-links { padding: .4rem .3rem 0; }
+/* welcome cells inside .wcells: the same quiet chips, re-declared because the
+   originals target direct children of .wtable */
+body[data-skin="modern"] .rail .wtable:not(.settings-table) .wcells > .wcell {
+  border: 0; border-radius: 14px; background: rgba(255,255,255,.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.07);
+  transition: background .18s var(--m-ease); }
+body[data-skin="modern"][data-mode="light"] .rail .wtable:not(.settings-table) .wcells > .wcell,
+html.m-light body[data-skin="modern"][data-mode="system"] .rail .wtable:not(.settings-table) .wcells > .wcell {
+  background: rgba(255,255,255,.34); box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
+body[data-skin="modern"] .rail .wtable:not(.settings-table) .wcells > a.wcell:hover,
+body[data-skin="modern"] .rail .wtable:not(.settings-table) .wcells > .wcell:active { background: var(--m-glass-2); }
+body[data-skin="modern"] .wtable .wcells > .wcell { border-bottom: 0; border-right: 0; }
+/* the shell in Modern Glass: the flat tint that held each day now holds the
+   whole itinerary; days inside carry only their heading rule */
+body[data-skin="modern"] .itin-shell { background: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] .itin-shell, html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .itin-shell .itin-head .ens-title { color: var(--m-ink); }
+body[data-skin="modern"] .itin-priv { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .itp-head.itin-head:hover .ens-title { color: var(--m-ink); }

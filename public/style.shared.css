@@ -383,10 +383,10 @@
 .itin-timing { margin: .6rem 0 .2rem; }
 .itin-timing > summary { list-style: none; }
 .itin-timing > summary::-webkit-details-marker { display: none; }
-.itin-when { display: inline-flex; align-items: center; cursor: pointer; }
-.itin-timing[open] > .itin-when { margin-bottom: .8rem; }
-.itin-timing[open] > .itin-when::after { content: "\00a0\00a0\2212"; }
-.itin-timing:not([open]) > .itin-when::after { content: "\00a0\00a0+"; }
+.itin-when-btn { display: inline-flex; align-items: center; cursor: pointer; }
+.itin-timing[open] > .itin-when-btn { margin-bottom: .8rem; }
+.itin-timing[open] > .itin-when-btn::after { content: "\00a0\00a0\2212"; }
+.itin-timing:not([open]) > .itin-when-btn::after { content: "\00a0\00a0+"; }
 /* the primary action, at primary size, full width, below the stack */
 .itin-new .nf-post, .day-form .nf-post, .stop-form .nf-post, .stop-add-form .nf-post { display: block; width: 100%; margin-top: .9rem;
   font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; }
@@ -401,3 +401,34 @@
 .stop-add-form, .day-form, .stop-form, .itin-new { display: block; width: 100%; }
 .stop-add-form .nf-box, .day-form .nf-box, .itin-new .nf-box { width: 100%; max-width: none; box-sizing: border-box; }
 .stop-add-form .nf-stack, .day-form .nf-stack, .stop-form .nf-stack, .itin-new .nf-stack { width: 100%; }
+
+/* ---- welcome counters: the stat cells live in .wcells. On desktop it is
+   display: contents, so the grid places the cells exactly as before; on a
+   phone it is a horizontal scroller, so extra cells scroll rather than wrap
+   and nothing existing changes size. ---- */
+.wcells { display: contents; }
+@media (max-width: 52rem) {
+  .wcells { display: flex; grid-column: 1 / -1; overflow-x: auto; scroll-snap-type: x proximity;
+    scrollbar-width: none; -ms-overflow-style: none; overscroll-behavior-x: contain; gap: .35rem; }
+  .wcells::-webkit-scrollbar { display: none; }
+  /* each chip is exactly the width a four-across cell had */
+  .wcells > .wcell { flex: 0 0 calc((100% - 3 * .35rem) / 4); scroll-snap-align: start; }
+}
+
+/* ---- the itinerary shell: one container for title, overview and days. The
+   article page is this card fully expanded; the listing is it truncated. ---- */
+.itin-shell { border-radius: 16px; padding: .4rem 1.25rem 1.1rem; margin: 0 0 1.4rem; }
+.itin-shell .itin-head { padding: 1.2rem .5rem .4rem; }
+.itin-shell .itin-head .ens-title { margin-bottom: .35rem; }
+.itin-priv { font-size: .6rem; font-style: italic; letter-spacing: .12em; opacity: .6; margin-left: .5rem; vertical-align: middle; }
+.itin-shell .itin-when { margin: 0 0 .5rem; }
+.itin-shell .itin-ctx { margin: 0 0 .6rem; }
+.itin-shell .itin-group { padding-left: 0; padding-right: 0; background: none !important; }
+.itin-head-edit > summary { position: relative; display: block; }
+.itin-head-edit .itin-day-hint { position: absolute; right: .6rem; top: 1rem; }
+/* the listing preview head is a link but reads as the title */
+.itp-head.itin-head { display: block; text-decoration: none; color: inherit; }
+.itp-head .itin-when, .itp-head .itin-ctx { display: block; }
+/* the listing keeps the feed's normal width, so Start an itinerary follows
+   the same rule as Post a new Note; only the article page is column-limited */
+.itin-list .post-box { margin-bottom: 1.4rem; }

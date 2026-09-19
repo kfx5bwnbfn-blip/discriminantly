@@ -3099,9 +3099,9 @@ function profileRail(u, me, tab) {
       <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" data-short-modern="All" href="${link('activity')}">All Activity <span>›</span></a></li>
       <li><a class="${tab === 'notes' ? 'on' : ''}" data-short="Notes" data-count="${visible.length}" href="${link('notes')}">Notes: ${visible.length} <span>›</span></a></li>
       <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
-      <li><a class="${tab === 'warrants' ? 'on' : ''}" data-short="Warrant" data-count="${warrantCount}" href="${link('warrants')}">Warrant: ${warrantCount} <span>›</span></a></li>
-      <li><a class="${tab === 'ensembles' ? 'on' : ''}" data-short="Ensembles" data-count="${ensCount}" href="${link('ensembles')}">Ensembles: ${ensCount} <span>›</span></a></li>
       <li><a class="${tab === 'itineraries' ? 'on' : ''}" data-short="Itineraries" data-count="${itinCount}" href="${'/t' + (me && me.id === u.id ? '' : '?u=' + encodeURIComponent(u.handle))}">Itineraries: ${itinCount} <span>›</span></a></li>
+      <li><a class="${tab === 'ensembles' ? 'on' : ''}" data-short="Ensembles" data-count="${ensCount}" href="${link('ensembles')}">Ensembles: ${ensCount} <span>›</span></a></li>
+      <li><a class="${tab === 'warrants' ? 'on' : ''}" data-short="Warrants" data-count="${warrantCount}" href="${link('warrants')}">Warrants: ${warrantCount} <span>›</span></a></li>
       <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
@@ -4650,14 +4650,20 @@ const pages = {
       const markTally = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(me.id).c;
       const ensTally = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?').get(me.id).c;
       const warrantTally = warrantedSubjectUids(me.id, 'object').size + warrantedSubjectUids(me.id, 'mark').size;
+      const itinTally = q('SELECT COUNT(*) c FROM itineraries WHERE user_id=?').get(me.id).c;
+      const fc = followCounts(me.id);   // shown as following:followers
       const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
       rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
+        <div class="wcells">
         <a class="wcell" href="/u/${esc(me.handle)}?tab=notes"><b>${notes}</b><span>Notes</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Travel Marks</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=marks"><b>${markTally}</b><span>Marks</span></a>
+        <a class="wcell" href="/t"><b>${itinTally}</b><span>Itineraries</span></a>
         <a class="wcell" href="/u/${esc(me.handle)}?tab=ensembles"><b>${ensTally}</b><span>Ensembles</span></a>
-        <a class="wcell" href="/u/${esc(me.handle)}?tab=warrants"><b>${warrantTally}</b><span>Warrant</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=warrants"><b>${warrantTally}</b><span>Warrants</span></a>
+        <a class="wcell" href="/u/${esc(me.handle)}?tab=following"><b>${fc.following}:${fc.followers}</b><span>Follows</span></a>
+        </div>
         <form class="wcell wcell-wide wcell-btn" method="post" action="/logout"><button class="btn3d block">Logout</button></form>
       </div>`;
     } else {
@@ -4757,11 +4763,11 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
       // cannot contain anchors -- the parser closes the outer one and the
       // cards fall out of the preview. A div, with a link overlay for the
       // whole preview and the heading as a link of its own.
-      return `<div class="itp">
-        <a class="itp-head" href="/t/${it.id}">
-          <span class="itp-title">${esc(it.title || 'Untitled')}${it.private ? ' <i>private</i>' : ''}</span>
-          ${when ? `<span class="itp-when-top">${esc(when)}</span>` : ''}
-          ${it.context ? `<span class="itp-ctx">${esc(it.context)}</span>` : ''}
+      return `<div class="itp itin-shell">
+        <a class="itp-head ens-head itin-head" href="/t/${it.id}">
+          <h1 class="ens-title">${esc(it.title || 'Untitled')}${it.private ? ' <i class="itin-priv">private</i>' : ''}</h1>
+          ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
+          ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}
         </a>
         <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
         <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
@@ -4786,7 +4792,7 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
             <input class="nf-field" name="title" placeholder="WHERE (REQUIRED)" required maxlength="120" autocomplete="off">
             <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW \u2014 WHAT YOU HAVE IN MIND"></textarea>
           </div>
-          <details class="itin-timing"><summary class="btn itin-when">When, if you know</summary>
+          <details class="itin-timing"><summary class="btn itin-when-btn">When, if you know</summary>
             <div class="nf-stack itin-timing-fields">
               <input class="nf-field" name="t_year" type="number" min="1" max="9999" placeholder="YEAR">
               <select class="nf-field" name="t_month">${monthOpts}</select>
@@ -4803,7 +4809,7 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     <div class="itp-list">${rows.map(preview).join('')}</div>
     ${rows.length || own ? '' : emptyState(me, 'itineraries')}`;
     const body = `<div class="cols profile-cols">${profileRail(subject, me, 'itineraries')}
-  <section class="feed profile-feed itin-page">${main}</section>
+  <section class="feed profile-feed itin-list">${main}</section>
 </div>`;
     send(res, layout({ title: 'Itineraries', body, me, req }));
   },
@@ -4830,9 +4836,9 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         </div><button class="nf-post">Add day</button></div></form></details>` : '';
 
     const when = tf(it);
-    const head = owner ? `<details class="itin-head-edit"><summary><h3 class="strip">${esc(it.title || 'Untitled')}${it.private ? ' <i>private</i>' : ''}</h3>
-        ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}
-        <i class="itin-day-hint">edit</i></summary>
+    const titleBlock = `<div class="ens-head itin-head"><h1 class="ens-title">${esc(it.title || 'Untitled')}${it.private ? ' <i class="itin-priv">private</i>' : ''}</h1>
+        ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
+    const head = owner ? `<details class="itin-head-edit"><summary>${titleBlock}<i class="itin-day-hint">edit</i></summary>
       <form method="post" action="${base}" class="nf nf-compact itin-new"><div class="nf-box"><div class="nf-stack">
         <input class="nf-field" name="title" value="${esc(it.title)}" placeholder="WHERE (REQUIRED)" maxlength="120">
         <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW">${esc(it.context)}</textarea>
@@ -4842,16 +4848,19 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         <select class="nf-field" name="t_modifier"><option value="">EARLY / MID / LATE</option>${T_MODS.map((m2) => `<option ${it.t_modifier === m2 ? 'selected' : ''}>${m2}</option>`).join('')}</select>
         <select class="nf-field" name="t_modifier_scope"><option value="">\u2026 OF THE YEAR / SEASON / MONTH</option>${T_SCOPES.map((sc2) => `<option value="${sc2}" ${it.t_modifier_scope === sc2 ? 'selected' : ''}>of the ${sc2}</option>`).join('')}</select>
         </div><button class="nf-post itin-start">Save</button></div></form></details>`
-      : `<h3 class="strip">${esc(it.title || 'Untitled')}</h3>${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}`;
+      : titleBlock;
 
     const foot = owner ? `<div class="itin-actions">
       <form method="post" action="${base}/${it.private ? 'publish' : 'unpublish'}"><button class="btn">${it.private ? 'Publish' : 'Make private'}</button></form>
       <form method="post" action="${base}/delete" onsubmit="return confirm('Delete this itinerary? Travel marks and check-ins are untouched.')"><button class="link caps stop-del">Delete itinerary</button></form>
     </div>` : '';
 
-    const main = `${head}
+    // One container holds the whole itinerary -- title, overview, days -- so
+    // the article page is the fully expanded card and the listing shows the
+    // same card truncated.
+    const main = `<div class="itin-shell">${head}
     ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
-    ${dayBlocks}${looseBlock}${addDay}${foot}
+    ${dayBlocks}${looseBlock}${addDay}</div>${foot}
     ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>
