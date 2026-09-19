@@ -769,6 +769,127 @@ const MIGRATIONS = [
       PRIMARY KEY (user_id, subject_type, subject_id))`);
   }],
 
+
+  // ---- Itinerary (v1.97) ---------------------------------------------------
+  // Three canonical tables. Purely additive: nothing existing is altered.
+  //
+  // Temporal components repeat at all three scopes by design. NULL means "not
+  // asserted" everywhere; nothing is ever a placeholder. The nine columns are
+  // identical at each scope so one accessor can read any of them.
+  ['041-itineraries', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS itineraries (
+      id         INTEGER PRIMARY KEY,
+      uid        TEXT,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title      TEXT NOT NULL DEFAULT '',
+      context    TEXT NOT NULL DEFAULT '',
+      private    INTEGER NOT NULL DEFAULT 0,
+      t_year           INTEGER,
+      t_period         TEXT CHECK (t_period IS NULL OR t_period IN ('spring','summer','fall','winter')),
+      t_modifier       TEXT CHECK (t_modifier IS NULL OR t_modifier IN ('early','mid','late')),
+      t_modifier_scope TEXT CHECK (t_modifier_scope IS NULL OR t_modifier_scope IN ('year','period','month')),
+      t_month          INTEGER CHECK (t_month IS NULL OR (t_month BETWEEN 1 AND 12)),
+      t_day            INTEGER CHECK (t_day IS NULL OR (t_day BETWEEN 1 AND 31)),
+      t_weekday        TEXT CHECK (t_weekday IS NULL OR t_weekday IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+      t_daypart        TEXT CHECK (t_daypart IS NULL OR t_daypart IN ('morning','afternoon','evening','night')),
+      t_clock          TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT,
+      -- A modifier and the component it scopes are one assertion: both
+      -- present or both absent. A partial UPDATE is the likeliest way to
+      -- break it, so the database refuses rather than the caller remembering.
+      CHECK ((t_modifier IS NULL) = (t_modifier_scope IS NULL)))`);
+
+    // UNIQUE(id, itinerary_id) is redundant as a key but required as the target
+    // of the composite foreign key below, which is what stops a Stop pointing at
+    // another Itinerary's group.
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_groups (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      label        TEXT NOT NULL DEFAULT '',
+      position     INTEGER CHECK (position IS NULL OR position >= 1),
+      t_year           INTEGER,
+      t_period         TEXT CHECK (t_period IS NULL OR t_period IN ('spring','summer','fall','winter')),
+      t_modifier       TEXT CHECK (t_modifier IS NULL OR t_modifier IN ('early','mid','late')),
+      t_modifier_scope TEXT CHECK (t_modifier_scope IS NULL OR t_modifier_scope IN ('year','period','month')),
+      t_month          INTEGER CHECK (t_month IS NULL OR (t_month BETWEEN 1 AND 12)),
+      t_day            INTEGER CHECK (t_day IS NULL OR (t_day BETWEEN 1 AND 31)),
+      t_weekday        TEXT CHECK (t_weekday IS NULL OR t_weekday IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+      t_daypart        TEXT CHECK (t_daypart IS NULL OR t_daypart IN ('morning','afternoon','evening','night')),
+      t_clock          TEXT,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TEXT,
+      CHECK ((t_modifier IS NULL) = (t_modifier_scope IS NULL)),
+      UNIQUE (id, itinerary_id))`);
+
+    // mark_uid is deliberately NOT a foreign key, following
+    // ensemble_components.note_uid: a Stop survives deletion of the Mark it
+    // referenced, keeping its own label as history.
+    //
+    // The composite FK uses RESTRICT rather than SET NULL: SET NULL would try to
+    // null itinerary_id too (it is part of the key) and fail against NOT NULL.
+    // RESTRICT means a group cannot be deleted until groupDelete() has ungrouped
+    // its Stops and cleared their group-scoped positions -- the database compels
+    // the correct transaction rather than merely permitting it.
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_stops (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      group_id     INTEGER,
+      label        TEXT NOT NULL DEFAULT '',
+      mark_uid     TEXT,
+      resolution   TEXT NOT NULL DEFAULT 'experiential'
+                     CHECK (resolution IN ('linked','particular','experiential','allocation')),
+      position     INTEGER CHECK (position IS NULL OR position >= 1),
+      visibility   TEXT NOT NULL DEFAULT 'visible'
+                     CHECK (visibility IN ('visible','suspended')),
+      t_year           INTEGER,
+      t_period         TEXT CHECK (t_period IS NULL OR t_period IN ('spring','summer','fall','winter')),
+      t_modifier       TEXT CHECK (t_modifier IS NULL OR t_modifier IN ('early','mid','late')),
+      t_modifier_scope TEXT CHECK (t_modifier_scope IS NULL OR t_modifier_scope IN ('year','period','month')),
+      t_month          INTEGER CHECK (t_month IS NULL OR (t_month BETWEEN 1 AND 12)),
+      t_day            INTEGER CHECK (t_day IS NULL OR (t_day BETWEEN 1 AND 31)),
+      t_weekday        TEXT CHECK (t_weekday IS NULL OR t_weekday IN ('monday','tuesday','wednesday','thursday','friday','saturday','sunday')),
+      t_daypart        TEXT CHECK (t_daypart IS NULL OR t_daypart IN ('morning','afternoon','evening','night')),
+      t_clock          TEXT,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at   TEXT,
+      CHECK ((t_modifier IS NULL) = (t_modifier_scope IS NULL)),
+      -- linked iff a Mark is referenced. Both directions in one expression;
+      -- mark_uid IS NOT NULL yields 0/1 so the comparison is determinate.
+      CHECK ((resolution = 'linked') = (mark_uid IS NOT NULL)),
+      FOREIGN KEY (group_id, itinerary_id)
+        REFERENCES itinerary_groups(id, itinerary_id) ON DELETE RESTRICT)`);
+
+    // Same UUIDv4-in-SQL the 011 migration uses; redeclared because that one is
+    // scoped to its own migration function.
+    const UUID_SQL = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    for (const t of ['itineraries', 'itinerary_groups', 'itinerary_stops']) {
+      db.exec(`CREATE TRIGGER IF NOT EXISTS trg_${t}_uid AFTER INSERT ON ${t}
+        FOR EACH ROW WHEN NEW.uid IS NULL
+        BEGIN UPDATE ${t} SET uid = ${UUID_SQL} WHERE rowid = NEW.rowid; END`);
+    }
+
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_user ON itineraries(user_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_group_itin ON itinerary_groups(itinerary_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_stop_itin ON itinerary_stops(itinerary_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_stop_group ON itinerary_stops(group_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_stop_mark ON itinerary_stops(mark_uid)');
+
+    // Authored rank is unique within its sequencing scope. NULLs are distinct in
+    // SQLite unique indexes, so any number of unsequenced rows coexist; the
+    // partial predicate keeps the index to authored rows only.
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_itin_group_pos
+      ON itinerary_groups(itinerary_id, position) WHERE position IS NOT NULL`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_itin_stop_pos_grouped
+      ON itinerary_stops(group_id, position) WHERE position IS NOT NULL AND group_id IS NOT NULL`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_itin_stop_pos_ungrouped
+      ON itinerary_stops(itinerary_id, position) WHERE position IS NOT NULL AND group_id IS NULL`);
+  }],
+
 ];
 
 function backupTo(file) {
@@ -873,6 +994,148 @@ const TIERS = ['Under $100', '$100–500', '$500–2,000', '$2,000–10,000', '$
 // caller — a route cannot accidentally (or deliberately) misattribute a write.
 // `ctx` comes from actorFor(): a session cookie yields a user, an MCP token
 // yields ai_on_behalf.
+// ---- Itinerary temporal accessors ------------------------------------------
+// Nine components, at three scopes, with one rule: NULL means the member did
+// not assert it. Nothing is ever a placeholder, so every reader can ask "is
+// this column null" rather than consulting a precision flag.
+//
+// `t_modifier_scope` is canonical, never derived. "late 2028" and "late fall
+// 2028" differ only in that column, and reconstructing it from whichever
+// components happen to coexist would silently move the modifier when a period
+// is added later.
+const T_COLS = ['t_year', 't_period', 't_modifier', 't_modifier_scope',
+                't_month', 't_day', 't_weekday', 't_daypart', 't_clock'];
+const T_PERIODS  = ['spring', 'summer', 'fall', 'winter'];
+const T_MODS     = ['early', 'mid', 'late'];
+const T_SCOPES   = ['year', 'period', 'month'];
+const T_WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const T_DAYPARTS = ['morning', 'afternoon', 'evening', 'night'];
+const T_MONTHS   = ['January', 'February', 'March', 'April', 'May', 'June',
+                    'July', 'August', 'September', 'October', 'November', 'December'];
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];   // Feb: see below
+const isLeap = (y) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+
+const temporalOf = (row) => { const t = {}; for (const k of T_COLS) t[k] = row[k] ?? null; return t; };
+const temporalEmpty = (t) => T_COLS.every((k) => t[k] === null || t[k] === undefined);
+
+// Rejects what cannot be true. Does NOT reject assertions that merely disagree
+// with each other -- a weekday contradicting a date is two valid claims the
+// member made, and temporalConflicts() surfaces it instead.
+function temporalValidate(t) {
+  const has = (k) => t[k] !== null && t[k] !== undefined && t[k] !== '';
+  if (has('t_period') && !T_PERIODS.includes(t.t_period)) return 'period must be one of ' + T_PERIODS.join(', ');
+  if (has('t_modifier') && !T_MODS.includes(t.t_modifier)) return 'modifier must be one of ' + T_MODS.join(', ');
+  if (has('t_modifier_scope') && !T_SCOPES.includes(t.t_modifier_scope)) return 'modifier scope must be one of ' + T_SCOPES.join(', ');
+  if (has('t_weekday') && !T_WEEKDAYS.includes(t.t_weekday)) return 'weekday must be a lowercase English day name';
+  if (has('t_daypart') && !T_DAYPARTS.includes(t.t_daypart)) return 'daypart must be one of ' + T_DAYPARTS.join(', ');
+  if (has('t_clock') && !/^([01]\d|2[0-3]):[0-5]\d$/.test(t.t_clock)) return 'clock must be HH:MM, 24-hour';
+  if (has('t_year') && (t.t_year < 1 || t.t_year > 9999)) return 'year is out of range';
+  if (has('t_month') && (t.t_month < 1 || t.t_month > 12)) return 'month must be 1-12';
+  if (has('t_day') && (t.t_day < 1 || t.t_day > 31)) return 'day must be 1-31';
+
+  // Pairing, and the scope must name something actually asserted.
+  if (has('t_modifier') !== has('t_modifier_scope')) return 'modifier and modifier scope must be given together';
+  if (has('t_modifier_scope')) {
+    const backing = { year: 't_year', period: 't_period', month: 't_month' }[t.t_modifier_scope];
+    if (!has(backing)) return `modifier scope '${t.t_modifier_scope}' needs ${backing.slice(2)} to be asserted`;
+  }
+
+  // A day must exist in its month. With no year asserted, February accepts 29:
+  // rejecting it would manufacture a year the member never gave.
+  if (has('t_day') && has('t_month')) {
+    let max = DAYS_IN_MONTH[t.t_month - 1];
+    if (t.t_month === 2 && has('t_year')) max = isLeap(t.t_year) ? 29 : 28;
+    if (t.t_day > max) return `${T_MONTHS[t.t_month - 1]} has no day ${t.t_day}`;
+  }
+  return null;
+}
+
+// Two assertions that are each valid but disagree. Reported, never corrected,
+// and neither is dropped -- the same treatment group date conflicts get.
+function temporalConflicts(t) {
+  const out = [];
+  if (t.t_weekday && t.t_year && t.t_month && t.t_day) {
+    const actual = T_WEEKDAYS[(new Date(Date.UTC(t.t_year, t.t_month - 1, t.t_day)).getUTCDay() + 6) % 7];
+    if (actual !== t.t_weekday) {
+      out.push(`${t.t_weekday[0].toUpperCase()}${t.t_weekday.slice(1)} does not fall on ` +
+               `${T_MONTHS[t.t_month - 1]} ${t.t_day}, ${t.t_year} (that is a ` +
+               `${actual[0].toUpperCase()}${actual.slice(1)})`);
+    }
+  }
+  return out;
+}
+
+// The only place temporal state becomes words. Reads which components exist
+// plus the modifier's canonical scope.
+function temporalFormat(t) {
+  if (!t || temporalEmpty(t)) return '';
+  const mod = t.t_modifier, scope = t.t_modifier_scope;
+  const m = t.t_month ? T_MONTHS[t.t_month - 1] : null;
+  const wd = t.t_weekday ? t.t_weekday[0].toUpperCase() + t.t_weekday.slice(1) : null;
+  const parts = [];
+
+  if (m && t.t_day) parts.push(`${scope === 'month' && mod ? mod + ' ' : ''}${m} ${t.t_day}${t.t_year ? ', ' + t.t_year : ''}`);
+  else if (m) parts.push(`${scope === 'month' && mod ? mod + ' ' : ''}${m}${t.t_year ? ' ' + t.t_year : ''}`);
+  else if (t.t_period) parts.push(`${scope === 'period' && mod ? mod + ' ' : ''}${t.t_period}${t.t_year ? ' ' + t.t_year : ''}`);
+  else if (t.t_year) parts.push(`${scope === 'year' && mod ? mod + ' ' : ''}${t.t_year}`);
+
+  // A year-scoped modifier alongside a period or month is a separate claim from
+  // the head phrase, so it is said separately rather than moved.
+  if (mod && scope === 'year' && (t.t_period || t.t_month)) parts.push(`${mod} in the year`);
+  if (mod && scope === 'period' && t.t_month) parts.push(`${mod} in the ${t.t_period}`);
+
+  const head = parts.join(', ');
+  const when = [wd, head].filter(Boolean).join(' \u00b7 ');
+  const clock = t.t_clock ? prettyClock(t.t_clock) : null;
+  const time = [t.t_daypart ? t.t_daypart : null, clock].filter(Boolean).join(', ');
+  return [when, time].filter(Boolean).join(' \u00b7 ');
+}
+const prettyClock = (hhmm) => {
+  const [h, mn] = hhmm.split(':').map(Number);
+  const ap = h < 12 ? 'AM' : 'PM'; const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(mn).padStart(2, '0')} ${ap}`;
+};
+
+// Applies an incoming assertion over an existing one.
+//
+// `intent` is supplied by the caller because only the caller knows the member's
+// act: 'refine' when the plan became more precise, 'correct' when the earlier
+// assertion was wrong, and null when a bare edit reveals neither. Null is the
+// default and yields 'edited' -- the provenance action must describe evidence
+// that exists, not a guess about motive.
+function temporalApply(existing, incoming, intent = null) {
+  const next = { ...existing };
+  const changed = [];
+  for (const k of T_COLS) {
+    if (!(k in incoming)) continue;
+    const v = incoming[k] === '' ? null : incoming[k];
+    if (next[k] !== v) { next[k] = v; changed.push(k); }
+  }
+
+  // Supersession, scoped to the member's act. A month supersedes a period; a
+  // component finer than the modifier's scope supersedes the modifier, because
+  // the imprecision it described no longer exists. Scope itself never migrates.
+  if ('t_month' in incoming && incoming.t_month != null && next.t_period && !('t_period' in incoming)) {
+    next.t_period = null; changed.push('t_period');
+    if (next.t_modifier_scope === 'period') { next.t_modifier = null; next.t_modifier_scope = null; changed.push('t_modifier', 't_modifier_scope'); }
+  }
+  if ('t_day' in incoming && incoming.t_day != null && next.t_modifier_scope === 'month') {
+    next.t_modifier = null; next.t_modifier_scope = null; changed.push('t_modifier', 't_modifier_scope');
+  }
+
+  const action = intent === 'refine' ? 'enriched' : intent === 'correct' ? 'corrected' : 'edited';
+  return { next, changed: [...new Set(changed)], action };
+}
+
+// A sortable tuple, or null when chronology is not determinable from what was
+// asserted. Returning null is what lets derived ordering decline rather than guess.
+function temporalChronoKey(t) {
+  if (!t || t.t_year == null) return null;
+  if (t.t_month != null) return [t.t_year, t.t_month, t.t_day ?? 0];
+  if (t.t_period) return [t.t_year, { spring: 3, summer: 6, fall: 9, winter: 12 }[t.t_period], 0];
+  return null;
+}
+
 function recordProvenance(entity_type, entity_uid, action, ctx, extra = {}) {
   if (!entity_uid) return;                       // nothing to attach history to
   q(`INSERT INTO provenance
@@ -2813,6 +3076,7 @@ function profileRail(u, me, tab) {
   const fc = followCounts(u.id);
   const markCount = q('SELECT COUNT(*) c FROM marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   const ensCount = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
+  const itinCount = q('SELECT COUNT(*) c FROM itineraries WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   // A visitor's warrant count only ever reflects PUBLIC subjects: a warrant on
   // a private note or mark is not something anyone but the owner should see
   // exists, since that would leak the existence of the private record itself.
@@ -2837,6 +3101,7 @@ function profileRail(u, me, tab) {
       <li><a class="${tab === 'marks' ? 'on' : ''}" data-short="Marks" data-count="${markCount}" href="${link('marks')}">Travel Marks: ${markCount} <span>›</span></a></li>
       <li><a class="${tab === 'warrants' ? 'on' : ''}" data-short="Warrant" data-count="${warrantCount}" href="${link('warrants')}">Warrant: ${warrantCount} <span>›</span></a></li>
       <li><a class="${tab === 'ensembles' ? 'on' : ''}" data-short="Ensembles" data-count="${ensCount}" href="${link('ensembles')}">Ensembles: ${ensCount} <span>›</span></a></li>
+      <li><a class="${tab === 'itineraries' ? 'on' : ''}" data-short="Itineraries" data-count="${itinCount}" href="${'/t' + (me && me.id === u.id ? '' : '?u=' + encodeURIComponent(u.handle))}">Itineraries: ${itinCount} <span>›</span></a></li>
       <li><a class="${tab === 'followers' ? 'on' : ''}" data-short="Followers" data-count="${fc.followers}" href="${link('followers')}">Followers: ${fc.followers} ${fc.followers === 1 ? 'person' : 'people'} <span>›</span></a></li>
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
@@ -3129,6 +3394,535 @@ const ensCanSee = (e, me) => (e.status === 'pending_review')
 // A component's OWN representation — label and image belong to the Ensemble,
 // not to the linked Note. That is what lets a public Ensemble describe a
 // constituent whose Note is private without touching the private record.
+// ============================================================================
+// ITINERARY — canonical mutations
+// ----------------------------------------------------------------------------
+// Every write to itineraries / itinerary_groups / itinerary_stops goes through
+// this block. Web routes and MCP tools call these functions and never touch the
+// tables directly, so the two surfaces cannot drift apart -- the failure Mark
+// already demonstrates, with three separate INSERT INTO marks sites each
+// carrying its own copy of validation and provenance.
+//
+// Every function takes ctx from webActor(me) or mcpActor(user), so authorship is
+// derived from how the request authenticated and can never be supplied by a
+// caller.
+// ============================================================================
+
+const itinById   = (id) => q('SELECT * FROM itineraries WHERE id=?').get(id);
+const itinByUid  = (uid) => q('SELECT * FROM itineraries WHERE uid=?').get(uid);
+const groupByUid = (uid) => q('SELECT * FROM itinerary_groups WHERE uid=?').get(uid);
+const stopByUid  = (uid) => q('SELECT * FROM itinerary_stops WHERE uid=?').get(uid);
+
+// UID is the durable external identity: MCP and any API speak uid, never rowid.
+// Resolution happens AFTER the ownership check, so a uid probe cannot be used to
+// discover whether a row exists.
+function itinOwned(user, uid) {
+  const it = itinByUid(uid);
+  if (!it || it.user_id !== user.id) throw new Error('No such itinerary.');
+  return it;
+}
+function stopOwned(user, uid) {
+  const st = stopByUid(uid);
+  if (!st) throw new Error('No such stop.');
+  const it = itinById(st.itinerary_id);
+  if (!it || it.user_id !== user.id) throw new Error('No such stop.');
+  return { stop: st, itin: it };
+}
+function groupOwned(user, uid) {
+  const g = groupByUid(uid);
+  if (!g) throw new Error('No such day.');
+  const it = itinById(g.itinerary_id);
+  if (!it || it.user_id !== user.id) throw new Error('No such day.');
+  return { group: g, itin: it };
+}
+
+// ---- collision-safe positional reindex -------------------------------------
+// One mechanism, used by every operation that rearranges an ordered prefix.
+//
+// The partial unique indexes mean an intermediate state with two rows at the
+// same rank aborts the transaction, and no single write order is safe for every
+// transformation: A B C D -> D A B C shifts up, -> B C D A shifts down, and
+// -> A D B C does both. Rather than reason about direction per operation, the
+// whole scope is parked in a disjoint negative range and then written back in
+// its final order. Two passes, always safe, no ordering analysis anywhere else.
+function reindexScope(table, scopeSql, scopeArgs, orderedIds) {
+  // Park the whole scope at NULL, then write the final ranks. NULL is exempt
+  // from the partial unique index and satisfies the `position >= 1` check, so
+  // no intermediate state can collide -- which a negative or offset parking
+  // range would not achieve, the check forbidding it.
+  //
+  // The two passes are one transaction: a failure between them would otherwise
+  // leave the scope unsequenced, silently discarding an authored order.
+  const tx = !db.isTransaction;
+  if (tx) db.exec('BEGIN');
+  try {
+    q(`UPDATE ${table} SET position=NULL WHERE ${scopeSql} AND position IS NOT NULL`).run(...scopeArgs);
+    const set = q(`UPDATE ${table} SET position=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`);
+    orderedIds.forEach((id, i) => set.run(i + 1, id));
+    if (tx) db.exec('COMMIT');
+  } catch (e) {
+    if (tx) { try { db.exec('ROLLBACK'); } catch {} }
+    throw e;
+  }
+}
+
+// The authored prefix of a Stop sequencing scope, in order. Scope is the group
+// when grouped, otherwise the itinerary's ungrouped set -- they never share one
+// sequence, because "third on April 8" means nothing outside April 8.
+function stopScope(stop) {
+  return stop.group_id
+    ? { sql: 'group_id=?', args: [stop.group_id] }
+    : { sql: 'itinerary_id=? AND group_id IS NULL', args: [stop.itinerary_id] };
+}
+function stopPrefix(scope) {
+  return q(`SELECT id, uid, position FROM itinerary_stops
+            WHERE ${scope.sql} AND position IS NOT NULL ORDER BY position`).all(...scope.args);
+}
+
+// ---- itinerary --------------------------------------------------------------
+function itineraryCreate(user, { title = '', context = '', temporal = {}, private: priv = 1 }, ctx) {
+  const t = { ...temporalOf({}), ...temporal };
+  const bad = temporalValidate(t); if (bad) throw new Error(bad);
+  const cols = T_COLS.join(',');
+  const r = q(`INSERT INTO itineraries(user_id,title,context,private,${cols})
+               VALUES(?,?,?,?,${T_COLS.map(() => '?').join(',')})`)
+    .run(user.id, String(title).trim(), String(context).trim(), priv ? 1 : 0, ...T_COLS.map((k) => t[k]));
+  const uid = uidOf('itineraries', r.lastInsertRowid);
+  recordProvenance('itinerary', uid, 'created', ctx, { source_kind: 'manual' });
+  return itinByUid(uid);
+}
+
+function itineraryEdit(user, uid, { title, context }, ctx) {
+  const it = itinOwned(user, uid);
+  const fields = [];
+  if (title !== undefined && title !== it.title) fields.push('title');
+  if (context !== undefined && context !== it.context) fields.push('context');
+  if (!fields.length) return it;
+  q('UPDATE itineraries SET title=?, context=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+    .run(title !== undefined ? String(title).trim() : it.title,
+         context !== undefined ? String(context).trim() : it.context, it.id);
+  recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: fields.join(',') });
+  return itinById(it.id);
+}
+
+// intent is 'refine' | 'correct' | null. Null means the act carried no evidence
+// of which it was, and the truthful action is 'edited'.
+function temporalMutate(table, entityType, row, incoming, intent, ctx) {
+  const { next, changed, action } = temporalApply(temporalOf(row), incoming, intent);
+  if (!changed.length) return row;
+  const bad = temporalValidate(next); if (bad) throw new Error(bad);
+  q(`UPDATE ${table} SET ${T_COLS.map((k) => k + '=?').join(',')}, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(...T_COLS.map((k) => next[k]), row.id);
+  recordProvenance(entityType, row.uid, action, ctx, { fields: changed.join(',') });
+  return q(`SELECT * FROM ${table} WHERE id=?`).get(row.id);
+}
+const itineraryUpdateTemporal = (user, uid, incoming, intent, ctx) =>
+  temporalMutate('itineraries', 'itinerary', itinOwned(user, uid), incoming, intent, ctx);
+
+// Publication refuses while a visible Stop links a Mark the public cannot see.
+// The caller resolves it: publish those Marks, or suspend those Stops. There is
+// no default and no silent proceed, and because MCP calls this same function an
+// AI cannot publish past it either.
+function itineraryPublishConflicts(itineraryId) {
+  return q(`SELECT s.uid, s.label, m.id mark_id, m.name mark_name
+            FROM itinerary_stops s JOIN marks m ON m.uid = s.mark_uid
+            WHERE s.itinerary_id=? AND s.visibility='visible' AND m.private=1`).all(itineraryId);
+}
+function itineraryPublish(user, uid, ctx) {
+  const it = itinOwned(user, uid);
+  const conflicts = itineraryPublishConflicts(it.id);
+  if (conflicts.length) {
+    const err = new Error('This itinerary references private travel marks: ' +
+      conflicts.map((c) => c.mark_name).join(', ') +
+      '. Make those marks public, or suspend those stops, then publish again.');
+    err.conflicts = conflicts;
+    throw err;
+  }
+  if (!it.private) return it;
+  q('UPDATE itineraries SET private=0, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
+  recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private' });
+  return itinById(it.id);
+}
+function itineraryUnpublish(user, uid, ctx) {
+  const it = itinOwned(user, uid);
+  if (it.private) return it;
+  q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
+  recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private' });
+  return itinById(it.id);
+}
+function itineraryDelete(user, uid, ctx) {
+  const it = itinOwned(user, uid);
+  // RESTRICT guards groups against stops, so stops go first, then groups, then
+  // the itinerary. The cascade would handle stops, but not the group order.
+  q('DELETE FROM itinerary_stops WHERE itinerary_id=?').run(it.id);
+  q('DELETE FROM itinerary_groups WHERE itinerary_id=?').run(it.id);
+  q('DELETE FROM itineraries WHERE id=?').run(it.id);
+  recordProvenance('itinerary', it.uid, 'deleted', ctx, {});
+  return true;
+}
+
+// ---- groups -----------------------------------------------------------------
+function groupCreate(user, itinUid, { label = '', temporal = {}, position = null }, ctx) {
+  const it = itinOwned(user, itinUid);
+  const t = { ...temporalOf({}), ...temporal };
+  const bad = temporalValidate(t); if (bad) throw new Error(bad);
+  const cols = T_COLS.join(',');
+  const r = q(`INSERT INTO itinerary_groups(itinerary_id,label,position,${cols})
+               VALUES(?,?,?,${T_COLS.map(() => '?').join(',')})`)
+    .run(it.id, String(label).trim(), position ?? null, ...T_COLS.map((k) => t[k]));
+  const uid = uidOf('itinerary_groups', r.lastInsertRowid);
+  recordProvenance('itinerary_group', uid, 'created', ctx, { source_kind: 'manual' });
+  return groupByUid(uid);
+}
+const groupUpdateTemporal = (user, uid, incoming, intent, ctx) =>
+  temporalMutate('itinerary_groups', 'itinerary_group', groupOwned(user, uid).group, incoming, intent, ctx);
+
+function groupEdit(user, uid, { label }, ctx) {
+  const { group } = groupOwned(user, uid);
+  if (label === undefined || label === group.label) return group;
+  q('UPDATE itinerary_groups SET label=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(String(label).trim(), group.id);
+  recordProvenance('itinerary_group', group.uid, 'edited', ctx, { fields: 'label' });
+  return groupByUid(uid);
+}
+
+// Authored group arrangement. Groups with no position are not reordered here --
+// they have no authored rank, and rendering derives their order per request.
+function groupSetPosition(user, uid, wanted, ctx) {
+  const { group, itin } = groupOwned(user, uid);
+  const scope = { sql: 'itinerary_id=?', args: [itin.id] };
+  const prefix = q(`SELECT id, uid FROM itinerary_groups
+                    WHERE itinerary_id=? AND position IS NOT NULL ORDER BY position`).all(itin.id);
+  const ids = prefix.map((r) => r.id).filter((id) => id !== group.id);
+  if (wanted === null) {
+    q('UPDATE itinerary_groups SET position=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(group.id);
+    reindexScope('itinerary_groups', scope.sql, scope.args, ids);
+  } else {
+    const at = Math.max(1, Math.min(Number(wanted), ids.length + 1));
+    ids.splice(at - 1, 0, group.id);
+    reindexScope('itinerary_groups', scope.sql, scope.args, ids);
+  }
+  recordProvenance('itinerary_group', group.uid, 'edited', ctx, { fields: 'position' });
+  return groupByUid(uid);
+}
+
+// Deleting a day ungroups its stops and clears their positions in the same
+// statement. A position of 2 meant "second on April 8"; carried into the
+// ungrouped scope it would assert an order the member never made -- and would
+// collide with the ungrouped unique index. RESTRICT makes this order mandatory
+// rather than merely correct.
+function groupDelete(user, uid, ctx) {
+  const { group, itin } = groupOwned(user, uid);
+  const affected = q('SELECT uid FROM itinerary_stops WHERE group_id=?').all(group.id);
+  q('UPDATE itinerary_stops SET group_id=NULL, position=NULL, updated_at=CURRENT_TIMESTAMP WHERE group_id=?').run(group.id);
+  q('DELETE FROM itinerary_groups WHERE id=?').run(group.id);
+  reindexScope('itinerary_groups', 'itinerary_id=?', [itin.id],
+    q('SELECT id FROM itinerary_groups WHERE itinerary_id=? AND position IS NOT NULL ORDER BY position')
+      .all(itin.id).map((r) => r.id));
+  recordProvenance('itinerary_group', group.uid, 'deleted', ctx, {});
+  for (const a of affected) recordProvenance('itinerary_stop', a.uid, 'edited', ctx, { fields: 'group_id,position' });
+  return true;
+}
+
+// ---- stops ------------------------------------------------------------------
+// resolution and mark_uid are derived together, never accepted as an
+// independent pair: the CHECK constraint would reject a contradiction anyway,
+// but the caller should not be able to express one.
+function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null,
+                                  group_uid = null, temporal = {}, position = null }, ctx) {
+  const it = itinOwned(user, itinUid);
+  const t = { ...temporalOf({}), ...temporal };
+  const bad = temporalValidate(t); if (bad) throw new Error(bad);
+
+  let groupId = null;
+  if (group_uid) {
+    const { group } = groupOwned(user, group_uid);
+    if (group.itinerary_id !== it.id) throw new Error('That day belongs to another itinerary.');
+    groupId = group.id;
+  }
+  let res = resolution, mUid = null;
+  if (mark_uid) {
+    const mk = q('SELECT * FROM marks WHERE uid=?').get(mark_uid);
+    if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
+    mUid = mk.uid; res = 'linked';
+  } else if (!res || res === 'linked') {
+    res = 'experiential';        // no mark means it cannot be linked
+  }
+  if (!['linked', 'particular', 'experiential', 'allocation'].includes(res)) throw new Error('Unknown stop kind.');
+
+  const cols = T_COLS.join(',');
+  const r = q(`INSERT INTO itinerary_stops(itinerary_id,group_id,label,mark_uid,resolution,position,visibility,${cols})
+               VALUES(?,?,?,?,?,?,'visible',${T_COLS.map(() => '?').join(',')})`)
+    .run(it.id, groupId, String(label).trim(), mUid, res, position ?? null, ...T_COLS.map((k) => t[k]));
+  const uid = uidOf('itinerary_stops', r.lastInsertRowid);
+  recordProvenance('itinerary_stop', uid, 'created', ctx, { source_kind: 'manual', fields: res });
+
+  // Privacy propagates upward: linking a private mark to a public itinerary
+  // makes the itinerary private rather than disclosing the mark.
+  if (mUid) markPrivacyGuard(it.id, mUid, ctx);
+  return stopByUid(uid);
+}
+
+const stopUpdateTemporal = (user, uid, incoming, intent, ctx) =>
+  temporalMutate('itinerary_stops', 'itinerary_stop', stopOwned(user, uid).stop, incoming, intent, ctx);
+
+function stopEdit(user, uid, { label }, ctx) {
+  const { stop } = stopOwned(user, uid);
+  if (label === undefined || label === stop.label) return stop;
+  q('UPDATE itinerary_stops SET label=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(String(label).trim(), stop.id);
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'label' });
+  return stopByUid(uid);
+}
+
+// Resolution mutates the Stop in place, exactly as ensemble components do. The
+// row keeps its uid, its position, its group and its times, and the original
+// label is never cleared -- it is what the member actually said, and what the
+// interface shows as the intention the mark answered.
+function stopResolveToMark(user, uid, markUid, intent, ctx) {
+  const { stop, itin } = stopOwned(user, uid);
+  const mk = q('SELECT * FROM marks WHERE uid=?').get(markUid);
+  if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
+  const action = intent === 'refine' ? 'enriched' : intent === 'correct' ? 'corrected' : 'edited';
+  q(`UPDATE itinerary_stops SET mark_uid=?, resolution='linked', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(mk.uid, stop.id);
+  recordProvenance('itinerary_stop', stop.uid, action, ctx, { fields: 'mark_uid,resolution' });
+  markPrivacyGuard(itin.id, mk.uid, ctx);
+  return stopByUid(uid);
+}
+
+function stopUnresolve(user, uid, resolution, ctx) {
+  const { stop } = stopOwned(user, uid);
+  const res = ['particular', 'experiential', 'allocation'].includes(resolution) ? resolution : 'particular';
+  q(`UPDATE itinerary_stops SET mark_uid=NULL, resolution=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(res, stop.id);
+  recordProvenance('itinerary_stop', stop.uid, 'corrected', ctx, { fields: 'mark_uid,resolution' });
+  return stopByUid(uid);
+}
+
+function stopSetResolution(user, uid, resolution, ctx) {
+  const { stop } = stopOwned(user, uid);
+  if (stop.mark_uid) throw new Error('This stop is linked to a travel mark; unlink it first.');
+  if (!['particular', 'experiential', 'allocation'].includes(resolution)) throw new Error('Unknown stop kind.');
+  if (resolution === stop.resolution) return stop;
+  q('UPDATE itinerary_stops SET resolution=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(resolution, stop.id);
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'resolution' });
+  return stopByUid(uid);
+}
+
+// Moving between groups clears the old position: the assertion was scoped to
+// the group it was made in. A destination slot, if given, is a fresh assertion.
+function stopSetGroup(user, uid, groupUid, destPosition, ctx) {
+  const { stop, itin } = stopOwned(user, uid);
+  let groupId = null;
+  if (groupUid) {
+    const { group } = groupOwned(user, groupUid);
+    if (group.itinerary_id !== itin.id) throw new Error('That day belongs to another itinerary.');
+    groupId = group.id;
+  }
+  if (groupId === stop.group_id && destPosition === undefined) return stop;
+
+  const source = stopScope(stop);
+  q('UPDATE itinerary_stops SET group_id=?, position=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+    .run(groupId, stop.id);
+  // close the gap the move left behind
+  reindexScope('itinerary_stops', source.sql, source.args,
+    q(`SELECT id FROM itinerary_stops WHERE ${source.sql} AND position IS NOT NULL ORDER BY position`)
+      .all(...source.args).map((r) => r.id));
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'group_id,position' });
+  if (destPosition !== undefined && destPosition !== null) stopSetPosition(user, uid, destPosition, ctx);
+  return stopByUid(uid);
+}
+
+// The authored ordered prefix. position null removes the assertion; a number
+// places the stop at that rank and shifts the rest. Contiguity is maintained by
+// rebuilding the whole scope through reindexScope.
+function stopSetPosition(user, uid, wanted, ctx) {
+  const { stop } = stopOwned(user, uid);
+  const scope = stopScope(stop);
+  const ids = stopPrefix(scope).map((r) => r.id).filter((id) => id !== stop.id);
+  if (wanted === null) {
+    q('UPDATE itinerary_stops SET position=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(stop.id);
+    reindexScope('itinerary_stops', scope.sql, scope.args, ids);
+  } else {
+    const at = Math.max(1, Math.min(Number(wanted), ids.length + 1));
+    ids.splice(at - 1, 0, stop.id);
+    reindexScope('itinerary_stops', scope.sql, scope.args, ids);
+  }
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'position' });
+  return stopByUid(uid);
+}
+
+function stopSuspend(user, uid, ctx) {
+  const { stop } = stopOwned(user, uid);
+  if (stop.visibility === 'suspended') return stop;
+  q(`UPDATE itinerary_stops SET visibility='suspended', updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(stop.id);
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'visibility' });
+  return stopByUid(uid);
+}
+function stopRestore(user, uid, ctx) {
+  const { stop, itin } = stopOwned(user, uid);
+  if (stop.visibility === 'visible') return stop;
+  if (stop.mark_uid && !itin.private) {
+    const mk = q('SELECT private FROM marks WHERE uid=?').get(stop.mark_uid);
+    if (mk && mk.private) throw new Error('That travel mark is still private. Make it public first, or keep the stop suspended.');
+  }
+  q(`UPDATE itinerary_stops SET visibility='visible', updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(stop.id);
+  recordProvenance('itinerary_stop', stop.uid, 'edited', ctx, { fields: 'visibility' });
+  return stopByUid(uid);
+}
+
+function stopDelete(user, uid, ctx) {
+  const { stop } = stopOwned(user, uid);
+  const scope = stopScope(stop);
+  q('DELETE FROM itinerary_stops WHERE id=?').run(stop.id);
+  reindexScope('itinerary_stops', scope.sql, scope.args,
+    q(`SELECT id FROM itinerary_stops WHERE ${scope.sql} AND position IS NOT NULL ORDER BY position`)
+      .all(...scope.args).map((r) => r.id));
+  recordProvenance('itinerary_stop', stop.uid, 'deleted', ctx, {});
+  return true;
+}
+
+// ---- privacy ----------------------------------------------------------------
+// Upward propagation at the moment of linking. Publicity never flows downward,
+// so this only ever makes a parent private.
+function markPrivacyGuard(itineraryId, markUid, ctx) {
+  const it = itinById(itineraryId);
+  if (!it || it.private) return;
+  const mk = q('SELECT private FROM marks WHERE uid=?').get(markUid);
+  if (!mk || !mk.private) return;
+  q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
+  recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private', source_kind: 'mark_privacy' });
+}
+
+// Called from both marks.private write sites. A mark turning private takes every
+// public itinerary that shows it private too, rather than suspending the stop:
+// suspension would preserve publicity the member never asked to keep.
+function markPrivacyChanged(markUid, nowPrivate, ctx) {
+  if (!nowPrivate || !markUid) return [];
+  const affected = q(`SELECT DISTINCT i.id, i.uid FROM itineraries i
+                      JOIN itinerary_stops s ON s.itinerary_id = i.id
+                      WHERE s.mark_uid=? AND s.visibility='visible' AND i.private=0`).all(markUid);
+  for (const it of affected) {
+    q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
+    recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private', source_kind: 'mark_privacy' });
+  }
+  return affected;
+}
+
+// A viewer who can see the itinerary sees a stop when it is visible -- a stop
+// needs no mark to be legitimate, since particular, experiential and allocation
+// stops are the substance of most plans.
+//
+// Linked stops distinguish three cases, and a private mark FAILS CLOSED: the
+// stop renders nothing at all. Substituting the label would represent private
+// child information through a public parent, which is the one thing the privacy
+// rule forbids. A deleted mark is different -- there is no private information
+// left to protect, so the retained label stands on its own.
+function canSeeStop(stop, itin, me) {
+  if (me && (me.id === itin.user_id || me.is_admin)) {
+    const mk = stop.mark_uid ? q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid) : null;
+    return { see: true, owner: true, mark: mk || null, dangling: !!(stop.mark_uid && !mk) };
+  }
+  if (itin.private) return { see: false };
+  if (stop.visibility !== 'visible') return { see: false };
+  if (stop.resolution !== 'linked' || !stop.mark_uid) return { see: true, owner: false, mark: null };
+  const mk = q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid);
+  if (!mk) return { see: true, owner: false, mark: null, dangling: true };   // deleted: label only
+  if (mk.private) return { see: false };                                      // private: nothing
+  return { see: true, owner: false, mark: mk };
+}
+
+// Form fields arrive as strings; empty means "not asserted", never zero.
+const T_NUM = ['t_year', 't_month', 't_day'];
+function temporalFromForm(b) {
+  const t = {};
+  for (const k of T_COLS) {
+    if (!(k in b)) continue;
+    const v = String(b[k] ?? '').trim();
+    t[k] = v === '' ? null : (T_NUM.includes(k) ? Number(v) : v);
+  }
+  return t;
+}
+const hasTemporalForm = (b) => T_COLS.some((k) => k in b);
+
+// Direct manipulation for the itinerary page. Dragging a stop by its handle and
+// dropping it among the sequenced ones is the member asserting its place; the
+// drop POSTs a position through the same route the form uses. Dropping onto
+// another day's list moves it there with a fresh position. Nothing here infers
+// order from where things happen to sit.
+const ITIN_JS = `
+(function(){
+  var page=document.querySelector('.itin-page'); if(!page) return;
+  var base=location.pathname.replace(/\\/$/,'');
+  var dragging=null, over=null;
+  function post(url, data){ var f=document.createElement('form'); f.method='post'; f.action=url;
+    Object.keys(data).forEach(function(k){ var i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=data[k]; f.appendChild(i); });
+    document.body.appendChild(f); f.submit(); }
+  page.addEventListener('pointerdown', function(e){
+    var h=e.target.closest('[data-drag]'); if(!h) return;
+    dragging=h.closest('.stop'); dragging.classList.add('is-dragging'); e.preventDefault();
+    h.setPointerCapture && h.setPointerCapture(e.pointerId);
+  });
+  page.addEventListener('pointermove', function(e){
+    if(!dragging) return;
+    var el=document.elementFromPoint(e.clientX,e.clientY); var li=el&&el.closest('.stop:not(.stop-add)');
+    var ol=el&&el.closest('.itin-tl');
+    document.querySelectorAll('.drop-before,.drop-into').forEach(function(x){x.classList.remove('drop-before','drop-into');});
+    over=null;
+    if(li && li!==dragging){ li.classList.add('drop-before'); over={li:li, ol:li.closest('.itin-tl')}; }
+    else if(ol && !li){ ol.classList.add('drop-into'); over={li:null, ol:ol}; }
+  });
+  function finish(){
+    if(!dragging) return;
+    var d=dragging; dragging=null; d.classList.remove('is-dragging');
+    document.querySelectorAll('.drop-before,.drop-into').forEach(function(x){x.classList.remove('drop-before','drop-into');});
+    if(!over) return;
+    var uid=d.getAttribute('data-stop');
+    var destGroup=over.ol.getAttribute('data-group')||'';
+    var srcGroup=d.closest('.itin-tl').getAttribute('data-group')||'';
+    var pos;
+    if(over.li){ var seq=Array.prototype.slice.call(over.ol.querySelectorAll('.stop.is-seq')); var i=seq.indexOf(over.li); pos = i>=0 ? i+1 : seq.length+1; }
+    else pos = over.ol.querySelectorAll('.stop.is-seq').length+1;
+    var data={position:String(pos)}; if(destGroup!==srcGroup) data.group_uid=destGroup;
+    post(base+'/stops/'+uid, data);
+    over=null;
+  }
+  page.addEventListener('pointerup', finish); page.addEventListener('pointercancel', finish);
+})();`;
+
+// ---- reading ----------------------------------------------------------------
+// Three-tier group order, built once. Authored prefix first; then chronology
+// where it is objectively derivable; then stable by id. Derived order is never
+// written back, and a group with no authored position never precedes one with.
+function groupOrder(itineraryId) {
+  const rows = q('SELECT * FROM itinerary_groups WHERE itinerary_id=? ORDER BY id').all(itineraryId);
+  const authored = rows.filter((g) => g.position !== null).sort((a, b) => a.position - b.position);
+  const rest = rows.filter((g) => g.position === null);
+  const keyed = rest.map((g) => ({ g, k: temporalChronoKey(temporalOf(g)) }));
+  const withKey = keyed.filter((x) => x.k).sort((a, b) =>
+    a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2] || a.g.id - b.g.id);
+  const without = keyed.filter((x) => !x.k).sort((a, b) => a.g.id - b.g.id);
+  return [...authored, ...withKey.map((x) => x.g), ...without.map((x) => x.g)];
+}
+
+// Groups whose label order and asserted chronology disagree. Reported so the
+// member can resolve it; nothing is chosen for them and neither assertion moves.
+function groupConflicts(itineraryId) {
+  const rows = groupOrder(itineraryId).filter((g) => temporalChronoKey(temporalOf(g)));
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const a = temporalChronoKey(temporalOf(rows[i - 1])), b = temporalChronoKey(temporalOf(rows[i]));
+    const cmp = a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+    if (cmp > 0) out.push(`${rows[i - 1].label || 'A day'} (${temporalFormat(temporalOf(rows[i - 1]))}) ` +
+      `is arranged before ${rows[i].label || 'another day'} (${temporalFormat(temporalOf(rows[i]))})`);
+  }
+  return out;
+}
+
+const itineraryStops = (itineraryId, groupId) => q(
+  `SELECT * FROM itinerary_stops WHERE itinerary_id=? AND ${groupId === null ? 'group_id IS NULL' : 'group_id=?'}
+   ORDER BY CASE WHEN position IS NULL THEN 1 ELSE 0 END, position, id`)
+  .all(...(groupId === null ? [itineraryId] : [itineraryId, groupId]));
+
 function ensComponents(ensembleId) {
   return q('SELECT * FROM ensemble_components WHERE ensemble_id=? ORDER BY position, id').all(ensembleId);
 }
@@ -3678,6 +4472,138 @@ function select(name, label, opts, value = '') {
 }
 
 // ---------- pages ----------
+// Renders the days and stops of an itinerary: the day containers, the timeline,
+// the mark cards and intention cards. Used by the article page in full and by
+// the listing truncated -- the listing shows THIS rendering cut off, not a
+// re-telling of it as a list. `limit` stops after that many stops and drops
+// the add-controls; `interactive` false drops every owner control.
+function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
+  // `owner` governs what is VISIBLE (canSeeStop); `ctl` governs whether the
+  // owner's controls render. A preview is the owner's own view minus controls.
+  const isOwner = !!(me && (me.id === it.user_id || me.is_admin));
+  const owner = isOwner;
+  const ctl = interactive && isOwner;
+  const groups = groupOrder(it.id);
+  const base = `/t/${it.id}`;
+  const tf = (row) => temporalFormat(temporalOf(row));
+  let budget = limit;
+  const take = (stops) => { const out = []; for (const st of stops) { if (budget <= 0) break; out.push(st); budget--; } return out; };
+
+    // ---- one stop --------------------------------------------------------
+    // Three surfaces by resolution: a resolved Mark is the familiar mark card
+    // (glass); an unresolved or experiential stop is the flat visit-log tint;
+    // open time is bare italic on the spine. Less resolved means less
+    // material, never a warning colour. The stop's own ``·``·`` menu carries the
+    // itinerary-specific actions so the mark card's own actions (Directions,
+    // Check in) stay exactly what they are everywhere else.
+    const stopRow = (st, inGroup) => {
+      const vis = canSeeStop(st, it, me);
+      if (!vis.see) return '';
+      const when = tf(st);
+      const withheld = owner && st.visibility === 'suspended';
+      const seqd = st.position !== null;
+      const dayOpts = groups.map((g) => `<option value="${g.uid}" ${g.id === st.group_id ? 'selected' : ''}>${esc(g.label || tf(g) || 'A day')}</option>`).join('');
+      const menu = ctl ? `<details class="stop-menu"><summary aria-label="Stop actions">\u00b7\u00b7\u00b7</summary>
+        <div class="stop-sheet">
+          <form method="post" action="${base}/stops/${st.uid}" class="stop-form">
+            <label>Wording <input name="label" value="${esc(st.label)}"></label>
+            ${st.mark_uid ? '' : `<label>Kind <select name="resolution">
+              <option value="particular" ${st.resolution === 'particular' ? 'selected' : ''}>a particular place</option>
+              <option value="experiential" ${st.resolution === 'experiential' ? 'selected' : ''}>an intention</option>
+              <option value="allocation" ${st.resolution === 'allocation' ? 'selected' : ''}>open time</option></select></label>`}
+            <label>Time of day <select name="t_daypart"><option value="">\u2014</option>${['morning', 'afternoon', 'evening', 'night'].map((d) => `<option ${st.t_daypart === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
+            <label>Clock <input name="t_clock" value="${esc(st.t_clock || '')}" placeholder="19:30" pattern="([01]\\d|2[0-3]):[0-5]\\d"></label>
+            <label>Day <select name="group_uid"><option value="">Not on a day</option>${dayOpts}</select></label>
+            <button class="btn">Save</button>
+          </form>
+          <div class="stop-links">
+            ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
+            ${st.mark_uid ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="unlink" value="1"><button class="link caps">Unlink the mark</button></form>` : ''}
+            <form method="post" action="${base}/stops/${st.uid}/${withheld ? 'restore' : 'suspend'}"><button class="link caps">${withheld ? 'Show publicly again' : 'Withhold from public view'}</button></form>
+            <form method="post" action="${base}/stops/${st.uid}/delete" onsubmit="return confirm('Remove this stop from the itinerary? The travel mark, if any, is untouched.')"><button class="link caps stop-del">Remove</button></form>
+          </div>
+        </div></details>` : '';
+      const time = when ? `<span class="stop-when">${esc(when)}</span>` : '';
+      const flag = withheld ? '<span class="stop-withheld">Withheld from public view</span>' : '';
+      const handle = ctl ? `<span class="stop-handle" data-drag title="Drag to place in the order">\u2261</span>` : '';
+      const attrs = `class="stop ${seqd ? 'is-seq' : ''} ${st.resolution === 'linked' ? 'is-mark' : st.resolution === 'allocation' ? 'is-open' : 'is-loose'} ${withheld ? 'is-withheld' : ''}" data-stop="${st.uid}"`;
+
+      if (vis.mark) {
+        return `<li ${attrs}>${handle}<div class="stop-head">${time}${flag}${menu}</div>${markCard(vis.mark, me)}</li>`;
+      }
+      if (st.resolution === 'allocation') {
+        return `<li ${attrs}>${handle}<div class="stop-open"><span class="stop-label">${esc(st.label || 'Open')}</span>${time}${flag}${menu}</div></li>`;
+      }
+      // particular / experiential / dangling mark: a card of the same material
+      // as the mark card, with an eyebrow in the same register as "MARKED", so
+      // an intention is a peer of a resolved place rather than a lesser one.
+      // Less resolved means less detail on the card, never less presence.
+      const eb = vis.dangling ? 'Once marked' : st.resolution === 'particular' ? 'Somewhere particular' : 'Intended';
+      return `<li ${attrs}><div class="stop-head">${time}${flag}${menu}</div>${handle}
+        <div class="card stop-card ${st.resolution === 'particular' ? 'is-unres' : ''}">
+          <span class="stop-eb">${eb}</span>
+          <span class="stop-label">${esc(st.label || 'Unnamed stop')}</span>
+          ${vis.dangling ? '<span class="stop-from">The travel mark this pointed at no longer exists</span>' : ''}
+          ${st.resolution === 'particular' && ctl ? '<span class="stop-note">A place to identify \u2014 your AI can help find it</span>' : ''}
+        </div></li>`;
+    };
+
+    // The spine is drawn over the authored prefix and stops there: a stop with
+    // no position has not been placed, and a line through it would assert an
+    // order the member never made.
+    const list = (stops, groupUid) => {
+      stops = take(stops);
+      const rows = stops.map((st) => stopRow(st, !!groupUid)).filter(Boolean);
+      const seq = stops.filter((st) => st.position !== null).length;
+      // Progressive disclosure: one quiet button in the post-box register
+      // opens the fields. The fields share one height and the Add button sits
+      // on the same line at that height, so the row reads as one control.
+      const add = ctl ? `<li class="stop-add"><details class="stop-add-disc">
+        <summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>${groupUid ? 'Add to this day' : 'Add somewhere, or something'}</span></summary>
+        <form method="post" action="${base}/stops" class="stop-add-form">
+          <input type="hidden" name="group_uid" value="${groupUid || ''}">
+          <input name="label" placeholder="${groupUid ? 'What, or where' : 'Somewhere, or something, you mean to do'}" required autocomplete="off">
+          <select name="resolution" aria-label="Kind"><option value="experiential">an intention</option><option value="particular">a particular place</option><option value="allocation">open time</option></select>
+          <button class="btn stop-add-btn">Add</button></form></details></li>` : '';
+      if (!rows.length && !add) return '';
+      return `<ol class="itin-tl" data-seq="${seq}" data-group="${groupUid || ''}">${rows.join('')}${add}</ol>`;
+    };
+
+    // ---- days --------------------------------------------------------------
+    // A heading reads as one line; tapped, it opens the components underneath
+    // so "we're going in 2027" or "move Day 2 to April 10" edits a part, not a
+    // string. Only the owner can open it.
+    const dayHead = (g) => {
+      const when = tf(g);
+      const read = `<b>${esc(g.label || (when ? '' : 'A day'))}</b>${when ? `<span>${esc(when)}</span>` : ''}`;
+      if (!ctl) return `<h4 class="itin-day">${read}<span class="rule"></span></h4>`;
+      return `<details class="itin-day-edit"><summary class="itin-day">${read}<span class="rule"></span><i class="itin-day-hint">edit</i></summary>
+        <form method="post" action="${base}/groups/${g.uid}" class="day-form">
+          <label>Label <input name="label" value="${esc(g.label)}" placeholder="Day 1, Friday\u2026"></label>
+          <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${g.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
+          <label>Day <input name="t_day" type="number" min="1" max="31" value="${g.t_day ?? ''}"></label>
+          <label>Year <input name="t_year" type="number" min="1" max="9999" value="${g.t_year ?? ''}" placeholder="unknown"></label>
+          <label>Weekday <select name="t_weekday"><option value="">\u2014</option>${T_WEEKDAYS.map((w) => `<option ${g.t_weekday === w ? 'selected' : ''}>${w}</option>`).join('')}</select></label>
+          <input type="hidden" name="intent" value="">
+          <button class="btn">Save</button>
+        </form>
+        <div class="stop-links"><form method="post" action="${base}/groups/${g.uid}/delete" onsubmit="return confirm('Remove this day? Its stops stay, unplaced.')"><button class="link caps stop-del">Remove this day</button></form></div>
+      </details>`;
+    };
+
+
+    const dayBlocks = groups.map((g) => {
+      if (budget <= 0) return '';
+      return `<section class="itin-group">${dayHead(g)}${list(itineraryStops(it.id, g.id), g.uid)}</section>`;
+    }).join('');
+    const unplaced = itineraryStops(it.id, null);
+    const looseHead = groups.length && (unplaced.length || ctl)
+      ? '<h4 class="itin-day itin-day-loose"><b>Not yet on the timeline</b><span class="rule"></span></h4>' : '';
+    const looseBlock = budget > 0 && (unplaced.length || ctl)
+      ? `<section class="itin-group itin-group-loose">${looseHead}${list(unplaced, null)}</section>` : '';
+    return { html: dayBlocks + looseBlock, groups, owner };
+}
+
 const pages = {
   home(req, res, me, url) {
     const s = (url.searchParams.get('q') || '').trim();
@@ -3804,6 +4730,113 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
 </section></div>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>`;
     send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
+  },
+
+  // ---- Itinerary ------------------------------------------------------------
+  itineraries(req, res, me, url) {
+    // `need()` is scoped to the request handler and is not visible here -- the
+    // ensembles page has the same latent bug and 500s when signed out.
+    // ?u=<handle> shows another member's public itineraries.
+    const who = url && url.searchParams.get('u');
+    const subject = who ? q('SELECT * FROM users WHERE handle=?').get(who) : me;
+    if (!subject) return redirect(res, '/login');
+    const own = !!(me && me.id === subject.id);
+    const rows = q('SELECT * FROM itineraries WHERE user_id=?' + (own ? '' : ' AND private=0') + ' ORDER BY id DESC').all(subject.id);
+    const tf = (row) => temporalFormat(temporalOf(row));
+
+    // Each itinerary is the article page's own rendering -- the day containers,
+    // the mark cards, the intention cards -- cut off after a few stops and
+    // faded, so what the member sees on the list is exactly what they will see
+    // on the page, just less of it.
+    const preview = (it) => {
+      const total = q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(it.id).c;
+      const shown = 3;
+      const rendered = itineraryBody(it, me, { interactive: false, limit: shown });
+      const when = tf(it);
+      // Not an <a>: the mark cards inside carry their own links, and an anchor
+      // cannot contain anchors -- the parser closes the outer one and the
+      // cards fall out of the preview. A div, with a link overlay for the
+      // whole preview and the heading as a link of its own.
+      return `<div class="itp">
+        <a class="itp-head" href="/t/${it.id}">
+          <span class="itp-title">${esc(it.title || 'Untitled')}${it.private ? ' <i>private</i>' : ''}</span>
+          ${when ? `<span class="itp-when-top">${esc(when)}</span>` : ''}
+          ${it.context ? `<span class="itp-ctx">${esc(it.context)}</span>` : ''}
+        </a>
+        <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
+        <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
+        ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
+      </div>`;
+    };
+
+    const create = own ? `<details class="itin-create" ${rows.length ? '' : 'open'}><summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Start an itinerary</span></summary>
+      <form method="post" action="/t/new" class="day-form itin-form">
+        <label>Where <input name="title" placeholder="Singapore, or Next time I\u2019m in London" required></label>
+        <label>What you have in mind <textarea name="context" rows="2" placeholder="More street food this trip. Staying near Orchard."></textarea></label>
+        <label>Year, if known <input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
+        <label>Month, if known <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
+        <label class="itin-check"><input type="checkbox" name="private" checked> Keep it private</label>
+        <button class="btn">Start</button></form></details>` : '';
+    const main = `<h3 class="strip">${own ? 'Your itineraries' : esc(subject.handle) + '\u2019s itineraries'}</h3>
+    ${own ? '<p class="ens-grid-sub">Places you mean to go, at whatever precision you have.</p>' : ''}
+    ${create}
+    <div class="itp-list">${rows.map(preview).join('')}</div>
+    ${rows.length || own ? '' : emptyState(me, 'itineraries')}`;
+    const body = `<div class="cols profile-cols">${profileRail(subject, me, 'itineraries')}
+  <section class="feed profile-feed itin-page">${main}</section>
+</div>`;
+    send(res, layout({ title: 'Itineraries', body, me, req }));
+  },
+
+  itinerary(req, res, me, url, id) {
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(id);
+    if (!it || !canSee(it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
+    const owner = !!(me && (me.id === it.user_id || me.is_admin));
+    const author = q('SELECT * FROM users WHERE id=?').get(it.user_id);
+    const groups = groupOrder(it.id);
+    const base = `/t/${it.id}`;
+    const tf = (row) => temporalFormat(temporalOf(row));
+
+    const conflicts = owner ? groupConflicts(it.id) : [];
+    const rendered = itineraryBody(it, me);
+    const dayBlocks = rendered.html, looseBlock = '';
+
+    const addDay = owner ? `<details class="itin-add-day"><summary class="link caps">+ Add a day</summary>
+      <form method="post" action="${base}/groups" class="day-form">
+        <label>Label <input name="label" placeholder="Day ${groups.length + 1}"></label>
+        <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
+        <label>Day <input name="t_day" type="number" min="1" max="31"></label>
+        <label>Year <input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
+        <button class="btn">Add day</button></form></details>` : '';
+
+    const when = tf(it);
+    const head = owner ? `<details class="itin-head-edit"><summary><h3 class="strip">${esc(it.title || 'Untitled')}${it.private ? ' <i>private</i>' : ''}</h3>
+        ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}
+        <i class="itin-day-hint">edit</i></summary>
+      <form method="post" action="${base}" class="day-form itin-form">
+        <label>Title <input name="title" value="${esc(it.title)}"></label>
+        <label>Context <textarea name="context" rows="3" placeholder="More street food this trip. Staying near Orchard.">${esc(it.context)}</textarea></label>
+        <label>Year <input name="t_year" type="number" value="${it.t_year ?? ''}" placeholder="unknown"></label>
+        <label>Season <select name="t_period"><option value="">\u2014</option>${T_PERIODS.map((p2) => `<option ${it.t_period === p2 ? 'selected' : ''}>${p2}</option>`).join('')}</select></label>
+        <label>Part <select name="t_modifier"><option value="">\u2014</option>${T_MODS.map((m2) => `<option ${it.t_modifier === m2 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
+        <label>Part of <select name="t_modifier_scope"><option value="">\u2014</option>${T_SCOPES.map((sc2) => `<option ${it.t_modifier_scope === sc2 ? 'selected' : ''}>${sc2}</option>`).join('')}</select></label>
+        <label>Month <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}" ${it.t_month === i + 1 ? 'selected' : ''}>${m2}</option>`).join('')}</select></label>
+        <button class="btn">Save</button></form></details>`
+      : `<h3 class="strip">${esc(it.title || 'Untitled')}</h3>${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}`;
+
+    const foot = owner ? `<div class="itin-actions">
+      <form method="post" action="${base}/${it.private ? 'publish' : 'unpublish'}"><button class="btn">${it.private ? 'Publish' : 'Make private'}</button></form>
+      <form method="post" action="${base}/delete" onsubmit="return confirm('Delete this itinerary? Travel marks and check-ins are untouched.')"><button class="link caps stop-del">Delete itinerary</button></form>
+    </div>` : '';
+
+    const main = `${head}
+    ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
+    ${dayBlocks}${looseBlock}${addDay}${foot}
+    ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
+    const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
+  <section class="feed profile-feed itin-page">${main}</section>
+</div>`;
+    send(res, layout({ title: it.title || 'Itinerary', body, me, req }));
   },
 
   ensembles(req, res, me) {
@@ -5147,6 +6180,93 @@ const TOOLS = [
   { name: 'catalogue_stats', description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_STATS },
+
+  // ---- Itineraries ----------------------------------------------------------
+  // Nine tools, deliberately composable rather than one per operation: adding
+  // three stops is one call, and grouping plus sequencing is one call, because
+  // that is how a member says it. Identity is always the uid, never the row id.
+  { name: 'create_itinerary', description: "Start an itinerary: somewhere the member means to go. Title is the destination as they say it (\"Singapore\", \"Next time I'm in London\"). Context is their own prose about the trip. Time is optional at every level and nothing should be invented: give only the components they actually said.",
+    inputSchema: { type: 'object', required: ['title'], properties: {
+      title: { type: 'string', description: 'The destination, in the member\u2019s words.' },
+      context: { type: 'string', description: 'Their own remarks about the trip. Optional.' },
+      private: { type: 'boolean', description: 'Defaults to private. Only pass false if they said it may be public.' },
+      year: { type: 'integer' }, month: { type: 'integer', description: '1-12.' },
+      day: { type: 'integer', description: '1-31.' },
+      period: { type: 'string', enum: ['spring', 'summer', 'fall', 'winter'] },
+      modifier: { type: 'string', enum: ['early', 'mid', 'late'], description: 'Only with modifier_scope.' },
+      modifier_scope: { type: 'string', enum: ['year', 'period', 'month'], description: 'WHICH component the modifier describes. "late 2028" is modifier=late, scope=year. "late fall 2028" is scope=period. Never guess: ask, or leave both out.' } } } },
+
+  { name: 'add_itinerary_stops', description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
+    inputSchema: { type: 'object', required: ['itinerary_uid', 'stops'], properties: {
+      itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
+      stops: { type: 'array', items: { type: 'object', required: ['label'], properties: {
+        label: { type: 'string', description: 'What the member said, kept verbatim.' },
+        kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'] },
+        mark_uid: { type: 'string', description: "An existing travel mark, from my_travel_marks or search_catalogue, when this stop IS that place. If the member has accepted a place you proposed and it is not marked yet, call add_travel_mark first and pass the new uid \u2014 accepting a place into an itinerary is what makes it worth marking. Never invent a uid, and never pass one for a place they have not confirmed." },
+        group_uid: { type: 'string', description: 'A day from arrange_itinerary or my_itineraries, if they placed it on one.' },
+        daypart: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
+        clock: { type: 'string', description: 'HH:MM, 24-hour, only if they gave a time.' } } } } } } },
+
+  { name: 'update_itinerary', description: "Change an itinerary's title, context, or whether it is private. Publishing fails, with the reason, while a visible stop points at a private travel mark \u2014 that is deliberate: the member resolves it by publishing the mark or suspending the stop.",
+    inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
+      itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
+      title: { type: 'string' }, context: { type: 'string' },
+      private: { type: 'boolean', description: 'false publishes it. Publishing fails, naming the marks, while a visible stop points at a private travel mark.' } } } },
+
+  { name: 'update_itinerary_temporal', description: 'Set or change time on an itinerary, a day, or a stop. Give only the components the member asserted; omitted components stay as they were, and nothing is invented. intent matters for the record: "refine" when the plan simply got more precise (fall 2028 -> October 2028), "correct" when the earlier assertion was wrong ("no, October, not fall"). OMIT intent when you do not actually know which \u2014 an honest plain edit is recorded instead of a guess.',
+    inputSchema: { type: 'object', required: ['target', 'uid'], properties: {
+      target: { type: 'string', enum: ['itinerary', 'day', 'stop'], description: 'Which thing the time belongs to. A trip may be "late fall 2028" while one of its days is "April 8" and one stop is "7:30 PM" \u2014 set each at its own level rather than repeating it.' },
+      uid: { type: 'string', description: 'The uid of that itinerary, day or stop, all of which my_itineraries returns.' },
+      intent: { type: 'string', enum: ['refine', 'correct'], description: 'Leave out when unknown.' },
+      year: { type: 'integer' }, month: { type: 'integer' }, day: { type: 'integer' },
+      period: { type: 'string', enum: ['spring', 'summer', 'fall', 'winter'] },
+      modifier: { type: 'string', enum: ['early', 'mid', 'late'] },
+      modifier_scope: { type: 'string', enum: ['year', 'period', 'month'] },
+      weekday: { type: 'string', enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] },
+      daypart: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
+      clock: { type: 'string', description: 'HH:MM, 24-hour.' },
+      clear: { type: 'array', items: { type: 'string' }, description: 'Component names to unset.' } } } },
+
+  { name: 'arrange_itinerary', description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
+    inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
+      itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
+      create_day: { type: 'object', properties: {
+        label: { type: 'string', description: '"Day 1", "Friday", or whatever they called it.' },
+        month: { type: 'integer' }, day: { type: 'integer' }, year: { type: 'integer' },
+        weekday: { type: 'string' } } },
+      assign: { type: 'array', description: 'Move stops onto a day (or off one with day_uid null).',
+        items: { type: 'object', required: ['stop_uid'], properties: {
+          stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
+          day_uid: { type: 'string', description: 'A day uid; omit, or pass null, to take the stop off its day and leave it unplaced.' },
+          position: { type: 'integer', description: 'Only if they asked for a specific place in the order.' } } } },
+      order_stops: { type: 'array', description: 'Stop uids in the order the member asked for.', items: { type: 'string' } },
+      order_days: { type: 'array', description: 'Day uids in the order the member asked for.', items: { type: 'string' } } } } },
+
+  { name: 'resolve_itinerary_stop', description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
+    inputSchema: { type: 'object', required: ['stop_uid'], properties: {
+      stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
+      mark_uid: { type: 'string', description: 'The travel mark, from my_travel_marks or search_catalogue \u2014 or from add_travel_mark if the place was not marked before. Omit, with unlink:true, to un-resolve.' },
+      unlink: { type: 'boolean' },
+      kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'What it becomes when unlinked.' },
+      intent: { type: 'string', enum: ['refine', 'correct'] } } } },
+
+  { name: 'update_itinerary_stop', description: "Change a stop's wording or kind, or withhold it from public view. Suspending is context-local: it hides the stop from this itinerary's public page and changes nothing about the travel mark anywhere else.",
+    inputSchema: { type: 'object', required: ['stop_uid'], properties: {
+      stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
+      label: { type: 'string' },
+      kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'Only for stops with no travel mark; use resolve_itinerary_stop to unlink one first.' },
+      visibility: { type: 'string', enum: ['visible', 'suspended'] } } } },
+
+  { name: 'delete_itinerary_entity', description: 'Delete an itinerary, a day, or a stop. Deleting a day does not delete its stops \u2014 they return to the itinerary unplaced, and any order they had within that day is dropped, because it was an order within that day. Nothing here touches travel marks or check-ins: those are the member\u2019s canonical records and outlive any itinerary that referred to them.',
+    inputSchema: { type: 'object', required: ['kind', 'uid'], properties: {
+      kind: { type: 'string', enum: ['itinerary', 'day', 'stop'] },
+      uid: { type: 'string', description: 'The uid of that itinerary, day or stop, from my_itineraries. Deleting a stop never deletes the travel mark it pointed at, and never deletes check-ins.' } } } },
+
+  { name: 'my_itineraries', description: "The member's itineraries \u2014 places they mean to go. With a uid, returns that one in full: its days, its stops, what each stop is, and how time was expressed at every level. Read it as intention only: a stop with a past date does not mean they went, an unsequenced stop is not an unfinished one, and a day with no date is not missing information. Check whether they actually went by looking at the travel mark's check-ins.",
+    inputSchema: { type: 'object', properties: {
+      uid: { type: 'string', description: 'Omit to list them all. This is where the uids for every other itinerary tool come from.' },
+      limit: { type: 'integer' } } } },
+
 ];
 // Duplicate detection: a cheap normalized-string match rather than a new
 // dependency. Catches "de Buyer Mineral B" vs "de Buyer Mineral B Pro, 28cm"
@@ -5622,6 +6742,10 @@ async function mcpCall(user, name, a = {}) {
       .run(name_, locality, country, address, lat, lng, why, tags, url, image, priv, mk.id);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, mk.id, a.collections);
     recordProvenance('mark', mk.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
+    // Upward privacy propagation. A mark turning private takes every public
+    // itinerary that shows it private too, so linking can never disclose it.
+    // Called from both mark-privacy write sites so web and MCP cannot diverge.
+    if (priv && !mk.private) markPrivacyChanged(mk.uid, true, mcpActor(user));
     return wr(`Updated #${mk.id}: ${name_}`, 'edited', 'mark', mk.id, mk.uid, name_);
   }
   if (name === 'delete_travel_mark') {
@@ -6218,6 +7342,156 @@ async function mcpCall(user, name, a = {}) {
     q('DELETE FROM objects WHERE id=?').run(o.id);
     return wr(`Deleted #${a.id}: ${o.name}`, 'deleted', 'note', o.id, o.uid, o.name);
   }
+  // ---- Itineraries ----------------------------------------------------------
+  // Every branch is a thin wrapper over the same core function the web routes
+  // call. Nothing here writes the itinerary tables directly, so the two surfaces
+  // cannot drift. ctx is mcpActor(user): ai_on_behalf + explicit, because the
+  // member asked for the operation even though the AI performed it.
+  {
+    const T_IN = (a) => {
+      const t = {};
+      if (a.year !== undefined) t.t_year = a.year;
+      if (a.month !== undefined) t.t_month = a.month;
+      if (a.day !== undefined) t.t_day = a.day;
+      if (a.period !== undefined) t.t_period = a.period;
+      if (a.modifier !== undefined) t.t_modifier = a.modifier;
+      if (a.modifier_scope !== undefined) t.t_modifier_scope = a.modifier_scope;
+      if (a.weekday !== undefined) t.t_weekday = a.weekday;
+      if (a.daypart !== undefined) t.t_daypart = a.daypart;
+      if (a.clock !== undefined) t.t_clock = a.clock;
+      for (const c of a.clear || []) { const k = 't_' + c.replace(/^t_/, ''); if (T_COLS.includes(k)) t[k] = null; }
+      return t;
+    };
+    const stopView = (st) => ({
+      uid: st.uid, label: st.label, kind: st.resolution, mark_uid: st.mark_uid,
+      position: st.position, visibility: st.visibility, when: temporalFormat(temporalOf(st)) || null,
+    });
+
+    if (name === 'create_itinerary') {
+      const ctx = mcpActor(user);
+      const it = itineraryCreate(user, { title: a.title, context: a.context || '',
+        temporal: T_IN(a), private: a.private === false ? 0 : 1 }, ctx);
+      const when = temporalFormat(temporalOf(it));
+      return wr(`Started "${it.title}"${when ? ' \u00b7 ' + when : ''}.`, 'created', 'itinerary', it.id, it.uid, it.title);
+    }
+
+    if (name === 'add_itinerary_stops') {
+      const ctx = mcpActor(user);
+      const added = [];
+      for (const sp of a.stops || []) {
+        const st = stopAdd(user, a.itinerary_uid, {
+          label: sp.label, resolution: sp.kind || null, mark_uid: sp.mark_uid || null,
+          group_uid: sp.group_uid || null,
+          temporal: T_IN({ daypart: sp.daypart, clock: sp.clock }),
+        }, ctx);
+        added.push(stopView(st));
+      }
+      const it = itinOwned(user, a.itinerary_uid);
+      return { text: `Added ${added.length} stop${added.length === 1 ? '' : 's'} to "${it.title}".`,
+        structured: { ok: true, action: 'created', subject: 'itinerary_stop', stops: added,
+          itinerary_private: !!it.private } };
+    }
+
+    if (name === 'update_itinerary') {
+      const ctx = mcpActor(user);
+      let it = itinOwned(user, a.itinerary_uid);
+      if (a.title !== undefined || a.context !== undefined) it = itineraryEdit(user, it.uid, a, ctx);
+      if (a.private === true) it = itineraryUnpublish(user, it.uid, ctx);
+      if (a.private === false) it = itineraryPublish(user, it.uid, ctx);   // throws, with the conflicting marks named
+      return wr(`Updated "${it.title}".`, 'edited', 'itinerary', it.id, it.uid, it.title);
+    }
+
+    if (name === 'update_itinerary_temporal') {
+      const ctx = mcpActor(user);
+      const intent = a.intent || null;
+      const t = T_IN(a);
+      let row;
+      if (a.target === 'itinerary') row = itineraryUpdateTemporal(user, a.uid, t, intent, ctx);
+      else if (a.target === 'day') row = groupUpdateTemporal(user, a.uid, t, intent, ctx);
+      else row = stopUpdateTemporal(user, a.uid, t, intent, ctx);
+      const conflicts = temporalConflicts(temporalOf(row));
+      return { text: `Now ${temporalFormat(temporalOf(row)) || 'undated'}.` +
+                     (conflicts.length ? ' Note: ' + conflicts.join(' ') : ''),
+        structured: { ok: true, action: intent === 'refine' ? 'enriched' : intent === 'correct' ? 'corrected' : 'edited',
+          subject: a.target, uid: row.uid, when: temporalFormat(temporalOf(row)) || null, conflicts } };
+    }
+
+    if (name === 'arrange_itinerary') {
+      const ctx = mcpActor(user);
+      const it = itinOwned(user, a.itinerary_uid);
+      let day = null;
+      if (a.create_day) {
+        day = groupCreate(user, it.uid, { label: a.create_day.label || '',
+          temporal: T_IN(a.create_day) }, ctx);
+      }
+      for (const as of a.assign || []) {
+        stopSetGroup(user, as.stop_uid, as.day_uid !== undefined ? as.day_uid : (day ? day.uid : null),
+          as.position, ctx);
+      }
+      // An explicit order is an assertion; without one, stops stay unsequenced.
+      (a.order_stops || []).forEach((uid, i) => stopSetPosition(user, uid, i + 1, ctx));
+      (a.order_days || []).forEach((uid, i) => groupSetPosition(user, uid, i + 1, ctx));
+      const days = groupOrder(it.id).map((g) => ({ uid: g.uid, label: g.label,
+        when: temporalFormat(temporalOf(g)) || null,
+        stops: itineraryStops(it.id, g.id).map(stopView) }));
+      return { text: `Arranged "${it.title}".`,
+        structured: { ok: true, action: 'edited', subject: 'itinerary', uid: it.uid,
+          days, unplaced: itineraryStops(it.id, null).map(stopView),
+          conflicts: groupConflicts(it.id) } };
+    }
+
+    if (name === 'resolve_itinerary_stop') {
+      const ctx = mcpActor(user);
+      const st = a.unlink
+        ? stopUnresolve(user, a.stop_uid, a.kind || 'particular', ctx)
+        : stopResolveToMark(user, a.stop_uid, a.mark_uid, a.intent || null, ctx);
+      const itin = itinById(st.itinerary_id);
+      return { text: a.unlink ? `Unlinked "${st.label}".` : `"${st.label}" now points at that mark.` +
+                 (itin.private ? ' The itinerary is private, because that mark is.' : ''),
+        structured: { ok: true, action: a.unlink ? 'corrected' : (a.intent === 'correct' ? 'corrected' : a.intent === 'refine' ? 'enriched' : 'edited'),
+          subject: 'itinerary_stop', uid: st.uid, stop: stopView(st), itinerary_private: !!itin.private } };
+    }
+
+    if (name === 'update_itinerary_stop') {
+      const ctx = mcpActor(user);
+      let st = stopOwned(user, a.stop_uid).stop;
+      if (a.label !== undefined) st = stopEdit(user, st.uid, a, ctx);
+      if (a.kind !== undefined) st = stopSetResolution(user, st.uid, a.kind, ctx);
+      if (a.visibility === 'suspended') st = stopSuspend(user, st.uid, ctx);
+      if (a.visibility === 'visible') st = stopRestore(user, st.uid, ctx);
+      return wr(`Updated "${st.label}".`, 'edited', 'itinerary_stop', st.id, st.uid, st.label);
+    }
+
+    if (name === 'delete_itinerary_entity') {
+      const ctx = mcpActor(user);
+      if (a.kind === 'itinerary') { itineraryDelete(user, a.uid, ctx); return wr('Itinerary deleted.', 'deleted', 'itinerary', null, a.uid, null); }
+      if (a.kind === 'day') { groupDelete(user, a.uid, ctx); return wr('Day deleted; its stops remain, unplaced.', 'deleted', 'itinerary_group', null, a.uid, null); }
+      stopDelete(user, a.uid, ctx);
+      return wr('Stop deleted.', 'deleted', 'itinerary_stop', null, a.uid, null);
+    }
+
+    if (name === 'my_itineraries') {
+      if (a.uid) {
+        const it = itinOwned(user, a.uid);
+        const days = groupOrder(it.id).map((g) => ({ uid: g.uid, label: g.label,
+          when: temporalFormat(temporalOf(g)) || null, position: g.position,
+          stops: itineraryStops(it.id, g.id).map(stopView) }));
+        return { text: `"${it.title}"${temporalFormat(temporalOf(it)) ? ' \u00b7 ' + temporalFormat(temporalOf(it)) : ''}`,
+          structured: { ok: true, subject: 'itinerary', uid: it.uid, title: it.title,
+            context: it.context, private: !!it.private,
+            when: temporalFormat(temporalOf(it)) || null, days,
+            unplaced: itineraryStops(it.id, null).map(stopView),
+            conflicts: groupConflicts(it.id) } };
+      }
+      const rows = q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?')
+        .all(user.id, Math.min(a.limit || 20, 50));
+      return { text: rows.length ? rows.map((r) => `${r.title}${temporalFormat(temporalOf(r)) ? ' \u00b7 ' + temporalFormat(temporalOf(r)) : ''}`).join('\n') : 'No itineraries yet.',
+        structured: { ok: true, items: rows.map((r) => ({ uid: r.uid, title: r.title,
+          when: temporalFormat(temporalOf(r)) || null, private: !!r.private,
+          stops: q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(r.id).c })) } };
+    }
+  }
+
   throw new Error('Unknown tool ' + name);
 }
 async function mcp(req, res, tok) {
@@ -6551,6 +7825,108 @@ async function handle(req, res) {
     }
     return redirect(res, `/e/${e.id}`);
   }
+  // ---- Itinerary --------------------------------------------------------------
+  // Every handler calls a core function; none writes the tables directly.
+  if (p === '/t') return pages.itineraries(req, res, me, url);
+  if ((mt = p.match(/^\/t\/(\d+)$/)) && m === 'GET') return pages.itinerary(req, res, me, url, +mt[1]);
+
+  if (p === '/t/new' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const it = itineraryCreate(me, { title: b.title, context: b.context,
+      temporal: temporalFromForm(b), private: b.private ? 1 : 0 }, webActor(me));
+    return redirect(res, `/t/${it.id}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it) return send(res, 'Not found', 404);
+    const b = await readBody(req);
+    try {
+      if (b.title !== undefined || b.context !== undefined) itineraryEdit(me, it.uid, b, webActor(me));
+      if (hasTemporalForm(b)) itineraryUpdateTemporal(me, it.uid, temporalFromForm(b), b.intent || null, webActor(me));
+    } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${it.id}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/(publish|unpublish)$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it) return send(res, 'Not found', 404);
+    try {
+      if (mt[2] === 'publish') itineraryPublish(me, it.uid, webActor(me));
+      else itineraryUnpublish(me, it.uid, webActor(me));
+    } catch (e) {
+      return send(res, layout({ title: 'Publish', me, req,
+        body: `<section class="feed"><h3 class="strip">Not published</h3><p class="about">${esc(e.message)}</p>
+        <p class="about"><a class="link" href="/t/${it.id}">Back to the itinerary</a></p></section>` }), 409);
+    }
+    return redirect(res, `/t/${it.id}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it) return send(res, 'Not found', 404);
+    try { itineraryDelete(me, it.uid, webActor(me)); } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, '/t');
+  }
+
+  if ((mt = p.match(/^\/t\/(\d+)\/groups$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it) return send(res, 'Not found', 404);
+    const b = await readBody(req);
+    try { groupCreate(me, it.uid, { label: b.label, temporal: temporalFromForm(b) }, webActor(me)); }
+    catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${it.id}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/groups\/([a-f0-9-]+)(\/delete)?$/)) && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    try {
+      if (mt[3]) groupDelete(me, mt[2], webActor(me));
+      else {
+        if (b.label !== undefined) groupEdit(me, mt[2], b, webActor(me));
+        if (hasTemporalForm(b)) groupUpdateTemporal(me, mt[2], temporalFromForm(b), b.intent || null, webActor(me));
+        if (b.position !== undefined) groupSetPosition(me, mt[2], b.position === '' ? null : +b.position, webActor(me));
+      }
+    } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${mt[1]}`);
+  }
+
+  if ((mt = p.match(/^\/t\/(\d+)\/stops$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it) return send(res, 'Not found', 404);
+    const b = await readBody(req);
+    try {
+      stopAdd(me, it.uid, { label: b.label, resolution: b.resolution || null,
+        mark_uid: b.mark_uid || null, group_uid: b.group_uid || null,
+        temporal: temporalFromForm(b) }, webActor(me));
+    } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${it.id}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/stops\/([a-f0-9-]+)(\/suspend|\/restore|\/delete)?$/)) && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const ctx = webActor(me);
+    try {
+      if (mt[3] === '/suspend') stopSuspend(me, mt[2], ctx);
+      else if (mt[3] === '/restore') stopRestore(me, mt[2], ctx);
+      else if (mt[3] === '/delete') stopDelete(me, mt[2], ctx);
+      else {
+        if (b.label !== undefined) stopEdit(me, mt[2], b, ctx);
+        if (hasTemporalForm(b)) stopUpdateTemporal(me, mt[2], temporalFromForm(b), b.intent || null, ctx);
+        if (b.mark_uid) stopResolveToMark(me, mt[2], b.mark_uid, b.intent || null, ctx);
+        if (b.unlink) stopUnresolve(me, mt[2], b.resolution || 'particular', ctx);
+        else if (b.resolution && !b.mark_uid) stopSetResolution(me, mt[2], b.resolution, ctx);
+        if (b.group_uid !== undefined) stopSetGroup(me, mt[2], b.group_uid || null,
+          b.position !== undefined && b.position !== '' ? +b.position : undefined, ctx);
+        else if (b.position !== undefined) stopSetPosition(me, mt[2], b.position === '' ? null : +b.position, ctx);
+      }
+    } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${mt[1]}`);
+  }
+
   if (p === '/e') return pages.ensembles(req, res, me);
   if ((mt = p.match(/^\/e\/(\d+)$/))) return pages.ensemble(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
@@ -6567,6 +7943,8 @@ async function handle(req, res) {
            tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, mk.id);
     setMarkCollections(mk.user_id, mk.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     recordProvenance('mark', mk.uid, 'edited', webActor(me), { source_kind: 'manual' });
+    // See the MCP path: the same guard, the same function.
+    if (b.private && !mk.private) markPrivacyChanged(mk.uid, true, webActor(me));
     applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(mk.id), me);
     return redirect(res, `/m/${mk.id}`);
   }

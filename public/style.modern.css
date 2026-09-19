@@ -2100,3 +2100,78 @@ body[data-skin="modern"] .signup .btn3d {
   box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.35); text-shadow: none;
 }
 body[data-skin="modern"] .signup .btn3d:hover { background: var(--m-glass-3); }
+
+/* =====================================================================
+   Itinerary — Modern Glass paint. Three surfaces by resolution: a resolved
+   mark is the familiar glass card; an unresolved or experiential stop is the
+   flat visit-log tint; open time is bare text. The spine and nodes are the
+   check-in timeline's own.
+   ===================================================================== */
+body[data-skin="modern"] .itin-when { color: var(--m-ink-2); }
+body[data-skin="modern"] .itin-ctx { color: var(--m-ink-2); }
+body[data-skin="modern"] .itin-conflict { color: var(--m-ink-2); border-left-color: var(--m-accent); }
+body[data-skin="modern"] .itin-day b { color: var(--m-ink); }
+body[data-skin="modern"] .itin-day span:not(.rule) { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .itin-day .rule { background: var(--m-rule); opacity: 1; }
+body[data-skin="modern"] .itin-day-loose b { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .itin-tl .stop::before { background: var(--m-ink-3); box-shadow: 0 0 0 3px var(--m-bg); opacity: 1; }
+body[data-skin="modern"] .itin-tl .stop.is-mark.is-seq::before { background: var(--m-accent); }
+body[data-skin="modern"] .itin-tl .stop:not(.is-seq)::before { opacity: .35; }
+body[data-skin="modern"] .itin-tl .stop.is-seq + .stop.is-seq::after { background: var(--m-rule); opacity: 1; }
+body[data-skin="modern"] .stop-when { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .stop-withheld, body[data-skin="modern"] .stop-from { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .stop-loose { background: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] .stop-loose, html.m-light body[data-skin="modern"][data-mode="system"] .stop-loose { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .stop-loose .stop-label { color: var(--m-ink-2); }
+body[data-skin="modern"] .stop-loose.is-unres .stop-label { text-decoration-color: var(--m-ink-3); }
+body[data-skin="modern"] .stop-open .stop-label { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .stop-menu > summary { color: var(--m-ink-2); }
+body[data-skin="modern"] .stop-sheet { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .stop-handle { color: var(--m-ink-2); }
+body[data-skin="modern"] .stop.drop-before { box-shadow: 0 -2px 0 0 var(--m-accent); }
+body[data-skin="modern"] .itin-tl.drop-into { outline-color: var(--m-accent); }
+body[data-skin="modern"] .stop-form label, body[data-skin="modern"] .day-form label { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .stop-form input, body[data-skin="modern"] .stop-form select,
+body[data-skin="modern"] .day-form input, body[data-skin="modern"] .day-form select, body[data-skin="modern"] .day-form textarea,
+body[data-skin="modern"] .stop-add-form input, body[data-skin="modern"] .stop-add-form select {
+  background: var(--m-field); border: 0; color: var(--m-ink);
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule);
+}
+body[data-skin="modern"] .itin-page .btn { background: var(--m-glass-2); color: var(--m-ink); border: 0; border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--m-line); padding: .5rem 1.1rem; font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; }
+body[data-skin="modern"] .itin-page .btn:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .itin-actions { border-top: 1px solid var(--m-rule); }
+body[data-skin="modern"] .itin-day-hint { color: var(--m-accent); }
+/* the day container: the same flat tint as the visit log and the resurfacing
+   frame -- no blur, no highlight, no shadow */
+body[data-skin="modern"] .itin-group { background: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] .itin-group, html.m-light body[data-skin="modern"][data-mode="system"] .itin-group { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .itin-tl .stop::before { box-shadow: none; }
+/* the intention card takes the mark card's material exactly; only its
+   contents differ */
+body[data-skin="modern"] .stop-card { color: var(--m-ink); }
+body[data-skin="modern"] .stop-eb { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .stop-card.is-unres .stop-label { text-decoration-color: var(--m-ink-3); }
+body[data-skin="modern"] .stop-card .stop-from, body[data-skin="modern"] .stop-card .stop-note { color: var(--m-ink-3); opacity: 1; }
+/* the add row: field and button in the same glass, at the same height; the
+   button is the skin's pill, not an unstyled control */
+body[data-skin="modern"] .stop-add-open { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); border-radius: var(--m-r2); }
+body[data-skin="modern"] .stop-add-open:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .stop-add-form input[name="label"], body[data-skin="modern"] .stop-add-form select {
+  background: var(--m-field); border: 0; color: var(--m-ink); border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); }
+body[data-skin="modern"] .stop-add-form input[name="label"]::placeholder { color: var(--m-ink-3); }
+body[data-skin="modern"] .stop-add-form .stop-add-btn {
+  background: var(--m-glass-2); color: var(--m-ink); border: 0; border-radius: 999px;
+  box-shadow: inset 0 1px 0 var(--m-line); font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; }
+body[data-skin="modern"] .stop-add-form .stop-add-btn:hover { background: var(--m-glass-3); }
+/* listing previews: only the header and the count are the listing's own;
+   everything inside the body is the article page's rendering untouched */
+body[data-skin="modern"] .itp { color: var(--m-ink); }
+body[data-skin="modern"] .itp-when-top { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .itp-ctx { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .itp-more { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .itp-empty { color: var(--m-ink-3); opacity: 1; }
+
+body[data-skin="modern"] .itp-head, body[data-skin="modern"] .itp-head:hover { color: var(--m-ink); text-decoration: none; }
+body[data-skin="modern"] .itp-more:hover { color: var(--m-ink); }

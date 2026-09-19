@@ -179,3 +179,210 @@
 
 .colo-mark { display: block; margin: 0; width: 26px; height: auto; }
 .colo-lead { display: block; font-size: .5rem; font-weight: 400; letter-spacing: .2em; text-transform: uppercase; opacity: 1; margin: 0; }
+
+/* =====================================================================
+   Itinerary — structure for both skins. Paint lives in the skin sheets.
+   ===================================================================== */
+.itin-when { text-align: center; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; margin: -.4rem 0 .5rem; opacity: .85; }
+.itin-ctx { text-align: center; font-style: italic; margin: 0 0 1.4rem; line-height: 1.5; }
+.itin-conflict { font-size: .85rem; font-style: italic; padding: .6rem .9rem; border-left: 2px solid currentColor; margin: 0 0 1.2rem; opacity: .85; }
+.itin-group { margin: 0 0 1.6rem; }
+.itin-day { display: flex; align-items: baseline; gap: .6rem; margin: 0 0 .8rem; cursor: default; list-style: none; }
+.itin-day b { font-size: .62rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
+.itin-day span:not(.rule) { font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+.itin-day .rule { flex: 1; height: 1px; background: currentColor; opacity: .18; }
+.itin-day-loose b { opacity: .55; }
+.itin-day-hint { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; font-style: normal; opacity: 0; transition: opacity .18s; }
+.itin-day-edit > summary:hover .itin-day-hint, .itin-head-edit > summary:hover .itin-day-hint { opacity: .6; }
+.itin-day-edit > summary, .itin-head-edit > summary, .itin-add-day > summary, .itin-create > summary { list-style: none; cursor: pointer; }
+.itin-day-edit > summary::-webkit-details-marker, .itin-head-edit > summary::-webkit-details-marker { display: none; }
+.itin-head-edit > summary { position: relative; }
+.itin-head-edit .itin-day-hint { position: absolute; right: 0; top: .4rem; }
+
+/* the timeline: the check-in grammar, but the spine only over the authored prefix */
+.itin-tl { list-style: none; margin: 0; padding: 0 0 0 1.4rem; position: relative; }
+.itin-tl .stop { position: relative; margin: 0 0 .85rem; }
+.itin-tl .stop::before { content: ""; position: absolute; left: -1.4rem; top: 1rem; width: 8px; height: 8px; border-radius: 50%; background: currentColor; opacity: .35; }
+.itin-tl .stop.is-mark::before { opacity: .9; }
+.itin-tl .stop:not(.is-seq)::before { opacity: .18; }
+.itin-tl .stop.is-seq + .stop.is-seq::after,
+.itin-tl .stop.is-seq:first-child::after { content: ""; position: absolute; left: calc(-1.4rem + 3.5px); top: -1rem; height: 2rem; width: 1px; background: currentColor; opacity: .2; }
+.itin-tl .stop.is-seq:first-child::after { display: none; }
+.stop-head { display: flex; align-items: center; gap: .6rem; margin: 0 0 .35rem; min-height: 1.2rem; }
+.stop-when { font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; opacity: .8; margin-left: auto; }
+.stop-withheld { font-size: .58rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
+.stop-from { display: block; font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; opacity: .55; margin-top: .25rem; }
+.stop-loose { display: flex; align-items: flex-start; gap: .8rem; padding: .7rem .95rem; border-radius: 16px; }
+.stop-loose .stop-body { flex: 1; min-width: 0; }
+.stop-loose .stop-label { font-size: 1.02rem; font-style: italic; }
+.stop-loose.is-unres .stop-label { text-decoration: underline dotted; text-underline-offset: .22em; }
+.stop-open { display: flex; align-items: baseline; gap: .8rem; padding: .35rem .2rem; }
+.stop-open .stop-label { flex: 1; font-size: 1.02rem; font-style: italic; opacity: .6; }
+.is-withheld > .stop-loose, .is-withheld > .stop-open, .is-withheld > .note { opacity: .55; }
+.stop-handle { position: absolute; left: -2.6rem; top: .55rem; cursor: grab; opacity: 0; font-size: 1rem; user-select: none; padding: .2rem .4rem; touch-action: none; }
+.stop:hover .stop-handle { opacity: .5; }
+.stop.is-dragging { opacity: .45; }
+.stop.drop-before { box-shadow: 0 -2px 0 0 currentColor; }
+.itin-tl.drop-into { outline: 1px dashed currentColor; outline-offset: 6px; border-radius: 16px; }
+
+/* the ··· menu and its sheet */
+.stop-menu { position: relative; margin-left: .4rem; }
+.stop-menu > summary { list-style: none; cursor: pointer; font-size: 1rem; letter-spacing: .1em; opacity: .55; padding: 0 .3rem; }
+.stop-menu > summary::-webkit-details-marker { display: none; }
+.stop-menu[open] > summary { opacity: 1; }
+.stop-loose .stop-menu, .stop-open .stop-menu { align-self: flex-start; }
+.stop-sheet { margin: .5rem 0 0; padding: .9rem 1rem; border-radius: 16px; }
+.stop-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin-top: .6rem; }
+.stop-links form { margin: 0; }
+.stop-del { opacity: .7; }
+
+/* forms: small, inline, in the page's own register */
+.stop-form, .day-form { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem .8rem; margin: 0; }
+.stop-form label, .day-form label { display: flex; flex-direction: column; gap: .25rem; font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; opacity: .85; }
+.stop-form input, .stop-form select, .day-form input, .day-form select, .day-form textarea { font-size: .92rem; letter-spacing: 0; text-transform: none; padding: .45rem .6rem; border-radius: 10px; }
+.stop-form .btn, .day-form .btn { grid-column: 1 / -1; justify-self: start; }
+.itin-form { grid-template-columns: 1fr 1fr 1fr; }
+.itin-form label:first-child, .itin-form label:nth-child(2) { grid-column: 1 / -1; }
+.itin-check { flex-direction: row !important; align-items: center; gap: .5rem !important; }
+.stop-add { margin-top: .4rem; }
+.stop-add::before { display: none; }
+.stop-add-form { display: flex; gap: .5rem; align-items: center; margin: 0; }
+.stop-add-form input[name="label"] { flex: 1 1 auto; min-width: 8rem; }
+.stop-add-form select { flex: 0 0 auto; width: auto; max-width: 11rem; }
+.stop-add-form .btn { flex: 0 0 auto; }
+.itin-add-day, .itin-create { margin: .4rem 0 1.4rem; }
+.itin-add-day .day-form, .itin-create .day-form { margin-top: .8rem; }
+.itin-actions { display: flex; gap: 1.4rem; align-items: center; margin-top: 2rem; padding-top: 1.2rem; }
+.itin-actions form { margin: 0; }
+@media (max-width: 52rem) {
+  .stop-handle { opacity: .45; left: -2.2rem; }
+  .stop-form, .day-form, .itin-form { grid-template-columns: 1fr; }
+  .stop-add-form { flex-wrap: wrap; }
+}
+/* Inside an itinerary the mark card's feed rail (avatar + marked-on date) is
+   noise: the relevant time is the stop's own, shown in its head. The card
+   itself, with Directions and Check in, is untouched. */
+.itin-tl .stop.is-mark .note > .stackdate, .itin-tl .stop.is-mark .note > .byline,
+.itin-tl .stop.is-mark .note > .note-rail, .itin-tl .stop.is-mark .act-meta { display: none !important; }
+/* the note is a two-column grid (rail + card); with the rail hidden, grid
+   auto-placement dropped the card into the empty 58px rail column. Block it. */
+.itin-tl .stop.is-mark .note { display: block; margin-left: 0; max-width: none; }
+.itin-tl .stop.is-mark .note > .card { width: auto; }
+
+/* The whole itinerary column is the canonical mark page's width, so a mark
+   card here is exactly the size it is on its own page. */
+/* grid-single is 42rem and left-aligned; the itinerary wraps its cards in a
+   day container and a timeline indent, so the column is that much wider and
+   the card inside lands at exactly the width it has on its own page. */
+.itin-page { max-width: 44.4rem; margin-left: 0; margin-right: 0; }
+
+/* Each day is one flat container -- the visit-log / resurfacing tint -- and its
+   stops sit bare inside it: no tint-within-tint. The unplaced cluster gets the
+   same container so it is a peer, not a footnote. */
+.itin-group { padding: 1.1rem 1.25rem 1rem; border-radius: 16px; }
+.itin-group .itin-day { margin-bottom: 1rem; }
+.stop-loose { background: none !important; padding: .35rem .2rem; border-radius: 0; }
+.stop-open { padding: .35rem .2rem; }
+.itin-tl { padding-left: 1.5rem; }
+.itin-tl .stop::before { left: -1.5rem; }
+.itin-tl .stop.is-seq + .stop.is-seq::after { left: calc(-1.5rem + 3.5px); }
+.stop-handle { left: -2.7rem; }
+/* The ··· sheet spans the whole stop when open rather than popping beside the
+   dots: the details element is a flex item, so on open it takes the full row
+   and drops below the rest. Its links are sized as the small-caps actions they
+   are, not inherited from the page. */
+.stop-head, .stop-loose, .stop-open { flex-wrap: wrap; }
+.stop-menu { margin-left: auto; }
+.stop-menu[open] { flex: 1 1 100%; order: 10; }
+.stop-menu > summary { display: block; text-align: right; }
+.stop-links button, .stop-links .link { font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; padding: .2rem 0; }
+.stop-loose .stop-menu > summary, .stop-open .stop-menu > summary { margin-top: -.1rem; }
+/* mobile: the handle and the node were sharing the gutter. Widen the day
+   container's left edge so both have their own column. */
+@media (max-width: 52rem) {
+  .itin-group { padding-left: 2.9rem; }
+  .itin-tl { padding-left: 1.3rem; }
+  .itin-tl .stop::before { left: -1.3rem; }
+  .itin-tl .stop.is-seq + .stop.is-seq::after { left: calc(-1.3rem + 3.5px); }
+  .stop-handle { left: -3.1rem; top: .45rem; opacity: .4; padding: .2rem .25rem; }
+}
+
+/* An unresolved or experiential stop is a card: same footprint and register
+   as a mark card, carrying what is known so far. The eyebrow mirrors the mark
+   card's own; the label sits where the mark's name sits. */
+.stop-card { display: block; text-align: center; padding: 1.1rem 1.3rem 1.2rem; }
+.stop-eb { display: block; font-size: .62rem; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; opacity: .8; margin-bottom: .5rem; }
+.stop-card .stop-label { display: block; font-size: 1.45rem; line-height: 1.2; font-style: normal; }
+.stop-card.is-unres .stop-label { text-decoration: underline dotted; text-underline-offset: .22em; text-decoration-thickness: 1px; }
+.stop-card .stop-from, .stop-card .stop-note { display: block; font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; margin-top: .6rem; }
+.stop-loose { display: none; }
+@media (max-width: 52rem) { .stop-card { padding: 1rem 1rem 1.1rem; } .stop-card .stop-label { font-size: 1.25rem; } }
+
+/* ---- add-stop: a disclosure. Closed, it is one post-box button. Open, the
+   fields and the Add button are one row at one height. ---- */
+.stop-add-disc > summary { list-style: none; cursor: pointer; }
+.stop-add-disc > summary::-webkit-details-marker { display: none; }
+.stop-add-open { margin: .2rem 0 0; padding: .55rem 1rem; min-height: 0; }
+.stop-add-open .plus { width: 2.1rem; height: 2.1rem; }
+.stop-add-open span { font-size: .95rem; }
+.stop-add-disc[open] > summary { display: none; }
+.stop-add-form { --row-h: 2.6rem; display: grid; grid-template-columns: 1fr auto auto; gap: .5rem; align-items: stretch; margin: .2rem 0 0; }
+.stop-add-form input[name="label"], .stop-add-form select, .stop-add-form .stop-add-btn {
+  height: var(--row-h); box-sizing: border-box; margin: 0; line-height: 1; }
+.stop-add-form input[name="label"] { min-width: 0; padding: 0 .8rem; font-size: .95rem; }
+.stop-add-form select { padding: 0 2rem 0 .75rem; font-size: .88rem; max-width: 12rem; }
+.stop-add-form .stop-add-btn { padding: 0 1.4rem; display: inline-flex; align-items: center; justify-content: center; min-width: 5.5rem; }
+@media (max-width: 52rem) {
+  .stop-add-form { grid-template-columns: 1fr; }
+  .stop-add-form select { max-width: none; }
+  .stop-add-form .stop-add-btn { width: 100%; }
+}
+
+/* =====================================================================
+   Itinerary listing: each itinerary is the article page's own rendering,
+   cut off and faded. The cards inside are the real cards -- nothing here
+   restyles them; this only clips the body and dissolves its bottom edge.
+   ===================================================================== */
+.itp-list { display: grid; gap: 1.6rem; }
+.itp { display: block; text-decoration: none; color: inherit; position: relative; }
+.itp:hover { text-decoration: none; }
+.itp-head { display: block; text-align: center; margin: 0 0 1rem; }
+.itp-title { display: block; font-size: 1.5rem; line-height: 1.15; }
+.itp-title i { font-size: .6rem; font-style: italic; letter-spacing: .12em; opacity: .6; margin-left: .5rem; vertical-align: middle; }
+.itp-when-top { display: block; font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; opacity: .75; margin-top: .35rem; }
+.itp-ctx { display: block; font-style: italic; font-size: .92rem; line-height: 1.45; margin-top: .45rem; opacity: .85;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.itp-body { display: block; position: relative; }
+/* the preview is not interactive: cards keep their look but not their handles */
+.itp-body .stop-handle, .itp-body .stop-menu, .itp-body .itin-day-hint { display: none !important; }
+.itp-body .itin-group { margin-bottom: 1rem; }
+/* the cut: a hard height, then the content itself dissolves through a mask so
+   whatever the day container and cards are showing stays intact beneath */
+.itp-body.has-more { max-height: 30rem; overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 58%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 58%, transparent 100%); }
+.itp-more { display: block; text-align: center; font-size: .6rem; letter-spacing: .16em; text-transform: uppercase; opacity: .55; margin: .2rem 0 .4rem; }
+.itp-empty { display: block; font-style: italic; opacity: .55; padding: .6rem 0 1rem; }
+@media (max-width: 52rem) { .itp-title { font-size: 1.3rem; } .itp-body.has-more { max-height: 26rem; } }
+
+/* ---- intention cards: spacing, type and padding refined so the eyebrow,
+   the label and the note read as three deliberate lines rather than one
+   line squeezed between two small ones. ---- */
+.itin-tl .stop .card.stop-card, .card.stop-card { padding: 1.35rem 1.6rem 1.45rem !important; }
+.stop-eb { margin-bottom: .65rem; letter-spacing: .2em; }
+.stop-card .stop-label { font-size: 1.5rem; line-height: 1.2; letter-spacing: -.005em; }
+.stop-card .stop-from, .stop-card .stop-note { margin-top: .85rem; letter-spacing: .14em; font-size: .6rem; }
+.stop-card.is-unres .stop-label { text-underline-offset: .26em; }
+@media (max-width: 52rem) {
+  .card.stop-card { padding: 1.15rem 1.15rem 1.25rem !important; }
+  .stop-card .stop-label { font-size: 1.28rem; }
+  .itp { padding: 1.1rem 1.1rem 1rem; }
+  .itp-title { font-size: 1.3rem; }
+}
+/* the preview's whole body is one link, laid over it; the head and the count
+   are links of their own so keyboard users have a real target */
+.itp { position: relative; }
+.itp-head { color: inherit; text-decoration: none; }
+.itp-over { position: absolute; inset: 0; z-index: 2; }
+.itp-more { position: relative; z-index: 3; text-decoration: none; color: inherit; }
+.itp-body { position: relative; z-index: 1; }
