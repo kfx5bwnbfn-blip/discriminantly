@@ -4769,14 +4769,28 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
       </div>`;
     };
 
-    const create = own ? `<details class="itin-create" ${rows.length ? '' : 'open'}><summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Start an itinerary</span></summary>
-      <form method="post" action="/t/new" class="day-form itin-form">
-        <label>Where <input name="title" placeholder="Singapore, or Next time I\u2019m in London" required></label>
-        <label>What you have in mind <textarea name="context" rows="2" placeholder="More street food this trip. Staying near Orchard."></textarea></label>
-        <label>Year, if known <input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
-        <label>Month, if known <select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
-        <label class="itin-check"><input type="checkbox" name="private" checked> Keep it private</label>
-        <button class="btn">Start</button></form></details>` : '';
+    // The create card is the note post card's shape: the nf-box, the private
+    // switch top-right in nf-top, and the primary CTA the comment form uses.
+    // Timing is behind a second disclosure, because most itineraries start
+    // without a date and the fields should not suggest otherwise.
+    const create = own ? `<details class="itin-create" ${rows.length ? '' : 'open'}>
+      <summary class="post-box"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Start an itinerary</span></summary>
+      <form method="post" action="/t/new" class="nf nf-compact itin-new">
+        <div class="nf-box">
+          <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" checked><span></span></label></div>
+          <label class="nf-field"><span class="nf-lbl">Where</span><input name="title" placeholder="Singapore, or Next time I\u2019m in London" required autocomplete="off"></label>
+          <label class="nf-field"><span class="nf-lbl">Overview</span><textarea name="context" rows="3" placeholder="More street food this trip. Staying near Orchard. Don\u2019t over-plan the afternoons."></textarea></label>
+          <details class="itin-timing"><summary class="link caps">+ When, if you know</summary>
+            <div class="itin-timing-fields">
+              <label class="nf-field"><span class="nf-lbl">Year</span><input name="t_year" type="number" min="1" max="9999" placeholder="unknown"></label>
+              <label class="nf-field"><span class="nf-lbl">Month</span><select name="t_month"><option value="">\u2014</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select></label>
+              <label class="nf-field"><span class="nf-lbl">Season</span><select name="t_period"><option value="">\u2014</option>${T_PERIODS.map((p2) => `<option>${p2}</option>`).join('')}</select></label>
+              <label class="nf-field"><span class="nf-lbl">Part</span><select name="t_modifier"><option value="">\u2014</option>${T_MODS.map((m2) => `<option>${m2}</option>`).join('')}</select></label>
+              <label class="nf-field"><span class="nf-lbl">Part of</span><select name="t_modifier_scope"><option value="">\u2014</option>${T_SCOPES.map((sc2) => `<option>${sc2}</option>`).join('')}</select></label>
+            </div></details>
+          <button class="nf-post itin-start">Start</button>
+        </div>
+      </form></details>` : '';
     const main = `<h3 class="strip">${own ? 'Your itineraries' : esc(subject.handle) + '\u2019s itineraries'}</h3>
     ${own ? '<p class="ens-grid-sub">Places you mean to go, at whatever precision you have.</p>' : ''}
     ${create}

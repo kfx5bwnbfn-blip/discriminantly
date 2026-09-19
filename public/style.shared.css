@@ -386,3 +386,27 @@
 .itp-over { position: absolute; inset: 0; z-index: 2; }
 .itp-more { position: relative; z-index: 3; text-decoration: none; color: inherit; }
 .itp-body { position: relative; z-index: 1; }
+/* the listing's create button is the same post-box as "Post a new Note";
+   only its summary chrome is suppressed so it can open the form beneath */
+.itin-create > summary.post-box { list-style: none; cursor: pointer; }
+.itin-create > summary.post-box::-webkit-details-marker { display: none; }
+.itin-create[open] > summary.post-box { margin-bottom: 1rem; }
+
+/* ---- the create-itinerary card: the note post card's structure ---- */
+.itin-create[open] > summary.post-box { margin-bottom: 1rem; }
+.itin-new { margin: 0; }
+.itin-new .nf-box { position: relative; padding-top: 2.4rem; }
+.itin-new .nf-top { position: absolute; top: .9rem; right: 1rem; display: flex; align-items: center; gap: .6rem; margin: 0; }
+.itin-new .nf-field { display: flex; flex-direction: column; gap: .35rem; margin: 0 0 1rem; }
+.itin-new .nf-field .nf-lbl { font-size: .6rem; letter-spacing: .16em; text-transform: uppercase; }
+.itin-new input[name="title"], .itin-new textarea, .itin-timing-fields input, .itin-timing-fields select { width: 100%; box-sizing: border-box; font-size: 1rem; padding: .6rem .8rem; border-radius: 12px; }
+.itin-new textarea { resize: vertical; min-height: 4.6rem; }
+.itin-timing { margin: .2rem 0 1.1rem; }
+.itin-timing > summary { list-style: none; cursor: pointer; font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; }
+.itin-timing > summary::-webkit-details-marker { display: none; }
+.itin-timing[open] > summary { margin-bottom: .8rem; }
+.itin-timing-fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem .8rem; }
+.itin-timing-fields .nf-field { margin-bottom: .4rem; }
+/* the primary CTA, sized as a primary CTA */
+.itin-new .itin-start { display: block; width: 100%; font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; margin-top: .4rem; }
+@media (max-width: 52rem) { .itin-timing-fields { grid-template-columns: 1fr 1fr; } }
