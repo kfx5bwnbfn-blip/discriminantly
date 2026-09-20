@@ -1885,6 +1885,9 @@ function readImage(file, cb) {
     // own script, so its Cancel is handled here with the other delegated ones
     var ic = e.target.closest && e.target.closest('[data-itin-new-cancel]');
     if (ic) { e.preventDefault(); var dd = ic.closest('details'); if (dd) dd.open = false; return; }
+    var cc = e.target.closest && e.target.closest('[data-cmt-cancel]');
+    if (cc) { e.preventDefault(); var li = cc.closest('li'); var tg2 = li && li.querySelector('.cmt-toggle');
+      if (tg2) tg2.checked = false; return; }
     var t = e.target.closest && e.target.closest('.nf-del');
     if (!t) return;
     window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
@@ -5427,7 +5430,7 @@ ${noters.length ? `<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span>${me && (me.id === c.user_id || me.id === SUBJ.user_id || me.is_admin) ? `<button type="button" class="nf-link-btn comment-del nf-del" data-del="DELPATH" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button>` : ''}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-o-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === o.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-o-${c.id}" class="cmt-toggle" hidden><form method="post" action="/o/${o.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
 <div class="note-side">${relatedNotes(o, me)}${skinOf(me, req) === 'modern' ? colophon(o) : ''}</div>
 <script>
@@ -5741,7 +5744,7 @@ ${remarkers.length ? `<div class="section-rule"></div>
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/m/${m.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>`
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span>${me && (me.id === c.user_id || me.id === SUBJ.user_id || me.is_admin) ? `<button type="button" class="nf-link-btn comment-del nf-del" data-del="DELPATH" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button>` : ''}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
 </section></div>
 <script>
@@ -8913,6 +8916,27 @@ async function handle(req, res) {
   }
   // A comment may be removed by whoever wrote it, or by the owner of the
   // record it sits on -- the same two people who can act on it anywhere else.
+  // Editing a comment. Same ownership rule as deleting it, except that the
+  // subject's owner may remove a comment from their record but may not put
+  // words in its author's mouth -- only the author edits.
+  if ((mt = p.match(/^\/(o|m)\/(\d+)\/comments\/(\d+)$/)) && m === 'POST') {
+    if (!me) return need();
+    const isNote = mt[1] === 'o';
+    const table = isNote ? 'comments' : 'mark_comments';
+    const fk = isNote ? 'object_id' : 'mark_id';
+    const c = q(`SELECT * FROM ${table} WHERE id=? AND ${fk}=?`).get(+mt[3], +mt[2]);
+    if (!c) return send(res, 'No such comment.', 404);
+    if (c.user_id !== me.id) return send(res, 'Only the author can edit a comment.', 403);
+    const b = await readBody(req);
+    const body = String(b.body || '').trim();
+    if (!body) return send(res, 'A comment cannot be empty.', 400);
+    if (body !== c.body) {
+      q(`UPDATE ${table} SET body=? WHERE id=?`).run(body, c.id);
+      recordProvenance('comment', c.uid, 'edited', webActor(me), { fields: 'body' });
+    }
+    return redirect(res, isNote ? `/o/${mt[2]}` : `/m/${mt[2]}`);
+  }
+
   if ((mt = p.match(/^\/(o|m)\/(\d+)\/comments\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const me2 = me;
