@@ -1318,8 +1318,11 @@ function resurfaceCard(block, me) {
 // organic entries it would be an editorial interruption masquerading as one
 // of the member's own posts — a small dishonesty. Standing above the stream
 // in its own frame, it can be read as furniture and skipped past.
-function resurfaceBanner(me, feed) {
+function resurfaceBanner(me, feed, searching) {
   if (!me || feed !== 'all') return { html: '', skip: null };   // All feed only
+  // A search is a question with an answer; an editorial resurfacing above it
+  // would be an interruption pretending to be a result.
+  if (searching) return { html: '', skip: null };
   const block = resurfaceCandidate(me);
   if (!block) return { html: '', skip: null };                  // nothing eligible: show nothing
   const rec = block.o ? ['note', block.o.id] : ['mark', block.m.id];
@@ -5127,7 +5130,7 @@ function relatedNotes(o, me) {
     </section>`;
   };
   return `<aside class="itin-sugg note-sugg">
-    <h3 class="strip">More from the catalogue</h3>
+    <h3 class="strip">Similar notes</h3>
     ${group('More notes from the same collections', sameColl)}${group('Other similar notes', similar)}
   </aside>`;
 }
@@ -5281,7 +5284,7 @@ const pages = {
                      ...marks.map((x) => ({ at: x.created_at, key: 'mark:' + x.id, html: markCard(x, me) })),
                      ...itins.filter((it) => canSee(it, me)).map((it) => ({ at: it.created_at, key: 'itin:' + it.id, html: itineraryPreview(it, me) }))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
-    const banner = resurfaceBanner(me, feed);
+    const banner = resurfaceBanner(me, feed, !!(s || tag));
     const shown = banner.skip;
     const page = pageOf(shown ? entries.filter((e) => e.key !== shown) : entries, url);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
@@ -5375,8 +5378,7 @@ ${noters.length ? `<div class="section-rule"></div>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
-${relatedNotes(o, me)}
-${skinOf(me, req) === 'modern' ? colophon(o) : ''}
+<div class="note-side">${relatedNotes(o, me)}${skinOf(me, req) === 'modern' ? colophon(o) : ''}</div>
 <script>
 (function () {
   var f = document.getElementById('noters-fold'); if (!f) return;

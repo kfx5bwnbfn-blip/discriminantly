@@ -739,3 +739,8 @@
    and tint stay, so the columns live inside the grouping frame */
 .search-cards.grid { box-sizing: border-box; }
 .search-cards > .feed-col { min-width: 0; }
+
+/* Below the breakpoint the side column is simply the end of the page, in the
+   order it is written: Similar notes, then the colophon. */
+.note-side { display: block; }
+.note-side > .note-sugg { margin-top: 1.6rem; }
