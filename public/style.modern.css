@@ -2309,3 +2309,14 @@ html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell:hover {
   background-image: none;
 }
 body[data-skin="modern"] .itin-shell { transition: background-color .22s var(--m-ease), background-image .22s var(--m-ease); }
+/* the phones take the device colour from the skin, not from the screenshot */
+body[data-skin="modern"] .phone { background: rgba(255,255,255,.14); box-shadow: inset 0 1px 0 var(--m-line), 0 1px 3px rgba(0,0,0,.2), 0 10px 26px rgba(0,0,0,.3); }
+body[data-skin="modern"][data-mode="light"] .phone, html.m-light body[data-skin="modern"][data-mode="system"] .phone { background: rgba(20,22,28,.22); }
+body[data-skin="modern"] .phone-notch { background: rgba(10,12,18,.9); }
+body[data-skin="modern"] .splash-pair-lead { color: var(--m-ink-2); }
+body[data-skin="modern"] .phone-wrap figcaption { color: var(--m-ink-3); }
+/* the welcome page forces direct children of main transparent, which outranks
+   the container tint; this section is a container and keeps it */
+body[data-skin="modern"] main > .splash-pair { background: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] main > .splash-pair,
+html.m-light body[data-skin="modern"][data-mode="system"] main > .splash-pair { background: rgba(20,22,28,.045); }

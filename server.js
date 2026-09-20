@@ -6352,6 +6352,66 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       : `<picture><source srcset="/welcome-shot-modern-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1174"></picture>`}
   </div>
 </div>
+<section class="splash-pair itin-shell">
+  <p class="splash-pair-lead">Use your AI to discover new places and plan day trips and itineraries</p>
+  <div class="phones">
+    <figure class="phone-wrap">
+      <span class="phone-body">
+      <span class="phone-shadow"></span>
+      <span class="phone"><span class="phone-notch"></span>
+        ${skinOf(me, req) === 'modern' && modeOf(me, req) === 'light'
+          ? `<img src="/welcome-phone-profile-light.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy">`
+          : skinOf(me, req) === 'modern' && modeOf(me, req) === 'dark'
+          ? `<img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy">`
+          : `<picture><source srcset="/welcome-phone-profile-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy"></picture>`}
+      </span></span>
+      <figcaption>Your profile is a record of your interests and taste</figcaption>
+    </figure>
+    <figure class="phone-wrap">
+      <span class="phone-body">
+      <span class="phone-shadow"></span>
+      <span class="phone"><span class="phone-notch"></span>
+        <img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip" width="900" height="1845" loading="lazy">
+      </span></span>
+      <figcaption>Enhancing your AI\u2019s ability to recommend</figcaption>
+    </figure>
+  </div>
+  <p class="splash-pair-lead splash-pair-lead-2">Make any changes to your plans on AI as you please</p>
+  <div class="phones">
+    <figure class="phone-wrap">
+      <span class="phone-body">
+      <span class="phone-shadow"></span>
+      <span class="phone"><span class="phone-notch"></span>
+        <img src="/welcome-phone-chat.jpg" alt="Planning a trip in a conversation with an AI" width="900" height="1845" loading="lazy">
+      </span></span>
+      <figcaption>Plan conversationally</figcaption>
+    </figure>
+    <figure class="phone-wrap">
+      <span class="phone-body">
+      <span class="phone-shadow"></span>
+      <span class="phone"><span class="phone-notch"></span>
+        ${skinOf(me, req) === 'modern' && modeOf(me, req) === 'light'
+          ? `<img src="/welcome-phone-app-light.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy">`
+          : skinOf(me, req) === 'modern' && modeOf(me, req) === 'dark'
+          ? `<img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy">`
+          : `<picture><source srcset="/welcome-phone-app-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy"></picture>`}
+      </span></span>
+      <figcaption>We build it in the background</figcaption>
+    </figure>
+  </div>
+  <p class="splash-pair-lead splash-pair-lead-2">Your plans get stored with Discriminantly \u2014 you choose whether to interface primarily with your AI or enjoy both</p>
+  <div class="shot-wrap splash-shot-2">
+    <div class="shot-shadow"></div>
+    <div class="shot-frame">
+      <div class="shot-chrome"><span></span><span></span><span></span></div>
+      ${skinOf(me, req) === 'modern' && modeOf(me, req) === 'light'
+        ? `<img src="/welcome-shot-itin-light.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy">`
+        : skinOf(me, req) === 'modern' && modeOf(me, req) === 'dark'
+        ? `<img src="/welcome-shot-itin-dark.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy">`
+        : `<picture><source srcset="/welcome-shot-itin-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-itin-dark.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy"></picture>`}
+    </div>
+  </div>
+</section>
 <div class="curtain dialog" id="splash-install-dialog">
   <div class="curtain-frame"><div class="curtain-body">
     <div class="nf-box">
@@ -8324,7 +8384,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 }
 
 // ---------- router ----------
-const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/mark.png': 'image/png', '/mark@4x.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
+const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/welcome-shot-itin-dark.jpg': 'image/jpeg', '/welcome-shot-itin-light.jpg': 'image/jpeg', '/welcome-phone-ask.jpg': 'image/jpeg', '/welcome-phone-profile-light.jpg': 'image/jpeg', '/welcome-phone-profile-dark.jpg': 'image/jpeg', '/welcome-phone-chat.jpg': 'image/jpeg', '/welcome-phone-app-light.jpg': 'image/jpeg', '/welcome-phone-app-dark.jpg': 'image/jpeg', '/mark.png': 'image/png', '/mark@4x.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
