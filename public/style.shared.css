@@ -528,8 +528,6 @@
 /* Other pages open with a .strip heading, which sets their first content 65px
    below the masthead. These pages open with a card instead, so they carry the
    same gap themselves. */
-/* the page already sits 65px below the masthead, the same as a .strip page */
-.itin-page, .itin-list { padding-top: 0; }
 
 /* ---- itinerary byline: the same row every first-class object carries ---- */
 .itin-note > .byline { margin: 0; }
@@ -545,7 +543,7 @@
 .itin-when, .itp .itin-when { font-size: .8rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 
 /* ---- the move control: up / grip / down, in the card's left indent ---- */
-.stop-move { position: absolute; left: -2.9rem; top: .35rem; display: flex; flex-direction: column;
+.stop-move { position: absolute; top: .35rem; display: flex; flex-direction: column;
   align-items: center; gap: .1rem; opacity: 0; transition: opacity .18s; }
 .stop:hover .stop-move, .stop-move:focus-within { opacity: .75; }
 .stop-arrow { background: none; border: 0; padding: .1rem .3rem; cursor: pointer; font-size: .8rem; line-height: 1; color: inherit; }
@@ -553,7 +551,7 @@
 .stop-handle { position: static; opacity: 1; font-size: 1.05rem; padding: .1rem .3rem; }
 .stop:hover .stop-handle { opacity: 1; }
 @media (max-width: 52rem) {
-  .stop-move { opacity: .55; left: -2.7rem; }
+  .stop-move { opacity: .55; }
   .stop-arrow { padding: .18rem .3rem; }
 }
 
@@ -581,3 +579,55 @@
 .grid .itin-note, .feed-col .itin-note { width: 100%; box-sizing: border-box; }
 
 .itin-edit-toggle { display: none !important; }
+
+/* ---- 1. the move control sits under the timeline dot, centred in the gutter
+   between the container edge and the card edge ---- */
+.stop-move { left: calc(-1.5rem + 4px); transform: translateX(-50%); top: 2rem; }
+.stop-handle { font-size: 1rem; }
+
+/* ---- 2. the time of day sits beside its dot, left aligned, on the dot's own
+   line -- not centred and not pushed to the right edge ---- */
+/* the time sits on the dot's own line: the dot is 8px tall at top 1rem, so the
+   head is nudged to put the text's centre on the dot's centre */
+.stop-head { justify-content: flex-start; margin: .2rem 0 .3rem; min-height: .8rem; align-items: center; }
+.stop-when { margin-left: 0; }
+.stop-head .stop-menu { margin-left: auto; }
+.stop-loose .stop-when, .stop-open .stop-when { margin-left: 0; }
+
+/* ---- 3. real space above the first card. The 65px other pages show comes
+   from the page layout, not from padding, so a tall card can still read as
+   flush against the masthead -- and does in Safari. This is actual padding,
+   so it holds in every engine. ---- */
+.itin-page, .itin-list { padding-top: 1.5rem; }
+.itin-side { padding-top: 0; }
+@media (max-width: 52rem) { .itin-page, .itin-list { padding-top: 1rem; } }
+
+/* The dot aligns with the time text beside it. Nudging the head instead would
+   not work: its top margin collapses through .stop and carries the dot with
+   it, so the offset never changes. */
+.itin-tl .stop::before { top: .55rem; }
+.itin-tl .stop.is-seq + .stop.is-seq::after { top: -1.45rem; height: 2rem; }
+
+/* ---- the time of day sits beside its node ----------------------------------
+   It was right-aligned above the card, reading as a caption of nothing. It now
+   begins immediately right of the dot and is left-aligned, ragged right, so the
+   dot and its label are one unit. Applies wherever a stop renders -- the
+   article page and every feed, since both use the same renderer. */
+.stop-head { justify-content: flex-start; gap: .5rem; min-height: 1.1rem; margin-bottom: .3rem; }
+.stop-when { margin-left: 0; text-align: left; }
+.stop-head .stop-menu { margin-left: auto; }
+/* the node aligns with the middle of that line rather than the card below it */
+.itin-tl .stop::before { top: .32rem; }
+.itin-tl .stop.is-seq + .stop.is-seq::after { top: -1.1rem; height: 1.5rem; }
+
+/* ---- the move control sits under the node -----------------------------------
+   Centred in the gutter between the container's left edge and the card's, and
+   directly beneath the dot, so the control reads as belonging to that stop. */
+.stop-move { left: calc(-1.5rem + 4px); transform: translateX(-50%); top: 1.1rem; }
+@media (max-width: 52rem) { .stop-move { left: calc(-1.3rem + 4px); top: 1rem; } }
+
+/* ---- clear of the fixed search bar -----------------------------------------
+   .searchbar is fixed at 65px tall and content scrolls beneath it. Pages that
+   open with a .strip heading get away with a small gap; a card butting the bar
+   does not, so these pages take a real one. */
+.itin-page, .itin-list { padding-top: 3rem; }
