@@ -3965,7 +3965,17 @@ const ITIN_JS = `
     var pick=e.target.closest('.mark-pick, .mark-chip');
     if(pick){ e.preventDefault(); choose(pick.closest('form'), pick.dataset.uid, pick.dataset.name); return; }
     var un=e.target.closest('[data-unpick]');
-    if(un){ e.preventDefault(); unchoose(un.closest('form')); }
+    if(un){ e.preventDefault(); unchoose(un.closest('form')); return; }
+    // one card, two kinds of thing to add
+    var seg=e.target.closest('[data-itin-seg]');
+    if(seg){ e.preventDefault();
+      var wrap=seg.closest('.stop-add-disc'); var kind=seg.dataset.itinSeg;
+      wrap.querySelectorAll('[data-itin-seg]').forEach(function(x){
+        var on=x.dataset.itinSeg===kind; x.classList.toggle('on', on); x.setAttribute('aria-selected', on?'true':'false'); });
+      wrap.querySelectorAll('.itin-seg-panel').forEach(function(x){ x.classList.toggle('is-on', x.dataset.kind===kind); });
+      return; }
+    var ac=e.target.closest('[data-add-cancel]');
+    if(ac){ e.preventDefault(); var d2=ac.closest('details'); if(d2) d2.open=false; }
   });
 
   // The Edit affordance in the byline opens the itinerary's own edit form --
@@ -4622,7 +4632,11 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             <select class="nf-field" name="group_uid"><option value="">NOT ON A DAY</option>${dayOpts}</select>
             </div>
             <button class="nf-post">Save</button>
-            <div class="nf-foot nf-foot-3"><span></span><span></span><button type="button" class="nf-link-btn" data-stop-cancel>Cancel</button></div>
+            <div class="nf-foot nf-foot-3">
+              <button type="button" class="nf-link-btn nf-del" data-del="${base}/stops/${st.uid}/delete" data-kind="stop" data-title="${esc(st.label || 'this stop')}">Delete</button>
+              <span></span>
+              <button type="button" class="nf-link-btn" data-stop-cancel>Cancel</button>
+            </div>
           </div></form>
           <div class="stop-links">
             ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
@@ -4678,7 +4692,13 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       // opens the fields. The fields share one height and the Add button sits
       // on the same line at that height, so the row reads as one control.
       const add = ctl ? `<li class="stop-add"><details class="stop-add-disc">
-        <summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>${groupUid ? 'Add to this day' : 'Add somewhere, or something'}</span></summary>
+        <summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add stop or day</span></summary>
+        <div class="seg itin-seg" role="tablist">
+          <button type="button" class="seg-btn on" data-itin-seg="stop" role="tab" aria-selected="true">New stop</button>
+          <button type="button" class="seg-btn" data-itin-seg="day" role="tab" aria-selected="false">Add day</button>
+        </div>
+        <div class="itin-seg-panels">
+        <div class="itin-seg-panel is-on" data-kind="stop">
         <form method="post" action="${base}/stops" class="nf nf-compact stop-add-form">
           <div class="nf-box"><div class="nf-stack">
             <input type="hidden" name="group_uid" value="${groupUid || ''}">
@@ -4697,7 +4717,19 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             <div class="mark-gallery-row">${nearby.map((mk) => `<button type="button" class="mark-chip" data-uid="${esc(mk.uid)}" data-name="${esc(mk.name)}">
               <span class="mark-chip-name">${esc(mk.name)}</span><span class="mark-chip-where">${esc([mk.locality, mk.country].filter(Boolean).join(', '))}</span></button>`).join('')}</div>
           </div>` : ''}
-          <button class="nf-post stop-add-btn">Add</button></div></form></details></li>` : '';
+          <button class="nf-post stop-add-btn">Add stop</button>
+          <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-add-cancel>Cancel</button></div>
+          </div></form></div>
+        <div class="itin-seg-panel" data-kind="day">
+          <form method="post" action="${base}/groups" class="nf nf-compact day-form"><div class="nf-box"><div class="nf-stack">
+            <input class="nf-field" name="label" placeholder="LABEL \u2014 DAY ${groups.length + 1}, FRIDAY\u2026" maxlength="60">
+            <select class="nf-field" name="t_month"><option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select>
+            <input class="nf-field" name="t_day" type="number" min="1" max="31" placeholder="DAY OF MONTH">
+            <input class="nf-field" name="t_year" type="number" min="1" max="9999" placeholder="YEAR">
+            </div><button class="nf-post">Add day</button>
+            <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-add-cancel>Cancel</button></div>
+          </div></form>
+        </div></div></details></li>` : '';
       if (!rows.length && !add) return '';
       return `<ol class="itin-tl" data-seq="${seq}" data-group="${groupUid || ''}">${rows.join('')}${add}</ol>`;
     };
@@ -5217,13 +5249,7 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     const rendered = itineraryBody(it, me);
     const dayBlocks = rendered.html, looseBlock = '';
 
-    const addDay = owner ? `<details class="itin-add-day"><summary class="post-box stop-add-open"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a day</span></summary>
-      <form method="post" action="${base}/groups" class="nf nf-compact day-form"><div class="nf-box"><div class="nf-stack">
-        <input class="nf-field" name="label" placeholder="LABEL \u2014 DAY ${groups.length + 1}, FRIDAY\u2026" maxlength="60">
-        <select class="nf-field" name="t_month"><option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}</select>
-        <input class="nf-field" name="t_day" type="number" min="1" max="31" placeholder="DAY OF MONTH">
-        <input class="nf-field" name="t_year" type="number" min="1" max="9999" placeholder="YEAR">
-        </div><button class="nf-post">Add day</button></div></form></details>` : '';
+    const addDay = '';   // the day form is a tab inside the add card now
 
     const when = tf(it);
     // the byline and edit affordance every first-class object carries
@@ -5806,8 +5832,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       for (const it of q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT 20').all(u.id))
         if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
+      const apg = pageOf(acts, url);
       main = `<h3 class="strip">All activity</h3>
-      <div class="activity-feed" id="feed-grid">${pageOf(acts, url).slice.map((a) => a.itin
+      <div class="activity-feed" id="feed-grid">${apg.slice.map((a) => a.itin
         ? `<div class="act-note">${itineraryPreview(a.itin, me)}</div>`
         : a.mark
         ? `<div class="act-note">${markCard(a.mark, me)}</div>`
@@ -5819,7 +5846,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
              <span class="follow-when">${timeAgo(a.at)}</span></div></article></div>`
         : a.card
         ? `<div class="act-note">${objectCard(a.card, me)}</div>`
-        : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}`;
+        : `<div class="act-line"><span class="act-date">${timeAgo(a.at)}</span><span>${esc(u.handle)} ${a.html}</span></div>`).join('')}</div>${acts.length ? '' : emptyState(me, 'activity', u)}${moreLink(url, apg.off, apg.more)}`;
     } 
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
   <section class="feed profile-feed is-tiled">${main}</section>

@@ -698,3 +698,18 @@
 .mark-gallery-row::-webkit-scrollbar { display: none; }
 .mark-chip { width: auto; flex: 0 0 auto; max-width: 11rem; border-radius: 12px; padding: .5rem .75rem; }
 .mark-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- the stop's own sheet sits above the card it edits -------------------- */
+.stop { position: relative; }
+.stop-menu { position: relative; z-index: 5; }
+.stop-menu[open] { z-index: 40; }
+.stop-sheet { position: relative; z-index: 41; }
+
+/* ---- one add card, two tabs: a new stop, or a new day -------------------- */
+.itin-seg { display: flex; gap: .3rem; margin: 0 0 .7rem; }
+.itin-seg .seg-btn { flex: 1 1 0; cursor: pointer; }
+.itin-seg-panel { display: none; }
+.itin-seg-panel.is-on { display: block; }
+/* a display rule beats the hidden attribute, so the empty picker rows were
+   showing on load; restore what hidden is supposed to mean */
+.mark-chosen[hidden], .mark-picks[hidden], .itin-seg-panel[hidden] { display: none !important; }

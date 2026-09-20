@@ -1951,8 +1951,12 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
   }
   body[data-skin="modern"] .profile-feed.has-colophon > * { grid-column: 1; min-width: 0; }
   body[data-skin="modern"] .profile-feed.has-colophon > .colophon {
-    grid-column: 2; grid-row: 1 / -1; align-self: center;
-    position: static; top: auto; right: auto; width: auto; margin: 0; padding: 0 1.25rem;
+    grid-column: 2; grid-row: 1 / span 999; align-self: start;
+    /* centred on the CARD, not the column: the existing script measures the
+       card and writes --colo-top, which is now a margin rather than an
+       absolute offset, so nothing depends on positioned-layout differences */
+    margin-top: var(--colo-top, 0);
+    position: static; top: auto; right: auto; width: auto; margin-left: 0; margin-right: 0; padding: 0 1.25rem;
   }
 }
 /* Below that, it reflows to the foot of the page under the comments, keeping
