@@ -774,3 +774,6 @@
 .itin-map svg a { pointer-events: auto; cursor: pointer; }
 /* a stop jumped to from the map should not hide under the fixed search bar */
 .stop { scroll-margin-top: 5.5rem; }
+/* "Three More" reads as a line of prose rather than a label */
+.itp-more { font-style: italic; text-transform: none; letter-spacing: .01em;
+  font-size: .82rem; font-weight: 600; }

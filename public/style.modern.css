@@ -2272,3 +2272,9 @@ body[data-skin="modern"] .ens-shell .ens-meta { color: var(--m-ink-3); }
 body[data-skin="modern"] .ens-parts { background: rgba(0,0,0,.035); }
 body[data-skin="modern"][data-mode="light"] .ens-parts, html.m-light body[data-skin="modern"][data-mode="system"] .ens-parts { background: rgba(20,22,28,.045); }
 body[data-skin="modern"] .ens-parts-h { color: var(--m-ink-3); }
+/* The share row is centred wherever a mark card appears. It was flex-end,
+   which only looked centred when the row happened to be the button's width --
+   in a narrower column it drifted right. */
+body[data-skin="modern"] .mark-foot { justify-content: center; }
+/* the count under a truncated itinerary */
+body[data-skin="modern"] .itp-more { color: var(--m-ink-2); }

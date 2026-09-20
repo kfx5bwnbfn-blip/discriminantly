@@ -1881,6 +1881,10 @@ function readImage(file, cb) {
   document.addEventListener('click', function (e) {
     var ec = e.target.closest && e.target.closest('[data-ens-cancel]');
     if (ec) { e.preventDefault(); var tg = document.querySelector('.itin-edit-toggle'); if (tg) tg.checked = false; return; }
+    // the itinerary listing's create card sits outside the itinerary page's
+    // own script, so its Cancel is handled here with the other delegated ones
+    var ic = e.target.closest && e.target.closest('[data-itin-new-cancel]');
+    if (ic) { e.preventDefault(); var dd = ic.closest('details'); if (dd) dd.open = false; return; }
     var t = e.target.closest && e.target.closest('.nf-del');
     if (!t) return;
     window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
@@ -5276,7 +5280,7 @@ function itineraryPreview(it, me) {
     </div>
     <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
     <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
-    ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
+    ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} More</a>` : ''}
   </div></article>`;
 }
 
@@ -5468,6 +5472,7 @@ ${noters.length ? `<div class="section-rule"></div>
               <select class="nf-field" name="t_modifier_scope"><option value="">\u2026 OF THE YEAR / SEASON / MONTH</option>${T_SCOPES.map((sc2) => `<option value="${sc2}">of the ${sc2}</option>`).join('')}</select>
             </div></details>
           <button class="nf-post itin-start">Start</button>
+          <div class="nf-foot"><span></span><button type="button" class="nf-link-btn" data-itin-new-cancel>Cancel</button></div>
         </div>
       </form></details>` : '';
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(subject.handle)}">${esc(subject.handle)}</a> \u203a <span>Itineraries</span></h3>
@@ -5556,7 +5561,7 @@ ${noters.length ? `<div class="section-rule"></div>
     if (!me) return need();
     const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(me.id);
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(me.handle)}">${esc(me.handle)}</a> \u203a <span>Ensembles</span></h3>
-    ${rows.length ? '<p class="ens-grid-sub">Compositions your AI put together from your notes and travel marks.</p>' : ''}
+
     <div class="ens-grid">${rows.map((e) => {
       const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
       const st = ensStats(e.id);
