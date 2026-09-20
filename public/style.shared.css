@@ -849,3 +849,10 @@
 .splash-shot-2 .shot-shadow { bottom: -22px; height: 60px; }
 .splash-shot-2 .shot-shadow::before, .splash-shot-2 .shot-shadow::after { bottom: 34px; height: 40px; box-shadow: 0 16px 14px rgba(0,0,0,.5); }
 @media (max-width: 52rem) { .splash-pair-lead-2 { margin: 1.8rem 0 1.1rem; } }
+
+/* the mark and ensemble colophons sit in the same flow as the itinerary's:
+   in the side column where there is one, at the end of the content otherwise */
+.mark-colophon, .ens-colophon { position: static !important; width: auto !important;
+  top: auto !important; right: auto !important; left: auto !important;
+  margin: 2.4rem auto 1rem !important; max-width: 16rem; }
+.mark-layout.has-log > .mark-colophon { grid-column: 2; margin-top: 1.6rem !important; }

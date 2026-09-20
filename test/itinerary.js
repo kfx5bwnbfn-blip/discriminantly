@@ -521,5 +521,51 @@ console.log('\nintention is not experience');
   ok('V7 the web mark form never logs a visit', !/INSERT INTO visits/.test(webMark));
 }
 
+// ---- mark and ensemble colophons -------------------------------------------
+console.log('\nmark and ensemble colophons');
+{
+  const mk = SRC.slice(SRC.indexOf('function markColophonEntries('), SRC.indexOf('const markColophon ='));
+  const en = SRC.slice(SRC.indexOf('function ensembleColophonEntries('), SRC.indexOf('const ensembleColophon ='));
+  const frame = SRC.slice(SRC.indexOf('function colophonFrame('), SRC.indexOf('// ---- travel mark colophon'));
+
+  ok('M1 a check-in never appears in a mark\u2019s colophon',
+     !/visits|check.?in/i.test(mk));
+  ok('M2 planning origin comes from the mark\u2019s own creation row',
+     /created\.source_kind === 'itinerary' && created\.source_ref/.test(mk));
+  ok('M3 being a stop does not confer origin',
+     !/itinerary_stops/.test(mk));
+  ok('M4 origin is never inferred from timestamps',
+     !/created_at\s*[<>]/.test(mk));
+  ok('M5 a private plan is never named to someone who cannot see it',
+     /canSee\(it, me\)/.test(mk) && /'a trip'/.test(mk));
+  ok('M6 enrichment is claimed only where provenance says so',
+     /rows\.filter\(\(r\) => r\.action === 'enriched'\)/.test(mk));
+  ok('M7 enrichment is collapsed into one line, not one per field',
+     /inList/.test(mk));
+  ok('M8 AI enrichment is distinguished from the member\u2019s own',
+     /actor_type !== 'user'/.test(mk));
+
+  ok('E1 constituents naming a private note are withheld',
+     /canSee\(note, me\)/.test(en) && /withheld/.test(en));
+  ok('E2 AI composition rests on the artifact\u2019s own generated row',
+     /entity_type='ensemble_artifact'[\s\S]*source_kind='generated'/.test(en));
+  ok('E3 Keep is read from the ledger, never assumed',
+     /status:saved/.test(en));
+  ok('E4 unresolved \u2192 resolved history is preserved, not rewritten',
+     /action === 'resolved'/.test(en) && /Later identified/.test(en));
+  ok('E5 internal state names never surface',
+     !/'unresolved'|'linked'/.test(en.replace(/\/\/[^\n]*/g, '')));
+  ok('E6 no model ids, prompts, seeds or asset ids',
+     !/prompt|seed|model_id|asset_id/i.test(en));
+
+  ok('C1 one shared frame, not four implementations',
+     /colo-head|colo-lead|colo-mark/.test(frame));
+  ok('C2 a bare created date is still not a history',
+     /rows\.length < 2\) return ''/.test(frame));
+  ok('C3 nothing is stored: the inscription is derived',
+     !/INSERT INTO[\s\S]{0,60}colophon/i.test(SRC));
+  ok('C4 no schema was added for this', !/ALTER TABLE provenance|CREATE TABLE colophon/i.test(SRC));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -5066,6 +5066,109 @@ function itinerarySuggestions(it, me) {
   </aside>`;
 }
 
+const inList = (a) => a.length < 2 ? (a[0] || '')
+  : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+
+function colophonFrame(lead, rows, label, cls) {
+  if (rows.length < 2) return '';        // a bare created date is not a history
+  const entry = ([k, v]) => `<span class="colo-k">${esc(k)}</span><span class="colo-v">${esc(v)}</span>`;
+  return `<aside class="colophon ${cls}" aria-label="${esc(label)}">
+  <span class="colo-head">Provenance</span><span class="colo-rule"></span>
+  <span class="colo-lead">${esc(lead)}</span>
+  ${entry(rows[0])}
+  <img class="colo-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="26" height="35">
+  ${rows.slice(1).map(entry).join('\n  ')}
+  <span class="colo-rule"></span>
+</aside>`;
+}
+
+// ---- travel mark colophon ---------------------------------------------------
+// How this place entered and evolved in the record. NOT what happened at the
+// place: check-ins are experienced evidence with their own timeline, and never
+// appear here. Being used as a stop does not rewrite a mark's origin either --
+// only the mark's own creation row can say where it came from.
+function markColophonEntries(m, me) {
+  const out = [];
+  const rows = q("SELECT * FROM provenance WHERE entity_type='mark' AND entity_uid=? ORDER BY id").all(m.uid);
+  const created = rows.find((r) => r.action === 'created');
+  out.push(['Marked', monthYear(m.created_at)]);
+
+  // Causal, never inferred: only a creation row that names an itinerary can
+  // say the mark was added while planning one.
+  if (created && created.source_kind === 'itinerary' && created.source_ref) {
+    const it = q('SELECT * FROM itineraries WHERE uid=?').get(created.source_ref);
+    // A private plan is never named to someone who could not open it; the
+    // fact that the mark came from planning is still true and still shown.
+    const show = it && canSee(it, me);
+    out.push(['Added while planning', show ? [it.title, temporalFormat(temporalOf(it))].filter(Boolean).join(' \u00b7 ') : 'a trip']);
+  }
+
+  // Enrichment is claimed only where provenance says it happened, and the
+  // individual field writes are collapsed into one human line.
+  const enriched = rows.filter((r) => r.action === 'enriched');
+  if (enriched.length) {
+    const what = new Set();
+    for (const r of enriched) {
+      if (r.source_kind === 'coordinates_supplied' || /coordinates|lat|lng/.test(String(r.fields || ''))) what.add('coordinates');
+      for (const f of String(r.fields || '').split(',').map((x) => x.trim()).filter(Boolean)) {
+        if (/address/.test(f)) what.add('address');
+        else if (/why|description/.test(f)) what.add('description');
+        else if (/locality|country/.test(f)) what.add('place');
+      }
+    }
+    const byAi = enriched.some((r) => r.actor_type !== 'user');
+    if (what.size) out.push([byAi ? 'Enriched by AI' : 'Enriched', inList([...what])]);
+  }
+
+  const corrected = rows.filter((r) => r.action === 'corrected');
+  if (corrected.length) out.push(['Corrected', monthYear(corrected[corrected.length - 1].created_at)]);
+  return out;
+}
+const markColophon = (m, me) => colophonFrame('This place was', markColophonEntries(m, me),
+  'How this place entered the record', 'mark-colophon');
+
+// ---- ensemble colophon ------------------------------------------------------
+// What the composition was made from, and how it became durable. Keep is the
+// corpus commitment boundary and is shown only where the ledger records that
+// the member actually crossed it.
+function ensembleColophonEntries(e, me) {
+  const out = [];
+  const rows = q("SELECT * FROM provenance WHERE entity_type='ensemble' AND entity_uid=? ORDER BY id").all(e.uid);
+  out.push(['Composed', monthYear(e.created_at)]);
+
+  // Constituents, named only where naming them reveals nothing withheld: a
+  // component whose note the viewer cannot see is counted, never titled.
+  const comps = q('SELECT * FROM ensemble_components WHERE ensemble_id=? ORDER BY id').all(e.id);
+  const named = [], withheld = [];
+  for (const c of comps) {
+    const note = c.note_uid ? q(OBJ_SQL + ' WHERE o.uid=?').get(c.note_uid) : null;
+    if (c.note_uid && !(note && canSee(note, me))) { withheld.push(c); continue; }
+    if (c.label) named.push(c.label);
+  }
+  if (named.length) out.push(['From', named.slice(0, 4).join(' \u00b7 ') + (named.length > 4 ? ` \u00b7 and ${inWords(named.length - 4)} more` : '')]);
+  else if (withheld.length) out.push(['From', `${inWords(withheld.length)} ${withheld.length === 1 ? 'piece' : 'pieces'} of your catalogue`]);
+
+  // A component that began unresolved and was later identified is real history
+  // and is preserved as such; the internal state names never surface.
+  const cuids = comps.map((c) => c.uid);
+  const res = cuids.length
+    ? q(`SELECT * FROM provenance WHERE entity_type='ensemble_component' AND action IN ('resolved','corrected')
+         AND entity_uid IN (${cuids.map(() => '?').join(',')})`).all(...cuids)
+    : [];
+  const later = new Set(res.filter((r) => r.action === 'resolved').map((r) => r.entity_uid));
+  if (later.size) out.push(['Later identified', `${inWords(later.size)} ${later.size === 1 ? 'piece' : 'pieces'}`]);
+
+  // The artifact's own creation row is what says the composition was generated.
+  const art = q("SELECT * FROM provenance WHERE entity_type='ensemble_artifact' AND action='created' AND source_ref=? AND source_kind='generated' LIMIT 1").get(e.uid);
+  if (art) out.push(['Composited with', agentName(art.agent) || 'your AI']);
+
+  const kept = rows.filter((r) => r.action === 'edited' && String(r.fields || '').includes('status:saved'));
+  if (kept.length) out.push(['Kept', monthYear(kept[kept.length - 1].created_at)]);
+  return out;
+}
+const ensembleColophon = (e, me) => colophonFrame('This composition was', ensembleColophonEntries(e, me),
+  'What this composition was made from', 'ens-colophon');
+
 // ---- itinerary colophon -----------------------------------------------------
 // How the plan took shape. Derived entirely from the append-only ledger and the
 // canonical tables; nothing rendered here is stored. The discipline is
@@ -5265,6 +5368,9 @@ function itineraryColophonEntries(it, me) {
   return out;
 }
 
+// The visual grammar is shared; the storytelling is not. This renders any
+// primitive's entries in the colophon the Note and Itinerary already use --
+// the same head, rule, lead, maker's mark and key/value inscriptions.
 function itineraryColophon(it, me) {
   const rows = itineraryColophonEntries(it, me);
   if (rows.length < 2) return '';        // a bare created date is not a history
@@ -5687,6 +5793,7 @@ ${noters.length ? `<div class="section-rule"></div>
       }).join('')}</ul>`}`).join('');
     })()}
   </div>
+  ${skinOf(me, req) === 'modern' ? ensembleColophon(e, me) : ''}
 </aside></section></section></div>`;
     send(res, layout({ title: v.title, body, me, nav: 'home' }));
   },
@@ -5728,7 +5835,8 @@ ${noters.length ? `<div class="section-rule"></div>
       </span>` : ''}
     </li>`; }).join('')}</ol>
   </aside>` : ''}
-</div>
+
+  ${skinOf(me, req) === 'modern' ? markColophon(m, me) : ''}</div>
 ${source
   ? `<p class="remark-source">Marked from <a href="/m/${source.id}">@${esc(source.handle)}’s mark</a></p>`
   : (m.remarked_from_uid ? `<p class="remark-source remark-source-gone">Marked from a place since removed.</p>` : '')}
