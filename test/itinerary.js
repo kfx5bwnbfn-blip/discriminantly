@@ -568,8 +568,10 @@ console.log('\nmark and ensemble colophons');
 
   ok('C1 one shared frame, not four implementations',
      /colo-head|colo-lead|colo-mark/.test(frame));
-  ok('C2 a bare created date is still not a history',
-     /rows\.length < 2\) return ''/.test(frame));
+  ok('C2 the frame’s default minimum is still two entries',
+     /function colophonFrame\(lead, rows, label, cls, min = 2\)/.test(SRC) && /rows\.length < min\) return ''/.test(frame));
+  ok('C5 only the mark opts into rendering from a single entry',
+     /'mark-colophon', 1\)/.test(SRC) && !/'ens-colophon', 1\)/.test(SRC));
   ok('C3 nothing is stored: the inscription is derived',
      !/INSERT INTO[\s\S]{0,60}colophon/i.test(SRC));
   ok('C4 no schema was added for this', !/ALTER TABLE provenance|CREATE TABLE colophon/i.test(SRC));

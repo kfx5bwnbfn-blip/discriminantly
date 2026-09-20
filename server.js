@@ -5072,8 +5072,8 @@ function itinerarySuggestions(it, me) {
 const inList = (a) => a.length < 2 ? (a[0] || '')
   : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
 
-function colophonFrame(lead, rows, label, cls) {
-  if (rows.length < 2) return '';        // a bare created date is not a history
+function colophonFrame(lead, rows, label, cls, min = 2) {
+  if (rows.length < min) return '';      // for most primitives a bare created date is not a history
   const entry = ([k, v]) => `<span class="colo-k">${esc(k)}</span><span class="colo-v">${esc(v)}</span>`;
   return `<aside class="colophon ${cls}" aria-label="${esc(label)}">
   <span class="colo-head">Provenance</span><span class="colo-rule"></span>
@@ -5141,8 +5141,10 @@ function markColophonEntries(m, me) {
   }
   return out;
 }
+// A place always has the one fact worth inscribing -- when it was marked -- so
+// the mark colophon renders from a single entry rather than staying silent.
 const markColophon = (m, me) => colophonFrame('This place was', markColophonEntries(m, me),
-  'How this place entered the record', 'mark-colophon');
+  'How this place entered the record', 'mark-colophon', 1);
 
 // ---- ensemble colophon ------------------------------------------------------
 // What the composition was made from, and how it became durable. Keep is the
@@ -5833,26 +5835,10 @@ ${noters.length ? `<div class="section-rule"></div>
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
 <section class="feed profile-feed mark-page">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=marks">Travel Marks</a> › <span class="crumb-here">Mark</span></h3>
-<div class="mark-layout">
+<div class="mark-main-col"><div class="mark-layout">
   <div class="mark-main"><div class="grid grid-single">${markCard(m, me, true)}</div></div>
 </div>
-  ${visits.length ? `<aside class="visit-log">
-    <h3 class="lbl">Check-ins</h3>
-    <ol class="timeline">${visits.map((v) => {
-      // One visit, several day logs: the days nest INSIDE the check-in's
-      // card as a subordinate column, never as further timeline entries.
-      const days = visitDaysOf(v.id);
-      const label = visitLabel(v);
-      return `<li>
-      <span class="tl-date">${esc(label)}</span>
-      ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
-      ${days.length ? `<ul class="tl-days">${days.map((d) => `<li><span class="tl-date">${esc(prettyDayShort(d.day))}</span><span class="tl-body">${esc(d.body)}</span></li>`).join('')}</ul>` : ''}
-      ${owner ? `<span class="tl-actions">
-        <button class="tl-edit" data-edit="/m/${m.id}/visits/${v.id}/edit" data-day="${esc(label)}" data-start="${v.date_known === 0 ? '' : v.visited_on}" data-end="${v.ended_on || ''}" data-undated="${v.date_known === 0 ? '1' : ''}" data-body="${esc(v.body || '')}" data-days="${esc(JSON.stringify(days.map((d) => ({ date: d.day, body: d.body }))))}" data-place="${esc(m.name)}" aria-label="Edit this check-in">Edit</button>
-        <button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(label)}" aria-label="Remove this check-in">×</button>
-      </span>` : ''}
-    </li>`; }).join('')}</ol>
-  </aside>` : ''}
+
 ${source
   ? `<p class="remark-source">Marked from <a href="/m/${source.id}">@${esc(source.handle)}’s mark</a></p>`
   : (m.remarked_from_uid ? `<p class="remark-source remark-source-gone">Marked from a place since removed.</p>` : '')}
@@ -5870,7 +5856,27 @@ ${remarkers.length ? `<div class="section-rule"></div>
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
-${skinOf(me, req) === 'modern' ? markColophon(m, me) : ''}
+</div>
+<aside class="mark-side">
+  ${visits.length ? `<aside class="visit-log">
+    <h3 class="lbl">Check-ins</h3>
+    <ol class="timeline">${visits.map((v) => {
+      // One visit, several day logs: the days nest INSIDE the check-in's
+      // card as a subordinate column, never as further timeline entries.
+      const days = visitDaysOf(v.id);
+      const label = visitLabel(v);
+      return `<li>
+      <span class="tl-date">${esc(label)}</span>
+      ${v.body ? `<span class="tl-body">${esc(v.body)}</span>` : ''}
+      ${days.length ? `<ul class="tl-days">${days.map((d) => `<li><span class="tl-date">${esc(prettyDayShort(d.day))}</span><span class="tl-body">${esc(d.body)}</span></li>`).join('')}</ul>` : ''}
+      ${owner ? `<span class="tl-actions">
+        <button class="tl-edit" data-edit="/m/${m.id}/visits/${v.id}/edit" data-day="${esc(label)}" data-start="${v.date_known === 0 ? '' : v.visited_on}" data-end="${v.ended_on || ''}" data-undated="${v.date_known === 0 ? '1' : ''}" data-body="${esc(v.body || '')}" data-days="${esc(JSON.stringify(days.map((d) => ({ date: d.day, body: d.body }))))}" data-place="${esc(m.name)}" aria-label="Edit this check-in">Edit</button>
+        <button class="tl-del" data-del="/m/${m.id}/visits/${v.id}/delete" data-day="${esc(label)}" aria-label="Remove this check-in">×</button>
+      </span>` : ''}
+    </li>`; }).join('')}</ol>
+  </aside>` : ''}
+  ${skinOf(me, req) === 'modern' ? markColophon(m, me) : ''}
+</aside>
 </section></div>
 <script>
 // One binding. This block previously bound .tl-edit TWICE (with different CTA
