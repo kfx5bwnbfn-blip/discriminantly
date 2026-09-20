@@ -5122,6 +5122,20 @@ function markColophonEntries(m, me) {
 
   const corrected = rows.filter((r) => r.action === 'corrected');
   if (corrected.length) out.push(['Corrected', monthYear(corrected[corrected.length - 1].created_at)]);
+
+  // Standing behind a place is an explicit act of judgment about the record,
+  // so it is history worth inscribing. Warrant transitions are append-only --
+  // asserting and revoking each insert their own row -- so the past survives a
+  // withdrawal and is read from those rows, never from current state. The seal
+  // keeps saying whether the mark is warranted NOW; this says what happened.
+  // Like the seal, this reads state alone and ignores `published`.
+  const w = q(`SELECT * FROM warrants WHERE subject_type='mark' AND subject_uid=? AND user_id=? ORDER BY id`)
+    .all(m.uid, m.user_id);
+  const lastActive = [...w].reverse().find((r) => r.state === 'active');
+  if (lastActive) out.push(['Warranted', monthYear(lastActive.created_at)]);
+  if (w.length && w[w.length - 1].state === 'revoked' && lastActive) {
+    out.push(['Warrant withdrawn', monthYear(w[w.length - 1].created_at)]);
+  }
   return out;
 }
 const markColophon = (m, me) => colophonFrame('This place was', markColophonEntries(m, me),

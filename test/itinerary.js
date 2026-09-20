@@ -544,6 +544,14 @@ console.log('\nmark and ensemble colophons');
      /inList/.test(mk));
   ok('M8 AI enrichment is distinguished from the member\u2019s own',
      /actor_type !== 'user'/.test(mk));
+  ok('M9 warrant history is read from the warrant rows, not from current state',
+     /FROM warrants WHERE subject_type='mark'/.test(mk));
+  ok('M10 a withdrawal is only claimed when a revoked row exists',
+     /state === 'revoked'/.test(mk));
+  ok('M11 a withdrawal is never inferred from a warrant simply being absent',
+     /w\.length && w\[w\.length - 1\]\.state === 'revoked' && lastActive/.test(mk));
+  ok('M12 warrant history does not drag check-ins in with it',
+     !/visits|check.?in/i.test(mk));
 
   ok('E1 constituents naming a private note are withheld',
      /canSee\(note, me\)/.test(en) && /withheld/.test(en));
