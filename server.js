@@ -6484,7 +6484,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   </div>
 </div>
 <section class="splash-pair itin-shell">
-  <p class="splash-pair-lead">Use your AI to discover new places and plan day trips and itineraries</p>
+  <p class="splash-pair-lead">WHAT YOU KEEP BECOMES USEFUL.</p>
   <div class="phones">
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6496,7 +6496,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           ? `<img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy">`
           : `<picture><source srcset="/welcome-phone-profile-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy"></picture>`}
       </span></span>
-      <figcaption>Your profile is a record of your interests and taste</figcaption>
+      <figcaption>YOUR INTERESTS, ALL IN ONE PLACE</figcaption>
     </figure>
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6504,10 +6504,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <span class="phone"><span class="phone-notch"></span>
         <img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip" width="900" height="1845" loading="lazy">
       </span></span>
-      <figcaption>Enhancing your AI\u2019s ability to recommend</figcaption>
+      <figcaption>READY WHEN INSPIRATION STRIKES</figcaption>
     </figure>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">Make any changes to your plans on AI as you please</p>
+  <p class="splash-pair-lead splash-pair-lead-2">PLAN NATURALLY.</p>
   <div class="phones">
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6515,7 +6515,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <span class="phone"><span class="phone-notch"></span>
         <img src="/welcome-phone-chat.jpg" alt="Planning a trip in a conversation with an AI" width="900" height="1845" loading="lazy">
       </span></span>
-      <figcaption>Plan conversationally</figcaption>
+      <figcaption>PLAN IT IN CONVERSATION</figcaption>
     </figure>
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6527,10 +6527,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           ? `<img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy">`
           : `<picture><source srcset="/welcome-phone-app-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy"></picture>`}
       </span></span>
-      <figcaption>We build it in the background</figcaption>
+      <figcaption>WATCH IT TAKE SHAPE</figcaption>
     </figure>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">Your plans get stored with Discriminantly \u2014 you choose whether to interface primarily with your AI or enjoy both</p>
+  <p class="splash-pair-lead splash-pair-lead-2">KEEP WHAT\u2019S WORTH KEEPING.</p>
   <div class="shot-wrap splash-shot-2">
     <div class="shot-shadow"></div>
     <div class="shot-frame">
@@ -6542,6 +6542,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         : `<picture><source srcset="/welcome-shot-itin-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-itin-dark.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy"></picture>`}
     </div>
   </div>
+  <p class="splash-pair-lead splash-pair-lead-2">YOUR INTERESTS. YOUR PLANS. ALWAYS AT HAND.</p>
+  <p class="splash-pair-lead">Add, change, explore and plan as naturally as you think and talk.</p>
 </section>
 <div class="curtain dialog" id="splash-install-dialog">
   <div class="curtain-frame"><div class="curtain-body">
