@@ -475,5 +475,32 @@ console.log('\ncolophon contracts');
      /it\.private \? 1 : 0/.test(add));
 }
 
+// ---- mark lookup while writing a stop --------------------------------------
+console.log('\nmark lookup contracts');
+{
+  const route = SRC.slice(SRC.indexOf("p.match(/^\\/t\\/(\\d+)\\/marks$/)"), SRC.indexOf('if (p === \'/t/new\''));
+  ok('L1 only the itinerary owner may look up marks',
+     /it\.user_id !== me\.id/.test(route));
+  ok('L2 only the member\u2019s own marks are searched',
+     /m\.user_id=\?/.test(route));
+  ok('L3 marks already in the plan are excluded',
+     /inPlan\.has\(mk\.uid\)/.test(route));
+  ok('L4 a bare keystroke does not query the catalogue',
+     /term\.length < 2/.test(route));
+  ok('L5 the response carries no private fields beyond name and place',
+     /uid: mk\.uid, name: mk\.name, where:/.test(route) && !/why|tags|image|private/.test(route.split('map((mk)')[1] || ''));
+
+  const near = SRC.slice(SRC.indexOf('function itineraryNearbyMarks('), SRC.indexOf('function itinerarySuggestions('));
+  ok('L6 the gallery is owner-only', /me\.id !== it\.user_id/.test(near));
+  ok('L7 the gallery shows nothing when the region is unknown',
+     /if \(!pts\.length && !words\.size\) return \[\]/.test(near));
+  ok('L8 the gallery excludes marks already in the plan', /inPlan\.has\(mk\.uid\)/.test(near));
+
+  const body = SRC.slice(SRC.indexOf('function itineraryBody('), SRC.indexOf('function itineraryColophonEntries('));
+  ok('L9 one field: the label doubles as the lookup', /class="nf-field stop-add-label" name="label"[^>]*data-lookup/.test(body));
+  ok('L10 choosing a mark is optional \u2014 prose alone still adds a stop',
+     /name="mark_uid" value=""/.test(body));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

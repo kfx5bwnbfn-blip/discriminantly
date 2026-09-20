@@ -3924,6 +3924,50 @@ const ITIN_JS = `
   }
   page.addEventListener('pointerup', finish); page.addEventListener('pointercancel', finish);
 
+  // Looking up the member's own marks while writing a stop. Choosing one links
+  // that mark; typing on without choosing leaves the prose as the intention.
+  function pickerFor(form){ return {
+    input: form.querySelector('[data-lookup]'), hidden: form.querySelector('input[name=mark_uid]'),
+    picks: form.querySelector('.mark-picks'), chosen: form.querySelector('.mark-chosen'),
+    kind: form.querySelector('.stop-add-kind') }; }
+  function choose(form, uid, name){ var f=pickerFor(form);
+    f.hidden.value=uid; f.input.value=name;
+    f.chosen.querySelector('.mark-chosen-name').textContent=name; f.chosen.hidden=false;
+    f.picks.hidden=true; f.picks.innerHTML='';
+    if(f.kind) f.kind.hidden=true;                 // a linked stop has no kind to choose
+  }
+  function unchoose(form){ var f=pickerFor(form);
+    f.hidden.value=''; f.chosen.hidden=true; if(f.kind) f.kind.hidden=false; }
+  var lookupTimer=null;
+  page.addEventListener('input', function(e){
+    var input=e.target.closest('[data-lookup]'); if(!input) return;
+    var form=input.closest('form'); var f=pickerFor(form);
+    if(f.hidden.value) unchoose(form);
+    clearTimeout(lookupTimer);
+    var term=input.value.trim();
+    if(term.length<2){ f.picks.hidden=true; f.picks.innerHTML=''; return; }
+    lookupTimer=setTimeout(function(){
+      fetch(base+'/marks?q='+encodeURIComponent(term), {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(rows){
+          if(!rows.length){ f.picks.hidden=true; f.picks.innerHTML=''; return; }
+          f.picks.innerHTML=rows.map(function(m2){
+            return '<button type="button" class="mark-pick" data-uid="'+m2.uid+'" data-name="'+m2.name.replace(/"/g,'&quot;')+'">'+
+              '<span class="mark-pick-name"></span><span class="mark-pick-where"></span></button>'; }).join('');
+          Array.prototype.forEach.call(f.picks.querySelectorAll('.mark-pick'), function(el,i){
+            el.querySelector('.mark-pick-name').textContent=rows[i].name;
+            el.querySelector('.mark-pick-where').textContent=rows[i].where||''; });
+          f.picks.hidden=false;
+        }).catch(function(){ f.picks.hidden=true; });
+    }, 180);
+  });
+  page.addEventListener('click', function(e){
+    var pick=e.target.closest('.mark-pick, .mark-chip');
+    if(pick){ e.preventDefault(); choose(pick.closest('form'), pick.dataset.uid, pick.dataset.name); return; }
+    var un=e.target.closest('[data-unpick]');
+    if(un){ e.preventDefault(); unchoose(un.closest('form')); }
+  });
+
   // The Edit affordance in the byline opens the itinerary's own edit form --
   // the same place the Edit link sits on every other object.
   page.addEventListener('click', function(e){
@@ -4623,6 +4667,9 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
     // The spine is drawn over the authored prefix and stops there: a stop with
     // no position has not been placed, and a line through it would assert an
     // order the member never made.
+    // Marks from the member's own catalogue in this itinerary's region, not
+    // already in the plan. Shown only when the region is actually known.
+    const nearby = ctl ? itineraryNearbyMarks(it, me, 8) : [];
     const list = (stops, groupUid) => {
       stops = take(stops);
       const rows = stops.map((st) => stopRow(st, !!groupUid)).filter(Boolean);
@@ -4635,9 +4682,22 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
         <form method="post" action="${base}/stops" class="nf nf-compact stop-add-form">
           <div class="nf-box"><div class="nf-stack">
             <input type="hidden" name="group_uid" value="${groupUid || ''}">
-            <input class="nf-field" name="label" placeholder="${groupUid ? 'WHAT, OR WHERE (REQUIRED)' : 'SOMEWHERE, OR SOMETHING, YOU MEAN TO DO'}" required maxlength="200" autocomplete="off">
-            <select class="nf-field" name="resolution" aria-label="Kind"><option value="experiential">AN INTENTION</option><option value="particular">A PARTICULAR PLACE</option><option value="allocation">OPEN TIME</option></select>
-          </div><button class="nf-post stop-add-btn">Add</button></div></form></details></li>` : '';
+            <input type="hidden" name="mark_uid" value="">
+            <input class="nf-field stop-add-label" name="label" placeholder="${groupUid ? 'WHAT, OR WHERE (REQUIRED)' : 'SOMEWHERE, OR SOMETHING, YOU MEAN TO DO'}" required maxlength="200" autocomplete="off" data-lookup>
+            <select class="nf-field stop-add-kind" name="resolution" aria-label="Kind"><option value="experiential">AN INTENTION</option><option value="particular">A PARTICULAR PLACE</option><option value="allocation">OPEN TIME</option></select>
+          </div>
+          <!-- One field. What the member types is the intention; anything in
+               their own catalogue that matches appears here, and choosing one
+               links that mark instead. Typing past the matches simply leaves
+               the prose standing, which is a legitimate stop. -->
+          <div class="mark-picks" hidden></div>
+          <div class="mark-chosen" hidden><span class="mark-chosen-name"></span><button type="button" class="link caps" data-unpick>Not this</button></div>
+          ${nearby.length ? `<div class="mark-gallery">
+            <span class="mark-gallery-h">Already in your catalogue</span>
+            <div class="mark-gallery-row">${nearby.map((mk) => `<button type="button" class="mark-chip" data-uid="${esc(mk.uid)}" data-name="${esc(mk.name)}">
+              <span class="mark-chip-name">${esc(mk.name)}</span><span class="mark-chip-where">${esc([mk.locality, mk.country].filter(Boolean).join(', '))}</span></button>`).join('')}</div>
+          </div>` : ''}
+          <button class="nf-post stop-add-btn">Add</button></div></form></details></li>` : '';
       if (!rows.length && !add) return '';
       return `<ol class="itin-tl" data-seq="${seq}" data-group="${groupUid || ''}">${rows.join('')}${add}</ol>`;
     };
@@ -4742,6 +4802,42 @@ function itineraryMap(it, me, ordered) {
 // country; notes by tags or names carrying the same place words. Only the
 // member's own records, only those they can see. Shown only when there is
 // something to show.
+// The member's own marks in this itinerary's region that are not already in
+// the plan. The same evidence the suggestions panel uses -- coordinates where
+// the plan has them, otherwise the place words in its title and its linked
+// marks -- so there is one notion of "this region", not two.
+function itineraryNearbyMarks(it, me, limit = 8) {
+  if (!me || me.id !== it.user_id) return [];
+  const pts = itineraryGeo(it, me);
+  const inPlan = new Set(q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id).map((r) => r.mark_uid));
+  const words = new Set();
+  const addWords = (t) => String(t || '').toLowerCase().split(/[\s,\u2014\-\/]+/)
+    .filter((w) => w.length > 3 && !['next', 'time', 'when', 'trip', 'with', 'from', 'that', 'this', 'somewhere'].includes(w))
+    .forEach((w) => words.add(w));
+  addWords(it.title);
+  for (const l of q('SELECT m.locality, m.country FROM itinerary_stops s JOIN marks m ON m.uid=s.mark_uid WHERE s.itinerary_id=?').all(it.id)) {
+    addWords(l.locality); addWords(l.country);
+  }
+  if (!pts.length && !words.size) return [];          // region unknown: show nothing
+
+  let rows = [];
+  if (pts.length) {
+    const lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
+    const dLa = Math.max((Math.max(...lats) - Math.min(...lats)) * 2, 0.15);
+    const dLn = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 2, 0.15);
+    rows = q(MARK_SQL + ' WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?')
+      .all(me.id, Math.min(...lats) - dLa, Math.max(...lats) + dLa, Math.min(...lngs) - dLn, Math.max(...lngs) + dLn);
+  }
+  const byPlace = q(MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((mk) => {
+    const hay = `${mk.locality || ''} ${mk.country || ''} ${mk.name || ''}`.toLowerCase();
+    return [...words].some((w) => hay.includes(w));
+  });
+  const seen = new Set();
+  return [...rows, ...byPlace]
+    .filter((mk) => !inPlan.has(mk.uid) && !seen.has(mk.uid) && (seen.add(mk.uid), true))
+    .slice(0, limit);
+}
+
 function itinerarySuggestions(it, me) {
   if (!me || me.id !== it.user_id) return '';
   const pts = itineraryGeo(it, me);
@@ -8183,6 +8279,23 @@ async function handle(req, res) {
   // ---- Itinerary --------------------------------------------------------------
   // Every handler calls a core function; none writes the tables directly.
   if (p === '/t') return pages.itineraries(req, res, me, url);
+  // Look up the member's own travel marks while writing a stop. Own marks
+  // only, and only for the itinerary's owner, so this can never become a way
+  // to read someone else's catalogue.
+  if ((mt = p.match(/^\/t\/(\d+)\/marks$/)) && m === 'GET') {
+    if (!me) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
+    const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
+    if (!it || it.user_id !== me.id) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
+    const term = String(url.searchParams.get('q') || '').trim().toLowerCase();
+    if (term.length < 2) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
+    const inPlan = new Set(q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id).map((r) => r.mark_uid));
+    const rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(me.id)
+      .filter((mk) => !inPlan.has(mk.uid))
+      .filter((mk) => `${mk.name} ${mk.locality || ''} ${mk.country || ''}`.toLowerCase().includes(term))
+      .slice(0, 8)
+      .map((mk) => ({ uid: mk.uid, name: mk.name, where: [mk.locality, mk.country].filter(Boolean).join(', ') }));
+    return send(res, JSON.stringify(rows), 200, { 'Content-Type': 'application/json' });
+  }
   if ((mt = p.match(/^\/t\/(\d+)$/)) && m === 'GET') return pages.itinerary(req, res, me, url, +mt[1]);
 
   if (p === '/t/new' && m === 'POST') {

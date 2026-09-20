@@ -673,3 +673,27 @@
 .itin-when, .itp .itin-when {
   font-style: italic; text-transform: none; font-weight: 400; letter-spacing: .01em; font-size: .92rem;
 }
+
+/* ---- looking up marks while writing a stop --------------------------------
+   One field: matches from the member's own catalogue appear beneath it, and a
+   small gallery of marks already kept in this region sits under that. Both are
+   ways of choosing; neither is required. */
+.mark-picks { display: grid; gap: 1px; margin: .5rem 0 0; border-radius: 12px; overflow: hidden; }
+.mark-pick, .mark-chip { display: block; width: 100%; text-align: left; border: 0; cursor: pointer; font: inherit;
+  padding: .6rem .8rem; }
+.mark-pick-name, .mark-chip-name { display: block; font-size: .95rem; }
+.mark-pick-where, .mark-chip-where { display: block; font-size: .58rem; letter-spacing: .12em; text-transform: uppercase; margin-top: .15rem; }
+/* a flex item will not shrink below its content unless told to */
+.mark-chosen { display: flex; align-items: center; gap: .8rem; margin: .5rem 0 0; padding: .55rem .8rem;
+  border-radius: 12px; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; }
+.mark-picks, .mark-gallery { width: 100%; min-width: 0; box-sizing: border-box; }
+.mark-chosen [data-unpick] { flex: 0 0 auto; white-space: nowrap; font-size: .58rem; letter-spacing: .14em; }
+.mark-chosen-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mark-chosen-name { flex: 1; font-size: .95rem; }
+.mark-chosen-name::before { content: "\2713\00a0\00a0"; }
+.mark-gallery { margin: .8rem 0 0; }
+.mark-gallery-h { display: block; font-size: .58rem; letter-spacing: .16em; text-transform: uppercase; margin-bottom: .45rem; }
+.mark-gallery-row { display: flex; gap: .4rem; overflow-x: auto; padding-bottom: .2rem; scrollbar-width: none; }
+.mark-gallery-row::-webkit-scrollbar { display: none; }
+.mark-chip { width: auto; flex: 0 0 auto; max-width: 11rem; border-radius: 12px; padding: .5rem .75rem; }
+.mark-chip-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

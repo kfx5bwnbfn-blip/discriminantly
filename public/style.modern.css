@@ -2237,3 +2237,12 @@ body[data-skin="modern"] .sugg-more-btn {
   box-shadow: inset 0 1px 0 var(--m-line), 0 6px 16px -6px rgba(0,0,0,.35); }
 body[data-skin="modern"] .sugg-more-btn:hover { background: var(--m-glass-3); }
 body[data-skin="modern"] .stop-when { color: var(--m-ink-2); }
+body[data-skin="modern"] .mark-picks { background: var(--m-rule); box-shadow: inset 0 0 0 1px var(--m-rule); }
+body[data-skin="modern"] .mark-pick { background: var(--m-field); color: var(--m-ink); }
+body[data-skin="modern"] .mark-pick:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .mark-pick-where, body[data-skin="modern"] .mark-chip-where { color: var(--m-ink-3); }
+body[data-skin="modern"] .mark-chosen { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); color: var(--m-ink); }
+body[data-skin="modern"] .mark-chosen-name::before { color: var(--m-accent); }
+body[data-skin="modern"] .mark-gallery-h { color: var(--m-ink-3); }
+body[data-skin="modern"] .mark-chip { background: var(--m-field); color: var(--m-ink); box-shadow: inset 0 0 0 1px var(--m-rule); }
+body[data-skin="modern"] .mark-chip:hover { background: var(--m-glass-2); }
