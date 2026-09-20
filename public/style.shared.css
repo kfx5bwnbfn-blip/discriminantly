@@ -803,3 +803,13 @@
 .cmt-toggle:checked ~ .comment-text, .comment-body:has(.cmt-toggle:checked) > .comment-text { display: none; }
 .cmt-edit .nf-post { display: block; width: 100%; margin-top: .7rem;
   font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; padding: .75rem 1.2rem; }
+
+/* .card-edit is opacity:0 until `.note:hover` reveals it. A comment is not
+   inside a .note, so its Edit control was present but permanently invisible.
+   Reveal it on the comment itself, and keep it legible on touch, where there
+   is no hover to reveal anything. */
+.comment-list li .comment-edit { opacity: 0; }
+.comment-list li:hover .comment-edit,
+.comment-list li:focus-within .comment-edit,
+.comment-edit:focus-visible { opacity: 1; }
+@media (hover: none) { .comment-list li .comment-edit { opacity: 1; } }
