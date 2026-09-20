@@ -1364,10 +1364,13 @@ function colophonEntries(o) {
     ORDER BY id DESC LIMIT 1`).get(o.user_id, o.id);
   if (own && own.state === 'owned') out.push(['Marked as owned', monthYear(own.created_at)]);
 
-  const war = q(`SELECT created_at FROM warrants w1 WHERE user_id=? AND subject_type='object' AND subject_uid=? AND state='active'
-    AND id=(SELECT MAX(id) FROM warrants w2 WHERE w2.user_id=w1.user_id AND w2.subject_type=w1.subject_type AND w2.subject_uid=w1.subject_uid)`)
-    .get(o.user_id, o.uid);
-  if (war) out.push(['Warranted', monthYear(war.created_at)]);
+  const nw = q(`SELECT * FROM warrants WHERE subject_type='object' AND subject_uid=? AND user_id=? ORDER BY id`)
+    .all(o.uid, o.user_id);
+  const nLastActive = [...nw].reverse().find((r) => r.state === 'active');
+  if (nLastActive) out.push(['Warranted', monthYear(nLastActive.created_at)]);
+  if (nw.length && nw[nw.length - 1].state === 'revoked' && nLastActive) {
+    out.push(['Warrant withdrawn', monthYear(nw[nw.length - 1].created_at)]);
+  }
 
   const ens = q('SELECT COUNT(DISTINCT ensemble_id) c FROM ensemble_components WHERE note_uid=?').get(o.uid).c;
   if (ens) out.push(['Composed in', `${ens} ${ens === 1 ? 'Ensemble' : 'Ensembles'}`]);
@@ -5828,10 +5831,11 @@ ${noters.length ? `<div class="section-rule"></div>
     const remarkers = q(`SELECT mk.id, u.handle, u.name, u.avatar FROM marks mk
       JOIN users u ON u.id=mk.user_id WHERE mk.remarked_from_uid=? ORDER BY mk.created_at`).all(m.uid);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
-<section class="feed profile-feed">
+<section class="feed profile-feed mark-page">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=marks">Travel Marks</a> › <span class="crumb-here">Mark</span></h3>
-<div class="mark-layout ${visits.length ? 'has-log' : ''}">
+<div class="mark-layout">
   <div class="mark-main"><div class="grid grid-single">${markCard(m, me, true)}</div></div>
+</div>
   ${visits.length ? `<aside class="visit-log">
     <h3 class="lbl">Check-ins</h3>
     <ol class="timeline">${visits.map((v) => {
@@ -5849,8 +5853,6 @@ ${noters.length ? `<div class="section-rule"></div>
       </span>` : ''}
     </li>`; }).join('')}</ol>
   </aside>` : ''}
-
-  ${skinOf(me, req) === 'modern' ? markColophon(m, me) : ''}</div>
 ${source
   ? `<p class="remark-source">Marked from <a href="/m/${source.id}">@${esc(source.handle)}’s mark</a></p>`
   : (m.remarked_from_uid ? `<p class="remark-source remark-source-gone">Marked from a place since removed.</p>` : '')}
@@ -5868,6 +5870,7 @@ ${remarkers.length ? `<div class="section-rule"></div>
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
+${skinOf(me, req) === 'modern' ? markColophon(m, me) : ''}
 </section></div>
 <script>
 // One binding. This block previously bound .tl-edit TWICE (with different CTA

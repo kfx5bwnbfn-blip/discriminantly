@@ -756,10 +756,6 @@
    The check-in timeline, the Similar notes panel and the ensemble's contents
    all sit in the second column of their page. Each fills that column; none of
    them is a narrow strip pinned to the right. ---- */
-@media (min-width: 78rem) {
-  .mark-layout.has-log { grid-template-columns: minmax(0, 42rem) minmax(20rem, 30rem) !important; column-gap: 2rem !important; }
-  .mark-layout.has-log > .visit-log { width: auto; max-width: none; margin: 0; }
-}
 
 /* ---- ensemble: the composition and what it is made of, side by side ---- */
 .ens-parts { margin: 0; padding: 1.1rem 1.25rem 1rem; border-radius: 16px; }
@@ -855,4 +851,22 @@
 .mark-colophon, .ens-colophon { position: static !important; width: auto !important;
   top: auto !important; right: auto !important; left: auto !important;
   margin: 2.4rem auto 1rem !important; max-width: 16rem; }
-.mark-layout.has-log > .mark-colophon { grid-column: 2; margin-top: 1.6rem !important; }
+
+/* ---- the mark page's second column ----------------------------------------
+   The check-in timeline and the colophon share it, the colophon beneath the
+   timeline. The colophon is last in the document, so a phone simply ends with
+   it; the grid lifts it into the column when there is room. Same protocol the
+   note page uses -- a real column, never an absolutely-placed box. */
+/* 92rem, not 78: below this the rail leaves column 1 too narrow to hold the
+   card at its standard width, and the card matters more than the column. */
+@media (min-width: 109rem) {
+  .mark-page {
+    display: grid; grid-template-columns: minmax(0, 42rem) minmax(20rem, 30rem);
+    column-gap: 2rem; justify-content: start; align-items: start;
+  }
+  .mark-page > * { grid-column: 1; min-width: 0; }
+  .mark-page > .visit-log { grid-column: 2; grid-row: 1; margin: 0; }
+  .mark-page > .mark-colophon { grid-column: 2; grid-row: 2; align-self: start; margin: 1.6rem auto 0 !important; }
+  /* with no timeline the colophon takes the top of the column, beside the card */
+  .mark-page:not(:has(> .visit-log)) > .mark-colophon { grid-row: 1; align-self: center; }
+}
