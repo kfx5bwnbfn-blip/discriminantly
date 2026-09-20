@@ -2264,9 +2264,9 @@ body[data-skin="modern"][data-mode="light"] .search-cards, html.m-light body[dat
    first-class card does -- but it is a container, not a card, so it deepens
    rather than lifts. Same "this is inspectable" cue, no movement. */
 body[data-skin="modern"] .itin-shell { transition: background .22s var(--m-ease); }
-body[data-skin="modern"] .itin-shell:hover { background: rgba(0,0,0,.065); }
+body[data-skin="modern"] .itin-shell:hover { background-color: rgba(0,0,0,.075); }
 body[data-skin="modern"][data-mode="light"] .itin-shell:hover,
-html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell:hover { background: rgba(20,22,28,.075); }
+html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell:hover { background-color: rgba(20,22,28,.085); }
 body[data-skin="modern"] .ens-shell .ens-title { color: var(--m-ink); }
 body[data-skin="modern"] .ens-shell .ens-meta { color: var(--m-ink-3); }
 body[data-skin="modern"] .ens-parts { background: rgba(0,0,0,.035); }
@@ -2284,7 +2284,7 @@ body[data-skin="modern"] .resurface, body[data-skin="modern"] .itin-shell,
 body[data-skin="modern"] .itin-sugg,
 body[data-skin="modern"] .search-cards, body[data-skin="modern"] .ens-parts,
 body[data-skin="modern"] .visit-log {
-  background-image: linear-gradient(to bottom, rgba(0,0,0,.05), rgba(0,0,0,0) 45%);
+  background-image: linear-gradient(to bottom, rgba(0,0,0,.065), rgba(0,0,0,0) 45%);
 }
 body[data-skin="modern"][data-mode="light"] .resurface, body[data-skin="modern"][data-mode="light"] .itin-shell,
 body[data-skin="modern"][data-mode="light"] .itin-sugg,
@@ -2296,6 +2296,16 @@ html.m-light body[data-skin="modern"][data-mode="system"] .itin-sugg,
 html.m-light body[data-skin="modern"][data-mode="system"] .search-cards,
 html.m-light body[data-skin="modern"][data-mode="system"] .ens-parts,
 html.m-light body[data-skin="modern"][data-mode="system"] .visit-log {
-  background-image: linear-gradient(to bottom, rgba(20,22,28,.045), rgba(20,22,28,0) 45%);
+  background-image: linear-gradient(to bottom, rgba(20,22,28,.06), rgba(20,22,28,0) 45%);
 }
 body[data-skin="modern"] .visit-log { border-radius: 16px; }
+
+/* the container's definition deepens with it rather than vanishing */
+body[data-skin="modern"] .itin-shell:hover {
+  background-image: linear-gradient(to bottom, rgba(0,0,0,.085), rgba(0,0,0,0) 45%);
+}
+body[data-skin="modern"][data-mode="light"] .itin-shell:hover,
+html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell:hover {
+  background-image: linear-gradient(to bottom, rgba(20,22,28,.08), rgba(20,22,28,0) 45%);
+}
+body[data-skin="modern"] .itin-shell { transition: background-color .22s var(--m-ease), background-image .22s var(--m-ease); }

@@ -784,7 +784,7 @@
    groups and the check-in log. The bottom keeps the value it had; only the top
    darkens, and only slightly. */
 .resurface, .itin-shell, .itin-sugg, .search-cards, .ens-parts, .visit-log {
-  background-image: linear-gradient(to bottom, rgba(0,0,0,.035), rgba(0,0,0,0) 42%);
+  background-image: linear-gradient(to bottom, rgba(0,0,0,.05), rgba(0,0,0,0) 42%);
 }
 /* the check-in log takes the same corner as every other container */
 .visit-log { border-radius: 16px; }
