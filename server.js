@@ -6347,9 +6347,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <div class="shot-chrome"><span></span><span></span><span></span></div>
     ${skinOf(me, req) !== 'modern'
       ? `<img src="/welcome-shot.jpg" alt="Discriminantly on the desktop" width="1800" height="1055">`
-      : modeOf(me, req) === 'light' ? `<img src="/welcome-shot-modern-light.jpg" alt="Discriminantly on the desktop" width="2000" height="1286">`
-      : modeOf(me, req) === 'dark' ? `<img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1286">`
-      : `<picture><source srcset="/welcome-shot-modern-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1286"></picture>`}
+      : modeOf(me, req) === 'light' ? `<img src="/welcome-shot-modern-light.jpg" alt="Discriminantly on the desktop" width="2000" height="1174">`
+      : modeOf(me, req) === 'dark' ? `<img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1174">`
+      : `<picture><source srcset="/welcome-shot-modern-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-modern-dark.jpg" alt="Discriminantly on the desktop" width="2000" height="1174"></picture>`}
   </div>
 </div>
 <div class="curtain dialog" id="splash-install-dialog">
@@ -6878,7 +6878,7 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["thai","bangkok","dinner"].' },
       link: { type: 'string', description: 'URL for the place, if there is one.' }, image: { type: 'string', description: IMAGE_FIELD_DESC },
       collections: { type: 'array', items: { type: 'string' }, description: "Names of the collections to file this place under, created if new. Check my_collections first and reuse an existing name exactly — Lisbon and lisbon become two separate collections. These can be changed later with edit_travel_mark." },
-      visited_on: { type: 'string', description: 'YYYY-MM-DD. Defaults to today; logs the first visit.' },
+      visited_on: { type: 'string', description: "YYYY-MM-DD, only when the member has ALREADY been: it records a check-in alongside the mark. Marking a place is not a claim to have been there, so leave this out for somewhere they mean to go, have only heard about, or did not say they visited. They can check in later with log_visit." },
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
     outputSchema: OS_WRITE },
@@ -7452,8 +7452,16 @@ async function mcpCall(user, name, a = {}) {
            a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
            tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0, 0);
     if (Array.isArray(a.collections)) setMarkCollections(user.id, r.lastInsertRowid, a.collections);
-    const day = a.visited_on || new Date().toISOString().slice(0, 10);
-    q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)').run(r.lastInsertRowid, user.id, day, '');
+    // Intention is not experience: marking a place asserts that it is worth
+    // knowing about, not that the member has been. A check-in is written only
+    // where one was actually claimed, and it carries its own provenance like
+    // any other assertion.
+    if (a.visited_on) {
+      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
+        .run(r.lastInsertRowid, user.id, a.visited_on, '');
+      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user),
+        { source_kind: 'manual' });
+    }
     recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', mcpActor(user),
       { source_kind: 'manual' });
     // A verification claim must name what it rests on. Coordinates supplied by
@@ -7466,10 +7474,8 @@ async function mcpCall(user, name, a = {}) {
           auth_method: 'mcp_token', assertion: 'derived' },
         { source_kind: 'coordinates_supplied', source_ref: `${a.lat},${a.lng}` });
     }
-    recordProvenance('visit', uidOf('visits', q('SELECT MAX(id) i FROM visits').get().i), 'created', mcpActor(user),
-      { source_kind: 'manual' });
     const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
-    return wr(`Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} (first visit ${day})${verifiedNote}`,
+    return wr(`Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} ${a.visited_on ? ` (checked in ${a.visited_on})` : ''}${verifiedNote}`,
       'created', 'mark', r.lastInsertRowid, uidOf('marks', r.lastInsertRowid), a.place);
   }
   if (name === 'edit_travel_mark') {

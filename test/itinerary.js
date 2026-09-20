@@ -502,5 +502,24 @@ console.log('\nmark lookup contracts');
      /name="mark_uid" value=""/.test(body));
 }
 
+// ---- marking is not visiting -----------------------------------------------
+console.log('\nintention is not experience');
+{
+  const add = SRC.slice(SRC.indexOf("if (name === 'add_travel_mark')"), SRC.indexOf("if (name ===", SRC.indexOf("if (name === 'add_travel_mark')") + 20));
+  ok('V1 a check-in is written only where one was claimed',
+     /if \(a\.visited_on\) \{[\s\S]*INSERT INTO visits/.test(add));
+  ok('V2 a visit is never dated "today" because a mark was made',
+     !/new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/.test(add));
+  ok('V3 the visit\u2019s provenance uses its own insert id, not MAX(id)',
+     !/SELECT MAX\(id\) i FROM visits/.test(add));
+  ok('V4 one provenance row per visit', (add.match(/recordProvenance\('visit'/g) || []).length === 1);
+  ok('V5 the reply does not claim a visit that was not made',
+     !/first visit/.test(add));
+  ok('V6 the schema tells the caller marking is not a claim to have been',
+     /not a claim to have been there/.test(SRC));
+  const webMark = SRC.slice(SRC.indexOf("p === '/marks/new'"), SRC.indexOf("p === '/marks/new'") + 2600);
+  ok('V7 the web mark form never logs a visit', !/INSERT INTO visits/.test(webMark));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
