@@ -921,6 +921,70 @@ const MIGRATIONS = [
       db.exec('ALTER TABLE provenance ADD COLUMN connection_uid TEXT');
   }],
 
+  // A connection is the durable user-to-client relationship. HOW it
+  // authenticates is a property of it, not its definition: a Stage 0
+  // connection carries a bearer credential, an OAuth connection carries none
+  // and is operated through issued access tokens. Rather than invent a
+  // credential for the latter, the column becomes honestly optional and the
+  // connection says which kind it is. SQLite cannot ALTER COLUMN, so this is a
+  // table rebuild; every existing row is a bearer connection with its
+  // credential preserved.
+  ['044-connection-auth-kind', () => {
+    db.exec(`CREATE TABLE connections_new (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT UNIQUE NOT NULL,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      auth_kind    TEXT NOT NULL DEFAULT 'bearer',
+      token_hash   TEXT UNIQUE,
+      token_prefix TEXT NOT NULL DEFAULT '',
+      client_name  TEXT,
+      client_label TEXT NOT NULL,
+      scope        TEXT NOT NULL DEFAULT '',
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT,
+      revoked_at   TEXT)`);
+    db.exec(`INSERT INTO connections_new
+               (id,uid,user_id,auth_kind,token_hash,token_prefix,client_name,client_label,created_at,revoked_at)
+             SELECT id,uid,user_id,'bearer',token_hash,token_prefix,client_name,client_label,created_at,revoked_at
+               FROM connections`);
+    db.exec('DROP TABLE connections');
+    db.exec('ALTER TABLE connections_new RENAME TO connections');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conn_user ON connections(user_id)');
+  }],
+
+  // OAuth authorization state. Codes and tokens are separate from the
+  // connection's own credential: different issuer, different lifetime,
+  // different revocation semantics. Nothing here is stored in plaintext.
+  ['045-oauth', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS oauth_codes (
+      code_hash      TEXT PRIMARY KEY,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      connection_id  INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+      client_id      TEXT NOT NULL,
+      redirect_uri   TEXT NOT NULL,
+      code_challenge TEXT NOT NULL,
+      resource       TEXT NOT NULL,
+      scope          TEXT NOT NULL,
+      expires_at     TEXT NOT NULL,
+      used_at        TEXT,
+      created_at     TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE TABLE IF NOT EXISTS oauth_tokens (
+      token_hash     TEXT PRIMARY KEY,
+      user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      connection_id  INTEGER NOT NULL REFERENCES connections(id) ON DELETE CASCADE,
+      kind           TEXT NOT NULL,            -- access | refresh
+      scope          TEXT NOT NULL,
+      resource       TEXT NOT NULL,
+      expires_at     TEXT NOT NULL,
+      revoked_at     TEXT,
+      parent_hash    TEXT,
+      redeemed_at    TEXT,
+      family_id      TEXT NOT NULL,
+      created_at     TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_tok_conn ON oauth_tokens(connection_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_tok_family ON oauth_tokens(family_id)');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1192,11 +1256,15 @@ const webActor = (me) => ({ actor_type: 'user', actor_user_id: me ? me.id : null
 // What the client is called here is only ever what it declared about itself.
 // When it declared nothing we record 'unknown'; when the caller arrived on the
 // legacy shared token we record 'legacy'. We never guess a client's name.
-const aiActor = (user, conn) => ({
+const aiActor = (user, conn, authMethod) => ({
   actor_type: 'ai_on_behalf',
   actor_user_id: user.id,
   agent: conn ? (conn.client_name ? clientAgentFor(conn.client_name) : 'unknown') : 'legacy',
-  auth_method: conn ? 'mcp_token' : 'mcp_token_legacy',
+  // How this request proved its authority, as observed -- not inferred from
+  // the connection's shape. 'oauth' means authorized through the OAuth flow;
+  // it does NOT mean the caller was cryptographically proven to be a
+  // particular client, which would require verifying mTLS, which we do not do.
+  auth_method: authMethod || (conn ? 'mcp_token' : 'mcp_token_legacy'),
   connection_uid: conn ? conn.uid : null,
   assertion: 'explicit',
 });
@@ -1636,6 +1704,135 @@ function connectionRevoke(userId, uid) {
 
 const connectionsOf = (userId) =>
   q('SELECT * FROM connections WHERE user_id=? ORDER BY id DESC').all(userId);
+
+// ---- OAuth 2.1 authorization ------------------------------------------------
+// Discriminantly is its own authorization server, for exactly one resource
+// (its MCP endpoint) and one scope. It is deliberately not a general OAuth
+// provider: the member's Discriminantly account remains the canonical
+// identity, and this only turns "I am signed in and I approve" into a
+// credential an AI client can present.
+const OAUTH_SCOPE = 'discriminantly';
+const ACCESS_TTL_MS = 60 * 60 * 1000;             // 1 hour
+const REFRESH_TTL_MS = 60 * 24 * 60 * 60 * 1000;  // 60 days
+const CODE_TTL_MS = 60 * 1000;
+
+const BASE_URL = () => (process.env.PUBLIC_URL || 'http://localhost:3000').replace(/\/+$/, '');
+const MCP_RESOURCE = () => BASE_URL() + '/mcp';
+const inMs = (ms) => new Date(Date.now() + ms).toISOString();
+const expiredAt = (iso) => !iso || new Date(iso).getTime() <= Date.now();
+
+// PKCE S256 only. A plain challenge would let anyone intercepting the code
+// redeem it, which is the attack PKCE exists to prevent.
+function pkceMatches(challenge, verifier) {
+  if (!challenge || !verifier) return false;
+  const h = crypto.createHash('sha256').update(String(verifier)).digest('base64url');
+  const a = Buffer.from(h), b = Buffer.from(String(challenge));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// ---- CIMD -------------------------------------------------------------------
+// A client_id is a URL the caller chose; on its own it proves nothing. What
+// makes it meaningful is that only someone controlling that HTTPS origin can
+// serve the document it names. So we fetch it, refuse redirects (which would
+// let a trusted-looking URL resolve to someone else's content), require the
+// document to name itself, and -- the check that matters most -- require the
+// redirect_uri to be one the client already declared.
+//
+// This establishes origin control. It does NOT prove the request in front of
+// us came from that client; only verified mTLS would approach that, and we do
+// not verify it, so we never claim it.
+const CIMD_CACHE = new Map();
+const CIMD_TTL_MS = 60 * 60 * 1000;
+
+async function cimdFetchDefault(url) {
+  const res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(5000) });
+  if (res.status !== 200) throw new Error('client metadata returned ' + res.status);
+  return JSON.parse((await res.text()).slice(0, 65536));
+}
+let cimdFetcher = cimdFetchDefault;
+if (process.env.CIMD_STUB) {
+  // Test-only: serve a fixed client document instead of fetching one. Never
+  // active in production, and it still goes through the same validation.
+  const stub = JSON.parse(process.env.CIMD_STUB);
+  cimdFetcher = async (url) => (stub[url] || (() => { throw new Error('no such client document'); })());
+}
+const setCimdFetcher = (fn) => { cimdFetcher = fn || cimdFetchDefault; };
+
+async function cimdValidate(clientId, redirectUri) {
+  if (!/^https:\/\//i.test(String(clientId || ''))) throw new Error('client_id must be an https URL');
+  const hit = CIMD_CACHE.get(clientId);
+  let doc;
+  if (hit && hit.at + CIMD_TTL_MS > Date.now()) doc = hit.doc;
+  else { doc = await cimdFetcher(clientId); CIMD_CACHE.set(clientId, { doc, at: Date.now() }); }
+  if (String(doc.client_id || '') !== String(clientId))
+    throw new Error('client metadata does not match its own client_id');
+  const uris = Array.isArray(doc.redirect_uris) ? doc.redirect_uris.map(String) : [];
+  if (!uris.includes(String(redirectUri)))
+    throw new Error('redirect_uri is not registered for this client');
+  return doc;
+}
+
+// A display name for a validated client: taken from the origin that served
+// the document, never from a name the request merely asserted.
+function cimdLabel(clientId, doc) {
+  let host = '';
+  try { host = new URL(clientId).host; } catch {}
+  if (/(^|\.)chatgpt\.com$|(^|\.)openai\.com$/i.test(host)) return 'ChatGPT';
+  const named = String((doc && doc.client_name) || '').trim().slice(0, 40);
+  return named || host || 'AI client';
+}
+function cimdAgent(clientId, doc) {
+  const l = cimdLabel(clientId, doc).toLowerCase();
+  if (l === 'chatgpt') return 'chatgpt';
+  if (l.includes('claude')) return 'claude';
+  return l.replace(/[^a-z0-9._-]+/g, '-').slice(0, 40) || 'unknown';
+}
+
+// ---- codes and tokens -------------------------------------------------------
+function oauthIssueCode(user, conn, o) {
+  const code = token(32);
+  q(`INSERT INTO oauth_codes(code_hash,user_id,connection_id,client_id,redirect_uri,code_challenge,resource,scope,expires_at)
+     VALUES(?,?,?,?,?,?,?,?,?)`)
+    .run(tokenHash(code), user.id, conn.id, o.client_id, o.redirect_uri,
+         o.code_challenge, o.resource, o.scope, inMs(CODE_TTL_MS));
+  return code;
+}
+
+// Both credentials are minted together so a family always has a refresh token
+// to rotate. Only hashes are stored; the plaintext exists in the response and
+// nowhere else.
+function oauthIssueTokens(conn, { scope, resource, family_id = null, parent_hash = null }) {
+  const fam = family_id || crypto.randomUUID();
+  const access = token(32), refresh = token(32);
+  const ins = q(`INSERT INTO oauth_tokens(token_hash,user_id,connection_id,kind,scope,resource,expires_at,family_id,parent_hash)
+                 VALUES(?,?,?,?,?,?,?,?,?)`);
+  ins.run(tokenHash(access), conn.user_id, conn.id, 'access', scope, resource, inMs(ACCESS_TTL_MS), fam, parent_hash);
+  ins.run(tokenHash(refresh), conn.user_id, conn.id, 'refresh', scope, resource, inMs(REFRESH_TTL_MS), fam, parent_hash);
+  return { access, refresh, fam };
+}
+
+// A whole rotation chain is revoked at once. A refresh token presented after
+// it has been redeemed is either replay or theft, and we cannot tell which
+// holder is legitimate, so neither keeps access. The connection survives: the
+// member reconnects.
+const oauthRevokeFamily = (fam) =>
+  q('UPDATE oauth_tokens SET revoked_at=CURRENT_TIMESTAMP WHERE family_id=? AND revoked_at IS NULL').run(fam);
+
+// Every check that could make a token inapplicable lives here, so no caller
+// can forget one: kind, revocation, expiry, audience, scope, and the
+// connection's own state. Revoking a connection therefore kills its tokens
+// immediately without touching oauth_tokens.
+function oauthResolveAccess(tok, resource) {
+  const row = q("SELECT * FROM oauth_tokens WHERE token_hash=? AND kind='access'").get(tokenHash(tok));
+  if (!row || row.revoked_at || expiredAt(row.expires_at)) return { error: 'invalid_token' };
+  if (resource && row.resource !== resource) return { error: 'invalid_token' };
+  const conn = q('SELECT * FROM connections WHERE id=?').get(row.connection_id);
+  if (!conn || conn.revoked_at) return { error: 'invalid_token' };
+  const user = q('SELECT * FROM users WHERE id=?').get(row.user_id);
+  if (!user) return { error: 'invalid_token' };
+  if (!String(row.scope || '').split(/\s+/).includes(OAUTH_SCOPE)) return { error: 'insufficient_scope' };
+  return { user, conn, scope: row.scope };
+}
 
 // What the client said it was. MCP carries this in the handshake for the
 // protocol era we support, and modern revisions repeat it per request under
@@ -6605,7 +6802,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <div class="conn-list">
               ${connectionsOf(me.id).map((c) => `<div class="conn-row">
                 <span class="conn-who">${esc(c.client_label)}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
-                <span class="conn-fine">${esc(c.token_prefix)}\u2026 \u00b7 ${c.revoked_at ? 'revoked' : 'active'}</span>
+                <span class="conn-fine">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'}
+                  \u00b7 ${c.revoked_at ? 'revoked' : 'active'}
+                  \u00b7 since ${esc(monthYear(c.created_at))}${c.last_used_at ? ' \u00b7 last used ' + esc(monthYear(c.last_used_at)) : ''}</span>
                 ${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><button class="nf-link-btn">Revoke</button></form>`}
               </div>`).join('') || '<p class="empty center">No AI connections yet.</p>'}
               <form method="post" action="/settings/connections" class="conn-new">
@@ -7073,8 +7272,13 @@ const OS_STATS = { type: 'object', additionalProperties: false,
     marks_by_country: { type: 'array', items: { type: 'object', additionalProperties: false,
       required: ['country', 'count'], properties: { country: { type: 'string' }, count: { type: 'integer' } } } } } };
 
+// Every tool reads or writes one member's own corpus; none can operate
+// anonymously. Declared per tool rather than server-wide, so an individual
+// tool could change later without moving everything.
+const SEC_OAUTH = [{ type: 'oauth2', scopes: [OAUTH_SCOPE] }];
+
 const TOOLS = [
-  { name: 'note_object', description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
+  { name: 'note_object', securitySchemes: SEC_OAUTH, description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
     inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
       headline: { type: 'string', description: 'Short headline: the object and maker, e.g. "Mauviel M\'250 copper saucepan"' },
       description: { type: 'string', description: 'One to three sentences: what it is and why it is worth noting, in the member\'s voice' },
@@ -7085,14 +7289,14 @@ const TOOLS = [
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'my_collections', description: 'List the member\'s collections with a count of what is in each. Collections are how the member groups their own notes and travel marks — names they chose, not categories the system assigns. Read this BEFORE filing anything, so you reuse the exact existing name instead of creating a near-duplicate, and whenever the member asks what they have grouped. Note collections and mark collections are separate; `kind` says which.', inputSchema: { type: 'object', properties: {} },
+  { name: 'my_collections', securitySchemes: SEC_OAUTH, description: 'List the member\'s collections with a count of what is in each. Collections are how the member groups their own notes and travel marks — names they chose, not categories the system assigns. Read this BEFORE filing anything, so you reuse the exact existing name instead of creating a near-duplicate, and whenever the member asks what they have grouped. Note collections and mark collections are separate; `kind` says which.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
-  { name: 'recent_notes', description: 'List the most recent notes on discriminant.ly (all members). Each entry carries `already_adopted`: Notes this member has ALREADY created by adopting that one. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeat adoptions are valid and each becomes its own Note. Optional search query.',
+  { name: 'recent_notes', securitySchemes: SEC_OAUTH, description: 'List the most recent notes on discriminant.ly (all members). Each entry carries `already_adopted`: Notes this member has ALREADY created by adopting that one. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeat adoptions are valid and each becomes its own Note. Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
     outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
-  { name: 'my_notes', description: 'List the connected member\'s own notes. `equivalent_notes` lists Notes this member has explicitly said are the same thing, each with its `basis`: \'user\' means they said so themselves, \'external\' means an outside identifier supports it. Both are canonical; neither is a guess. Inferred similarity is never included here. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
+  { name: 'my_notes', securitySchemes: SEC_OAUTH, description: 'List the connected member\'s own notes. `equivalent_notes` lists Notes this member has explicitly said are the same thing, each with its `basis`: \'user\' means they said so themselves, \'external\' means an outside identifier supports it. Both are canonical; neither is a guess. Inferred similarity is never included here. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MY_NOTE) },
-  { name: 'edit_note', description: 'Edit one of the connected member\'s own notes. Only pass the fields being changed — anything omitted is left as is.',
+  { name: 'edit_note', securitySchemes: SEC_OAUTH, description: 'Edit one of the connected member\'s own notes. Only pass the fields being changed — anything omitted is left as is.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id, e.g. from note_object\'s "Noted as #7" or from recent_notes/my_notes.' },
       headline: { type: 'string', description: "Replaces the note's headline." },
@@ -7103,7 +7307,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the note\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one. An empty array files it under nothing.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'create_pending_ensemble', description: "Stage a visual composition of several things as an Ensemble. When the member says something like \"ensemble these\", do the WHOLE sequence without asking them for technical steps — they should never have to mention uploading, encoding or ids. (1) Look at each constituent. IF A CONSTITUENT IS ALREADY ONE OF THEIR NOTES OR MARKS, its picture is already here: read its image_uid from my_notes / my_travel_marks / search_catalogue and call view_images to see it. Do NOT ask the member to attach a picture of something they have already noted, and do NOT upload it again — that uid is ready to use as-is. (2) Generate the composited image yourself with your own image generation; discriminant.ly does not generate it. Show it to them. (3) Only images that are NOT yet in discriminant.ly — a fresh attachment, or the composition you just generated — need ingesting, one at a time, keeping each returned image_uid: for a local or generated file call begin_image_upload with the first slice of its bytes and keep calling upload_image_chunk until the reply comes back with status \"stored\"; for an image already at a public https:// URL, upload_image with that URL is enough. Never pause for the member between slices. (4) Call THIS tool with those uids in `image_uid` / `artifact_uid`: no picture data belongs in this call. (5) Only once this call has returned pending_review, tell the member it is staged and ask whether to keep or discard it — then call keep_ensemble or discard_ensemble with the id returned here. Do not stop after generating the composition, and do not ask keep/discard before this call has actually succeeded: until it does, nothing exists on discriminant.ly and saying otherwise would be untrue. If an upload fails, fix or report THAT step — never proceed to this tool with a missing image. What this creates is PENDING REVIEW: durable and private to the member, not yet in their catalogue, and nothing reaches their notes until they choose keep. IMAGES: prefer `artifact_uid` and `image_uid` — those bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) if you genuinely have not uploaded separately. Every image must resolve; the call fails rather than saving a composition with a missing piece.",
+  { name: 'create_pending_ensemble', securitySchemes: SEC_OAUTH, description: "Stage a visual composition of several things as an Ensemble. When the member says something like \"ensemble these\", do the WHOLE sequence without asking them for technical steps — they should never have to mention uploading, encoding or ids. (1) Look at each constituent. IF A CONSTITUENT IS ALREADY ONE OF THEIR NOTES OR MARKS, its picture is already here: read its image_uid from my_notes / my_travel_marks / search_catalogue and call view_images to see it. Do NOT ask the member to attach a picture of something they have already noted, and do NOT upload it again — that uid is ready to use as-is. (2) Generate the composited image yourself with your own image generation; discriminant.ly does not generate it. Show it to them. (3) Only images that are NOT yet in discriminant.ly — a fresh attachment, or the composition you just generated — need ingesting, one at a time, keeping each returned image_uid: for a local or generated file call begin_image_upload with the first slice of its bytes and keep calling upload_image_chunk until the reply comes back with status \"stored\"; for an image already at a public https:// URL, upload_image with that URL is enough. Never pause for the member between slices. (4) Call THIS tool with those uids in `image_uid` / `artifact_uid`: no picture data belongs in this call. (5) Only once this call has returned pending_review, tell the member it is staged and ask whether to keep or discard it — then call keep_ensemble or discard_ensemble with the id returned here. Do not stop after generating the composition, and do not ask keep/discard before this call has actually succeeded: until it does, nothing exists on discriminant.ly and saying otherwise would be untrue. If an upload fails, fix or report THAT step — never proceed to this tool with a missing image. What this creates is PENDING REVIEW: durable and private to the member, not yet in their catalogue, and nothing reaches their notes until they choose keep. IMAGES: prefer `artifact_uid` and `image_uid` — those bytes are already stored, so nothing is fetched, re-encoded or copied again. `artifact` / `image` still accept an https:// URL (or a small data: URL) if you genuinely have not uploaded separately. Every image must resolve; the call fails rather than saving a composition with a missing piece.",
     inputSchema: { type: 'object', required: ['title', 'components'], properties: {
       title: { type: 'string', description: 'Short name for the composition, e.g. "Autumn layering".' },
       description: { type: 'string', description: 'A sentence or two describing the arrangement, in the member\'s voice.' },
@@ -7119,37 +7323,37 @@ const TOOLS = [
           identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
             description: 'How the identity is known. Only the canonical values let a note be created when the member keeps this; use "unidentified" for anything resting on your own visual judgement, however confident.' } } } } } },
     outputSchema: OS_ENSEMBLE_SAVE },
-  { name: 'keep_ensemble', description: "Call this when the member says yes to a staged composition — \"keep it\", \"save it\", \"yes\". Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it. This moves the Ensemble from pending_review to saved, and it is the moment their catalogue changes: clearly identified pieces become notes (PRIVATE by default), pieces already in their notes are reused rather than duplicated, and anything uncertain stays unidentified. Returns a structured result naming exactly which notes were created and which were reused, so you can tell them truthfully what happened. Safe to call twice — an Ensemble already kept is left alone.",
+  { name: 'keep_ensemble', securitySchemes: SEC_OAUTH, description: "Call this when the member says yes to a staged composition — \"keep it\", \"save it\", \"yes\". Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it. This moves the Ensemble from pending_review to saved, and it is the moment their catalogue changes: clearly identified pieces become notes (PRIVATE by default), pieces already in their notes are reused rather than duplicated, and anything uncertain stays unidentified. Returns a structured result naming exactly which notes were created and which were reused, so you can tell them truthfully what happened. Safe to call twice — an Ensemble already kept is left alone.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id, from create_pending_ensemble." },
       private: { type: 'boolean', description: 'Whether the composition itself stays private. Defaults to private; pass false only if the member asked to publish it.' } } },
     outputSchema: OS_ENSEMBLE_SAVE },
-  { name: 'get_ensemble', description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. The actual pictures come back with the result: the current composition first, then any alternate versions, then images of individual pieces — show them to the member rather than describing them or linking to them. Enough to understand and continue a composition with no memory of the conversation that made it.',
+  { name: 'get_ensemble', securitySchemes: SEC_OAUTH, description: 'Retrieve one Ensemble in full — its title and description, every generated image with a record of what went into it, and the current state of each constituent. The actual pictures come back with the result: the current composition first, then any alternate versions, then images of individual pieces — show them to the member rather than describing them or linking to them. Enough to understand and continue a composition with no memory of the conversation that made it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id, from list_ensembles." } } },
     outputSchema: OS_ENSEMBLE },
-  { name: 'list_ensembles', description: "List the member's saved compositions, newest first.",
+  { name: 'list_ensembles', securitySchemes: SEC_OAUTH, description: "List the member's saved compositions, newest first.",
     inputSchema: { type: 'object', properties: {
       limit: { type: 'integer', description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_ENSEMBLE_BRIEF) },
-  { name: 'add_ensemble_artifact', description: "Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise; earlier versions are kept. Upload the new composition with upload_image first and pass the uid it returns as `image_uid` — that is the preferred path and re-sends nothing.",
+  { name: 'add_ensemble_artifact', securitySchemes: SEC_OAUTH, description: "Add another generated image to an existing Ensemble — a further version of the same composition. Becomes the primary image unless told otherwise; earlier versions are kept. Upload the new composition with upload_image first and pass the uid it returns as `image_uid` — that is the preferred path and re-sends nothing.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
       image_uid: { type: 'string', description: 'PREFERRED. uid of the composition image, from upload_image. Give this OR `image`; one of the two is required.' },
       image: { type: 'string', description: 'Alternative to image_uid: an https:// URL, or a data: URL you build in code from local bytes (see upload_image for how). Ignored if image_uid is given.' },
       make_primary: { type: 'boolean', description: 'Make this the image that represents the Ensemble. Defaults to true.' } } },
     outputSchema: OS_WRITE },
-  { name: 'set_primary_artifact', description: 'Choose which generated image represents the Ensemble — "keep the second one" / "go back to the first".',
+  { name: 'set_primary_artifact', securitySchemes: SEC_OAUTH, description: 'Choose which generated image represents the Ensemble — "keep the second one" / "go back to the first".',
     inputSchema: { type: 'object', required: ['id', 'artifact_uid'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
       artifact_uid: { type: 'string', description: 'uid of the artifact, from get_ensemble.' } } },
     outputSchema: OS_WRITE },
-  { name: 'remove_ensemble_artifact', description: 'Remove a generated image from an Ensemble. If it was the primary, the newest remaining image takes over. The stored image itself is not destroyed.',
+  { name: 'remove_ensemble_artifact', securitySchemes: SEC_OAUTH, description: 'Remove a generated image from an Ensemble. If it was the primary, the newest remaining image takes over. The stored image itself is not destroyed.',
     inputSchema: { type: 'object', required: ['id', 'artifact_uid'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
       artifact_uid: { type: 'string', description: 'uid of the artifact to remove.' } } },
     outputSchema: OS_WRITE },
-  { name: 'add_ensemble_component', description: 'Add a constituent to an Ensemble that already exists. Upload the piece\'s image with upload_image first and pass the uid as `image_uid`. Same identity rules as create_pending_ensemble: a clearly identified piece can become a note when the member keeps the Ensemble, while an uncertain one stays unidentified.',
+  { name: 'add_ensemble_component', securitySchemes: SEC_OAUTH, description: 'Add a constituent to an Ensemble that already exists. Upload the piece\'s image with upload_image first and pass the uid as `image_uid`. Same identity rules as create_pending_ensemble: a clearly identified piece can become a note when the member keeps the Ensemble, while an uncertain one stays unidentified.',
     inputSchema: { type: 'object', required: ['id', 'label'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
       label: { type: 'string', description: 'What this piece is, as the member would name it.' },
@@ -7160,11 +7364,11 @@ const TOOLS = [
       identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id', 'resolved_note', 'unidentified'],
         description: 'How the identity is known. Only the canonical values create a note; use "unidentified" for anything resting on your own visual judgement.' } } },
     outputSchema: OS_WRITE },
-  { name: 'remove_ensemble_component', description: 'Take a constituent out of an Ensemble. This does not delete any note it was linked to.',
+  { name: 'remove_ensemble_component', securitySchemes: SEC_OAUTH, description: 'Take a constituent out of an Ensemble. This does not delete any note it was linked to.',
     inputSchema: { type: 'object', required: ['component_uid'], properties: {
       component_uid: { type: 'string', description: 'From get_ensemble.' } } },
     outputSchema: OS_WRITE },
-  { name: 'resolve_ensemble_component', description: 'Say what an unidentified constituent actually is — "that chair is a Finn Juhl Chieftain". Links it to an existing note or creates one, keeping the SAME component: the piece did not change, only what is known about it. Use again to correct a wrong identification; the earlier one stays in the record rather than being erased. Only call this when the member has told you the identity or confirmed yours — your own guess is not enough.',
+  { name: 'resolve_ensemble_component', securitySchemes: SEC_OAUTH, description: 'Say what an unidentified constituent actually is — "that chair is a Finn Juhl Chieftain". Links it to an existing note or creates one, keeping the SAME component: the piece did not change, only what is known about it. Use again to correct a wrong identification; the earlier one stays in the record rather than being erased. Only call this when the member has told you the identity or confirmed yours — your own guess is not enough.',
     inputSchema: { type: 'object', required: ['component_uid'], properties: {
       component_uid: { type: 'string', description: 'From get_ensemble or list_unresolved_components.' },
       note_uid: { type: 'string', description: "uid of the member's existing note for this thing, if it exists." },
@@ -7173,58 +7377,58 @@ const TOOLS = [
       identity_basis: { type: 'string', enum: ['user_identity', 'maker_model', 'product_page', 'external_id'],
         description: 'How the identity was established. All four are canonical; a visual guess is not among them.' } } },
     outputSchema: OS_WRITE },
-  { name: 'list_unresolved_components', description: "List constituents across the member's Ensembles that are still unidentified — answers \"which pieces haven't been identified yet?\". Canonical state only; no guesses.",
+  { name: 'list_unresolved_components', securitySchemes: SEC_OAUTH, description: "List constituents across the member's Ensembles that are still unidentified — answers \"which pieces haven't been identified yet?\". Canonical state only; no guesses.",
     inputSchema: { type: 'object', properties: {
       id: { type: 'integer', description: 'Limit to one Ensemble by id. Omit for all.' } } },
     outputSchema: OS_ITEMS(OS_UNRESOLVED) },
-  { name: 'edit_ensemble', description: "Change an Ensemble's title, description or privacy.",
+  { name: 'edit_ensemble', securitySchemes: SEC_OAUTH, description: "Change an Ensemble's title, description or privacy.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." },
       title: { type: 'string', description: 'Replaces the title.' },
       description: { type: 'string', description: 'Replaces the description of the arrangement.' },
       private: { type: 'boolean', description: 'True hides the whole Ensemble from everyone but the member.' } } },
     outputSchema: OS_WRITE },
-  { name: 'discard_ensemble', description: 'Call this when the member says no to a composition — \'discard\', \'bin it\', \'no thanks\', \'start over\'. Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it, and do not ask for extra confirmation of something they have just declined. Usually this is a still-pending composition, in which case nothing had reached their catalogue yet and NO notes exist to remove — the Ensemble and its images simply go. If they are discarding one they had already kept, it also removes the notes that this Ensemble put in their catalogue, but never notes they already had, and never one that has since been marked owned, warranted, filed, edited, or used in another Ensemble; the result names anything kept back and why. To remove an Ensemble they have lived with while leaving every note alone, use delete_ensemble instead.',
+  { name: 'discard_ensemble', securitySchemes: SEC_OAUTH, description: 'Call this when the member says no to a composition — \'discard\', \'bin it\', \'no thanks\', \'start over\'. Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it, and do not ask for extra confirmation of something they have just declined. Usually this is a still-pending composition, in which case nothing had reached their catalogue yet and NO notes exist to remove — the Ensemble and its images simply go. If they are discarding one they had already kept, it also removes the notes that this Ensemble put in their catalogue, but never notes they already had, and never one that has since been marked owned, warranted, filed, edited, or used in another Ensemble; the result names anything kept back and why. To remove an Ensemble they have lived with while leaving every note alone, use delete_ensemble instead.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id — the one returned by create_pending_ensemble, or from list_ensembles / get_ensemble for one that already exists." } } },
     outputSchema: OS_DISCARD },
-  { name: 'delete_ensemble', description: 'Permanently delete an Ensemble, its components and its generated images. Notes linked to it are NOT deleted — they are the member\'s own records.',
+  { name: 'delete_ensemble', securitySchemes: SEC_OAUTH, description: 'Permanently delete an Ensemble, its components and its generated images. Notes linked to it are NOT deleted — they are the member\'s own records.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." } } },
     outputSchema: OS_WRITE },
-  { name: 're_note', description: 'Adopt another member\'s note into this member\'s own catalogue — they saw it and want to record that thing themselves. This creates a NEW independent note owned by this member, copying the current description and image, with lineage back to the source. The source member can never afterwards change or remove it. Adopting the same note more than once is allowed and creates another independent note each time — if the member asks to do it again, just do it.',
+  { name: 're_note', securitySchemes: SEC_OAUTH, description: 'Adopt another member\'s note into this member\'s own catalogue — they saw it and want to record that thing themselves. This creates a NEW independent note owned by this member, copying the current description and image, with lineage back to the source. The source member can never afterwards change or remove it. Adopting the same note more than once is allowed and creates another independent note each time — if the member asks to do it again, just do it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The source note's id, from recent_notes." } } },
     outputSchema: OS_WRITE },
-  { name: 'delete_note', description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
+  { name: 'delete_note', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
 
-  { name: 'record_note_ownership', description: 'Record that the member owns the thing recorded in one of their NOTES — "I own this". Ownership applies to notes only; a travel mark is a place and cannot be owned. Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
+  { name: 'record_note_ownership', securitySchemes: SEC_OAUTH, description: 'Record that the member owns the thing recorded in one of their NOTES — "I own this". Ownership applies to notes only; a travel mark is a place and cannot be owned. Owned is private: it is never shown to anyone else, never appears in public results, and never posts to the feed. Only call this when the member has actually said they own it. Never infer ownership from a note existing, from enthusiasm, from a purchase link, or from anything else.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'release_note_ownership', description: 'Record that the member USED TO own the thing in one of their NOTES and no longer does — sold, given away, lost, replaced. Notes only; a travel mark is a place and cannot be owned. This preserves the fact that they owned it for a period. If instead the ownership record was simply an error and they never owned it, use correct_note_ownership_mistake — do not use this tool, because it would leave a false record of them having owned it for a while.',
+  { name: 'release_note_ownership', securitySchemes: SEC_OAUTH, description: 'Record that the member USED TO own the thing in one of their NOTES and no longer does — sold, given away, lost, replaced. Notes only; a travel mark is a place and cannot be owned. This preserves the fact that they owned it for a period. If instead the ownership record was simply an error and they never owned it, use correct_note_ownership_mistake — do not use this tool, because it would leave a false record of them having owned it for a while.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'correct_note_ownership_mistake', description: 'Withdraw an ownership record on one of the member\'s NOTES that should never have been made — they did not own the thing and the earlier entry was an error. This removes the false ownership period from their record while keeping an honest trace that a correction happened. This is NOT for things sold, given away, or no longer owned: for those use release_note_ownership. If it is unclear which the member means, ask before calling either.',
+  { name: 'correct_note_ownership_mistake', securitySchemes: SEC_OAUTH, description: 'Withdraw an ownership record on one of the member\'s NOTES that should never have been made — they did not own the thing and the earlier entry was an error. This removes the false ownership period from their record while keeping an honest trace that a correction happened. This is NOT for things sold, given away, or no longer owned: for those use release_note_ownership. If it is unclear which the member means, ask before calling either.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The note\'s id.' } } } ,
     outputSchema: OS_WRITE },
 
-  { name: 'warrant', description: 'Record that the member stands behind something — their personal seal of approval on a note or a travel mark. Only call this when the member has explicitly said they want to warrant, endorse or stand behind it. Never infer a warrant from praise, from ownership, from repeat visits, from a positive description, or from sentiment of any kind. On a public note or mark this is announced to the feed by default; pass announce:false to warrant quietly. Private notes and marks are never announced.',
+  { name: 'warrant', securitySchemes: SEC_OAUTH, description: 'Record that the member stands behind something — their personal seal of approval on a note or a travel mark. Only call this when the member has explicitly said they want to warrant, endorse or stand behind it. Never infer a warrant from praise, from ownership, from repeat visits, from a positive description, or from sentiment of any kind. On a public note or mark this is announced to the feed by default; pass announce:false to warrant quietly. Private notes and marks are never announced.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
       id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." },
       announce: { type: 'boolean', description: 'Announce to the feed. Defaults to true for public subjects; forced off for private ones.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'revoke_warrant', description: 'Withdraw the member\'s warrant from a note or travel mark — they no longer stand behind it. The public endorsement and any feed appearance disappear; no "revoked" announcement is made. Their private history still records that they warranted it and later withdrew.',
+  { name: 'revoke_warrant', securitySchemes: SEC_OAUTH, description: 'Withdraw the member\'s warrant from a note or travel mark — they no longer stand behind it. The public endorsement and any feed appearance disappear; no "revoked" announcement is made. Their private history still records that they warranted it and later withdrew.',
     inputSchema: { type: 'object', required: ['subject_type', 'id'], properties: {
       subject_type: { type: 'string', enum: ['note', 'mark'], description: 'Whether id refers to a note or a travel mark.' },
       id: { type: 'integer', description: "The note's id, or the travel mark's id — whichever subject_type says." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'edit_travel_mark', description: 'Edit one of the connected member\'s own travel marks. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
+  { name: 'edit_travel_mark', securitySchemes: SEC_OAUTH, description: 'Edit one of the connected member\'s own travel marks. Only pass the fields being changed — anything omitted is left as is. To log a new visit instead of changing the mark itself, use log_visit.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The mark\'s id, e.g. from add_travel_mark\'s "Marked #3" or from my_travel_marks/search_catalogue.' },
       place: { type: 'string', description: "Replaces the place's name." },
@@ -7238,10 +7442,10 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the mark\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one.' },
       private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'delete_travel_mark', description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
+  { name: 'delete_travel_mark', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'begin_image_upload', description: "Send an image you hold as a local file — an attachment the user gave you, a file under /mnt/data or /workspace, or a picture you generated — into Discriminantly, and get back a stable image_uid. THIS IS THE FIRST AND OFTEN THE ONLY CALL: it carries the first slice of bytes with it, so no call is wasted on setup. Read the file's bytes in your code environment, note its exact byte count, split the bytes into slices of at most 32768 bytes, and send slice 0 here as base64. WHAT COMES BACK TELLS YOU WHAT TO DO NEXT, and there are only two answers. status \"stored\" means the image is saved and image_uid is ready — you are done with this image, call nothing else for it. status \"receiving\" means keep going: call upload_image_chunk with the index given in next_index, and keep going without pausing or asking the user anything until you get \"stored\". An image of 32 KB or less finishes in this single call. Never send a file id or a path — those name something inside YOUR sandbox that this server cannot open. For an image already at a public https:// URL, skip all of this and use upload_image.",
+  { name: 'begin_image_upload', securitySchemes: SEC_OAUTH, description: "Send an image you hold as a local file — an attachment the user gave you, a file under /mnt/data or /workspace, or a picture you generated — into Discriminantly, and get back a stable image_uid. THIS IS THE FIRST AND OFTEN THE ONLY CALL: it carries the first slice of bytes with it, so no call is wasted on setup. Read the file's bytes in your code environment, note its exact byte count, split the bytes into slices of at most 32768 bytes, and send slice 0 here as base64. WHAT COMES BACK TELLS YOU WHAT TO DO NEXT, and there are only two answers. status \"stored\" means the image is saved and image_uid is ready — you are done with this image, call nothing else for it. status \"receiving\" means keep going: call upload_image_chunk with the index given in next_index, and keep going without pausing or asking the user anything until you get \"stored\". An image of 32 KB or less finishes in this single call. Never send a file id or a path — those name something inside YOUR sandbox that this server cannot open. For an image already at a public https:// URL, skip all of this and use upload_image.",
     inputSchema: { type: 'object', required: ['mime', 'total_bytes', 'data'], properties: {
       mime: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
         description: 'Content type of the prepared image.' },
@@ -7250,50 +7454,50 @@ const TOOLS = [
       sha256: { type: 'string', description: 'Optional but recommended: sha256 of the complete prepared image, 64 lowercase hex characters. Lets the server prove the stored bytes are exactly what you sent.' },
       source: { type: 'string', enum: ['upload', 'generated'], description: "'generated' if you produced this image yourself; otherwise 'upload'. Defaults to 'upload'." } } },
     outputSchema: OS_UPLOAD },
-  { name: 'upload_image_chunk', description: "Send the next slice of an image begun with begin_image_upload. Use the index the previous response gave you in next_index, and base64 only THAT slice's raw bytes — never the whole file, never a \"data:\" prefix. Keep calling this, without pausing or asking the user anything, until a response comes back with status \"stored\": that response carries the image_uid and means the image is saved. A response with status \"receiving\" always names the next index to send. If you are unsure whether a slice arrived, sending it again with identical bytes is harmless.",
+  { name: 'upload_image_chunk', securitySchemes: SEC_OAUTH, description: "Send the next slice of an image begun with begin_image_upload. Use the index the previous response gave you in next_index, and base64 only THAT slice's raw bytes — never the whole file, never a \"data:\" prefix. Keep calling this, without pausing or asking the user anything, until a response comes back with status \"stored\": that response carries the image_uid and means the image is saved. A response with status \"receiving\" always names the next index to send. If you are unsure whether a slice arrived, sending it again with identical bytes is harmless.",
     inputSchema: { type: 'object', required: ['upload_id', 'index', 'data'], properties: {
       upload_id: { type: 'string', description: 'From the previous response.' },
       index: { type: 'integer', description: 'The value of next_index from the previous response. Slices are counted from 0 in file order.' },
       data: { type: 'string', description: "Base64 of THIS slice's raw bytes only, up to 32768 bytes." } } },
     outputSchema: OS_UPLOAD },
-  { name: 'start_image_upload', description: "Compatibility only — prefer begin_image_upload, which does this AND carries the first slice, so an ordinary image takes one call instead of three. This opens an upload session without moving any bytes. Even here there is no separate finish step: whichever slice completes the image returns the image_uid by itself.",
+  { name: 'start_image_upload', securitySchemes: SEC_OAUTH, description: "Compatibility only — prefer begin_image_upload, which does this AND carries the first slice, so an ordinary image takes one call instead of three. This opens an upload session without moving any bytes. Even here there is no separate finish step: whichever slice completes the image returns the image_uid by itself.",
     inputSchema: { type: 'object', required: ['mime', 'total_bytes'], properties: {
       mime: { type: 'string', enum: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], description: 'Content type of the prepared image.' },
       total_bytes: { type: 'integer', description: 'Exact byte count of the prepared image.' },
       sha256: { type: 'string', description: 'Optional sha256 of the complete image, 64 lowercase hex characters.' },
       source: { type: 'string', enum: ['upload', 'generated'], description: "'generated' if you produced it; otherwise 'upload'." } } },
     outputSchema: OS_UPLOAD },
-  { name: 'finish_image_upload', description: "Compatibility only — you should not normally need this. The slice that completes an image finalises it automatically and returns the image_uid. Call this only if you opened a session with start_image_upload and want to force assembly. Safe after the image is already stored: it returns the same image_uid rather than storing a second copy.",
+  { name: 'finish_image_upload', securitySchemes: SEC_OAUTH, description: "Compatibility only — you should not normally need this. The slice that completes an image finalises it automatically and returns the image_uid. Call this only if you opened a session with start_image_upload and want to force assembly. Safe after the image is already stored: it returns the same image_uid rather than storing a second copy.",
     inputSchema: { type: 'object', required: ['upload_id'], properties: {
       upload_id: { type: 'string', description: 'The upload session id.' },
       sha256: { type: 'string', description: 'Optional sha256 of the complete image, if not given earlier.' } } },
     outputSchema: OS_UPLOAD },
-  { name: 'view_images', description: "Look at pictures the member already has in Discriminantly. Notes, travel marks and ensembles carry an image_uid; pass those uids here and the actual images come back so you can SEE them. Use this before composing an Ensemble from things the member has already noted — you need to look at a jacket before you can arrange it with a chair — and any time the member refers to how something of theirs looks. An image the member already has NEVER needs to be uploaded again and must never be asked for again: read its image_uid and view it. Up to 8 at a time. Only images the member can see are returned; very large ones are named but not inlined.",
+  { name: 'view_images', securitySchemes: SEC_OAUTH, description: "Look at pictures the member already has in Discriminantly. Notes, travel marks and ensembles carry an image_uid; pass those uids here and the actual images come back so you can SEE them. Use this before composing an Ensemble from things the member has already noted — you need to look at a jacket before you can arrange it with a chair — and any time the member refers to how something of theirs looks. An image the member already has NEVER needs to be uploaded again and must never be asked for again: read its image_uid and view it. Up to 8 at a time. Only images the member can see are returned; very large ones are named but not inlined.",
     inputSchema: { type: 'object', required: ['image_uids'], properties: {
       image_uids: { type: 'array', maxItems: 8, items: { type: 'string' },
         description: 'The image_uid values from my_notes, recent_notes, my_travel_marks, search_catalogue or get_ensemble. Not note ids and not /i/ paths — the uid itself.' } } },
     outputSchema: OS_VIEW_IMAGES },
-  { name: 'read_comments', description: "Read the comments on a note or a travel mark — the conversation around it, written by the member or by others who can see it. A comment is a REMARK, not a record of taste: it says what someone said about the thing, never that the member owns it, endorses it, or has been there. Use this when the member asks what people said about something, or before replying so you are not repeating what is already there. Only notes and marks the member can actually see can be read; a private record belonging to someone else is reported as not found.",
+  { name: 'read_comments', securitySchemes: SEC_OAUTH, description: "Read the comments on a note or a travel mark — the conversation around it, written by the member or by others who can see it. A comment is a REMARK, not a record of taste: it says what someone said about the thing, never that the member owns it, endorses it, or has been there. Use this when the member asks what people said about something, or before replying so you are not repeating what is already there. Only notes and marks the member can actually see can be read; a private record belonging to someone else is reported as not found.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The note's or travel mark's id, from my_notes, my_travel_marks, recent_notes or search_catalogue." },
       subject_type: { type: 'string', enum: ['note', 'mark'], description: "Whether that id is a note or a travel mark. Defaults to 'note'. Get this right — note #3 and mark #3 are different things." } } },
     outputSchema: OS_ITEMS(OS_COMMENT) },
-  { name: 'comment', description: "Post a comment on a note or travel mark as the connected member — a remark in the conversation around it. Say something only when the member has actually told you what to say, or clearly asked you to respond on their behalf; never invent an opinion for them, and never use a comment to record that they own, endorse or visited something. Those are different acts with their own tools: record_note_ownership, warrant, and log_visit. Commenting on someone else's note is fine where the member can see it; a private record belonging to another member cannot be commented on.",
+  { name: 'comment', securitySchemes: SEC_OAUTH, description: "Post a comment on a note or travel mark as the connected member — a remark in the conversation around it. Say something only when the member has actually told you what to say, or clearly asked you to respond on their behalf; never invent an opinion for them, and never use a comment to record that they own, endorse or visited something. Those are different acts with their own tools: record_note_ownership, warrant, and log_visit. Commenting on someone else's note is fine where the member can see it; a private record belonging to another member cannot be commented on.",
     inputSchema: { type: 'object', required: ['id', 'body'], properties: {
       id: { type: 'integer', description: "The note's or travel mark's id." },
       subject_type: { type: 'string', enum: ['note', 'mark'], description: "Whether that id is a note or a travel mark. Defaults to 'note'." },
       body: { type: 'string', description: "What the member wants to say, in their voice. One or two sentences is usual." } } },
     outputSchema: OS_WRITE },
-  { name: 'upload_image', description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer start_image_upload / upload_image_chunk / finish_image_upload instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
+  { name: 'upload_image', securitySchemes: SEC_OAUTH, description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer start_image_upload / upload_image_chunk / finish_image_upload instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: "Either (a) an https:// URL this server can fetch — the preferred use of this tool, any size — or (b) a data: URL you built in code from real local bytes, which is fine for a genuinely small image. For a local file of any real size, use start_image_upload instead of inlining it here: one large argument can be truncated in transit by your runtime, and chunking is not subject to that. Never a file id or a filesystem path. PNG, JPEG, WEBP or GIF." } } },
     outputSchema: OS_IMAGE },
-  { name: 'verify_place', description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
+  { name: 'verify_place', securitySchemes: SEC_OAUTH, description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
       limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } ,
     outputSchema: OS_PLACE_CANDIDATES },
-  { name: 'add_travel_mark', description: 'Add or create a new travel mark: record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
+  { name: 'add_travel_mark', securitySchemes: SEC_OAUTH, description: 'Add or create a new travel mark: record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
     inputSchema: { type: 'object', required: ['place'], properties: {
       place: { type: 'string', description: 'Name of the place' },
       locality: { type: 'string', description: 'City or region. Fill this in yourself if you know the place — do not make the member supply it.' },
@@ -7309,7 +7513,7 @@ const TOOLS = [
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'log_visit', description: "Add a check-in to an existing travel mark — one visit. A single day is the common case: a date and, if the member said something, a line about it. If they remember being there but not when, set date_unknown and skip the date entirely — that still counts as having visited. A CONTINUOUS multi-day visit (a hotel stay, a few days somewhere) is still ONE check-in: give ended_on as well, and optionally attach a note to individual days inside the range with `days`. Two separate trips are two separate check-ins, however close together. Never split one stay into several check-ins.",
+  { name: 'log_visit', securitySchemes: SEC_OAUTH, description: "Add a check-in to an existing travel mark — one visit. A single day is the common case: a date and, if the member said something, a line about it. If they remember being there but not when, set date_unknown and skip the date entirely — that still counts as having visited. A CONTINUOUS multi-day visit (a hotel stay, a few days somewhere) is still ONE check-in: give ended_on as well, and optionally attach a note to individual days inside the range with `days`. Two separate trips are two separate check-ins, however close together. Never split one stay into several check-ins.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." },
       date_unknown: { type: 'boolean', description: 'true when the member has been here but cannot say when. Records the visit with no date; cannot be combined with visited_on, ended_on or days.' },
@@ -7321,11 +7525,11 @@ const TOOLS = [
           date: { type: 'string', description: 'YYYY-MM-DD, within visited_on..ended_on inclusive.' },
           body: { type: 'string', description: 'What happened that day.' } } } } } },
     outputSchema: OS_WRITE },
-  { name: 'list_checkins', description: "List the check-ins on one of the member's own travel marks — the times they actually went. Most recent first, with undated ones last since they have no place in time. Use this to find a check-in's id before editing or deleting it; no other tool exposes individual check-in ids. Each carries: `range`, the dates as a person would say them (\"Feb 28, 2025\", \"Feb 24 – 29, 2024\", or \"Date unknown\"); `visited_on` and `ended_on`, the machine dates, where ended_on is the LAST day of a continuous multi-day visit and is null for a single day; `date_known`, false when the member recorded the visit without knowing when it was, in which case both dates are null; `body`, their line about the visit as a whole; and `days`, notes tied to particular dates inside it. A multi-day visit is ONE check-in with day notes inside it — never read its days as separate visits, and never count them as extra visits.",
+  { name: 'list_checkins', securitySchemes: SEC_OAUTH, description: "List the check-ins on one of the member's own travel marks — the times they actually went. Most recent first, with undated ones last since they have no place in time. Use this to find a check-in's id before editing or deleting it; no other tool exposes individual check-in ids. Each carries: `range`, the dates as a person would say them (\"Feb 28, 2025\", \"Feb 24 – 29, 2024\", or \"Date unknown\"); `visited_on` and `ended_on`, the machine dates, where ended_on is the LAST day of a continuous multi-day visit and is null for a single day; `date_known`, false when the member recorded the visit without knowing when it was, in which case both dates are null; `body`, their line about the visit as a whole; and `days`, notes tied to particular dates inside it. A multi-day visit is ONE check-in with day notes inside it — never read its days as separate visits, and never count them as extra visits.",
     inputSchema: { type: 'object', required: ['mark_id'], properties: {
       mark_id: { type: 'integer', description: 'The travel mark\'s id.' } } },
     outputSchema: OS_ITEMS(OS_VISIT) },
-  { name: 'edit_checkin', description: "Edit one of the member's own check-ins, identified by its own id (from list_checkins). Only pass what changes — dates, the overall line, and/or notes on particular days; everything omitted is left as is, and the check-in keeps its identity. To add or change a day's note, pass it in `days`; to remove one, pass that date with an empty body. Shortening the dates so that an existing day note would fall outside the visit is refused unless you also list that date in `remove_days` — the member must be asked before a note is discarded.",
+  { name: 'edit_checkin', securitySchemes: SEC_OAUTH, description: "Edit one of the member's own check-ins, identified by its own id (from list_checkins). Only pass what changes — dates, the overall line, and/or notes on particular days; everything omitted is left as is, and the check-in keeps its identity. To add or change a day's note, pass it in `days`; to remove one, pass that date with an empty body. Shortening the dates so that an existing day note would fall outside the visit is refused unless you also list that date in `remove_days` — the member must be asked before a note is discarded.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: 'The check-in\'s id, from list_checkins.' },
       date_unknown: { type: 'boolean', description: 'true to record that the date is not known (drops the range; any day notes must be listed in remove_days). false, together with visited_on, gives an undated visit a date.' },
@@ -7337,20 +7541,20 @@ const TOOLS = [
           date: { type: 'string', description: 'YYYY-MM-DD.' }, body: { type: 'string', description: 'The note; empty removes it.' } } } },
       remove_days: { type: 'array', items: { type: 'string' }, description: 'Dates whose notes the member has agreed to discard because the new dates no longer include them. Required for any such date, or the edit is refused.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'delete_checkin', description: "Permanently delete one of the member's own check-ins — the record that they went at all. Any notes on individual days inside it go with it, since those describe that visit. The travel mark itself and its other check-ins are untouched. To shorten a visit rather than erase it, or to drop a single day's note, use edit_checkin instead. Cannot be undone.",
+  { name: 'delete_checkin', securitySchemes: SEC_OAUTH, description: "Permanently delete one of the member's own check-ins — the record that they went at all. Any notes on individual days inside it go with it, since those describe that visit. The travel mark itself and its other check-ins are untouched. To shorten a visit rather than erase it, or to drop a single day's note, use edit_checkin instead. Cannot be undone.",
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The check-in's id, from list_checkins." } } } ,
     outputSchema: OS_WRITE },
-  { name: 'my_travel_marks', description: 'List the connected member\'s travel marks with visit counts — a count of CHECK-INS, where one continuous multi-day stay counts once, not once per day, and a visit whose date the member cannot recall still counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
+  { name: 'my_travel_marks', securitySchemes: SEC_OAUTH, description: 'List the connected member\'s travel marks with visit counts — a count of CHECK-INS, where one continuous multi-day stay counts once, not once per day, and a visit whose date the member cannot recall still counts. Optional search across place, city, country and tags. Each mark carries the member\'s `warrant` state. There is no ownership on a travel mark — owning applies to things in notes, not to places, so no `owned` field is returned here and none should be inferred. warrant state:null means they have never said either way — that is NOT a negative judgement. \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across place, city, country and tags.' }, limit: { type: 'integer', default: 20, description: 'How many to return. Defaults to 20.' } } },
     outputSchema: OS_ITEMS(OS_MARK) },
-  { name: 'search_catalogue', description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Results mix the two kinds. Note entries carry the member\'s private `owned` state and their `warrant` state; mark entries carry only `warrant`, because ownership applies to things and not to places. On either, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
+  { name: 'search_catalogue', securitySchemes: SEC_OAUTH, description: 'Search the connected member\'s own notes and travel marks — the actual catalogue, not just recent entries. Searches title, description, tags, and (for marks) city and country. Use this whenever the member asks what they have noted or marked about something, before adding something new to check whether it already exists, or to find an item to edit when only given a rough description. Results mix the two kinds. Note entries carry the member\'s private `owned` state and their `warrant` state; mark entries carry only `warrant`, because ownership applies to things and not to places. On either, state:null means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'Keywords to search for, e.g. "copper pan" or "bangkok"' },
       kind: { type: 'string', enum: ['note', 'mark', 'both'], default: 'both', description: 'Restrict to notes, travel marks, or search both.' },
       limit: { type: 'integer', default: 15, description: 'How many results to return. Defaults to 15.' } } },
     outputSchema: OS_ITEMS({ oneOf: [OS_SEARCH_NOTE, OS_SEARCH_MARK] }) },
-  { name: 'catalogue_stats', description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
+  { name: 'catalogue_stats', securitySchemes: SEC_OAUTH, description: 'Counts and breakdowns of the connected member\'s catalogue: totals, notes by collection, marks by country, and how many entries have no image. Use this for "how many" or "what is my" questions rather than counting a list yourself.',
     inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_STATS },
 
@@ -7358,7 +7562,7 @@ const TOOLS = [
   // Nine tools, deliberately composable rather than one per operation: adding
   // three stops is one call, and grouping plus sequencing is one call, because
   // that is how a member says it. Identity is always the uid, never the row id.
-  { name: 'create_itinerary', description: "Start an itinerary: somewhere the member means to go. Title is the destination as they say it (\"Singapore\", \"Next time I'm in London\"). Context is their own prose about the trip. Time is optional at every level and nothing should be invented: give only the components they actually said.",
+  { name: 'create_itinerary', securitySchemes: SEC_OAUTH, description: "Start an itinerary: somewhere the member means to go. Title is the destination as they say it (\"Singapore\", \"Next time I'm in London\"). Context is their own prose about the trip. Time is optional at every level and nothing should be invented: give only the components they actually said.",
     inputSchema: { type: 'object', required: ['title'], properties: {
       title: { type: 'string', description: 'The destination, in the member\u2019s words.' },
       context: { type: 'string', description: 'Their own remarks about the trip. Optional.' },
@@ -7369,7 +7573,7 @@ const TOOLS = [
       modifier: { type: 'string', enum: ['early', 'mid', 'late'], description: 'Only with modifier_scope.' },
       modifier_scope: { type: 'string', enum: ['year', 'period', 'month'], description: 'WHICH component the modifier describes. "late 2028" is modifier=late, scope=year. "late fall 2028" is scope=period. Never guess: ask, or leave both out.' } } } },
 
-  { name: 'add_itinerary_stops', description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
+  { name: 'add_itinerary_stops', securitySchemes: SEC_OAUTH, description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
     inputSchema: { type: 'object', required: ['itinerary_uid', 'stops'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       stops: { type: 'array', items: { type: 'object', required: ['label'], properties: {
@@ -7384,13 +7588,13 @@ const TOOLS = [
         daypart: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
         clock: { type: 'string', description: 'HH:MM, 24-hour, only if they gave a time.' } } } } } } },
 
-  { name: 'update_itinerary', description: "Change an itinerary's title, context, or whether it is private. Publishing fails, with the reason, while a visible stop points at a private travel mark \u2014 that is deliberate: the member resolves it by publishing the mark or suspending the stop.",
+  { name: 'update_itinerary', securitySchemes: SEC_OAUTH, description: "Change an itinerary's title, context, or whether it is private. Publishing fails, with the reason, while a visible stop points at a private travel mark \u2014 that is deliberate: the member resolves it by publishing the mark or suspending the stop.",
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       title: { type: 'string' }, context: { type: 'string' },
       private: { type: 'boolean', description: 'false publishes it. Publishing fails, naming the marks, while a visible stop points at a private travel mark.' } } } },
 
-  { name: 'update_itinerary_temporal', description: 'Set or change time on an itinerary, a day, or a stop. Give only the components the member asserted; omitted components stay as they were, and nothing is invented. intent matters for the record: "refine" when the plan simply got more precise (fall 2028 -> October 2028), "correct" when the earlier assertion was wrong ("no, October, not fall"). OMIT intent when you do not actually know which \u2014 an honest plain edit is recorded instead of a guess.',
+  { name: 'update_itinerary_temporal', securitySchemes: SEC_OAUTH, description: 'Set or change time on an itinerary, a day, or a stop. Give only the components the member asserted; omitted components stay as they were, and nothing is invented. intent matters for the record: "refine" when the plan simply got more precise (fall 2028 -> October 2028), "correct" when the earlier assertion was wrong ("no, October, not fall"). OMIT intent when you do not actually know which \u2014 an honest plain edit is recorded instead of a guess.',
     inputSchema: { type: 'object', required: ['target', 'uid'], properties: {
       target: { type: 'string', enum: ['itinerary', 'day', 'stop'], description: 'Which thing the time belongs to. A trip may be "late fall 2028" while one of its days is "April 8" and one stop is "7:30 PM" \u2014 set each at its own level rather than repeating it.' },
       uid: { type: 'string', description: 'The uid of that itinerary, day or stop, all of which my_itineraries returns.' },
@@ -7404,7 +7608,7 @@ const TOOLS = [
       clock: { type: 'string', description: 'HH:MM, 24-hour.' },
       clear: { type: 'array', items: { type: 'string' }, description: 'Component names to unset.' } } } },
 
-  { name: 'arrange_itinerary', description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
+  { name: 'arrange_itinerary', securitySchemes: SEC_OAUTH, description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       create_day: { type: 'object', properties: {
@@ -7419,7 +7623,7 @@ const TOOLS = [
       order_stops: { type: 'array', description: 'Stop uids in the order the member asked for.', items: { type: 'string' } },
       order_days: { type: 'array', description: 'Day uids in the order the member asked for.', items: { type: 'string' } } } } },
 
-  { name: 'resolve_itinerary_stop', description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
+  { name: 'resolve_itinerary_stop', securitySchemes: SEC_OAUTH, description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
     inputSchema: { type: 'object', required: ['stop_uid'], properties: {
       stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
       mark_uid: { type: 'string', description: 'The travel mark, from my_travel_marks or search_catalogue \u2014 or from add_travel_mark if the place was not marked before. Omit, with unlink:true, to un-resolve.' },
@@ -7427,19 +7631,19 @@ const TOOLS = [
       kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'What it becomes when unlinked.' },
       intent: { type: 'string', enum: ['refine', 'correct'] } } } },
 
-  { name: 'update_itinerary_stop', description: "Change a stop's wording or kind, or withhold it from public view. Suspending is context-local: it hides the stop from this itinerary's public page and changes nothing about the travel mark anywhere else.",
+  { name: 'update_itinerary_stop', securitySchemes: SEC_OAUTH, description: "Change a stop's wording or kind, or withhold it from public view. Suspending is context-local: it hides the stop from this itinerary's public page and changes nothing about the travel mark anywhere else.",
     inputSchema: { type: 'object', required: ['stop_uid'], properties: {
       stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
       label: { type: 'string' },
       kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'Only for stops with no travel mark; use resolve_itinerary_stop to unlink one first.' },
       visibility: { type: 'string', enum: ['visible', 'suspended'] } } } },
 
-  { name: 'delete_itinerary_entity', description: 'Delete an itinerary, a day, or a stop. Deleting a day does not delete its stops \u2014 they return to the itinerary unplaced, and any order they had within that day is dropped, because it was an order within that day. Nothing here touches travel marks or check-ins: those are the member\u2019s canonical records and outlive any itinerary that referred to them.',
+  { name: 'delete_itinerary_entity', securitySchemes: SEC_OAUTH, description: 'Delete an itinerary, a day, or a stop. Deleting a day does not delete its stops \u2014 they return to the itinerary unplaced, and any order they had within that day is dropped, because it was an order within that day. Nothing here touches travel marks or check-ins: those are the member\u2019s canonical records and outlive any itinerary that referred to them.',
     inputSchema: { type: 'object', required: ['kind', 'uid'], properties: {
       kind: { type: 'string', enum: ['itinerary', 'day', 'stop'] },
       uid: { type: 'string', description: 'The uid of that itinerary, day or stop, from my_itineraries. Deleting a stop never deletes the travel mark it pointed at, and never deletes check-ins.' } } } },
 
-  { name: 'my_itineraries', description: "The member's itineraries \u2014 places they mean to go. With a uid, returns that one in full: its days, its stops, what each stop is, and how time was expressed at every level. Read it as intention only: a stop with a past date does not mean they went, an unsequenced stop is not an unfinished one, and a day with no date is not missing information. Check whether they actually went by looking at the travel mark's check-ins.",
+  { name: 'my_itineraries', securitySchemes: SEC_OAUTH, description: "The member's itineraries \u2014 places they mean to go. With a uid, returns that one in full: its days, its stops, what each stop is, and how time was expressed at every level. Read it as intention only: a stop with a past date does not mean they went, an unsequenced stop is not an unfinished one, and a day with no date is not missing information. Check whether they actually went by looking at the travel mark's check-ins.",
     inputSchema: { type: 'object', properties: {
       uid: { type: 'string', description: 'Omit to list them all. This is where the uids for every other itinerary tool come from.' },
       limit: { type: 'integer' } } } },
@@ -7470,11 +7674,11 @@ function findSimilarMark(userId, place) {
   return null;
 }
 
-async function mcpCall(user, conn, name, a = {}) {
+async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
   // Every AI-originated write in this dispatcher attributes itself through the
   // connection that made the call. Shadowing the module-level helper keeps the
   // 42 existing call sites correct without editing each one.
-  const mcpActor = (u) => aiActor(u, conn);
+  const mcpActor = (u) => aiActor(u, conn, authMethod);
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
@@ -8676,15 +8880,46 @@ async function mcpCall(user, conn, name, a = {}) {
 
   throw new Error('Unknown tool ' + name);
 }
+// The structured challenge an MCP client needs to start or repair the
+// authorization flow. A bare 401 tells it nothing about where to go.
+function mcpAuthChallenge(res, error = 'invalid_token') {
+  const meta = BASE_URL() + '/.well-known/oauth-protected-resource';
+  const desc = error === 'insufficient_scope'
+    ? 'This connection is missing the access it needs.'
+    : 'Connect your Discriminantly account to continue.';
+  res.writeHead(401, {
+    'Content-Type': 'application/json',
+    'WWW-Authenticate': `Bearer resource_metadata="${meta}", error="${error}", error_description="${desc}"`,
+  });
+  return res.end(JSON.stringify({ error, error_description: desc }));
+}
+
 async function mcp(req, res, tok) {
-  // A per-client connection first; the shared legacy token second, so existing
-  // connectors keep working untouched. A legacy caller has no connection, and
-  // its provenance says so rather than claiming a client we cannot evidence.
-  const conn = connectionFor(tok);
-  const user = conn
-    ? q('SELECT * FROM users WHERE id=?').get(conn.user_id)
-    : q('SELECT * FROM users WHERE api_token=?').get(tok);
-  if (!user) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end('{"error":"invalid token"}'); }
+  // Three ways to arrive, one place to resolve them. Whatever the credential,
+  // what comes out is the same pair -- a user and, where one exists, the
+  // connection that acted -- so no tool implementation is forked by how the
+  // caller authenticated.
+  let conn = null, user = null, authMethod = 'mcp_token';
+  const bearer = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
+
+  if (bearer) {
+    const got = oauthResolveAccess(bearer[1].trim(), MCP_RESOURCE());
+    if (got.error) return mcpAuthChallenge(res, got.error);
+    ({ user, conn } = got);
+    authMethod = 'oauth';
+  } else if (tok) {
+    // A per-client bearer connection first; the shared legacy token second, so
+    // existing connectors keep working untouched. A legacy caller has no
+    // connection, and its provenance says so rather than claiming a client we
+    // cannot evidence.
+    conn = connectionFor(tok);
+    user = conn
+      ? q('SELECT * FROM users WHERE id=?').get(conn.user_id)
+      : q('SELECT * FROM users WHERE api_token=?').get(tok);
+    if (!conn && user) authMethod = 'mcp_token_legacy';
+  }
+  if (!user) return mcpAuthChallenge(res, 'invalid_token');
+  if (conn) q('UPDATE connections SET last_used_at=CURRENT_TIMESTAMP WHERE id=?').run(conn.id);
   if (req.method === 'GET') { res.writeHead(405); return res.end(); }
   if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
   let body = ''; for await (const c of req) body += c;
@@ -8724,7 +8959,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') {
     try {
-      const out = await mcpCall(user, conn, params.name, params.arguments);
+      const out = await mcpCall(user, conn, params.name, params.arguments, authMethod);
       // Text stays exactly as it was, so existing clients are unaffected.
       // structuredContent is additive and carries provenance, so the six
       // questions in the MCP Policy remain answerable inside the AI's context
@@ -8833,6 +9068,9 @@ async function handle(req, res) {
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
+  // The modern entry point: same dispatcher, same domain functions, same
+  // privacy rules. Only how the caller proved its authority differs.
+  if (p === '/mcp') return mcp(req, res, null);
   // Read a page's Open Graph tags so a pasted link can fill the form. Done on
   // the server because the browser cannot fetch other origins.
   if (p === '/api/unfurl' && m === 'GET') {
@@ -8922,6 +9160,156 @@ async function handle(req, res) {
     q('UPDATE users SET ingest_mode=? WHERE id=?').run(mode, me.id);
     return redirect(res, '/settings');
   }
+  // ---- OAuth discovery ------------------------------------------------------
+  // Advertises only what is actually implemented. S256 is mandatory: the MCP
+  // authorization spec treats a server whose metadata omits it as unsupported.
+  if (p === '/.well-known/oauth-protected-resource' && m === 'GET') {
+    return send(res, JSON.stringify({
+      resource: MCP_RESOURCE(),
+      authorization_servers: [BASE_URL()],
+      scopes_supported: [OAUTH_SCOPE],
+      bearer_methods_supported: ['header'],
+      resource_documentation: BASE_URL() + '/welcome',
+    }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+  }
+  if (p === '/.well-known/oauth-authorization-server' && m === 'GET') {
+    return send(res, JSON.stringify({
+      issuer: BASE_URL(),
+      authorization_endpoint: BASE_URL() + '/oauth/authorize',
+      token_endpoint: BASE_URL() + '/oauth/token',
+      response_types_supported: ['code'],
+      grant_types_supported: ['authorization_code', 'refresh_token'],
+      code_challenge_methods_supported: ['S256'],
+      token_endpoint_auth_methods_supported: ['none'],
+      client_id_metadata_document_supported: true,
+      authorization_response_iss_parameter_supported: true,
+      scopes_supported: [OAUTH_SCOPE],
+    }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+  }
+
+  // ---- authorization endpoint ----------------------------------------------
+  // The member authenticates with the ordinary Discriminantly login; this only
+  // turns an existing session plus an explicit approval into a code.
+  if (p === '/oauth/authorize' && (m === 'GET' || m === 'POST')) {
+    const b = m === 'POST' ? await readBody(req) : {};
+    const g = (k) => String((m === 'POST' ? b[k] : url.searchParams.get(k)) || '');
+    const client_id = g('client_id'), redirect_uri = g('redirect_uri');
+    const code_challenge = g('code_challenge'), method = g('code_challenge_method');
+    const state = g('state'), resource = g('resource') || MCP_RESOURCE();
+    const scope = g('scope') || OAUTH_SCOPE;
+
+    // Anything wrong with the request itself is shown to the member rather
+    // than redirected: we must not send errors to a URI we have not validated.
+    const bad = (why) => send(res, layout({ title: 'Authorization', me, req,
+      body: `<div class="cols"><section class="feed"><h3 class="strip">Authorization</h3>
+      <p class="empty pad">${esc(why)}</p></section></div>` }), 400);
+    if (!client_id || !redirect_uri) return bad('That authorization request is missing required details.');
+    if (method !== 'S256') return bad('This connection must use PKCE with S256.');
+    if (!code_challenge) return bad('That authorization request is missing its PKCE challenge.');
+    if (resource !== MCP_RESOURCE()) return bad('That authorization request names a resource this server does not serve.');
+    if (scope.split(/\s+/).some((s) => s && s !== OAUTH_SCOPE)) return bad('That authorization request asks for access this server does not offer.');
+
+    let doc;
+    try { doc = await cimdValidate(client_id, redirect_uri); }
+    catch (e) { return bad('That client could not be verified: ' + e.message); }
+    const label = cimdLabel(client_id, doc);
+
+    // Not signed in: use the ordinary login and come back. The return path is
+    // this server's own path plus query, never a caller-supplied URL, so the
+    // login cannot be turned into an open redirect.
+    if (!me) {
+      const back = '/oauth/authorize?' + new URLSearchParams({
+        client_id, redirect_uri, code_challenge, code_challenge_method: 'S256', state, resource, scope,
+      });
+      return redirect(res, '/login?next=' + encodeURIComponent(back));
+    }
+
+    if (m === 'GET') {
+      const hidden = Object.entries({ client_id, redirect_uri, code_challenge,
+        code_challenge_method: 'S256', state, resource, scope })
+        .map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join('');
+      return send(res, layout({ title: 'Authorize', me, req, body: `<div class="cols"><section class="feed profile-feed">
+        <h3 class="strip">Authorize access</h3>
+        <div class="grid grid-single"><div class="note"><div class="card"><div class="text">
+          <h1 class="cons-h">${esc(label)} wants to connect to your Discriminantly account.</h1>
+          <p class="cons-p">It will be able to read everything you have kept, including private items, and add, change and remove things on your behalf.</p>
+          <p class="cons-p">Anything it does will be recorded as ${esc(label)} acting for you.</p>
+          <p class="cons-p">You can disconnect it at any time in Settings.</p>
+          <form method="post" action="/oauth/authorize" class="nf nf-compact"><div class="nf-box">
+            ${hidden}<input type="hidden" name="approve" value="1">
+            <button class="nf-post">Authorize</button>
+            <div class="nf-foot"><span></span><a class="nf-link-btn" href="/">Cancel</a></div>
+          </div></form>
+        </div></div></div></div></section></div>` }));
+    }
+
+    if (!b.approve) return redirect(res, '/');
+    // The connection is created at consent: that is the moment the member
+    // forms the relationship. Tokens are operational detail on top of it.
+    const uid = crypto.randomUUID();
+    q(`INSERT INTO connections(uid,user_id,auth_kind,client_name,client_label,scope)
+       VALUES(?,?,'oauth',?,?,?)`)
+      .run(uid, me.id, cimdAgent(client_id, doc), label, scope);
+    const conn = q('SELECT * FROM connections WHERE uid=?').get(uid);
+    const code = oauthIssueCode(me, conn, { client_id, redirect_uri, code_challenge, resource, scope });
+    const u = new URL(redirect_uri);
+    u.searchParams.set('code', code);
+    if (state) u.searchParams.set('state', state);
+    u.searchParams.set('iss', BASE_URL());          // RFC 9207
+    return redirect(res, u.toString());
+  }
+
+  // ---- token endpoint -------------------------------------------------------
+  if (p === '/oauth/token' && m === 'POST') {
+    const b = await readBody(req);
+    const fail = (e, d) => send(res, JSON.stringify({ error: e, error_description: d }), 400,
+      { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    const grant = String(b.grant_type || '');
+
+    if (grant === 'authorization_code') {
+      const row = q('SELECT * FROM oauth_codes WHERE code_hash=?').get(tokenHash(String(b.code || '')));
+      if (!row) return fail('invalid_grant', 'Unknown authorization code.');
+      // Single use. A second presentation is replay, and the code is already spent.
+      if (row.used_at) return fail('invalid_grant', 'That authorization code has already been used.');
+      if (expiredAt(row.expires_at)) return fail('invalid_grant', 'That authorization code has expired.');
+      if (String(b.client_id || '') !== row.client_id) return fail('invalid_grant', 'Wrong client for that code.');
+      if (String(b.redirect_uri || '') !== row.redirect_uri) return fail('invalid_grant', 'Wrong redirect URI for that code.');
+      if (b.resource && String(b.resource) !== row.resource) return fail('invalid_grant', 'Wrong resource for that code.');
+      if (!pkceMatches(row.code_challenge, b.code_verifier)) return fail('invalid_grant', 'PKCE verification failed.');
+      const conn = q('SELECT * FROM connections WHERE id=?').get(row.connection_id);
+      if (!conn || conn.revoked_at) return fail('invalid_grant', 'That connection is no longer active.');
+      q("UPDATE oauth_codes SET used_at=CURRENT_TIMESTAMP WHERE code_hash=?").run(row.code_hash);
+      const t = oauthIssueTokens(conn, { scope: row.scope, resource: row.resource });
+      return send(res, JSON.stringify({
+        access_token: t.access, token_type: 'Bearer', expires_in: ACCESS_TTL_MS / 1000,
+        refresh_token: t.refresh, scope: row.scope,
+      }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    }
+
+    if (grant === 'refresh_token') {
+      const row = q("SELECT * FROM oauth_tokens WHERE token_hash=? AND kind='refresh'").get(tokenHash(String(b.refresh_token || '')));
+      if (!row) return fail('invalid_grant', 'Unknown refresh token.');
+      if (row.redeemed_at) {
+        // Replay or theft. We cannot tell which holder is legitimate, so
+        // neither keeps access; the connection itself survives.
+        oauthRevokeFamily(row.family_id);
+        return fail('invalid_grant', 'That refresh token has already been used.');
+      }
+      if (row.revoked_at || expiredAt(row.expires_at)) return fail('invalid_grant', 'That refresh token is no longer valid.');
+      const conn = q('SELECT * FROM connections WHERE id=?').get(row.connection_id);
+      if (!conn || conn.revoked_at) return fail('invalid_grant', 'That connection is no longer active.');
+      q('UPDATE oauth_tokens SET redeemed_at=CURRENT_TIMESTAMP WHERE token_hash=?').run(row.token_hash);
+      q("UPDATE oauth_tokens SET revoked_at=CURRENT_TIMESTAMP WHERE family_id=? AND kind='access' AND revoked_at IS NULL")
+        .run(row.family_id);
+      const t = oauthIssueTokens(conn, { scope: row.scope, resource: row.resource, family_id: row.family_id, parent_hash: row.token_hash });
+      return send(res, JSON.stringify({
+        access_token: t.access, token_type: 'Bearer', expires_in: ACCESS_TTL_MS / 1000,
+        refresh_token: t.refresh, scope: row.scope,
+      }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    }
+    return fail('unsupported_grant_type', 'Only authorization_code and refresh_token are supported.');
+  }
+
   if (p === '/settings/connections' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req);

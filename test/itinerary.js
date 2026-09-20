@@ -658,5 +658,71 @@ console.log('\nshared domain creation');
      /recordProvenance\('object', note\.uid, 'renoted'/.test(SRC));
 }
 
+// ---- OAuth authorization contracts -----------------------------------------
+console.log('\nOAuth authorization');
+{
+  const az   = SRC.slice(SRC.indexOf("if (p === '/oauth/authorize'"), SRC.indexOf("if (p === '/oauth/token'"));
+  const tk   = SRC.slice(SRC.indexOf("if (p === '/oauth/token'"), SRC.indexOf("if (p === '/settings/connections'"));
+  const meta = SRC.slice(SRC.indexOf("'/.well-known/oauth-protected-resource'"), SRC.indexOf("// ---- authorization endpoint"));
+  const hlp  = SRC.slice(SRC.indexOf('// ---- OAuth 2.1 authorization'), SRC.indexOf('// What the client said it was'));
+  const mcpf = SRC.slice(SRC.indexOf('async function mcp(req, res, tok)'), SRC.indexOf("if (method === 'ping')"));
+
+  ok('O1 S256 is advertised and nothing else',
+     /code_challenge_methods_supported: \['S256'\]/.test(meta));
+  ok('O2 only the scope we enforce is advertised',
+     /scopes_supported: \[OAUTH_SCOPE\]/.test(meta));
+  ok('O3 the advertised resource is the MCP endpoint',
+     /resource: MCP_RESOURCE\(\)/.test(meta));
+  ok('O4 PKCE is required, and plain is refused',
+     /method !== 'S256'/.test(az) && /!code_challenge/.test(az));
+  ok('O5 PKCE comparison is constant-time',
+     /timingSafeEqual/.test(hlp));
+  ok('O6 the redirect target is validated against the client document',
+     /cimdValidate\(client_id, redirect_uri\)/.test(az));
+  ok('O7 a bad request is shown, never redirected to an unvalidated URI',
+     /const bad = \(why\)/.test(az) && !/redirect\(res, redirect_uri/.test(az));
+  ok('O8 the login return path is this server\u2019s own, not caller-supplied',
+     /'\/oauth\/authorize\?' \+ new URLSearchParams/.test(az));
+  ok('O9 a foreign resource is refused at authorization',
+     /resource !== MCP_RESOURCE\(\)/.test(az));
+  ok('O10 authorization codes are single use',
+     /row\.used_at/.test(tk) && /SET used_at=CURRENT_TIMESTAMP/.test(tk));
+  ok('O11 code exchange binds client, redirect and resource',
+     /!== row\.client_id/.test(tk) && /!== row\.redirect_uri/.test(tk) && /!== row\.resource/.test(tk));
+  ok('O12 a redeemed refresh token revokes its whole family',
+     /row\.redeemed_at/.test(tk) && /oauthRevokeFamily\(row\.family_id\)/.test(tk));
+  ok('O13 no credential is stored in plaintext',
+     /tokenHash\(code\)/.test(hlp) && /tokenHash\(access\)/.test(hlp) && /tokenHash\(refresh\)/.test(hlp));
+  ok('O14 access tokens always expire',
+     /expires_at     TEXT NOT NULL/.test(SRC) && /inMs\(ACCESS_TTL_MS\)/.test(hlp));
+  ok('O15 token resolution checks revocation, expiry, audience, scope and the connection',
+     /row\.revoked_at \|\| expiredAt\(row\.expires_at\)/.test(hlp)
+     && /row\.resource !== resource/.test(hlp)
+     && /conn\.revoked_at/.test(hlp)
+     && /OAUTH_SCOPE/.test(hlp));
+  ok('O16 revoking a connection immediately kills its tokens',
+     /conn \|\| conn\.revoked_at/.test(hlp));
+  ok('O17 the challenge names the protected-resource metadata',
+     /WWW-Authenticate/.test(SRC) && /resource_metadata=/.test(SRC));
+  ok('O18 one dispatcher for every credential kind',
+     /oauthResolveAccess/.test(mcpf) && /connectionFor\(tok\)/.test(mcpf)
+     && /api_token=\?/.test(mcpf));
+  ok('O19 auth method is observed, not inferred',
+     /auth_method: authMethod \|\|/.test(SRC));
+  ok('O20 legacy provenance is unchanged',
+     /'mcp_token_legacy'/.test(SRC));
+  ok('O21 every tool declares its authorization',
+     /securitySchemes: SEC_OAUTH/.test(SRC)
+     && (SRC.match(/securitySchemes: SEC_OAUTH/g) || []).length === 54);
+  ok('O22 CIMD refuses redirects and non-https client ids',
+     /redirect: 'manual'/.test(hlp) && /must be an https URL/.test(hlp));
+  ok('O23 the client document must name itself',
+     /does not match its own client_id/.test(hlp));
+  ok('O24 client identity comes from the validated document, never a claim',
+     /cimdAgent\(client_id, doc\)/.test(az));
+  ok('O25 no mTLS-strength claim is made anywhere',
+     !/mtls/i.test(SRC.replace(/\/\/[^\n]*/g, '')));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
