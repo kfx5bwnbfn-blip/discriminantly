@@ -4784,7 +4784,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
         <span class="stop-handle" data-drag title="Drag to place in the order">\u2261</span>
         <button type="button" class="stop-arrow" data-move="down" title="Move down" aria-label="Move down">\u2193</button>
       </span>` : '';
-      const attrs = `class="stop ${seqd ? 'is-seq' : ''} ${st.resolution === 'linked' ? 'is-mark' : st.resolution === 'allocation' ? 'is-open' : 'is-loose'} ${withheld ? 'is-withheld' : ''}" data-stop="${st.uid}"`;
+      const attrs = `id="stop-${st.uid}" class="stop ${seqd ? 'is-seq' : ''} ${st.resolution === 'linked' ? 'is-mark' : st.resolution === 'allocation' ? 'is-open' : 'is-loose'} ${withheld ? 'is-withheld' : ''}" data-stop="${st.uid}"`;
 
       if (vis.mark) {
         return `<li ${attrs}>${handle}<div class="stop-head">${time}${flag}${menu}</div>${markCard(vis.mark, me)}</li>`;
@@ -4936,7 +4936,7 @@ function itineraryMap(it, me, ordered) {
     const x = ((p.lng - minLn) / (maxLn - minLn)) * 100;
     const y = (1 - (merc(p.lat) - y0) / (y1 - y0)) * 100;
     const n = order.get(p.stop_uid);
-    return `<g data-pin="${esc(p.stop_uid)}" transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/><text y="0.9" text-anchor="middle" class="pin-n">${n || ''}</text><title>${esc(p.name)}</title></g>`;
+    return `<a data-pin="${esc(p.stop_uid)}" href="#stop-${esc(p.stop_uid)}" transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/><text y="0.9" text-anchor="middle" class="pin-n">${n || ''}</text><title>${esc(p.name)}</title></a>`;
   }).join('');
   // mark-map carries the existing per-skin, per-mode tile filters, so the map
   // is tinted for classic and modern, light and dark, by the same rules the
@@ -5470,7 +5470,7 @@ ${noters.length ? `<div class="section-rule"></div>
           <button class="nf-post itin-start">Start</button>
         </div>
       </form></details>` : '';
-    const main = `<h3 class="strip">${own ? 'Your itineraries' : esc(subject.handle) + '\u2019s itineraries'}</h3>
+    const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(subject.handle)}">${esc(subject.handle)}</a> \u203a <span>Itineraries</span></h3>
     ${own ? '<p class="ens-grid-sub">Places you mean to go, at whatever precision you have.</p>' : ''}
     ${create}
     ${rows.length ? `<div class="grid" id="feed-grid">${rows.map(preview).join('')}</div>` : ''}
@@ -5538,7 +5538,8 @@ ${noters.length ? `<div class="section-rule"></div>
     const sideMap = itineraryMap(it, me, ordered);
     const sideSugg = itinerarySuggestions(it, me);
     const colo = skinOf(me, req) === 'modern' ? itineraryColophon(it, me) : '';
-    const main = `<div class="itin-cols">
+    const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
+    <div class="itin-cols">
       <div class="itin-main"><article class="note itin-note">${bylineRow}<div class="itin-shell">${head}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
       ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
@@ -5554,7 +5555,7 @@ ${noters.length ? `<div class="section-rule"></div>
   ensembles(req, res, me) {
     if (!me) return need();
     const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(me.id);
-    const main = `<h3 class="strip">Your ensembles</h3>
+    const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(me.handle)}">${esc(me.handle)}</a> \u203a <span>Ensembles</span></h3>
     ${rows.length ? '<p class="ens-grid-sub">Compositions your AI put together from your notes and travel marks.</p>' : ''}
     <div class="ens-grid">${rows.map((e) => {
       const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
@@ -5587,8 +5588,10 @@ ${noters.length ? `<div class="section-rule"></div>
     // Every post page keeps the member's rail beside it; the Ensemble is a post.
     const author = q('SELECT * FROM users WHERE id=?').get(e.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'ensembles')}
-<section class="feed profile-feed ens-feed itin-page"><section class="ens">
-  <article class="note itin-note">
+<section class="feed profile-feed ens-feed itin-page">
+  <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/u/${esc(author.handle)}?tab=ensembles">Ensembles</a> \u203a <span>Ensemble</span></h3>
+  <section class="ens itin-cols">
+  <article class="note itin-note ens-main">
   <div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(v.created_at)}</span>${mine ? `<label class="card-edit" for="ens-edit-${e.id}">Edit</label>` : ''}</div>
   <div class="itin-shell ens-shell">
   ${mine ? `<input type="checkbox" id="ens-edit-${e.id}" class="itin-edit-toggle" hidden>` : ''}
@@ -5624,8 +5627,9 @@ ${noters.length ? `<div class="section-rule"></div>
       ${mine ? `<form method="post" action="/e/${e.id}/primary"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn">Make primary</button></form>
       <form method="post" action="/e/${e.id}/artifact/remove"><input type="hidden" name="artifact_uid" value="${a.artifact_uid}"><button class="nf-link-btn ens-danger">Remove</button></form>` : ''}
     </figure>`).join('')}</div>` : ''}
-  <div class="ens-parts">
-    <h3 class="strip">What's in it</h3>
+  </div></article>
+  <aside class="ens-side"><div class="ens-parts">
+    <h4 class="ens-parts-h">What's in it</h4>
     ${(() => {
       // Grouped by where each piece came from, because "already mine" and
       // "this composition put it in my notes" are different facts about the
@@ -5665,7 +5669,7 @@ ${noters.length ? `<div class="section-rule"></div>
       }).join('')}</ul>`}`).join('');
     })()}
   </div>
-</div></article></section></section></div>`;
+</aside></section></section></div>`;
     send(res, layout({ title: v.title, body, me, nav: 'home' }));
   },
 

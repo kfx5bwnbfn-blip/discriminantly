@@ -751,3 +751,26 @@
 .ens-shell .ens-meta { margin: .3rem 0 0; }
 .ens-shell .ens-primary, .ens-shell .ens-alts, .ens-shell .ens-parts { margin-left: 0; margin-right: 0; }
 .ens-feed .itin-note { margin: 0; }
+
+/* ---- article side columns ------------------------------------------------
+   The check-in timeline, the Similar notes panel and the ensemble's contents
+   all sit in the second column of their page. Each fills that column; none of
+   them is a narrow strip pinned to the right. ---- */
+@media (min-width: 78rem) {
+  .mark-layout.has-log { grid-template-columns: minmax(0, 42rem) minmax(20rem, 30rem) !important; column-gap: 2rem !important; }
+  .mark-layout.has-log > .visit-log { width: auto; max-width: none; margin: 0; }
+}
+
+/* ---- ensemble: the composition and what it is made of, side by side ---- */
+.ens-parts { margin: 0; padding: 1.1rem 1.25rem 1rem; border-radius: 16px; }
+.ens-parts-h { display: block; text-align: center; font-size: .62rem; font-weight: 700;
+  letter-spacing: .18em; text-transform: uppercase; margin: 0 0 1rem; }
+.ens-main, .ens-side { flex: 1 1 41.5rem; min-width: 0; max-width: 41.5rem; }
+.ens-side { margin: 0; }
+@media (max-width: 78rem) { .ens-side { margin-top: 1.6rem; } }
+
+/* pins are links now: the overlay itself stays out of the way, each pin does not */
+.itin-map svg { pointer-events: none; }
+.itin-map svg a { pointer-events: auto; cursor: pointer; }
+/* a stop jumped to from the map should not hide under the fixed search bar */
+.stop { scroll-margin-top: 5.5rem; }
