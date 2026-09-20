@@ -1824,6 +1824,28 @@ function readImage(file, cb) {
   document.addEventListener('click', function (e) {
     var link = e.target.closest && e.target.closest('.more-link');
     if (!link || link.dataset.busy) return;
+    // A search group pages itself: replace that group's cards and its own
+    // link, and leave every other group exactly as it is.
+    if (link.classList.contains('search-more')) {
+      e.preventDefault(); link.dataset.busy = '1';
+      var wasT = link.textContent; link.textContent = 'Loading';
+      var key = link.dataset.group;
+      fetch(link.href, { headers: { 'X-Requested-With': 'fetch' } })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          var next = doc.getElementById('group-' + key), here = document.getElementById('group-' + key);
+          if (!next || !here) { location.href = link.href; return; }
+          here.innerHTML = next.innerHTML;
+          var nl = doc.querySelector('.search-more[data-group="' + key + '"]');
+          if (nl) { link.href = nl.getAttribute('href'); link.textContent = wasT; delete link.dataset.busy; }
+          else link.parentNode.remove();
+          history.replaceState(null, '', link.href);
+          if (window.layoutFeed) try { window.layoutFeed(); } catch (err) {}
+        })
+        .catch(function () { location.href = link.href; });
+      return;
+    }
     e.preventDefault();
     link.dataset.busy = '1';
     var was = link.textContent; link.textContent = 'Loading…';
@@ -4995,6 +5017,116 @@ function itinerarySuggestions(it, me) {
 const AGENT_NAMES = { 'mcp:claude': 'Claude', 'mcp:chatgpt': 'ChatGPT', 'mcp:gpt': 'ChatGPT' };
 const agentName = (a) => AGENT_NAMES[a] || (a && a.startsWith('mcp:') ? 'your AI' : null);
 
+// Notes adjacent to this one, in the same register as an itinerary's
+// "Nearby, from your catalogue": two groupings, each showing three with the
+// rest behind the same Show more. Only notes the viewer may actually see, and
+// never the note being read.
+// Search results, grouped by what kind of thing was found. Each group shows
+// its first ten and keeps the rest behind the same Show more the feeds use;
+// opening one pages that group alone, twenty at a time, without disturbing the
+// others. Every group is privacy-filtered by the same rules its own surface
+// uses, so search can never surface what a page would withhold.
+const SEARCH_FIRST = 10, SEARCH_PAGE = 20;
+function searchGroups(term, me, url) {
+  const k = term.toLowerCase();
+  const hit = (...parts) => parts.filter(Boolean).join(' ').toLowerCase().includes(k);
+  const out = [];
+
+  const notes = q(OBJ_SQL + (me ? ' WHERE o.private=0 OR o.user_id=?' : ' WHERE o.private=0') + ' ORDER BY o.id DESC LIMIT 600')
+    .all(...(me ? [me.id] : [])).filter((o) => canSee(o, me) && hit(o.name, o.why, o.tags));
+  const marks = q(MARK_SQL + (me ? ' WHERE m.private=0 OR m.user_id=?' : ' WHERE m.private=0') + ' ORDER BY m.id DESC LIMIT 600')
+    .all(...(me ? [me.id] : [])).filter((m) => canSee(m, me) && hit(m.name, m.why, m.tags, m.locality, m.country));
+  const itins = q('SELECT * FROM itineraries' + (me ? ' WHERE private=0 OR user_id=?' : ' WHERE private=0') + ' ORDER BY id DESC LIMIT 300')
+    .all(...(me ? [me.id] : [])).filter((it) => canSee(it, me) && hit(it.title, it.context));
+  const ens = q('SELECT * FROM ensembles' + (me ? ' WHERE private=0 OR user_id=?' : ' WHERE private=0') + ' ORDER BY id DESC LIMIT 300')
+    .all(...(me ? [me.id] : [])).filter((e) => ensCanSee(e, me) && hit(e.title, e.description));
+  const people = q('SELECT * FROM users ORDER BY id LIMIT 400').all()
+    .filter((u) => hit(u.handle, u.name, u.bio));
+
+  out.push(['notes', 'Notes', notes, (o) => objectCard(o, me)]);
+  out.push(['marks', 'Travel marks', marks, (m) => markCard(m, me)]);
+  out.push(['itineraries', 'Itineraries', itins, (it) => itineraryPreview(it, me)]);
+  out.push(['ensembles', 'Ensembles', ens, (e) => {
+    const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
+    const st = ensStats(e.id);
+    return `<a class="ens-tile" href="/e/${e.id}">
+      <span class="ens-tile-media">${pa ? imgTag('/i/' + pa.image_uid, e.title) : '<span class="ens-tile-blank"></span>'}</span>
+      <span class="ens-tile-meta"><span class="ens-tile-t">${esc(e.title)}${e.private ? ' <i>private</i>' : ''}</span>
+      ${e.description ? `<span class="ens-tile-d">${esc(e.description)}</span>` : ''}
+      ${statChips([['pieces', st.total], ['from notes', st.fromNotes], ['sources', st.sourceImages]])}</span></a>`;
+  }]);
+  out.push(['people', 'People', people, (u) => `<article class="note"><div class="card"><div class="text">
+    <a class="person" href="/u/${esc(u.handle)}">${avatar(u)}<span class="person-name">${esc(u.handle)}</span></a>
+    ${u.bio ? `<p class="body">${esc(u.bio)}</p>` : ''}</div></div></article>`]);
+  return out.filter(([, , rows]) => rows.length);
+}
+
+// One group's slice. `g_<key>` in the query carries how many that group has
+// asked for, so each pages independently and a reload restores what was open.
+function searchGroupHtml(key, title, rows, render, url) {
+  const asked = Math.max(0, +url.searchParams.get('g_' + key) || 0);
+  const show = asked ? Math.min(asked, rows.length) : Math.min(SEARCH_FIRST, rows.length);
+  const more = rows.length > show;
+  const sp = new URLSearchParams(url.search);
+  sp.set('g_' + key, String(show + SEARCH_PAGE));
+  return `<section class="search-group" data-group="${key}">
+    <h4 class="itin-day"><b>${esc(title)}</b><span>${rows.length}</span><span class="rule"></span></h4>
+    <div class="search-cards" id="group-${key}">${rows.slice(0, show).map(render).join('')}</div>
+    ${more ? `<div class="more"><a class="nf-post more-link search-more" data-group="${key}" href="?${sp}">Show more</a></div>` : ''}
+  </section>`;
+}
+
+function relatedNotes(o, me) {
+  const seen = new Set([o.uid]);
+  const mine = (rows) => rows.filter((r) => canSee(r, me) && !seen.has(r.uid) && (seen.add(r.uid), true));
+
+  // Same collections: the member's own filing is the strongest adjacency there
+  // is, because they put these together deliberately.
+  const collIds = q('SELECT collection_id FROM note_collections WHERE note_id=?').all(o.id).map((r) => r.collection_id);
+  const sameColl = collIds.length ? mine(q(OBJ_SQL + `
+    JOIN note_collections nc ON nc.note_id = o.id
+    WHERE nc.collection_id IN (${collIds.map(() => '?').join(',')}) AND o.id <> ?
+    GROUP BY o.id ORDER BY o.id DESC LIMIT 60`).all(...collIds, o.id)) : [];
+
+  // Shared tags, then words from the title. Ranked by how much is shared, so
+  // the closest thing comes first rather than the newest.
+  const tags = new Set(tagList(o.tags));
+  const words = new Set(String(o.name || '').toLowerCase().split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 3 && !['with', 'from', 'that', 'this', 'your', 'have'].includes(w)));
+  let similar = [];
+  if (tags.size || words.size) {
+    similar = mine(q(OBJ_SQL + ' WHERE o.id <> ? ORDER BY o.id DESC LIMIT 400').all(o.id))
+      .map((r) => {
+        const rt = new Set(tagList(r.tags));
+        let score = 0;
+        for (const t of tags) if (rt.has(t)) score += 3;
+        const hay = `${r.name || ''} ${r.tags || ''}`.toLowerCase();
+        for (const w of words) if (hay.includes(w)) score += 1;
+        return { r, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || b.r.id - a.r.id)
+      .slice(0, 40).map((x) => x.r);
+  }
+  if (!sameColl.length && !similar.length) return '';
+
+  const row = (n) => `<div class="sugg"><a class="sugg-name" href="/o/${n.id}">${esc(n.name)}</a>
+    <span class="sugg-sub">${esc(tagList(n.tags).slice(0, 3).map((t) => '#' + t).join(' ') || n.handle)}</span></div>`;
+  const group = (title, items) => {
+    if (!items.length) return '';
+    const first = items.slice(0, 3).map(row).join(''), rest = items.slice(3).map(row).join('');
+    return `<section class="itin-sugg-group">
+      <h4 class="itin-day"><b>${title}</b><span>${items.length}</span><span class="rule"></span></h4>
+      <div class="itin-sugg-list">${first}</div>
+      ${rest ? `<details class="itin-sugg-more"><summary class="nf-post sugg-more-btn">Show more</summary><div class="itin-sugg-list">${rest}</div></details>` : ''}
+    </section>`;
+  };
+  return `<aside class="itin-sugg note-sugg">
+    <h3 class="strip">More from the catalogue</h3>
+    ${group('More notes from the same collections', sameColl)}${group('Other similar notes', similar)}
+  </aside>`;
+}
+
 function itineraryColophonEntries(it, me) {
   const out = [];
   const owner = !!(me && (me.id === it.user_id || me.is_admin));
@@ -5195,7 +5327,15 @@ const pages = {
   <section class="feed feed-plain is-tiled">
     <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
     ${banner.html}
-    ${entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
+    ${s ? (() => {
+      // A search is answered by kind: one group per primitive, each paging on
+      // its own. The plain feed is unchanged when nothing was searched for.
+      const groups = searchGroups(s, me, url);
+      return groups.length
+        ? groups.map(([k, t, rows, render]) => searchGroupHtml(k, t, rows, render, url)).join('')
+        : '<p class="empty pad">Nothing found.</p>';
+    })()
+      : entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
 </div>`;
@@ -5230,6 +5370,7 @@ ${noters.length ? `<div class="section-rule"></div>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
+${relatedNotes(o, me)}
 ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
 <script>
 (function () {

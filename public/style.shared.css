@@ -725,3 +725,13 @@
 .itin-map { overflow: hidden; }
 .itin-map-inner { position: absolute; display: block; top: -2.9rem; left: -2.9rem; right: -0.4rem; bottom: -0.4rem; }
 .itin-map-inner iframe, .itin-map-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* ---- search results, grouped by kind ---------------------------------------
+   Each group's cards sit in the same flat container the itinerary days, the
+   check-in timeline and the resurfacing frame use. */
+.search-group { margin: 0 0 1.8rem; }
+.search-cards { padding: 1.1rem 1.25rem 1rem; border-radius: 16px; display: grid; gap: 1.4rem; }
+.search-cards .ens-tile { margin: 0; }
+.search-group .more { margin-top: .9rem; }
+.note-sugg { margin-top: 1.6rem; }
+@media (max-width: 52rem) { .search-cards { padding: .9rem .8rem .8rem; } }
