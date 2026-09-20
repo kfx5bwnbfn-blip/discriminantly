@@ -653,3 +653,23 @@
 /* ---- Show more: the skin's primary action, as in the comment form ---- */
 .sugg-more-btn { display: block; width: 100%; box-sizing: border-box; text-align: center;
   font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; margin: .8rem 0 .2rem; }
+
+/* The itinerary colophon reuses the note colophon wholesale. It sits in the
+   side column beneath the map and the suggestions on wide screens, and at the
+   end of the content on a phone -- which the side column already does. It is
+   not centred against a card the way the note's is, so it keeps flow. */
+.itin-colophon { position: static !important; width: auto !important; margin: 2.4rem auto 1rem !important;
+  top: auto !important; right: auto !important; left: auto !important; max-width: 16rem; }
+
+/* ---- the feed preview's title area matches the article's -------------------
+   The preview head is an <a>, which picked up link alignment and stacked the
+   old .itp-head margins on top of the shared .itin-head padding -- so the
+   title sat left and 38px lower than on the article page. One rule for both. */
+.itp .itin-head, .itp-head.itin-head { text-align: center; padding: 0 .5rem .2rem; margin: 0; }
+.itp .itin-head .ens-title, .itin-shell .itin-head .ens-title { text-align: center; }
+.itp.itin-shell { padding-top: 1.4rem; }
+
+/* ---- the timing line: sentence case, italic ---- */
+.itin-when, .itp .itin-when {
+  font-style: italic; text-transform: none; font-weight: 400; letter-spacing: .01em; font-size: .92rem;
+}

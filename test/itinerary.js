@@ -419,5 +419,61 @@ console.log('\nMCP tool descriptions');
   console.log(`     ${names.length} tools total, ${mine.length} for itineraries`);
 }
 
+// ---- colophon: semantic contracts ------------------------------------------
+// These assert what the inscription may and may not claim, not how it is built.
+console.log('\ncolophon contracts');
+{
+  const src = SRC;
+  const fnStart = src.indexOf('function itineraryColophonEntries(');
+  const fnEnd = src.indexOf('function itineraryColophon(');
+  const fn = src.slice(fnStart, fnEnd);
+  const render = src.slice(fnEnd, src.indexOf('function itineraryPreview('));
+
+  ok('C1 created date comes from the record, not inferred',
+     /out\.push\(\['Planned', monthYear\(it\.created_at\)\]\)/.test(fn));
+  ok('C2 AI authorship requires ai_on_behalf AND explicit',
+     /actor_type === 'ai_on_behalf' && r\.assertion === 'explicit'/.test(fn));
+  ok('C3 corpus lineage is causal: source_kind=itinerary on the mark\u2019s creation',
+     /entity_type='mark' and action='created'/i.test(fn.replace(/\s+/g, ' ')) ||
+     /entity_type='mark' AND action='created'[\s\S]*source_kind='itinerary'/.test(fn));
+  ok('C4 lineage is never timestamp-inferred',
+     !/created_at\s*[<>]=?\s*[^)]*mark/i.test(fn));
+  ok('C5 private marks are excluded from the counts a stranger sees',
+     /owner \|\| !mk\.private/.test(fn));
+  ok('C6 suspended stops are excluded from lineage',
+     /visibility === 'visible'/.test(fn));
+  ok('C7 a mark counts once however many stops point at it',
+     /new Set\(visible\)/.test(fn));
+  ok('C8 resolutions are synthesised, not listed one per event',
+     /resolved\.size/.test(fn) && /place intentions/.test(fn));
+  ok('C9 a corrected stop is not also counted as identified',
+     /for \(const u of corrected\) resolved\.delete\(u\)/.test(fn));
+  ok('C10 position writes never reach the inscription',
+     !/'position'/.test(fn));
+  ok('C11 no check-in coupling anywhere in the colophon',
+     !/visits|check.?in/i.test(fn));
+  ok('C12 no completion, adherence or fulfilment language',
+     !/complete|fulfil|missed|adheren/i.test(fn + render));
+  ok('C13 temporal precision internals never surface',
+     !/day_precision|1900|placeholder/i.test(fn + render));
+  ok('C14 no uids, ids, agents or raw fields rendered',
+     !/colo-v[^`]*uid|entity_uid\}|\$\{r\.agent\}|\$\{[^}]*\.fields\}/.test(render));
+  ok('C15 agent names are human, never model or tool strings',
+     /AGENT_NAMES/.test(src) && /'mcp:claude': 'Claude'/.test(src));
+  ok('C16 a bare created date is not a history',
+     /rows\.length < 2\) return ''/.test(render));
+  ok('C17 the inscription is derived, never stored',
+     !/INSERT INTO[\s\S]{0,80}colophon/i.test(src));
+  ok('C18 reuses the note colophon\u2019s own classes',
+     /class="colophon itin-colophon"/.test(render) && /colo-head/.test(render) && /colo-lead/.test(render));
+
+  // the accept-a-place path is what makes lineage causal
+  const add = src.slice(src.indexOf('function stopAdd('), src.indexOf('const stopUpdateTemporal'));
+  ok('C19 accepting a place creates its mark and records the plan as its origin',
+     /source_kind: 'itinerary', source_ref: it\.uid/.test(add));
+  ok('C20 a new place inherits the plan\u2019s privacy, never publishing more',
+     /it\.private \? 1 : 0/.test(add));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

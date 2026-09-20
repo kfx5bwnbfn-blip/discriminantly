@@ -3628,8 +3628,25 @@ function groupDelete(user, uid, ctx) {
 // independent pair: the CHECK constraint would reject a contradiction anyway,
 // but the caller should not be able to express one.
 function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null,
-                                  group_uid = null, temporal = {}, position = null }, ctx) {
+                                  group_uid = null, temporal = {}, position = null,
+                                  new_place = null }, ctx) {
   const it = itinOwned(user, itinUid);
+  // Accepting a sufficiently identified place into a plan creates its Travel
+  // Mark, per the Mark boundary: added to the itinerary IS marked. The Mark's
+  // own creation provenance carries where it came from, so corpus lineage is
+  // causal rather than guessed.
+  if (!mark_uid && new_place && String(new_place.name || '').trim()) {
+    const np = new_place;
+    const r0 = q(`INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,private)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(user.id, String(np.name).trim(), np.locality || null, np.country || null,
+           np.address || null, np.lat ?? null, np.lng ?? null, np.why || '', np.tags || null,
+           np.url || null, it.private ? 1 : 0);
+    const mkUid = uidOf('marks', r0.lastInsertRowid);
+    recordProvenance('mark', mkUid, 'created', ctx,
+      { source_kind: 'itinerary', source_ref: it.uid });
+    mark_uid = mkUid;
+  }
   const t = { ...temporalOf({}), ...temporal };
   const bad = temporalValidate(t); if (bad) throw new Error(bad);
 
@@ -4773,6 +4790,109 @@ function itinerarySuggestions(it, me) {
   </aside>`;
 }
 
+// ---- itinerary colophon -----------------------------------------------------
+// How the plan took shape. Derived entirely from the append-only ledger and the
+// canonical tables; nothing rendered here is stored. The discipline is
+// selection: the ledger is comprehensive, the inscription is not. A provenance
+// row earns a line only when it tells a member something about the plan that
+// the itinerary itself does not already show.
+//
+// Nothing about execution appears here. Check-ins are evidence attached to a
+// Travel Mark, not to a plan, and there is no Stop->Check-in relationship to
+// read even if one wanted to.
+const AGENT_NAMES = { 'mcp:claude': 'Claude', 'mcp:chatgpt': 'ChatGPT', 'mcp:gpt': 'ChatGPT' };
+const agentName = (a) => AGENT_NAMES[a] || (a && a.startsWith('mcp:') ? 'your AI' : null);
+
+function itineraryColophonEntries(it, me) {
+  const out = [];
+  const owner = !!(me && (me.id === it.user_id || me.is_admin));
+  const stops = q('SELECT * FROM itinerary_stops WHERE itinerary_id=?').all(it.id);
+  const uids = stops.map((st) => st.uid);
+  const rows = uids.length
+    ? q(`SELECT * FROM provenance WHERE (entity_type='itinerary' AND entity_uid=?)
+         OR (entity_type='itinerary_stop' AND entity_uid IN (${uids.map(() => '?').join(',')}))
+         ORDER BY id`).all(it.uid, ...uids)
+    : q("SELECT * FROM provenance WHERE entity_type='itinerary' AND entity_uid=?").all(it.uid);
+
+  // ---- Tier 1: authorship ---------------------------------------------------
+  out.push(['Planned', monthYear(it.created_at)]);
+  // An AI line is earned only by actions the member authorised: every row in
+  // this ledger is a canonical write that already happened. Unaccepted
+  // suggestions are never written, so they cannot appear here.
+  const aiRows = rows.filter((r) => r.actor_type === 'ai_on_behalf' && r.assertion === 'explicit');
+  const aiAgent = aiRows.length ? agentName(aiRows[0].agent) : null;
+  if (aiAgent) {
+    const createdByAi = rows.some((r) => r.entity_type === 'itinerary' && r.action === 'created' && r.actor_type === 'ai_on_behalf');
+    // "refined" only when the AI kept working on it after the plan existed
+    const refined = aiRows.filter((r) => r.action !== 'created').length >= 3;
+    out.push([createdByAi ? 'Planned with' : 'Refined with', aiAgent + (createdByAi && refined ? ', and refined since' : '')]);
+  }
+
+  // ---- Tier 2: corpus lineage ----------------------------------------------
+  // Causal, never inferred: a Mark counts as "added while planning" only where
+  // its own creation provenance says it came from this itinerary. Marks the
+  // viewer cannot see are excluded from both counts, so a count can never
+  // reveal a record ordinary rendering would withhold.
+  const linked = stops.filter((st) => st.mark_uid && st.visibility === 'visible');
+  const visible = linked.filter((st) => {
+    const mk = q('SELECT private, user_id FROM marks WHERE uid=?').get(st.mark_uid);
+    return mk && (owner || !mk.private);
+  }).map((st) => st.mark_uid);
+  // one Mark, one count, however many stops point at it
+  const seenMarks = [...new Set(visible)];
+  if (seenMarks.length) {
+    const born = new Set(q(`SELECT entity_uid FROM provenance WHERE entity_type='mark' AND action='created'
+      AND source_kind='itinerary' AND source_ref=? AND entity_uid IN (${seenMarks.map(() => '?').join(',')})`)
+      .all(it.uid, ...seenMarks).map((r) => r.entity_uid));
+    const fromCorpus = seenMarks.filter((u) => !born.has(u)).length;
+    if (fromCorpus) out.push(['Built from', `${inWords(fromCorpus)} ${fromCorpus === 1 ? 'travel mark' : 'travel marks'} already kept`]);
+    if (born.size) out.push(['Added while planning', `${inWords(born.size)} more`]);
+  }
+
+  // ---- Tier 3: meaningful evolution ----------------------------------------
+  // Synthesis, not events. Ten resolutions are one line; a hundred position
+  // writes are none, because reordering is how the surface works rather than
+  // something that happened to the plan.
+  const resolved = new Set(), corrected = new Set();
+  for (const r of rows) {
+    if (r.entity_type !== 'itinerary_stop' || !r.fields) continue;
+    const f = String(r.fields);
+    if (!f.includes('mark_uid')) continue;
+    if (r.action === 'enriched') resolved.add(r.entity_uid);
+    if (r.action === 'corrected') corrected.add(r.entity_uid);
+  }
+  for (const u of corrected) resolved.delete(u);
+  if (resolved.size) out.push(['Later identified', `${inWords(resolved.size)} ${resolved.size === 1 ? 'place intention' : 'place intentions'}`]);
+  if (corrected.size) out.push(['Corrected', `${inWords(corrected.size)} ${corrected.size === 1 ? 'stop' : 'stops'}`]);
+
+  // Stops added after the plan's first day tell the member the plan kept
+  // growing; stops added the same day are just how it was written.
+  const day = (t) => String(t || '').slice(0, 10);
+  const later = stops.filter((st) => day(st.created_at) > day(it.created_at)).length;
+  if (later) out.push(['Added since', `${inWords(later)} ${later === 1 ? 'stop' : 'stops'}`]);
+
+  // Temporal structure: that dates arrived at all, never which or how precise.
+  const dated = q(`SELECT COUNT(*) c FROM itinerary_groups WHERE itinerary_id=?
+    AND (t_year IS NOT NULL OR t_month IS NOT NULL OR t_day IS NOT NULL OR t_weekday IS NOT NULL)`).get(it.id).c;
+  const days = q('SELECT COUNT(*) c FROM itinerary_groups WHERE itinerary_id=?').get(it.id).c;
+  if (days && dated) out.push(['Set across', `${inWords(days)} ${days === 1 ? 'dated day' : 'dated days'}`]);
+  return out;
+}
+
+function itineraryColophon(it, me) {
+  const rows = itineraryColophonEntries(it, me);
+  if (rows.length < 2) return '';        // a bare created date is not a history
+  const entry = ([k, v]) => `<span class="colo-k">${esc(k)}</span><span class="colo-v">${esc(v)}</span>`;
+  return `<aside class="colophon itin-colophon" aria-label="How this plan took shape">
+  <span class="colo-head">Provenance</span><span class="colo-rule"></span>
+  <span class="colo-lead">This plan was</span>
+  ${entry(rows[0])}
+  <img class="colo-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="26" height="35">
+  ${rows.slice(1).map(entry).join('\n  ')}
+  <span class="colo-rule"></span>
+</aside>`;
+}
+
 function itineraryPreview(it, me) {
   const tf = (row) => temporalFormat(temporalOf(row));
   const total = q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(it.id).c;
@@ -4783,12 +4903,12 @@ function itineraryPreview(it, me) {
   return `<article class="note itin-note">
     <div class="byline"><span class="byline-who"><a href="/u/${esc(au.handle)}">${avatar({ handle: au.handle, avatar: au.avatar })}</a>${stackDate(it.created_at)}</span></div>
     <div class="itp itin-shell">
-    <a class="itp-head ens-head itin-head" href="/t/${it.id}">
+    <div class="itp-head ens-head itin-head">
       <p class="who"><a href="/u/${esc(au.handle)}">${esc(au.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
       <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
       ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
       ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}
-    </a>
+    </div>
     <div class="itp-body ${total > shown ? 'has-more' : ''}">${rendered.html || '<span class="itp-empty">Nothing added yet</span>'}</div>
     <a class="itp-over" href="/t/${it.id}" aria-label="Open ${esc(it.title || 'this itinerary')}"></a>
     ${total > shown ? `<a class="itp-more" href="/t/${it.id}">${total - shown} more</a>` : ''}
@@ -5050,11 +5170,12 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
     for (const st of itineraryStops(it.id, null)) if (st.mark_uid) ordered.push(st.uid);
     const sideMap = itineraryMap(it, me, ordered);
     const sideSugg = itinerarySuggestions(it, me);
+    const colo = skinOf(me, req) === 'modern' ? itineraryColophon(it, me) : '';
     const main = `<div class="itin-cols">
       <div class="itin-main"><article class="note itin-note">${bylineRow}<div class="itin-shell">${head}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
       ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
-      ${sideMap || sideSugg ? `<aside class="itin-side">${sideMap}${sideSugg}</aside>` : ''}
+      ${sideMap || sideSugg || colo ? `<aside class="itin-side">${sideMap}${sideSugg}${colo}</aside>` : ''}
     </div>
     ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
@@ -6431,7 +6552,11 @@ const TOOLS = [
       stops: { type: 'array', items: { type: 'object', required: ['label'], properties: {
         label: { type: 'string', description: 'What the member said, kept verbatim.' },
         kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'] },
-        mark_uid: { type: 'string', description: "An existing travel mark, from my_travel_marks or search_catalogue, when this stop IS that place. If the member has accepted a place you proposed and it is not marked yet, call add_travel_mark first and pass the new uid \u2014 accepting a place into an itinerary is what makes it worth marking. Never invent a uid, and never pass one for a place they have not confirmed." },
+        mark_uid: { type: 'string', description: 'An existing travel mark, from my_travel_marks or search_catalogue, when this stop IS that place. Never invent a uid, and never pass one for a place they have not confirmed.' },
+        new_place: { type: 'object', description: 'Use this INSTEAD of mark_uid when the member has just accepted a place you proposed that they have not marked before: it creates the travel mark as part of accepting it, and records that the mark came from this plan. Only for places they have actually confirmed.',
+          properties: { name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' },
+            address: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
+            why: { type: 'string', description: 'Why it is worth going, in the member\u2019s words if they gave any.' } } },
         group_uid: { type: 'string', description: 'A day from arrange_itinerary or my_itineraries, if they placed it on one.' },
         daypart: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
         clock: { type: 'string', description: 'HH:MM, 24-hour, only if they gave a time.' } } } } } } },
@@ -7610,6 +7735,7 @@ async function mcpCall(user, name, a = {}) {
       for (const sp of a.stops || []) {
         const st = stopAdd(user, a.itinerary_uid, {
           label: sp.label, resolution: sp.kind || null, mark_uid: sp.mark_uid || null,
+          new_place: sp.new_place || null,
           group_uid: sp.group_uid || null,
           temporal: T_IN({ daypart: sp.daypart, clock: sp.clock }),
         }, ctx);
