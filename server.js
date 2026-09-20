@@ -3752,6 +3752,39 @@ function stopSetGroup(user, uid, groupUid, destPosition, ctx) {
 // The authored ordered prefix. position null removes the assertion; a number
 // places the stop at that rank and shifts the rest. Contiguity is maintained by
 // rebuilding the whole scope through reindexScope.
+// Exchanging two neighbouring stops exchanges the slot as well as the rank:
+// the member reads "morning" as belonging to the first thing they do, so a swap
+// that left the times behind would silently re-time both stops. Only daypart
+// and clock move -- a date belongs to the day, not to a position within it --
+// and both stops get their own provenance row, because both were changed.
+function stopSwap(user, uid, otherUid, ctx) {
+  const { stop: a, itin } = stopOwned(user, uid);
+  const { stop: b } = stopOwned(user, otherUid);
+  if (a.itinerary_id !== b.itinerary_id || a.group_id !== b.group_id) throw new Error('Those stops are not in the same day.');
+  if (a.position === null || b.position === null) throw new Error('Both stops must be in the order to swap.');
+  const scope = stopScope(a);
+  const ids = stopPrefix(scope).map((r) => r.id);
+  const ia = ids.indexOf(a.id), ib = ids.indexOf(b.id);
+  ids[ia] = b.id; ids[ib] = a.id;
+  const swapT = (a.t_daypart !== b.t_daypart) || (a.t_clock !== b.t_clock);
+  const tx = !db.isTransaction;
+  if (tx) db.exec('BEGIN');
+  try {
+    reindexScope('itinerary_stops', scope.sql, scope.args, ids);
+    if (swapT) {
+      q('UPDATE itinerary_stops SET t_daypart=?, t_clock=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .run(b.t_daypart, b.t_clock, a.id);
+      q('UPDATE itinerary_stops SET t_daypart=?, t_clock=?, updated_at=CURRENT_TIMESTAMP WHERE id=?')
+        .run(a.t_daypart, a.t_clock, b.id);
+    }
+    if (tx) db.exec('COMMIT');
+  } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+  const fields = swapT ? 'position,t_daypart,t_clock' : 'position';
+  recordProvenance('itinerary_stop', a.uid, 'edited', ctx, { fields });
+  recordProvenance('itinerary_stop', b.uid, 'edited', ctx, { fields });
+  return stopByUid(uid);
+}
+
 function stopSetPosition(user, uid, wanted, ctx) {
   const { stop } = stopOwned(user, uid);
   const scope = stopScope(stop);
@@ -3882,6 +3915,27 @@ const ITIN_JS = `
   }
   // Renumber the visible prefix so the spine and the arrows stay truthful
   // between the move and the next full load.
+  // The stop numbers and the map's pins read the same order, so both are
+  // renumbered together the moment the order changes -- a pin still showing 2
+  // beside a stop now numbered 1 would be a map that lies.
+  function renumber(){
+    var n=0, order=[];
+    document.querySelectorAll('.itin-tl').forEach(function(ol2){
+      Array.prototype.forEach.call(ol2.querySelectorAll('.stop.is-seq[data-stop]'), function(li){
+        var lbl=li.querySelector('.stop-no');
+        var idx=(ol2.__base||0)+(++n);
+        if(lbl) lbl.textContent=idx+'.';
+        order.push(li.getAttribute('data-stop'));
+      });
+    });
+    var k=0; var seen={};
+    order.forEach(function(uid,i){ seen[uid]=i+1; });
+    document.querySelectorAll('.itin-map [data-pin]').forEach(function(g){
+      var t=g.querySelector('.pin-n'); if(!t) return;
+      var v=seen[g.getAttribute('data-pin')];
+      t.textContent = v ? String(v) : '';
+    });
+  }
   function resequence(ol){
     var stops=Array.prototype.slice.call(ol.querySelectorAll('.stop[data-stop]'));
     var seen=0;
@@ -3919,6 +3973,7 @@ const ITIN_JS = `
     if(over.li) over.ol.insertBefore(d, over.li);
     else { var addLi=over.ol.querySelector('.stop-add'); if(addLi) over.ol.insertBefore(d, addLi); else over.ol.appendChild(d); }
     resequence(over.ol); if(over.ol!==d.closest('.itin-tl')) resequence(d.closest('.itin-tl'));
+    renumber();
     post(base+'/stops/'+uid, data);
     over=null;
   }
@@ -3991,16 +4046,20 @@ const ITIN_JS = `
       var li=mv.closest('.stop'); var ol=li.closest('.itin-tl');
       var seq=Array.prototype.slice.call(ol.querySelectorAll('.stop.is-seq'));
       var i=seq.indexOf(li);
-      var pos, ref;
+      var pos, ref, swapWith=null;
       if(i<0){ pos = mv.dataset.move==='up' ? 1 : seq.length+1; ref = mv.dataset.move==='up' ? seq[0] : null; }
-      else if(mv.dataset.move==='up'){ if(i===0) return; pos=i; ref=seq[i-1]; }
-      else { if(i>=seq.length-1) return; pos=i+2; ref=seq[i+1].nextElementSibling; }
+      else if(mv.dataset.move==='up'){ if(i===0) return; pos=i; ref=seq[i-1]; swapWith=seq[i-1]; }
+      else { if(i>=seq.length-1) return; pos=i+2; ref=seq[i+1].nextElementSibling; swapWith=seq[i+1]; }
       li.classList.add('is-seq');
       if(ref) ol.insertBefore(li, ref); else {
         var addLi=ol.querySelector('.stop-add'); if(addLi) ol.insertBefore(li, addLi); else ol.appendChild(li);
       }
       resequence(ol);
-      post(base+'/stops/'+li.getAttribute('data-stop'), {position:String(pos)});
+      renumber(ol);
+      // an arrow IS an exchange with the neighbour, so the slot goes with it
+      post(base+'/stops/'+li.getAttribute('data-stop'),
+        swapWith ? {swap_with: swapWith.getAttribute('data-stop')} : {position:String(pos)},
+        swapWith ? function(){ location.reload(); } : null);
     }
   });
 })();`;
@@ -4647,7 +4706,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
         </div></details>` : '';
       // Title case, italic: it reads as a note about the stop rather than a label
       const titleCase = (t) => t.replace(/\b([a-z])/g, (m2) => m2.toUpperCase());
-      const time = when ? `<span class="stop-when">${esc(titleCase(when))}</span>` : '';
+      // The number is the stop's place in the authored order, and it is the same
+      // number the map's pin carries, so the two can be read together.
+      const num = seqd ? `<span class="stop-no">${st.position}.</span>` : '';
+      const time = (num || when) ? `<span class="stop-when">${num}${when ? esc(titleCase(when)) : ''}</span>` : '';
       const flag = withheld ? '<span class="stop-withheld">Withheld from public view</span>' : '';
       // Dragging asserts order; the arrows do the same thing for anyone who
       // would rather not drag. Both write a position through the same route.
@@ -4811,7 +4873,7 @@ function itineraryMap(it, me, ordered) {
     const x = ((p.lng - minLn) / (maxLn - minLn)) * 100;
     const y = (1 - (merc(p.lat) - y0) / (y1 - y0)) * 100;
     const n = order.get(p.stop_uid);
-    return `<g transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/>${n ? `<text y="0.9" text-anchor="middle" class="pin-n">${n}</text>` : ''}<title>${esc(p.name)}</title></g>`;
+    return `<g data-pin="${esc(p.stop_uid)}" transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/><text y="0.9" text-anchor="middle" class="pin-n">${n || ''}</text><title>${esc(p.name)}</title></g>`;
   }).join('');
   // mark-map carries the existing per-skin, per-mode tile filters, so the map
   // is tinted for classic and modern, light and dark, by the same rules the
@@ -4823,8 +4885,10 @@ function itineraryMap(it, me, ordered) {
   // real, interactive map instead.
   const big = `https://www.openstreetmap.org/?mlat=${pts[0].lat}&mlon=${pts[0].lng}#map=13/${pts[0].lat}/${pts[0].lng}`;
   return `<figure class="itin-map mark-map">
-    <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" tabindex="-1" title="Map of ${esc(it.title)}"></iframe>
-    <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}</svg>
+    <span class="itin-map-inner">
+      <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" tabindex="-1" title="Map of ${esc(it.title)}"></iframe>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}</svg>
+    </span>
     <figcaption><a href="${big}" target="_blank" rel="noopener">${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops`} \u00b7 open the map</a></figcaption>
   </figure>`;
 }
@@ -8416,6 +8480,7 @@ async function handle(req, res) {
         else if (b.resolution && !b.mark_uid) stopSetResolution(me, mt[2], b.resolution, ctx);
         if (b.group_uid !== undefined) stopSetGroup(me, mt[2], b.group_uid || null,
           b.position !== undefined && b.position !== '' ? +b.position : undefined, ctx);
+        else if (b.swap_with) stopSwap(me, mt[2], b.swap_with, ctx);
         else if (b.position !== undefined) stopSetPosition(me, mt[2], b.position === '' ? null : +b.position, ctx);
       }
     } catch (e) { return send(res, esc(e.message), 400); }

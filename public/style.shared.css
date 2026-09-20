@@ -713,3 +713,15 @@
 /* a display rule beats the hidden attribute, so the empty picker rows were
    showing on load; restore what hidden is supposed to mean */
 .mark-chosen[hidden], .mark-picks[hidden], .itin-seg-panel[hidden] { display: none !important; }
+
+/* ---- the stop's number, read together with the map's pin ---- */
+.stop-no { font-style: normal; font-variant-numeric: tabular-nums; margin-right: .45rem; }
+
+/* ---- the map crops its own controls ---------------------------------------
+   The embed draws zoom buttons at the top-left that do nothing here, since the
+   map is deliberately not interactive. The iframe and the pin overlay are
+   inset together inside a cropping frame, so the controls fall outside the
+   visible area and the pins stay in register with the tiles. */
+.itin-map { overflow: hidden; }
+.itin-map-inner { position: absolute; display: block; top: -2.9rem; left: -2.9rem; right: -0.4rem; bottom: -0.4rem; }
+.itin-map-inner iframe, .itin-map-inner svg { position: absolute; inset: 0; width: 100%; height: 100%; }
