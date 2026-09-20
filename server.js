@@ -6484,7 +6484,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   </div>
 </div>
 <section class="splash-pair itin-shell">
-  <p class="splash-pair-lead">WHAT YOU KEEP BECOMES USEFUL.</p>
+  <p class="splash-pair-lead">What You Keep Becomes Useful.</p>
   <div class="phones">
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6507,7 +6507,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <figcaption>READY WHEN INSPIRATION STRIKES</figcaption>
     </figure>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">PLAN NATURALLY.</p>
+  <p class="splash-pair-lead splash-pair-lead-2">Plan Naturally.</p>
   <div class="phones">
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6530,7 +6530,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <figcaption>WATCH IT TAKE SHAPE</figcaption>
     </figure>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">KEEP WHAT\u2019S WORTH KEEPING.</p>
+  <p class="splash-pair-lead splash-pair-lead-2">Keep What\u2019s Worth Keeping.</p>
   <div class="shot-wrap splash-shot-2">
     <div class="shot-shadow"></div>
     <div class="shot-frame">
@@ -6542,7 +6542,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         : `<picture><source srcset="/welcome-shot-itin-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-itin-dark.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy"></picture>`}
     </div>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">YOUR INTERESTS. YOUR PLANS. ALWAYS AT HAND.</p>
+  <p class="splash-pair-lead splash-pair-lead-2">Your Interests. Your Plans. Always at Hand.</p>
   <p class="splash-pair-lead">Add, change, explore and plan as naturally as you think and talk.</p>
 </section>
 <div class="curtain dialog" id="splash-install-dialog">
