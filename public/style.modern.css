@@ -1951,8 +1951,9 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
     justify-content: start; align-items: start; padding-right: 0; position: static;
   }
   body[data-skin="modern"] .profile-feed.has-colophon > * { grid-column: 1; min-width: 0; }
+  body[data-skin="modern"] .profile-feed.has-colophon > .strip { grid-column: 1 / -1; grid-row: 1; }
   body[data-skin="modern"] .profile-feed.has-colophon > .note-side {
-    grid-column: 2; grid-row: 1 / span 999; align-self: start;
+    grid-column: 2; grid-row: 2 / span 999; align-self: start;
     display: flex; flex-direction: column; align-items: stretch; gap: 1.6rem;
   }
   body[data-skin="modern"] .note-side > .colophon {

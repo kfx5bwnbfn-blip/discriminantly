@@ -743,7 +743,10 @@
 /* Below the breakpoint the side column is simply the end of the page, in the
    order it is written: Similar notes, then the colophon. */
 .note-side { display: block; }
+/* stacked below the card on a phone it needs the gap; leading the side column
+   it should start level with the card */
 .note-side > .note-sugg { margin-top: 1.6rem; }
+@media (min-width: 78rem) { .note-side > .note-sugg:first-child { margin-top: 0; } }
 
 /* ---- the ensemble article reuses the itinerary shell ---- */
 .ens-shell .ens-title { margin: 0 0 .4rem; }
