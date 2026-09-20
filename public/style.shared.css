@@ -744,3 +744,10 @@
    order it is written: Similar notes, then the colophon. */
 .note-side { display: block; }
 .note-side > .note-sugg { margin-top: 1.6rem; }
+
+/* ---- the ensemble article reuses the itinerary shell ---- */
+.ens-shell .ens-title { margin: 0 0 .4rem; }
+.ens-shell .ens-desc { margin: 0 0 .5rem; }
+.ens-shell .ens-meta { margin: .3rem 0 0; }
+.ens-shell .ens-primary, .ens-shell .ens-alts, .ens-shell .ens-parts { margin-left: 0; margin-right: 0; }
+.ens-feed .itin-note { margin: 0; }

@@ -2260,3 +2260,12 @@ body[data-skin="modern"] .itin-seg .seg-btn:hover { color: var(--m-ink); }
 body[data-skin="modern"] .stop-no { color: var(--m-ink-3); }
 body[data-skin="modern"] .search-cards { background: rgba(0,0,0,.035); }
 body[data-skin="modern"][data-mode="light"] .search-cards, html.m-light body[data-skin="modern"][data-mode="system"] .search-cards { background: rgba(20,22,28,.045); }
+/* An itinerary or ensemble container answers a pointer the way every other
+   first-class card does -- but it is a container, not a card, so it deepens
+   rather than lifts. Same "this is inspectable" cue, no movement. */
+body[data-skin="modern"] .itin-shell { transition: background .22s var(--m-ease); }
+body[data-skin="modern"] .itin-shell:hover { background: rgba(0,0,0,.065); }
+body[data-skin="modern"][data-mode="light"] .itin-shell:hover,
+html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell:hover { background: rgba(20,22,28,.075); }
+body[data-skin="modern"] .ens-shell .ens-title { color: var(--m-ink); }
+body[data-skin="modern"] .ens-shell .ens-meta { color: var(--m-ink-3); }

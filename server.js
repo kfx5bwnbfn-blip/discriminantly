@@ -1879,6 +1879,8 @@ function readImage(file, cb) {
 
   // Delete from an edit page
   document.addEventListener('click', function (e) {
+    var ec = e.target.closest && e.target.closest('[data-ens-cancel]');
+    if (ec) { e.preventDefault(); var tg = document.querySelector('.itin-edit-toggle'); if (tg) tg.checked = false; return; }
     var t = e.target.closest && e.target.closest('.nf-del');
     if (!t) return;
     window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
@@ -2165,7 +2167,7 @@ function readImage(file, cb) {
       fetch(f.getAttribute('action'), { method: 'POST', credentials: 'same-origin',
         headers: { 'content-type': 'application/x-www-form-urlencoded', 'x-quiet': '1' }, body: d.toString() })
         .then(function (r) { if (!r.ok) throw new Error(r.status); flash(f, 'Saved'); })
-        .catch(function () { flash(f, 'Not saved — use Save ensemble', true); })
+        .catch(function () { flash(f, 'Not saved — press Save', true); })
         .then(function () { inflight = false; });
     };
     document.addEventListener('input', function (e) {
@@ -5585,17 +5587,37 @@ ${noters.length ? `<div class="section-rule"></div>
     // Every post page keeps the member's rail beside it; the Ensemble is a post.
     const author = q('SELECT * FROM users WHERE id=?').get(e.user_id);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'ensembles')}
-<section class="feed profile-feed ens-feed"><section class="ens">
-  <div class="ens-head">
+<section class="feed profile-feed ens-feed itin-page"><section class="ens">
+  <article class="note itin-note">
+  <div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(v.created_at)}</span>${mine ? `<label class="card-edit" for="ens-edit-${e.id}">Edit</label>` : ''}</div>
+  <div class="itin-shell ens-shell">
+  ${mine ? `<input type="checkbox" id="ens-edit-${e.id}" class="itin-edit-toggle" hidden>` : ''}
+  <div class="itin-head-read">
+  <div class="ens-head itin-head">
+    <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${e.private ? '<span class="who-private">privately composed</span>' : 'composed'}</p>
     <h1 class="ens-title">${esc(v.title)}</h1>
-    ${v.description ? `<p class="ens-desc">${esc(v.description)}</p>` : ''}
-    <p class="ens-meta">${stackDate(v.created_at).replace(/<[^>]+>/g, ' ').trim()} · ${v.status === 'pending_review' ? '<b class="ens-pending">Pending review</b>' : (v.private ? 'Private' : 'Public')}${v.updated_at ? ' · updated' : ''}</p>
+    ${v.description ? `<p class="ens-desc itin-ctx">${esc(v.description)}</p>` : ''}
+    ${v.status === 'pending_review' ? '<p class="ens-meta"><b class="ens-pending">Pending review</b></p>' : ''}
     ${mine && v.status === 'pending_review' ? `<div class="ens-review">
       <p class="ens-review-q">Keep this on discriminant.ly?</p>
       <form method="post" action="/e/${e.id}/keep"><button class="btn3d">Keep</button></form>
       <form method="post" action="/e/${e.id}/discard"><button class="nf-link-btn ens-danger">Discard</button></form>
     </div>` : ''}
   </div>
+  </div>
+  ${mine ? `<div class="itin-head-edit"><form class="nf nf-compact itin-new itin-edit-form ens-edit" method="post" action="/e/${e.id}/edit"><div class="nf-box">
+    <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${e.private ? 'checked' : ''}><span></span></label></div>
+    <div class="nf-stack">
+      <input class="nf-field" name="title" value="${esc(v.title)}" placeholder="TITLE" required maxlength="120">
+      <textarea class="nf-field" name="description" rows="4" maxlength="1000" placeholder="DESCRIPTION">${esc(v.description)}</textarea>
+    </div>
+    <button class="nf-post itin-start">Save</button>
+    <div class="nf-foot nf-foot-3">
+      <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}">Delete</button>
+      <span></span>
+      <button type="button" class="nf-link-btn" data-ens-cancel>Cancel</button>
+    </div>
+  </div></form></div>` : ''}
   ${primary ? `<div class="ens-primary">${imgTag(primary.image, v.title, null, true)}</div>` : ''}
   ${alts.length ? `<div class="ens-alts">${alts.map((a) => `<figure class="ens-alt">
       ${imgTag(a.image, v.title + " alternate")}
@@ -5615,11 +5637,13 @@ ${noters.length ? `<div class="section-rule"></div>
       ].filter(([, list]) => list.length);
       if (!groups.length) return '<ul class="ens-comps"><li class="ens-comp"><span class="ens-comp-body">No components.</span></li></ul>';
       return groups.map(([heading, list]) => `<p class="ens-group">${heading} <i>${list.length}</i></p>
-      ${list.every((c) => c.note_available) ? (() => {
+      ${list.some((c) => c.note_available) ? (() => {
         // A resolved component IS one of the member's notes, so show it as
         // one — the same card the feed uses — rather than a row that merely
         // points at it. Unresolved pieces have no note to show and stay rows.
-        const cards = list.map((c) => { const o = q(OBJ_SQL + ' WHERE o.id=?').get(c.note_id); return o && canSee(o, me) ? objectCard(o, me) : ''; }).filter(Boolean);
+        const cards = list.filter((c) => c.note_available)
+          .map((c) => { const o = q(OBJ_SQL + ' WHERE o.id=?').get(c.note_id); return o && canSee(o, me) ? objectCard(o, me) : ''; })
+          .filter(Boolean);
         return cards.length ? `<div class="grid ens-note-grid">${cards.join('')}</div>` : '';
       })() : `<ul class="ens-comps">${list.map((c) => {
         const media = c.image ? imgTag(c.image, c.label) : '<span class="ens-comp-blank"></span>';
@@ -5641,22 +5665,7 @@ ${noters.length ? `<div class="section-rule"></div>
       }).join('')}</ul>`}`).join('');
     })()}
   </div>
-  ${mine ? `<form class="nf ens-edit" method="post" action="/e/${e.id}/edit" data-autosave>
-    <div class="nf-box">
-      <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${e.private ? 'checked' : ''}><span></span></label></div>
-      <div class="nf-stack">
-        <input class="nf-field" name="title" value="${esc(v.title)}" placeholder="TITLE" required>
-        <textarea class="nf-field" name="description" rows="3" placeholder="DESCRIPTION">${esc(v.description)}</textarea>
-      </div>
-      <button class="nf-post">Save ensemble</button>
-      <div class="nf-foot">
-        <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}">Delete</button>
-        <span class="ens-saved" data-saved hidden>Saved</span>
-        <a class="nf-link-btn" href="/e">Back</a>
-      </div>
-    </div>
-  </form>` : ''}
-</section></section></div>`;
+</div></article></section></section></div>`;
     send(res, layout({ title: v.title, body, me, nav: 'home' }));
   },
 
