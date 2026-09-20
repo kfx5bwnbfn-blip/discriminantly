@@ -631,3 +631,25 @@
    open with a .strip heading get away with a small gap; a card butting the bar
    does not, so these pages take a real one. */
 .itin-page, .itin-list { padding-top: 3rem; }
+
+/* ---- time of day: Title Case, italic, on the node's own centre line ---- */
+.stop-when { font-style: italic; text-transform: none; letter-spacing: .02em; font-size: .78rem; line-height: 1; }
+/* A fixed head height, so the row is the same with or without the ··· menu --
+   the feeds render no controls, and a min-height let their row collapse and
+   the node drift 3px out of line. */
+.stop-head { align-items: center; height: 1.3rem; min-height: 0; }
+/* dot centre == head centre: top = height/2 - dotRadius */
+.itin-tl .stop::before { top: .41rem; }
+.itin-tl .stop.is-seq + .stop.is-seq::after { top: -.95rem; height: 1.55rem; }
+
+/* ---- the move lockup sits on the card's centre line ---- */
+/* centred on the CARD, not the whole stop: the stop also contains the head row
+   above the card, so half that row is added back */
+.stop-move { top: calc(50% + .9rem); transform: translate(-50%, -50%); }
+
+/* ---- editing the itinerary replaces what it edits ---- */
+.itin-edit-toggle:checked ~ .itin-head-read { display: none; }
+
+/* ---- Show more: the skin's primary action, as in the comment form ---- */
+.sugg-more-btn { display: block; width: 100%; box-sizing: border-box; text-align: center;
+  font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; padding: .95rem 1.4rem; margin: .8rem 0 .2rem; }

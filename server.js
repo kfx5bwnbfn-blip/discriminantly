@@ -3854,9 +3854,23 @@ const ITIN_JS = `
   var page=document.querySelector('.itin-page'); if(!page) return;
   var base=location.pathname.replace(/\\/$/,'');
   var dragging=null, over=null;
-  function post(url, data){ var f=document.createElement('form'); f.method='post'; f.action=url;
-    Object.keys(data).forEach(function(k){ var i=document.createElement('input'); i.type='hidden'; i.name=k; i.value=data[k]; f.appendChild(i); });
-    document.body.appendChild(f); f.submit(); }
+  // Reordering posts in the background and rearranges the DOM in place, so the
+  // page does not flash. The server is still the authority: on failure the
+  // page reloads so what is shown is what was actually saved.
+  function post(url, data, onDone){
+    var body=Object.keys(data).map(function(k){ return encodeURIComponent(k)+'='+encodeURIComponent(data[k]); }).join('&');
+    fetch(url, {method:'POST', headers:{'content-type':'application/x-www-form-urlencoded'}, body:body, redirect:'follow', credentials:'same-origin'})
+      .then(function(r){ if(!r.ok) throw new Error('save failed'); if(onDone) onDone(); })
+      .catch(function(){ location.reload(); });
+  }
+  // Renumber the visible prefix so the spine and the arrows stay truthful
+  // between the move and the next full load.
+  function resequence(ol){
+    var stops=Array.prototype.slice.call(ol.querySelectorAll('.stop[data-stop]'));
+    var seen=0;
+    stops.forEach(function(s2){ if(s2.classList.contains('is-seq')){ seen++; } });
+    ol.setAttribute('data-seq', String(seen));
+  }
   page.addEventListener('pointerdown', function(e){
     var h=e.target.closest('[data-drag]'); if(!h) return;
     dragging=h.closest('.stop'); dragging.classList.add('is-dragging'); e.preventDefault();
@@ -3883,6 +3897,11 @@ const ITIN_JS = `
     if(over.li){ var seq=Array.prototype.slice.call(over.ol.querySelectorAll('.stop.is-seq')); var i=seq.indexOf(over.li); pos = i>=0 ? i+1 : seq.length+1; }
     else pos = over.ol.querySelectorAll('.stop.is-seq').length+1;
     var data={position:String(pos)}; if(destGroup!==srcGroup) data.group_uid=destGroup;
+    // move the node first so the drop lands where the pointer left it
+    d.classList.add('is-seq');
+    if(over.li) over.ol.insertBefore(d, over.li);
+    else { var addLi=over.ol.querySelector('.stop-add'); if(addLi) over.ol.insertBefore(d, addLi); else over.ol.appendChild(d); }
+    resequence(over.ol); if(over.ol!==d.closest('.itin-tl')) resequence(d.closest('.itin-tl'));
     post(base+'/stops/'+uid, data);
     over=null;
   }
@@ -3900,11 +3919,16 @@ const ITIN_JS = `
     if(mv){ e.preventDefault();
       var li=mv.closest('.stop'); var ol=li.closest('.itin-tl');
       var seq=Array.prototype.slice.call(ol.querySelectorAll('.stop.is-seq'));
-      var all=Array.prototype.slice.call(ol.querySelectorAll('.stop[data-stop]'));
       var i=seq.indexOf(li);
-      var pos;
-      if(i<0){ pos = mv.dataset.move==='up' ? 1 : seq.length+1; }         // unsequenced: join the prefix
-      else { pos = mv.dataset.move==='up' ? i : i+2; if(pos<1) return; if(pos>seq.length) return; }
+      var pos, ref;
+      if(i<0){ pos = mv.dataset.move==='up' ? 1 : seq.length+1; ref = mv.dataset.move==='up' ? seq[0] : null; }
+      else if(mv.dataset.move==='up'){ if(i===0) return; pos=i; ref=seq[i-1]; }
+      else { if(i>=seq.length-1) return; pos=i+2; ref=seq[i+1].nextElementSibling; }
+      li.classList.add('is-seq');
+      if(ref) ol.insertBefore(li, ref); else {
+        var addLi=ol.querySelector('.stop-add'); if(addLi) ol.insertBefore(li, addLi); else ol.appendChild(li);
+      }
+      resequence(ol);
       post(base+'/stops/'+li.getAttribute('data-stop'), {position:String(pos)});
     }
   });
@@ -4546,7 +4570,9 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             <form method="post" action="${base}/stops/${st.uid}/delete" onsubmit="return confirm('Remove this stop from the itinerary? The travel mark, if any, is untouched.')"><button class="link caps stop-del">Remove</button></form>
           </div>
         </div></details>` : '';
-      const time = when ? `<span class="stop-when">${esc(when)}</span>` : '';
+      // Title case, italic: it reads as a note about the stop rather than a label
+      const titleCase = (t) => t.replace(/\b([a-z])/g, (m2) => m2.toUpperCase());
+      const time = when ? `<span class="stop-when">${esc(titleCase(when))}</span>` : '';
       const flag = withheld ? '<span class="stop-withheld">Withheld from public view</span>' : '';
       // Dragging asserts order; the arrows do the same thing for anyone who
       // would rather not drag. Both write a position through the same route.
@@ -4990,7 +5016,7 @@ ${skinOf(me, req) === 'modern' ? colophon(o) : ''}
         <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
         <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
         ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
-    const head = owner ? `${titleBlock}<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-edit">
+    const head = owner ? `<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-read">${titleBlock}</div><div class="itin-head-edit">
       <form method="post" action="${base}" class="nf nf-compact itin-new itin-edit-form"><div class="nf-box">
         <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${it.private ? 'checked' : ''}><span></span></label></div>
         <div class="nf-stack">
