@@ -1836,6 +1836,11 @@ function readImage(file, cb) {
           var doc = new DOMParser().parseFromString(html, 'text/html');
           var next = doc.getElementById('group-' + key), here = document.getElementById('group-' + key);
           if (!next || !here) { location.href = link.href; return; }
+          // layoutFeed caches the items it has already placed, so a wholesale
+          // replacement has to clear that cache or the new cards are never
+          // tiled -- and the old ones would be remembered forever.
+          here.__items = null; here.__built = false; here.__cols = 0;
+          here.removeAttribute('style');
           here.innerHTML = next.innerHTML;
           var nl = doc.querySelector('.search-more[data-group="' + key + '"]');
           if (nl) { link.href = nl.getAttribute('href'); link.textContent = wasT; delete link.dataset.busy; }
@@ -5071,7 +5076,7 @@ function searchGroupHtml(key, title, rows, render, url) {
   sp.set('g_' + key, String(show + SEARCH_PAGE));
   return `<section class="search-group" data-group="${key}">
     <h4 class="itin-day"><b>${esc(title)}</b><span>${rows.length}</span><span class="rule"></span></h4>
-    <div class="search-cards" id="group-${key}">${rows.slice(0, show).map(render).join('')}</div>
+    <div class="search-cards grid" id="group-${key}">${rows.slice(0, show).map(render).join('')}</div>
     ${more ? `<div class="more"><a class="nf-post more-link search-more" data-group="${key}" href="?${sp}">Show more</a></div>` : ''}
   </section>`;
 }

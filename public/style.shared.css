@@ -735,3 +735,7 @@
 .search-group .more { margin-top: .9rem; }
 .note-sugg { margin-top: 1.6rem; }
 @media (max-width: 52rem) { .search-cards { padding: .9rem .8rem .8rem; } }
+/* the tiler sets display:flex on a grid inline; the container's own padding
+   and tint stay, so the columns live inside the grouping frame */
+.search-cards.grid { box-sizing: border-box; }
+.search-cards > .feed-col { min-width: 0; }
