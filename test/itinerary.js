@@ -663,7 +663,10 @@ console.log('\nOAuth authorization');
 {
   const az   = SRC.slice(SRC.indexOf("if (p === '/oauth/authorize'"), SRC.indexOf("if (p === '/oauth/token'"));
   const tk   = SRC.slice(SRC.indexOf("if (p === '/oauth/token'"), SRC.indexOf("if (p === '/settings/connections'"));
-  const meta = SRC.slice(SRC.indexOf("p === '/.well-known/oauth-protected-resource'"), SRC.indexOf("// ---- authorization endpoint"));
+  const meta = SRC.slice(SRC.indexOf("p === '/.well-known/oauth-protected-resource'"),
+                         SRC.indexOf("p === '/.well-known/mcp-inspector-client.json'"))
+             + SRC.slice(SRC.indexOf("p === '/.well-known/oauth-authorization-server'"),
+                         SRC.indexOf("// ---- authorization endpoint"));
   const hlp  = SRC.slice(SRC.indexOf('// ---- OAuth 2.1 authorization'), SRC.indexOf('// What the client said it was'));
   const mcpf = SRC.slice(SRC.indexOf('async function mcp(req, res, tok)'), SRC.indexOf("if (method === 'ping')"));
 
@@ -686,6 +689,32 @@ console.log('\nOAuth authorization');
      !/PUBLIC_URL/.test(SRC));
   ok('O28 the canonical origin defaults to production, not localhost',
      /const PUBLIC_ORIGIN = \(process\.env\.PUBLIC_ORIGIN \|\| 'https:\/\/www\.discriminantly\.com'\)/.test(SRC));
+  // A public client metadata document so MCP Inspector can identify itself
+  // through the same CIMD path ChatGPT uses. It must hold no secret, must be
+  // self-naming (cimdValidate checks that), and must not be special-cased
+  // anywhere in the authorization logic.
+  const insp = SRC.slice(SRC.indexOf("p === '/.well-known/mcp-inspector-client.json'"),
+                         SRC.indexOf("p === '/.well-known/oauth-authorization-server'"));
+  ok('O30 the Inspector client document names itself from the canonical origin',
+     /client_id: self/.test(insp) && /BASE_URL\(\) \+ '\/\.well-known\/mcp-inspector-client\.json'/.test(insp));
+  ok('O31 it registers both loopback callbacks and nothing else',
+     /'http:\/\/127\.0\.0\.1:6274\/oauth\/callback'/.test(insp)
+     && /'http:\/\/localhost:6274\/oauth\/callback'/.test(insp)
+     && (insp.match(/'http:\/\//g) || []).length === 2);
+  ok('O32 it carries no credential or secret',
+     !/client_secret|\bsecret\b|password|private_key|jwks|api[_-]?key/i.test(insp));   // refresh_token here is a grant-type name, not a credential
+  ok('O33 it matches the flow we actually implement',
+     /grant_types: \['authorization_code', 'refresh_token'\]/.test(insp)
+     && /response_types: \['code'\]/.test(insp)
+     && /token_endpoint_auth_method: 'none'/.test(insp)
+     && /scope: OAUTH_SCOPE/.test(insp));
+  ok('O34 Inspector is not special-cased in the authorization logic',
+     !/inspector/i.test(az) && !/inspector/i.test(tk) && !/inspector/i.test(hlp));
+  ok('O35 CIMD validation is unchanged \u2014 still self-naming and redirect-bound',
+     /does not match its own client_id/.test(hlp)
+     && /redirect_uri is not registered for this client/.test(hlp)
+     && /redirect: 'manual'/.test(hlp));
+
   ok('O29 no localhost default can reach OAuth metadata or the challenge',
      !/localhost/.test(origin) && !/localhost/.test(meta)
      && !/localhost/.test(SRC.slice(SRC.indexOf('function mcpAuthChallenge('), SRC.indexOf('async function mcp(req, res, tok)'))));

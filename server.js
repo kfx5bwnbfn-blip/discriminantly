@@ -9172,6 +9172,29 @@ async function handle(req, res) {
       resource_documentation: BASE_URL() + '/welcome',
     }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
   }
+  // A public client metadata document for MCP Inspector, so it can identify
+  // itself through the same CIMD mechanism ChatGPT uses. It is static, holds
+  // no credential, and is not referenced anywhere in the authorization logic:
+  // Inspector is not special-cased, it simply has somewhere to point. The
+  // loopback redirect URIs are what RFC 8252 expects of a native client, and
+  // are only ever reachable on the tester's own machine.
+  if (p === '/.well-known/mcp-inspector-client.json' && m === 'GET') {
+    const self = BASE_URL() + '/.well-known/mcp-inspector-client.json';
+    return send(res, JSON.stringify({
+      client_id: self,                      // must equal this URL: cimdValidate checks it
+      client_name: 'MCP Inspector',
+      client_uri: 'https://modelcontextprotocol.io/docs/tools/inspector',
+      redirect_uris: [
+        'http://127.0.0.1:6274/oauth/callback',
+        'http://localhost:6274/oauth/callback',
+      ],
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+      scope: OAUTH_SCOPE,
+    }), 200, { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=300' });
+  }
+
   if (p === '/.well-known/oauth-authorization-server' && m === 'GET') {
     return send(res, JSON.stringify({
       issuer: BASE_URL(),
