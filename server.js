@@ -3966,6 +3966,23 @@ const ITIN_JS = `
       t.textContent = v ? String(v) : '';
     });
   }
+  // Exchange the two stops' time-of-day text, leaving each one's number where
+  // the renumbering will put it.
+  function whenText(li){
+    var w=li.querySelector('.stop-when'); if(!w) return '';
+    var n=w.querySelector('.stop-no');
+    return Array.prototype.filter.call(w.childNodes, function(x){ return x!==n; })
+      .map(function(x){ return x.textContent; }).join('');
+  }
+  function setWhen(li, txt){
+    var w=li.querySelector('.stop-when');
+    if(!w){ if(!txt) return; var head=li.querySelector('.stop-head'); if(!head) return;
+      w=document.createElement('span'); w.className='stop-when'; head.insertBefore(w, head.firstChild); }
+    var n=w.querySelector('.stop-no');
+    w.textContent=''; if(n) w.appendChild(n);
+    if(txt) w.appendChild(document.createTextNode(txt));
+  }
+  function swapWhen(a, b2){ var x=whenText(a), y=whenText(b2); setWhen(a, y); setWhen(b2, x); }
   function resequence(ol){
     var stops=Array.prototype.slice.call(ol.querySelectorAll('.stop[data-stop]'));
     var seen=0;
@@ -4087,9 +4104,12 @@ const ITIN_JS = `
       resequence(ol);
       renumber(ol);
       // an arrow IS an exchange with the neighbour, so the slot goes with it
+      // The server exchanges the slot as well as the rank, so the page has to
+      // show that exchange too -- otherwise the times would be a page-load out
+      // of date. Swapping the text is what the server just did, not a guess.
+      if(swapWith) swapWhen(li, swapWith);
       post(base+'/stops/'+li.getAttribute('data-stop'),
-        swapWith ? {swap_with: swapWith.getAttribute('data-stop')} : {position:String(pos)},
-        swapWith ? function(){ location.reload(); } : null);
+        swapWith ? {swap_with: swapWith.getAttribute('data-stop')} : {position:String(pos)});
     }
   });
 })();`;
@@ -4694,6 +4714,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   let budget = limit;
   const take = (stops) => { const out = []; for (const st of stops) { if (budget <= 0) break; out.push(st); budget--; } return out; };
 
+    // Marks from the member's own catalogue in this itinerary's region, not
+    // already in the plan. Shown only when the region is actually known.
+    const nearby = ctl ? itineraryNearbyMarks(it, me, 8) : [];
+
     // ---- one stop --------------------------------------------------------
     // Three surfaces by resolution: a resolved Mark is the familiar mark card
     // (glass); an unresolved or experiential stop is the flat visit-log tint;
@@ -4711,7 +4735,8 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const menu = ctl ? `<details class="stop-menu"><summary aria-label="Stop actions">\u00b7\u00b7\u00b7</summary>
         <div class="stop-sheet">
           <form method="post" action="${base}/stops/${st.uid}" class="nf nf-compact stop-form"><div class="nf-box"><div class="nf-stack">
-            <input class="nf-field" name="label" value="${esc(st.label)}" placeholder="WORDING" maxlength="200">
+            <input type="hidden" name="mark_uid" value="">
+            <input class="nf-field stop-add-label" name="label" value="${esc(st.label)}" placeholder="WORDING \u2014 OR LOOK UP A TRAVEL MARK" maxlength="200" autocomplete="off" data-lookup>
             ${st.mark_uid ? '' : `<select class="nf-field" name="resolution">
               <option value="particular" ${st.resolution === 'particular' ? 'selected' : ''}>A PARTICULAR PLACE</option>
               <option value="experiential" ${st.resolution === 'experiential' ? 'selected' : ''}>AN INTENTION</option>
@@ -4720,6 +4745,15 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             <input class="nf-field" name="t_clock" value="${esc(st.t_clock || '')}" placeholder="CLOCK, E.G. 19:30" pattern="([01]\\d|2[0-3]):[0-5]\\d">
             <select class="nf-field" name="group_uid"><option value="">NOT ON A DAY</option>${dayOpts}</select>
             </div>
+          <!-- The same one-field lookup the add card uses: typing searches the
+               member's own marks, and choosing one resolves this stop to it. -->
+          <div class="mark-picks" hidden></div>
+          <div class="mark-chosen" hidden><span class="mark-chosen-name"></span><button type="button" class="link caps" data-unpick>Not this</button></div>
+          ${!st.mark_uid && nearby.length ? `<div class="mark-gallery">
+            <span class="mark-gallery-h">Already in your catalogue</span>
+            <div class="mark-gallery-row">${nearby.map((mk) => `<button type="button" class="mark-chip" data-uid="${esc(mk.uid)}" data-name="${esc(mk.name)}">
+              <span class="mark-chip-name">${esc(mk.name)}</span><span class="mark-chip-where">${esc([mk.locality, mk.country].filter(Boolean).join(', '))}</span></button>`).join('')}</div>
+          </div>` : ''}
             <button class="nf-post">Save</button>
             <div class="nf-foot nf-foot-3">
               <button type="button" class="nf-link-btn nf-del" data-del="${base}/stops/${st.uid}/delete" data-kind="stop" data-title="${esc(st.label || 'this stop')}">Delete</button>
@@ -4773,9 +4807,6 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
     // The spine is drawn over the authored prefix and stops there: a stop with
     // no position has not been placed, and a line through it would assert an
     // order the member never made.
-    // Marks from the member's own catalogue in this itinerary's region, not
-    // already in the plan. Shown only when the region is actually known.
-    const nearby = ctl ? itineraryNearbyMarks(it, me, 8) : [];
     const list = (stops, groupUid) => {
       stops = take(stops);
       const rows = stops.map((st) => stopRow(st, !!groupUid)).filter(Boolean);

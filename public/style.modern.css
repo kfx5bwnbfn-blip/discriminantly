@@ -1945,8 +1945,10 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
      A real grid column, not an absolutely-placed box -- that is what made the
      colophon hug the right edge in Safari and needed JS to place it. */
   body[data-skin="modern"] .profile-feed.has-colophon {
-    display: grid; grid-template-columns: minmax(0, 1fr) 15rem; column-gap: 1.6rem;
-    align-items: start; padding-right: 0; position: static;
+    /* minmax so the note column can give way on a narrow desktop rather than
+       forcing the page wider than the viewport */
+    display: grid; grid-template-columns: minmax(0, 42rem) minmax(15rem, 26rem); column-gap: 2rem;
+    justify-content: start; align-items: start; padding-right: 0; position: static;
   }
   body[data-skin="modern"] .profile-feed.has-colophon > * { grid-column: 1; min-width: 0; }
   body[data-skin="modern"] .profile-feed.has-colophon > .note-side {
