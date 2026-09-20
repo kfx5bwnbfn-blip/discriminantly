@@ -3959,7 +3959,7 @@ const ITIN_JS = `
     document.querySelectorAll('.itin-tl').forEach(function(ol2){
       Array.prototype.forEach.call(ol2.querySelectorAll('.stop.is-seq[data-stop]'), function(li){
         var lbl=li.querySelector('.stop-no');
-        var idx=(ol2.__base||0)+(++n);
+        var idx=++n;                       // continuous across days, never per day
         if(lbl) lbl.textContent=idx+'.';
         order.push(li.getAttribute('data-stop'));
       });
@@ -4708,6 +4708,19 @@ function select(name, label, opts, value = '') {
 // the listing truncated -- the listing shows THIS rendering cut off, not a
 // re-telling of it as a list. `limit` stops after that many stops and drops
 // the add-controls; `interactive` false drops every owner control.
+// The plan read top to bottom: every sequenced stop, day after day, then the
+// unplaced ones. The number a reader sees comes from here and nowhere else,
+// so the timeline and the map's pins always carry the same figure.
+function itineraryNumbers(it) {
+  const n = new Map();
+  let i = 0;
+  for (const g of groupOrder(it.id)) {
+    for (const st of itineraryStops(it.id, g.id)) if (st.position !== null) n.set(st.uid, ++i);
+  }
+  for (const st of itineraryStops(it.id, null)) if (st.position !== null) n.set(st.uid, ++i);
+  return n;
+}
+
 function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // `owner` governs what is VISIBLE (canSeeStop); `ctl` governs whether the
   // owner's controls render. A preview is the owner's own view minus controls.
@@ -4717,6 +4730,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   const groups = groupOrder(it.id);
   const base = `/t/${it.id}`;
   const tf = (row) => temporalFormat(temporalOf(row));
+  const numbers = itineraryNumbers(it);
   let budget = limit;
   const take = (stops) => { const out = []; for (const st of stops) { if (budget <= 0) break; out.push(st); budget--; } return out; };
 
@@ -4778,7 +4792,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const titleCase = (t) => t.replace(/\b([a-z])/g, (m2) => m2.toUpperCase());
       // The number is the stop's place in the authored order, and it is the same
       // number the map's pin carries, so the two can be read together.
-      const num = seqd ? `<span class="stop-no">${st.position}.</span>` : '';
+      const num = numbers.has(st.uid) ? `<span class="stop-no">${numbers.get(st.uid)}.</span>` : '';
       const time = (num || when) ? `<span class="stop-when">${num}${when ? esc(titleCase(when)) : ''}</span>` : '';
       const flag = withheld ? '<span class="stop-withheld">Withheld from public view</span>' : '';
       // Dragging asserts order; the arrows do the same thing for anyone who
@@ -4917,7 +4931,7 @@ function itineraryGeo(it, me) {
 // the same bbox in Mercator space -- the bbox is what the embed displays, and
 // it is made square in that space to match the square iframe, so the mapping
 // is faithful. Shown only when at least one stop has coordinates.
-function itineraryMap(it, me, ordered) {
+function itineraryMap(it, me) {
   const pts = itineraryGeo(it, me);
   if (!pts.length) return '';
   const merc = (la) => Math.log(Math.tan(Math.PI / 4 + (la * Math.PI / 180) / 2));
@@ -4934,8 +4948,8 @@ function itineraryMap(it, me, ordered) {
   const bLa0 = unmerc(y0), bLa1 = unmerc(y1);
   const bbox = [minLn, bLa0, maxLn, bLa1].map((v) => v.toFixed(6)).join('%2C');
   const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${pts[0].lat}%2C${pts[0].lng}`;
-  // number the pins in reading order where the page has one
-  const order = new Map(ordered.map((uid, i) => [uid, i + 1]));
+  // the same numbers the timeline shows, so a pin and its stop always agree
+  const order = itineraryNumbers(it);
   const pins = pts.map((p) => {
     const x = ((p.lng - minLn) / (maxLn - minLn)) * 100;
     const y = (1 - (merc(p.lat) - y0) / (y1 - y0)) * 100;
@@ -5536,11 +5550,7 @@ ${noters.length ? `<div class="section-rule"></div>
     // One container holds the whole itinerary -- title, overview, days -- so
     // the article page is the fully expanded card and the listing shows the
     // same card truncated.
-    // reading order of linked stops, for numbering the pins
-    const ordered = [];
-    for (const g of groups) for (const st of itineraryStops(it.id, g.id)) if (st.mark_uid) ordered.push(st.uid);
-    for (const st of itineraryStops(it.id, null)) if (st.mark_uid) ordered.push(st.uid);
-    const sideMap = itineraryMap(it, me, ordered);
+    const sideMap = itineraryMap(it, me);
     const sideSugg = itinerarySuggestions(it, me);
     const colo = skinOf(me, req) === 'modern' ? itineraryColophon(it, me) : '';
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
@@ -5842,7 +5852,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(u.id)
         .filter((e) => ensCanSee(e, me));
       main = `<h3 class="strip">${esc(u.handle)}\u2019s ensembles</h3>
-      ${rows.length ? '<p class="ens-grid-sub">Compositions ' + (owner ? 'your' : esc(u.handle) + '\u2019s') + ' AI put together from ' + (owner ? 'your' : 'their') + ' notes and travel marks.</p>' : ''}
       <div class="ens-grid">${rows.map((e) => {
         const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
         const st = ensStats(e.id);
