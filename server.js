@@ -1716,7 +1716,7 @@ const ACCESS_TTL_MS = 60 * 60 * 1000;             // 1 hour
 const REFRESH_TTL_MS = 60 * 24 * 60 * 60 * 1000;  // 60 days
 const CODE_TTL_MS = 60 * 1000;
 
-const BASE_URL = () => (process.env.PUBLIC_URL || 'http://localhost:3000').replace(/\/+$/, '');
+const BASE_URL = () => PUBLIC_ORIGIN;
 const MCP_RESOURCE = () => BASE_URL() + '/mcp';
 const inMs = (ms) => new Date(Date.now() + ms).toISOString();
 const expiredAt = (iso) => !iso || new Date(iso).getTime() <= Date.now();

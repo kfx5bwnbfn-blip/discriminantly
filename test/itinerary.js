@@ -663,7 +663,7 @@ console.log('\nOAuth authorization');
 {
   const az   = SRC.slice(SRC.indexOf("if (p === '/oauth/authorize'"), SRC.indexOf("if (p === '/oauth/token'"));
   const tk   = SRC.slice(SRC.indexOf("if (p === '/oauth/token'"), SRC.indexOf("if (p === '/settings/connections'"));
-  const meta = SRC.slice(SRC.indexOf("'/.well-known/oauth-protected-resource'"), SRC.indexOf("// ---- authorization endpoint"));
+  const meta = SRC.slice(SRC.indexOf("p === '/.well-known/oauth-protected-resource'"), SRC.indexOf("// ---- authorization endpoint"));
   const hlp  = SRC.slice(SRC.indexOf('// ---- OAuth 2.1 authorization'), SRC.indexOf('// What the client said it was'));
   const mcpf = SRC.slice(SRC.indexOf('async function mcp(req, res, tok)'), SRC.indexOf("if (method === 'ping')"));
 
@@ -673,6 +673,22 @@ console.log('\nOAuth authorization');
      /scopes_supported: \[OAUTH_SCOPE\]/.test(meta));
   ok('O3 the advertised resource is the MCP endpoint',
      /resource: MCP_RESOURCE\(\)/.test(meta));
+
+  // v2.51 published localhost in production because it introduced a second
+  // origin variable with a localhost default, instead of using the canonical
+  // one the application already had. The contract is that metadata is correct
+  // with NO environment configured at all: a missing variable must never be
+  // able to hand an OAuth client an unreachable issuer.
+  const origin = SRC.slice(SRC.indexOf('const BASE_URL ='), SRC.indexOf('const inMs ='));
+  ok('O26 the OAuth origin is the application\u2019s one canonical origin',
+     /const BASE_URL = \(\) => PUBLIC_ORIGIN;/.test(origin));
+  ok('O27 no second origin variable was introduced',
+     !/PUBLIC_URL/.test(SRC));
+  ok('O28 the canonical origin defaults to production, not localhost',
+     /const PUBLIC_ORIGIN = \(process\.env\.PUBLIC_ORIGIN \|\| 'https:\/\/www\.discriminantly\.com'\)/.test(SRC));
+  ok('O29 no localhost default can reach OAuth metadata or the challenge',
+     !/localhost/.test(origin) && !/localhost/.test(meta)
+     && !/localhost/.test(SRC.slice(SRC.indexOf('function mcpAuthChallenge('), SRC.indexOf('async function mcp(req, res, tok)'))));
   ok('O4 PKCE is required, and plain is refused',
      /method !== 'S256'/.test(az) && /!code_challenge/.test(az));
   ok('O5 PKCE comparison is constant-time',
