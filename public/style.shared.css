@@ -818,7 +818,9 @@
    The same container the itineraries, the check-in timeline and the
    resurfacing frame use, holding two phones. The shadow is the desktop shot's
    own treatment, scaled to the smaller frame. */
-.splash-pair { max-width: 54rem; margin: 3.4rem auto 0; padding: 2rem 1.6rem 1.8rem; border-radius: 16px; }
+/* the section also carries .itin-shell, whose margin rule comes later and
+   would left-align it; the compound selector keeps it centred */
+.splash-pair.itin-shell { max-width: 54rem; margin: 3.4rem auto 0; padding: 2rem 1.6rem 1.8rem; border-radius: 16px; }
 .splash-pair-lead { text-align: center; font-style: italic; font-size: 1.05rem; margin: 0 0 1.8rem; }
 .phones { display: flex; gap: 2.2rem; justify-content: center; align-items: flex-start; }
 .phone-wrap { position: relative; flex: 1 1 0; max-width: 15rem; margin: 0; }
@@ -837,7 +839,7 @@
 .phone-wrap figcaption { position: relative; z-index: 2; text-align: center; font-size: .6rem; letter-spacing: .14em;
   text-transform: uppercase; margin-top: 1.1rem; }
 @media (max-width: 52rem) {
-  .splash-pair { margin-top: 2.4rem; padding: 1.4rem 1rem 1.2rem; }
+  .splash-pair.itin-shell { margin-top: 2.4rem; padding: 1.4rem 1rem 1.2rem; }
   .phones { gap: 1rem; }
   .phone-wrap figcaption { font-size: .54rem; letter-spacing: .1em; }
 }
