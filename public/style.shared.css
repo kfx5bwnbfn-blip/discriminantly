@@ -558,15 +558,14 @@
 
 /* ---- an itinerary is a .note: a byline rail, then the card. Same grid, same
    gap, same rail width as every other first-class object. ---- */
-.itin-note { margin: 0; }
 .itin-note > .itin-shell, .itin-note > .itp { margin: 0; min-width: 0; }
 .itin-main > .itin-note { max-width: none; }
-#feed-grid > .itin-note, .feed-col > .itin-note { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
+/* an itinerary in a feed is a .note: it takes the same spacing every other
+   card takes, and adds nothing of its own */
 .act-note > .itin-note { margin-bottom: 0; }
 
 /* ---- an itinerary is a .note: byline rail, then the card. Same grid, same
    3.4rem rail, same gap as every other first-class object. ---- */
-.itin-note { margin: 0; }
 .itin-note > .itin-shell, .itin-note > .itp { margin: 0; min-width: 0; }
 .itin-main > .itin-note { max-width: none; }
 .itin-note > .byline .card-edit { cursor: pointer; }
@@ -574,7 +573,8 @@
    <details> summary cannot do -- hence the label and hidden checkbox. */
 .itin-head-edit { display: none; margin-top: 1rem; }
 .itin-edit-toggle:checked ~ .itin-head-edit { display: block; }
-#feed-grid > .itin-note, .feed-col > .itin-note { padding-bottom: 1.5rem; margin-bottom: 2.8rem; }
+/* an itinerary in a feed is a .note: it takes the same spacing every other
+   card takes, and adds nothing of its own */
 .act-note > .itin-note { margin-bottom: 0; }
 .grid .itin-note, .feed-col .itin-note { width: 100%; box-sizing: border-box; }
 
@@ -687,7 +687,8 @@
 .mark-chosen { display: flex; align-items: center; gap: .8rem; margin: .5rem 0 0; padding: .55rem .8rem;
   border-radius: 12px; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; }
 .mark-picks, .mark-gallery { width: 100%; min-width: 0; box-sizing: border-box; }
-.mark-chosen [data-unpick] { flex: 0 0 auto; white-space: nowrap; font-size: .58rem; letter-spacing: .14em; }
+.mark-chosen [data-unpick] { flex: 0 0 auto; white-space: nowrap; font-size: .58rem; letter-spacing: .14em;
+  align-self: center; line-height: 1; padding: 0; margin: 0; border: 0; background: none; }
 .mark-chosen-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mark-chosen-name { flex: 1; font-size: .95rem; }
 .mark-chosen-name::before { content: "\2713\00a0\00a0"; }

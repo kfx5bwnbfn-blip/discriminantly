@@ -1941,19 +1941,18 @@ body[data-skin="modern"][data-mode="light"] .colo-mark, html.m-light body[data-s
    presence, so no new body class is needed) the column yields a strip of
    width for it. The note stays dominant; the strip is otherwise empty. */
 @media (min-width: 78rem) {
-  body[data-skin="modern"] .profile-feed.has-colophon { position: relative; padding-right: 15rem; }
-  /* The box spans the WHOLE strip and its contents centre themselves — the
-     composition is already a centred flex column. The previous version sized
-     the box narrower and centred it with
-     `right: calc((var(--colo-strip,15rem) - var(--colo-w,12.5rem)) / 2)`,
-     arithmetic over two custom properties that are never actually defined.
-     Chromium resolved the fallbacks; Safari left the box flush right. No
-     calc, no custom properties, nothing to mis-parse.
-     --colo-top is still measured from the card after layout settles. */
-  body[data-skin="modern"] .colophon {
-    position: absolute; right: 0; width: 15rem; margin: 0;
-    padding: 0 1.25rem; box-sizing: border-box;
-    top: var(--colo-top, 24rem);
+  /* The colophon is a real second column, not an absolutely-placed box in a
+     padding strip. Absolute positioning is what made it hug the right edge in
+     Safari while centring in Chromium; a grid column has nothing to disagree
+     about, and needs no JS measurement to sit beside the card. */
+  body[data-skin="modern"] .profile-feed.has-colophon {
+    display: grid; grid-template-columns: minmax(0, 1fr) 15rem; column-gap: 1.6rem;
+    align-items: start; padding-right: 0; position: static;
+  }
+  body[data-skin="modern"] .profile-feed.has-colophon > * { grid-column: 1; min-width: 0; }
+  body[data-skin="modern"] .profile-feed.has-colophon > .colophon {
+    grid-column: 2; grid-row: 1 / -1; align-self: center;
+    position: static; top: auto; right: auto; width: auto; margin: 0; padding: 0 1.25rem;
   }
 }
 /* Below that, it reflows to the foot of the page under the comments, keeping
@@ -2208,7 +2207,7 @@ body[data-skin="modern"] .itin-priv { color: var(--m-ink-3); opacity: 1; }
 body[data-skin="modern"] .itp-head.itin-head:hover .ens-title { color: var(--m-ink); }
 body[data-skin="modern"] .itin-map { box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
 body[data-skin="modern"] .itin-map .pin { fill: var(--m-accent); }
-body[data-skin="modern"] .itin-map figcaption { background: linear-gradient(to top, rgba(20,22,30,.78), transparent); color: #fff; }
+body[data-skin="modern"] .itin-map figcaption { background: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
 body[data-skin="modern"] .itin-sugg { padding: 1.1rem 1.25rem 1rem; border-radius: 16px; background: rgba(0,0,0,.035); }
 body[data-skin="modern"][data-mode="light"] .itin-sugg, html.m-light body[data-skin="modern"][data-mode="system"] .itin-sugg { background: rgba(20,22,28,.045); }
 body[data-skin="modern"] .sugg-name { color: var(--m-ink); }
