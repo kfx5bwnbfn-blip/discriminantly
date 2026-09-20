@@ -204,7 +204,9 @@ const MIGRATIONS = [
       assertion     TEXT NOT NULL,          -- explicit | observed | derived | inferred | unknown
       actor_type    TEXT NOT NULL,          -- user | ai_on_behalf | system | unknown
       actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-      agent         TEXT NOT NULL,          -- web | mcp:claude | migration | legacy
+      agent         TEXT NOT NULL,          -- web | claude | chatgpt | unknown | legacy
+                                            -- historical rows may read mcp:claude, written
+                                            -- before client identity was captured; never rewritten
       auth_method   TEXT,                   -- session | mcp_token | system | unknown
       source_kind   TEXT,                   -- manual | unfurl | photon | remark
       source_ref    TEXT,
@@ -890,6 +892,35 @@ const MIGRATIONS = [
       ON itinerary_stops(itinerary_id, position) WHERE position IS NOT NULL AND group_id IS NULL`);
   }],
 
+  // An authorized AI connection. Until now one api_token per user stood for
+  // every AI client at once, so ChatGPT and Claude were indistinguishable and
+  // revoking either revoked both. A connection is the durable user-to-client
+  // authorization; the credential is stored only as a one-way hash, with a
+  // short non-secret prefix kept so the member can tell two rows apart.
+  // users.api_token is deliberately NOT migrated in: a backfilled row would
+  // have to assert a client identity we have no evidence for.
+  ['042-connections', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS connections (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT UNIQUE NOT NULL,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash   TEXT UNIQUE NOT NULL,
+      token_prefix TEXT NOT NULL DEFAULT '',
+      client_name  TEXT,
+      client_label TEXT NOT NULL,
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+      revoked_at   TEXT)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_conn_user ON connections(user_id)');
+  }],
+
+  // Which authorization performed an AI-originated action. Existing rows keep
+  // NULL, which is the truth: they predate connections. Historical agent values
+  // are never rewritten — we cannot evidence which client they really were.
+  ['043-provenance-connection', () => {
+    if (!hasColumn('provenance', 'connection_uid'))
+      db.exec('ALTER TABLE provenance ADD COLUMN connection_uid TEXT');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1140,11 +1171,12 @@ function recordProvenance(entity_type, entity_uid, action, ctx, extra = {}) {
   if (!entity_uid) return;                       // nothing to attach history to
   q(`INSERT INTO provenance
       (entity_type, entity_uid, action, assertion, actor_type, actor_user_id,
-       agent, auth_method, source_kind, source_ref, fields)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+       agent, auth_method, connection_uid, source_kind, source_ref, fields)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(entity_type, entity_uid, action,
          extra.assertion || ctx.assertion || 'explicit',
          ctx.actor_type, ctx.actor_user_id ?? null, ctx.agent, ctx.auth_method,
+         ctx.connection_uid ?? null,
          extra.source_kind || null, extra.source_ref || null,
          extra.fields ? (Array.isArray(extra.fields) ? extra.fields.join(',') : extra.fields) : null);
 }
@@ -1154,8 +1186,33 @@ const webActor = (me) => ({ actor_type: 'user', actor_user_id: me ? me.id : null
 // The MCP surface: an AI acting on the member's behalf. Canonical evidence —
 // something really did happen — but attributed so it can never be mistaken for
 // the member typing it themselves.
-const mcpActor = (user) => ({ actor_type: 'ai_on_behalf', actor_user_id: user.id,
-  agent: 'mcp:claude', auth_method: 'mcp_token', assertion: 'explicit' });
+// An AI acting on the member's behalf, through a known connection. `agent`
+// names the CLIENT, not the protocol: protocol is a property of the connection
+// and is recoverable through connection_uid, so it is not repeated on every row.
+// What the client is called here is only ever what it declared about itself.
+// When it declared nothing we record 'unknown'; when the caller arrived on the
+// legacy shared token we record 'legacy'. We never guess a client's name.
+const aiActor = (user, conn) => ({
+  actor_type: 'ai_on_behalf',
+  actor_user_id: user.id,
+  agent: conn ? (conn.client_name ? clientAgentFor(conn.client_name) : 'unknown') : 'legacy',
+  auth_method: conn ? 'mcp_token' : 'mcp_token_legacy',
+  connection_uid: conn ? conn.uid : null,
+  assertion: 'explicit',
+});
+
+// The stable agent value for a self-declared client name. Display labels live
+// in clientLabelFor; this is the value that goes into evidence.
+function clientAgentFor(name) {
+  const n = String(name || '').toLowerCase();
+  if (!n) return 'unknown';
+  if (n.includes('claude')) return 'claude';
+  if (n.includes('chatgpt') || n.includes('openai')) return 'chatgpt';
+  return n.replace(/[^a-z0-9._-]+/g, '-').slice(0, 40) || 'unknown';
+}
+
+// Retained so any remaining caller keeps working; new code uses aiActor.
+const mcpActor = (user) => aiActor(user, null);
 // A system process contributing information from an external source.
 const systemActor = (me) => ({ actor_type: 'system', actor_user_id: me ? me.id : null,
   agent: 'system', auth_method: 'system', assertion: 'derived' });
@@ -1546,6 +1603,62 @@ const acc = (id) => 'Nº ' + String(id).padStart(4, '0');
 const hashPass = (p) => { const s = crypto.randomBytes(16).toString('hex'); return s + ':' + crypto.scryptSync(p, s, 32).toString('hex'); };
 const checkPass = (p, h) => { const [s, k] = h.split(':'); return crypto.timingSafeEqual(Buffer.from(k, 'hex'), crypto.scryptSync(p, s, 32)); };
 const token = (n = 24) => crypto.randomBytes(n).toString('base64url');
+
+// ---- AI connections ---------------------------------------------------------
+// A connection is the durable authorization between one member and one AI
+// client. The bearer credential is never stored: only its hash, so a database
+// copy cannot be replayed against the server. The prefix is not a secret and
+// exists so two connections are tellable apart in Settings.
+const tokenHash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+
+function connectionCreate(userId, label) {
+  const t = token(24);
+  const uid = crypto.randomUUID();
+  q(`INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label)
+     VALUES(?,?,?,?,?)`)
+    .run(uid, userId, tokenHash(t), t.slice(0, 6), String(label || 'AI client').trim() || 'AI client');
+  return { uid, token: t };                 // the plaintext is shown once and never stored
+}
+
+// Resolve a bearer credential to its connection. A revoked connection resolves
+// to nothing, so revoking one leaves every other connection working.
+function connectionFor(tok) {
+  return q('SELECT * FROM connections WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash(tok)) || null;
+}
+
+function connectionRevoke(userId, uid) {
+  const c = q('SELECT * FROM connections WHERE uid=? AND user_id=?').get(uid, userId);
+  if (!c || c.revoked_at) return false;
+  // Marked, never deleted: provenance rows reference this uid as evidence.
+  q("UPDATE connections SET revoked_at=CURRENT_TIMESTAMP WHERE id=?").run(c.id);
+  return true;
+}
+
+const connectionsOf = (userId) =>
+  q('SELECT * FROM connections WHERE user_id=? ORDER BY id DESC').all(userId);
+
+// What the client said it was. MCP carries this in the handshake for the
+// protocol era we support, and modern revisions repeat it per request under
+// _meta. Both are read here so a later protocol upgrade needs no change to the
+// connection or provenance model. It is self-declared: evidence, not proof.
+function clientInfoFrom(params) {
+  const p = params || {};
+  const ci = p.clientInfo                                   // initialize handshake
+    || (p._meta && (p._meta.clientInfo || p._meta['client.info']))  // per-request _meta
+    || null;
+  const name = ci && typeof ci.name === 'string' ? ci.name.trim() : '';
+  return name ? name.slice(0, 80) : null;
+}
+
+// Normalise a self-declared name for display only. The raw string is what gets
+// stored; this is never used to decide what to record as evidence.
+function clientLabelFor(name) {
+  const n = String(name || '').toLowerCase();
+  if (!n) return 'Unknown client';
+  if (n.includes('claude')) return 'Claude';
+  if (n.includes('chatgpt') || n.includes('openai')) return 'ChatGPT';
+  return String(name).slice(0, 40);
+}
 const cookies = (req) => Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((p) => p[0]));
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24) || 'member';
 
@@ -3442,7 +3555,7 @@ const ensCanSee = (e, me) => (e.status === 'pending_review')
 // Every write to itineraries / itinerary_groups / itinerary_stops goes through
 // this block. Web routes and MCP tools call these functions and never touch the
 // tables directly, so the two surfaces cannot drift apart -- the failure Mark
-// already demonstrates, with three separate INSERT INTO marks sites each
+// once demonstrated, with three separate mark-creation sites each
 // carrying its own copy of validation and provenance.
 //
 // Every function takes ctx from webActor(me) or mcpActor(user), so authorship is
@@ -3669,6 +3782,108 @@ function groupDelete(user, uid, ctx) {
 // resolution and mark_uid are derived together, never accepted as an
 // independent pair: the CHECK constraint would reject a contradiction anyway,
 // but the caller should not be able to express one.
+// ---- canonical note creation ------------------------------------------------
+// One implementation of "the member kept this".
+//
+// Owned and Warrant are deliberately absent from the signature. They are
+// separate assertions with their own provenance actions, and a note existing is
+// not the member endorsing or claiming to own it. A caller that has independent
+// instruction for those calls assertOwned or assertWarrant itself, as a second
+// explicit act.
+//
+// The objects row and its notes row are created together, always: they are one
+// record, and creating one without the other is how the two surfaces drifted.
+function noteCreate(user, {
+  name, why = '', tags = '', url = '', image = null,
+  private: priv = false, collections = null,
+}, ctx, { source_kind = 'manual', source_ref = null, fields = null } = {}) {
+  const title = String(name || '').trim();
+  if (!title) throw new Error('A note needs a title.');
+  const img = image || '';
+  if (!img) throw new Error('Every note carries an image.');
+
+  const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)')
+    .run(user.id, title, String(why || '').trim(), tags || '', url || '', img, priv ? 1 : 0);
+  const id = r.lastInsertRowid;
+  // `why` is carried on both rows, matching the web surface: a duplicated
+  // column is a smaller problem than two surfaces disagreeing about the record.
+  q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)')
+    .run(user.id, id, String(why || '').trim());
+  if (collections) setCollections(user.id, id, collections);
+  const uid = uidOf('objects', id);
+  recordProvenance('object', uid, 'created', ctx, { source_kind, source_ref, fields });
+  return { id, uid };
+}
+
+// ---- canonical mark creation ------------------------------------------------
+// One implementation of "this place is worth returning to".
+//
+// The signature has no visit parameter, and the body writes nothing to `visits`.
+// That is deliberate and structural: a travel mark is not evidence of
+// visitation, so a caller that also wants to record a visit calls visitRecord
+// separately and explicitly. The rule cannot be broken by forgetting it.
+function markCreate(user, {
+  name, locality = '', country = '', address = '',
+  lat = null, lng = null, why = '', tags = '', url = '', image = null,
+  private: priv = false, collections = null, remarked_from_uid = null,
+}, ctx, { source_kind = 'manual', source_ref = null } = {}) {
+  const place = String(name || '').trim();
+  if (!place) throw new Error('A mark needs a place name.');
+  const la = lat === null || lat === undefined || Number.isNaN(Number(lat)) ? null : Number(lat);
+  const ln = lng === null || lng === undefined || Number.isNaN(Number(lng)) ? null : Number(lng);
+
+  const r = q(`INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,remarked_from_uid)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(user.id, place, locality || '', country || '', address || '', la, ln,
+         String(why || '').trim(), tags || '', url || '', image || '', priv ? 1 : 0,
+         remarked_from_uid || null);
+  const uid = uidOf('marks', r.lastInsertRowid);
+  if (collections) setMarkCollections(user.id, r.lastInsertRowid, collections);
+  recordProvenance('mark', uid, 'created', ctx, { source_kind, source_ref });
+  return { id: r.lastInsertRowid, uid };
+}
+
+// ---- canonical visit recording ----------------------------------------------
+// One implementation of "the member went there". Marking a place is not
+// evidence of visiting it, so nothing else in the system writes a visit: a
+// caller that wants one asks for it here, explicitly.
+//
+// The migration-034 truth rule is enforced in one place: an undated visit
+// stores today's date purely so rows sort, and sets date_known=0. Readers must
+// never present that placeholder as asserted evidence.
+function visitRecord(user, markId, { visited_on = null, ended_on = null,
+                                     date_unknown = false, body = '', days = null }, ctx) {
+  const mk = q('SELECT * FROM marks WHERE id=?').get(markId);
+  if (!mk) throw new Error(`No travel mark #${markId}`);
+  if (mk.user_id !== user.id) throw new Error(`Travel mark #${markId} does not belong to this member`);
+
+  if (date_unknown) {
+    // A caller giving both a date and "I cannot say when" is contradicting
+    // itself; refuse rather than quietly dropping one of the two.
+    if (visited_on || ended_on || (days && days.length))
+      throw new Error('date_unknown cannot be combined with visited_on, ended_on or days.');
+    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body,date_known) VALUES(?,?,?,NULL,?,0)')
+      .run(mk.id, user.id, todayYMD(), String(body || '').trim());
+    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', ctx,
+      { source_kind: 'manual', fields: 'date_known:0' });
+    return { id: v.lastInsertRowid, mark: mk, start: null, end: null, date_known: 0 };
+  }
+
+  const { start, end } = normaliseVisitRange(visited_on, ended_on);
+  const tx = !db.isTransaction;
+  if (tx) db.exec('BEGIN');
+  let vid;
+  try {
+    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body) VALUES(?,?,?,?,?)')
+      .run(mk.id, user.id, start, end, String(body || '').trim());
+    vid = v.lastInsertRowid;
+    recordProvenance('visit', uidOf('visits', vid), 'created', ctx, { source_kind: 'manual' });
+    applyVisitDays(vid, start, end, days, ctx);      // validates every day against the range
+    if (tx) db.exec('COMMIT');
+  } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+  return { id: vid, mark: mk, start, end, date_known: 1 };
+}
+
 function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null,
                                   group_uid = null, temporal = {}, position = null,
                                   new_place = null }, ctx) {
@@ -3679,15 +3894,11 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
   // causal rather than guessed.
   if (!mark_uid && new_place && String(new_place.name || '').trim()) {
     const np = new_place;
-    const r0 = q(`INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,private)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(user.id, String(np.name).trim(), np.locality || null, np.country || null,
-           np.address || null, np.lat ?? null, np.lng ?? null, np.why || '', np.tags || null,
-           np.url || null, it.private ? 1 : 0);
-    const mkUid = uidOf('marks', r0.lastInsertRowid);
-    recordProvenance('mark', mkUid, 'created', ctx,
-      { source_kind: 'itinerary', source_ref: it.uid });
-    mark_uid = mkUid;
+    mark_uid = markCreate(user, {
+      name: np.name, locality: np.locality, country: np.country, address: np.address,
+      lat: np.lat, lng: np.lng, why: np.why, tags: np.tags, url: np.url,
+      private: !!it.private,                       // a new place inherits the plan's privacy
+    }, ctx, { source_kind: 'itinerary', source_ref: it.uid }).uid;
   }
   const t = { ...temporalOf({}), ...temporal };
   const bad = temporalValidate(t); if (bad) throw new Error(bad);
@@ -4566,11 +4777,9 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
       // Auto-created Notes are PRIVATE by default. Publishing a composition is
       // not an act of publishing every personal record behind it, so the
       // Ensemble's own privacy is deliberately not inherited here.
-      const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private)
-        VALUES(?,?,'','',?,?,1)`).run(user.id, c.label, c.source_url, imgRef);
-      noteUid = uidOf('objects', r.lastInsertRowid);
-      recordProvenance('object', noteUid, 'created', ctx,
-        { source_kind: 'ensemble', source_ref: ens.uid, fields: c.identity_basis });
+      noteUid = noteCreate(user, {
+        name: c.label, url: c.source_url, image: imgRef, private: true,
+      }, ctx, { source_kind: 'ensemble', source_ref: ens.uid, fields: c.identity_basis }).uid;
       out.notes_created.push(noteUid);
       origin = 'created_by_ensemble';
     }
@@ -5198,8 +5407,17 @@ const ensembleColophon = (e, me) => colophonFrame('This composition was', ensemb
 // Nothing about execution appears here. Check-ins are evidence attached to a
 // Travel Mark, not to a plan, and there is no Stop->Check-in relationship to
 // read even if one wanted to.
-const AGENT_NAMES = { 'mcp:claude': 'Claude', 'mcp:chatgpt': 'ChatGPT', 'mcp:gpt': 'ChatGPT' };
-const agentName = (a) => AGENT_NAMES[a] || (a && a.startsWith('mcp:') ? 'your AI' : null);
+// Historical values keep their meaning; new rows carry the client alone.
+// 'unknown' and 'legacy' name real states of knowledge and must never be
+// rendered as if they were a client: a colophon saying "Composited with
+// Unknown" would be worse than saying nothing, so they map to null.
+const AGENT_NAMES = {
+  claude: 'Claude', chatgpt: 'ChatGPT',
+  'mcp:claude': 'Claude', 'mcp:chatgpt': 'ChatGPT', 'mcp:gpt': 'ChatGPT',
+  unknown: null, legacy: null, web: null, migration: null,
+};
+const agentName = (a) => (a in AGENT_NAMES ? AGENT_NAMES[a]
+  : (a && a.startsWith('mcp:') ? 'your AI' : null));
 
 // Notes adjacent to this one, in the same register as an itinerary's
 // "Nearby, from your catalogue": two groupings, each showing three with the
@@ -6321,7 +6539,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     send(res, layout({ title: 'Invites', body, me, cls: 'is-dark-page' }));
   },
 
-  settings(req, res, me, err = '') {
+  settings(req, res, me, err = '', url = new URL(req.url, 'http://x')) {
     const mine = q('SELECT * FROM invites WHERE from_user=? ORDER BY created_at DESC').all(me.id);
     const unusedInvites = mine.filter((i) => !i.used_by);
     const body = `<h3 class="strip dark-strip">Your Account Settings</h3>
@@ -6379,6 +6597,22 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
             <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
             <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+            <!-- One connection per AI client, each revocable on its own. The
+                 URL is shown once, immediately after it is made: the server
+                 keeps only a hash of it. -->
+            ${url.searchParams.get('conn') ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(url.searchParams.get('conn'))}</code></p>
+              <p class="fine center">Copy this now — it is not stored and cannot be shown again.</p>` : ''}
+            <div class="conn-list">
+              ${connectionsOf(me.id).map((c) => `<div class="conn-row">
+                <span class="conn-who">${esc(c.client_label)}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
+                <span class="conn-fine">${esc(c.token_prefix)}\u2026 \u00b7 ${c.revoked_at ? 'revoked' : 'active'}</span>
+                ${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><button class="nf-link-btn">Revoke</button></form>`}
+              </div>`).join('') || '<p class="empty center">No AI connections yet.</p>'}
+              <form method="post" action="/settings/connections" class="conn-new">
+                <input class="nf-field" name="label" placeholder="NAME THIS CONNECTION \u2014 CHATGPT, CLAUDE\u2026" maxlength="40">
+                <button class="btn3d block">Create a connection</button>
+              </form>
+            </div>
             <form method="post" action="/settings/ingest" class="ingest-mode">
               <span class="nf-lbl">How AI sends images</span>
               <select class="nf-field" name="mode" onchange="this.form.submit()">
@@ -7236,7 +7470,11 @@ function findSimilarMark(userId, place) {
   return null;
 }
 
-async function mcpCall(user, name, a = {}) {
+async function mcpCall(user, conn, name, a = {}) {
+  // Every AI-originated write in this dispatcher attributes itself through the
+  // connection that made the call. Shadowing the module-level helper keeps the
+  // 42 existing call sites correct without editing each one.
+  const mcpActor = (u) => aiActor(u, conn);
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
@@ -7269,17 +7507,20 @@ async function mcpCall(user, name, a = {}) {
       } else throw e;                       // a bad data: URL is still a real error
     }
     if (!noteImage) throw new Error('image is required: every note carries an image.');
-    const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)').run(user.id, String(a.headline).trim(), String(a.description || '').trim(), tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', noteImage, a.private ? 1 : 0);
+    const r = noteCreate(user, {
+      name: a.headline, why: a.description,
+      tags: tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '),
+      url: a.link || '', image: noteImage, private: !!a.private,
+      collections: Array.isArray(a.collections) ? a.collections : null,
+    }, mcpActor(user), { source_kind: a.link ? 'unfurl' : 'manual', source_ref: a.link || null });
     if (/^https?:\/\//i.test(noteImage)) {
-      try { q(`INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url) VALUES('object',?,?)`).run(r.lastInsertRowid, noteImage);
+      // A linked picture is adopted in the background so the note never
+      // depends on someone else's page continuing to serve it.
+      try { q(`INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url) VALUES('object',?,?)`).run(r.id, noteImage);
             q("DELETE FROM linked_image_backlog WHERE row_id=-1").run(); } catch {}
     }
-    q('INSERT OR IGNORE INTO notes(user_id,object_id) VALUES(?,?)').run(user.id, r.lastInsertRowid);
-    if (Array.isArray(a.collections)) setCollections(user.id, r.lastInsertRowid, a.collections);
-    recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', mcpActor(user),
-      { source_kind: a.link ? 'unfurl' : 'manual', source_ref: a.link || null });
-    return wr(`Noted as #${r.lastInsertRowid}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`,
-      'created', 'note', r.lastInsertRowid, uidOf('objects', r.lastInsertRowid), a.headline);
+    return wr(`Noted as #${r.id}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`,
+      'created', 'note', r.id, r.uid, a.headline);
   }
   if (name === 'recent_notes') {
     const lim = Math.min(+a.limit || 10, 50); const sq = (a.query || '').trim();
@@ -7640,36 +7881,38 @@ async function mcpCall(user, name, a = {}) {
     // against mapping data" — verified defaults to 0 here exactly as it does
     // on the web path. Provenance records the coordinates honestly below,
     // without asserting a verification that did not happen.
-    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,verified) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(user.id, String(a.place).trim(), a.locality || '', a.country || '', a.address || '',
-           a.lat ?? null, a.lng ?? null, String(a.why || '').trim(),
-           tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '), a.link || '', a.image || '', a.private ? 1 : 0, 0);
-    if (Array.isArray(a.collections)) setMarkCollections(user.id, r.lastInsertRowid, a.collections);
+    const r = markCreate(user, {
+      name: a.place, locality: a.locality, country: a.country, address: a.address,
+      lat: a.lat, lng: a.lng, why: a.why,
+      tags: tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', '),
+      url: a.link, image: a.image, private: !!a.private,
+      collections: Array.isArray(a.collections) ? a.collections : null,
+    }, mcpActor(user));
     // Intention is not experience: marking a place asserts that it is worth
     // knowing about, not that the member has been. A check-in is written only
     // where one was actually claimed, and it carries its own provenance like
     // any other assertion.
     if (a.visited_on) {
-      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,body) VALUES(?,?,?,?)')
-        .run(r.lastInsertRowid, user.id, a.visited_on, '');
-      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', mcpActor(user),
-        { source_kind: 'manual' });
+      // A separate, explicit act: marking a place never implies a visit, so the
+      // check-in is recorded by the one function that records check-ins.
+      visitRecord(user, r.id, { visited_on: a.visited_on }, mcpActor(user));
     }
-    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', mcpActor(user),
-      { source_kind: 'manual' });
+
     // A verification claim must name what it rests on. Coordinates supplied by
     // the caller are evidence of coordinates, not proof a lookup happened — so
     // the source is recorded as 'coordinates_supplied', never 'photon', unless
     // a lookup is what actually produced them.
     if (a.lat != null && a.lng != null) {
-      recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'enriched',
-        { actor_type: 'system', actor_user_id: user.id, agent: 'mcp:claude',
+      // A system contribution made through this connection: the coordinates
+      // came with the call rather than from the member typing them.
+      recordProvenance('mark', r.uid, 'enriched',
+        { ...aiActor(user, conn), actor_type: 'system',
           auth_method: 'mcp_token', assertion: 'derived' },
         { source_kind: 'coordinates_supplied', source_ref: `${a.lat},${a.lng}` });
     }
     const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
-    return wr(`Marked #${r.lastInsertRowid}: ${a.place}${a.locality ? ', ' + a.locality : ''} ${a.visited_on ? ` (checked in ${a.visited_on})` : ''}${verifiedNote}`,
-      'created', 'mark', r.lastInsertRowid, uidOf('marks', r.lastInsertRowid), a.place);
+    return wr(`Marked #${r.id}: ${a.place}${a.locality ? ', ' + a.locality : ''} ${a.visited_on ? ` (checked in ${a.visited_on})` : ''}${verifiedNote}`,
+      'created', 'mark', r.id, uidOf('marks', r.id), a.place);
   }
   if (name === 'edit_travel_mark') {
     if (!a.id) throw new Error('id is required');
@@ -7714,27 +7957,16 @@ async function mcpCall(user, name, a = {}) {
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
     const ctx = mcpActor(user);
     if (a.date_unknown) {
-      // The member was there but cannot say when. Refuse dates rather than
-      // quietly ignoring them — a caller giving both is contradicting itself.
-      if (a.visited_on || a.ended_on || (a.days && a.days.length)) throw new Error('date_unknown cannot be combined with visited_on, ended_on or days.');
-      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body,date_known) VALUES(?,?,?,NULL,?,0)')
-        .run(mk.id, user.id, todayYMD(), String(a.body || '').trim());
-      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', ctx, { source_kind: 'manual', fields: 'date_known:0' });
+      const rec = visitRecord(user, mk.id, { date_unknown: true, body: a.body }, ctx);
+      const v = { lastInsertRowid: rec.id };
       const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
       return wr(`Logged a visit to ${mk.name} with the date unknown — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
         'created', 'visit', v.lastInsertRowid, uidOf('visits', v.lastInsertRowid), mk.name, `${n} total`);
     }
-    const { start, end } = normaliseVisitRange(a.visited_on, a.ended_on);
-    db.exec('BEGIN');
-    let vid;
-    try {
-      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body) VALUES(?,?,?,?,?)')
-        .run(mk.id, user.id, start, end, String(a.body || '').trim());
-      vid = v.lastInsertRowid;
-      recordProvenance('visit', uidOf('visits', vid), 'created', ctx, { source_kind: 'manual' });
-      applyVisitDays(vid, start, end, a.days, ctx);       // validates every day against the range
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    const rec = visitRecord(user, mk.id,
+      { visited_on: a.visited_on, ended_on: a.ended_on, body: a.body, days: a.days }, ctx);
+    const { start, end } = rec;
+    const vid = rec.id;
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
     const dn = visitDaysOf(vid).length;
     return wr(`Logged a visit to ${mk.name}: ${prettyRange(start, end)}${dn ? ` with notes on ${dn} day${dn === 1 ? '' : 's'}` : ''} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
@@ -8053,10 +8285,10 @@ async function mcpCall(user, name, a = {}) {
           }
           // Auto-created Notes are private by default, and share the component's
           // already-stored image rather than re-ingesting the same bytes.
-          const nr = q("INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,'','',?,?,1)")
-            .run(user.id, c.label, c.source_url || '', c.image_uid ? `/i/${c.image_uid}` : '');
-          const nUid = uidOf('objects', nr.lastInsertRowid);
-          recordProvenance('object', nUid, 'created', ctx, { source_kind: 'ensemble', source_ref: e.uid, fields: basis });
+          const nUid = noteCreate(user, {
+            name: c.label, url: c.source_url || '',
+            image: c.image_uid ? `/i/${c.image_uid}` : '', private: true,
+          }, ctx, { source_kind: 'ensemble', source_ref: e.uid, fields: basis }).uid;
           q('UPDATE ensemble_components SET note_uid=?, state=\'linked\', updated_at=CURRENT_TIMESTAMP WHERE id=?').run(nUid, c.id);
           out.notes_created.push(nUid);
           out.components.push({ component_uid: c.uid, state: 'linked', note_uid: nUid, note_origin: 'created_by_ensemble', label: c.label , image_uid: c.image_uid || null });
@@ -8247,10 +8479,10 @@ async function mcpCall(user, name, a = {}) {
     } else {
       const basis = a.identity_basis || 'user_identity';
       if (!QUALIFYING_BASIS.has(basis)) throw new Error('identity_basis must be canonical evidence, not a guess');
-      const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,'','',?,?,1)`)
-        .run(user.id, a.label, a.source_url || '', c.image_uid ? `/i/${c.image_uid}` : '');
-      noteUid = uidOf('objects', r.lastInsertRowid);
-      recordProvenance('object', noteUid, 'created', ctx, { source_kind: 'ensemble', source_ref: c.euid, fields: basis });
+      noteUid = noteCreate(user, {
+        name: a.label, url: a.source_url || '',
+        image: c.image_uid ? `/i/${c.image_uid}` : '', private: true,
+      }, ctx, { source_kind: 'ensemble', source_ref: c.euid, fields: basis }).uid;
     }
     // The SAME component: the constituent did not change, only what is known
     // about it. A correction records what it supersedes rather than erasing it.
@@ -8445,7 +8677,13 @@ async function mcpCall(user, name, a = {}) {
   throw new Error('Unknown tool ' + name);
 }
 async function mcp(req, res, tok) {
-  const user = q('SELECT * FROM users WHERE api_token=?').get(tok);
+  // A per-client connection first; the shared legacy token second, so existing
+  // connectors keep working untouched. A legacy caller has no connection, and
+  // its provenance says so rather than claiming a client we cannot evidence.
+  const conn = connectionFor(tok);
+  const user = conn
+    ? q('SELECT * FROM users WHERE id=?').get(conn.user_id)
+    : q('SELECT * FROM users WHERE api_token=?').get(tok);
   if (!user) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end('{"error":"invalid token"}'); }
   if (req.method === 'GET') { res.writeHead(405); return res.end(); }
   if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
@@ -8454,6 +8692,19 @@ async function mcp(req, res, tok) {
   const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
+  // What the client says it is. Recorded once and never overwritten: a later
+  // session claiming a different name is grounds for a new connection, not for
+  // rewriting identity-bearing state. Read from the handshake and, for newer
+  // protocol revisions, from per-request _meta, so a protocol upgrade needs no
+  // change to the connection or provenance model.
+  if (conn && !conn.client_name) {
+    const declared = clientInfoFrom(params);
+    if (declared) {
+      q('UPDATE connections SET client_name=?, client_label=? WHERE id=? AND client_name IS NULL')
+        .run(declared, clientLabelFor(declared), conn.id);
+      conn.client_name = declared;
+    }
+  }
   if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
 
 HOW TO WORK HERE. Never say something was saved before the tool call that saves it has returned successfully. If a call fails you will get a reference code — tell the member it failed, quote the reason and the code, and never quietly carry on as if it worked. Do not retry an identical failing call more than once. When a tool result tells you what to do next, do it without pausing to ask the member: internal plumbing is not their decision. Confirm before deleting anything.
@@ -8473,7 +8724,7 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') {
     try {
-      const out = await mcpCall(user, params.name, params.arguments);
+      const out = await mcpCall(user, conn, params.name, params.arguments);
       // Text stays exactly as it was, so existing clients are unaffected.
       // structuredContent is additive and carries provenance, so the six
       // questions in the MCP Policy remain answerable inside the AI's context
@@ -8671,6 +8922,18 @@ async function handle(req, res) {
     q('UPDATE users SET ingest_mode=? WHERE id=?').run(mode, me.id);
     return redirect(res, '/settings');
   }
+  if (p === '/settings/connections' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const made = connectionCreate(me.id, b.label || 'AI client');
+    // The plaintext credential exists only in this redirect: it is never stored.
+    return redirect(res, `/settings?conn=${encodeURIComponent(made.token)}`);
+  }
+  if ((mt = p.match(/^\/settings\/connections\/([0-9a-f-]{36})\/revoke$/)) && m === 'POST') {
+    if (!me) return need();
+    connectionRevoke(me.id, mt[1]);
+    return redirect(res, '/settings');
+  }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
   if (p === '/about') return pages.about(req, res, me);
@@ -8709,14 +8972,14 @@ async function handle(req, res) {
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.markForm(req, res, me, b, 'A mark needs a place name.', colls);
     const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
-    const r = q('INSERT INTO marks(user_id,name,locality,country,address,lat,lng,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-      .run(me.id, b.name.trim(), b.locality || '', b.country || '', b.address || '',
-           isNaN(lat) ? null : lat, isNaN(lng) ? null : lng, (b.why || '').trim(),
-           tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
-    setMarkCollections(me.id, r.lastInsertRowid, colls);
-    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
-    applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(r.lastInsertRowid), me);
-    return redirect(res, `/m/${r.lastInsertRowid}?ask=1`);   // offer a check-in rather than assuming one
+    const r = markCreate(me, {
+      name: b.name, locality: b.locality, country: b.country, address: b.address,
+      lat: isNaN(lat) ? null : lat, lng: isNaN(lng) ? null : lng, why: b.why,
+      tags: tagList(b.tags).join(', '), url: b.url, image: storeImage(me.id, b.image),
+      private: !!b.private, collections: colls,
+    }, webActor(me));
+    applyFormIntents(b, 'mark', q('SELECT * FROM marks WHERE id=?').get(r.id), me);
+    return redirect(res, `/m/${r.id}?ask=1`);   // offer a check-in rather than assuming one
   }
   // Native authorship controls. Everything here is also MCP-operable; the
   // point is that the member never needs an AI to control their own record.
@@ -8928,17 +9191,15 @@ async function handle(req, res) {
     // Re-marking your own Mark is duplication, not adoption of another's
     // judgment, and would contaminate the directional signal.
     if (src.user_id === me.id) return send(res, 'You cannot re-mark your own travel mark', 400);
-    const r = q(`INSERT INTO marks
-        (user_id,name,locality,country,address,lat,lng,why,tags,url,image,private,verified,remarked_from_uid)
-        VALUES (?,?,?,?,?,?,?,'','',?,?,0,0,?)`)
-      .run(me.id, src.name, src.locality, src.country, src.address, src.lat, src.lng,
-           src.url || '', src.image || '', src.uid);
+    const r = markCreate(me, {
+      name: src.name, locality: src.locality, country: src.country, address: src.address,
+      lat: src.lat, lng: src.lng, url: src.url, image: src.image,
+      remarked_from_uid: src.uid,                  // why, tags and privacy stay theirs to write
+    }, webActor(me), { source_kind: 'remark', source_ref: src.uid });
     //  copied: name, locality, country, address, lat/lng, image, url
     //  empty : why (theirs), tags (authored), collections, verified, private
     //  never : visits — experience is personal and not transferable
-    recordProvenance('mark', uidOf('marks', r.lastInsertRowid), 'created', webActor(me),
-      { source_kind: 'remark', source_ref: src.uid });
-    return redirect(res, `/m/${r.lastInsertRowid}/edit`);   // they write their own why
+    return redirect(res, `/m/${r.id}/edit`);   // they write their own why
   }
   if ((mt = p.match(/^\/m\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
@@ -8981,10 +9242,9 @@ async function handle(req, res) {
         recordProvenance('visit', uidOf('visits', existing.id), 'edited', webActor(me), { source_kind: 'manual', fields: 'date_known,body' });
         return existing.id;
       }
-      const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body,date_known) VALUES(?,?,?,NULL,?,0)')
-        .run(mk.id, me.id, todayYMD(), body);
-      recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual', fields: 'date_known:0' });
-      return v.lastInsertRowid;
+      // Merging into an existing visit stays here, in the form's own logic;
+      // creating one is the domain's job.
+      return visitRecord(me, mk.id, { date_unknown: true, body }, webActor(me)).id;
     }
     const { start, end } = normaliseVisitRange(b.visited_on, b.ended_on);
     const days = Object.keys(b).filter((k) => /^day_\d{4}-\d{2}-\d{2}$/.test(k))
@@ -9008,11 +9268,8 @@ async function handle(req, res) {
       applyVisitDays(existing.id, start, end, rest, webActor(me));
       return existing.id;
     }
-    const v = q('INSERT INTO visits(mark_id,user_id,visited_on,ended_on,body) VALUES(?,?,?,?,?)')
-      .run(mk.id, me.id, start, end, (b.body || '').trim());
-    recordProvenance('visit', uidOf('visits', v.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
-    applyVisitDays(v.lastInsertRowid, start, end, days, webActor(me));
-    return v.lastInsertRowid;
+    return visitRecord(me, mk.id,
+      { visited_on: b.visited_on, ended_on: b.ended_on, body: b.body, days }, webActor(me)).id;
   };
   if ((mt = p.match(/^\/m\/(\d+)\/(checkin|visits)$/)) && m === 'POST') {
     if (!me) return need();
@@ -9055,13 +9312,13 @@ async function handle(req, res) {
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.form(req, res, me, b, 'A note needs a title.', colls);
     if (!(b.image || '').trim()) return pages.form(req, res, me, b, 'Every note needs an image.', colls);
-    const r = q('INSERT INTO objects(user_id,name,why,tags,url,image,private) VALUES(?,?,?,?,?,?,?)')
-      .run(me.id, b.name.trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0);
-    q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)').run(me.id, r.lastInsertRowid, '');
-    setCollections(me.id, r.lastInsertRowid, colls);
-    recordProvenance('object', uidOf('objects', r.lastInsertRowid), 'created', webActor(me), { source_kind: 'manual' });
-    applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(r.lastInsertRowid), me);
-    return redirect(res, `/o/${r.lastInsertRowid}`);
+    const r = noteCreate(me, {
+      name: b.name, why: b.why, tags: tagList(b.tags).join(', '), url: b.url,
+      image: storeImage(me.id, b.image), private: !!b.private, collections: colls,
+    }, webActor(me));
+    // Owned and Warrant stay a separate act, here as everywhere.
+    applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(r.id), me);
+    return redirect(res, `/o/${r.id}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/owned$/)) && m === 'POST') {
     if (!me) return need();

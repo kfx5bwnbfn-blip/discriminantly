@@ -472,7 +472,7 @@ console.log('\ncolophon contracts');
   ok('C19 accepting a place creates its mark and records the plan as its origin',
      /source_kind: 'itinerary', source_ref: it\.uid/.test(add));
   ok('C20 a new place inherits the plan\u2019s privacy, never publishing more',
-     /it\.private \? 1 : 0/.test(add));
+     /private: !!it\.private/.test(add));
 }
 
 // ---- mark lookup while writing a stop --------------------------------------
@@ -507,12 +507,22 @@ console.log('\nintention is not experience');
 {
   const add = SRC.slice(SRC.indexOf("if (name === 'add_travel_mark')"), SRC.indexOf("if (name ===", SRC.indexOf("if (name === 'add_travel_mark')") + 20));
   ok('V1 a check-in is written only where one was claimed',
-     /if \(a\.visited_on\) \{[\s\S]*INSERT INTO visits/.test(add));
+     /if \(a\.visited_on\) \{[\s\S]{0,400}visitRecord\(/.test(add));
+  ok('V1b marking never writes a visit directly \u2014 only visitRecord does',
+     !/INSERT INTO visits/.test(add));
   ok('V2 a visit is never dated "today" because a mark was made',
      !/new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/.test(add));
   ok('V3 the visit\u2019s provenance uses its own insert id, not MAX(id)',
      !/SELECT MAX\(id\) i FROM visits/.test(add));
-  ok('V4 one provenance row per visit', (add.match(/recordProvenance\('visit'/g) || []).length === 1);
+  const vr = SRC.slice(SRC.indexOf('function visitRecord('), SRC.indexOf('function stopAdd('));
+  ok('V4 one provenance row per visit, written where the visit is written',
+     (vr.match(/recordProvenance\('visit'/g) || []).length === 2      // dated + undated branch
+     && (add.match(/recordProvenance\('visit'/g) || []).length === 0);
+  ok('V4b every visit INSERT lives inside visitRecord',
+     (SRC.match(/INSERT INTO visits/g) || []).length === 2
+     && (vr.match(/INSERT INTO visits/g) || []).length === 2);
+  ok('V4c the undated placeholder always carries date_known 0',
+     /date_known\) VALUES\(\?,\?,\?,NULL,\?,0\)/.test(vr) && /fields: 'date_known:0'/.test(vr));
   ok('V5 the reply does not claim a visit that was not made',
      !/first visit/.test(add));
   ok('V6 the schema tells the caller marking is not a claim to have been',
@@ -574,7 +584,78 @@ console.log('\nmark and ensemble colophons');
      /'mark-colophon', 1\)/.test(SRC) && !/'ens-colophon', 1\)/.test(SRC));
   ok('C3 nothing is stored: the inscription is derived',
      !/INSERT INTO[\s\S]{0,60}colophon/i.test(SRC));
-  ok('C4 no schema was added for this', !/ALTER TABLE provenance|CREATE TABLE colophon/i.test(SRC));
+  // The colophon still adds no schema of its own. The one provenance column
+  // that does exist was added by Stage 0 for connection identity, not by this.
+  ok('C4 the colophon added no schema of its own',
+     !/CREATE TABLE colophon/i.test(SRC)
+     && !/ALTER TABLE provenance ADD COLUMN (?!connection_uid)/i.test(SRC));
+}
+
+// ---- Stage 0: connection identity ------------------------------------------
+console.log('\nconnection identity');
+{
+  const conn = SRC.slice(SRC.indexOf('const tokenHash ='), SRC.indexOf('function clientLabelFor('));
+  const actor = SRC.slice(SRC.indexOf('const aiActor ='), SRC.indexOf('const mcpActor ='));
+  const entry = SRC.slice(SRC.indexOf('async function mcp(req, res, tok)'), SRC.indexOf("if (method === 'ping')"));
+
+  ok('S1 a connection credential is stored only as a hash',
+     /token_hash/.test(conn) && !/INSERT INTO connections[^)]*\btoken\b[^_]/.test(conn));
+  ok('S2 the stored prefix is not the credential',
+     /token_prefix/.test(conn) && /t\.slice\(0, 6\)/.test(conn));
+  ok('S3 a revoked connection resolves to nothing',
+     /token_hash=\? AND revoked_at IS NULL/.test(conn));
+  ok('S4 revoking marks rather than deletes, so provenance keeps its referent',
+     /UPDATE connections SET revoked_at/.test(conn) && !/DELETE FROM connections/.test(SRC));
+  ok('S5 revocation is scoped to the owning member',
+     /WHERE uid=\? AND user_id=\?/.test(conn));
+  ok('S6 the legacy shared token still authenticates',
+     /users WHERE api_token=\?/.test(entry));
+  ok('S7 a legacy caller is never given a client identity we cannot evidence',
+     /agent: conn \?/.test(actor) && /'legacy'/.test(actor));
+  ok('S8 a connection that never declared itself records unknown, not a guess',
+     /conn\.client_name \? clientAgentFor\(conn\.client_name\) : 'unknown'/.test(actor));
+  ok('S9 client identity is never overwritten once recorded',
+     /client_name IS NULL/.test(entry) && /!conn\.client_name/.test(entry));
+  ok('S10 client identity is read from the handshake AND from per-request _meta',
+     /p\.clientInfo/.test(SRC) && /_meta/.test(SRC));
+  ok('S11 the vendor literal is gone from the actor',
+     !/agent: 'mcp:claude'/.test(SRC));
+  ok('S12 provenance carries the connection that acted',
+     /connection_uid/.test(SRC.slice(SRC.indexOf('function recordProvenance('), SRC.indexOf('const webActor'))));
+  ok('S13 unknown and legacy are never rendered as a client name',
+     /unknown: null, legacy: null/.test(SRC));
+  ok('S14 the web actor is untouched by any of this',
+     /const webActor = \(me\) => \(\{ actor_type: 'user'/.test(SRC));
+}
+
+// ---- Stage 1: one canonical implementation per primitive --------------------
+console.log('\nshared domain creation');
+{
+  const nc = SRC.slice(SRC.indexOf('function noteCreate('), SRC.indexOf('// ---- canonical mark creation'));
+  const mc = SRC.slice(SRC.indexOf('function markCreate('), SRC.indexOf('// ---- canonical visit recording'));
+
+  ok('D1 exactly one runtime INSERT site per primitive',
+     (SRC.match(/INSERT INTO marks\(/g) || []).length === 1
+     && (SRC.match(/INSERT INTO visits/g) || []).length === 2);   // dated + undated, both in visitRecord
+  ok('D2 noteCreate writes the objects row and its notes row together',
+     /INSERT INTO objects/.test(nc) && /INSERT OR IGNORE INTO notes/.test(nc));
+  ok('D3 notes.why is canonical on both rows',
+     /INSERT OR IGNORE INTO notes\(user_id,object_id,why\)/.test(nc));
+  ok('D4 Owned and Warrant are not parameters of noteCreate',
+     !/owned|warrant/i.test(nc));
+  ok('D5 noteCreate never asserts ownership or endorsement as a side effect',
+     !/assertOwned|assertWarrant|applyFormIntents/.test(nc));
+  ok('D6 markCreate has no visit parameter and writes no visit',
+     !/visit/i.test(mc));
+  ok('D7 markCreate never claims verification it did not perform',
+     !/verified/.test(mc));
+  ok('D8 every creation records provenance inside the function',
+     /recordProvenance\('object'/.test(nc) && /recordProvenance\('mark'/.test(mc));
+  ok('D9 callers supply source context rather than the function inventing it',
+     /source_kind = 'manual', source_ref = null/.test(nc)
+     && /source_kind = 'manual', source_ref = null/.test(mc));
+  ok('D10 re-noting remains its own act, not a creation',
+     /recordProvenance\('object', note\.uid, 'renoted'/.test(SRC));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
