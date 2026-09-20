@@ -777,3 +777,14 @@
 /* "Three More" reads as a line of prose rather than a label */
 .itp-more { font-style: italic; text-transform: none; letter-spacing: .01em;
   font-size: .82rem; font-weight: 600; }
+
+/* ---- the flat container, with a little definition at the top --------------
+   One gradient, used by every container that carries the tint: the resurfacing
+   frame, itinerary shells and days, ensemble parts, similar notes, search
+   groups and the check-in log. The bottom keeps the value it had; only the top
+   darkens, and only slightly. */
+.resurface, .itin-shell, .itin-sugg, .search-cards, .ens-parts, .visit-log {
+  background-image: linear-gradient(to bottom, rgba(0,0,0,.035), rgba(0,0,0,0) 42%);
+}
+/* the check-in log takes the same corner as every other container */
+.visit-log { border-radius: 16px; }

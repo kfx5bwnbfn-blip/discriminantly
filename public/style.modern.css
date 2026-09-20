@@ -2278,3 +2278,24 @@ body[data-skin="modern"] .ens-parts-h { color: var(--m-ink-3); }
 body[data-skin="modern"] .mark-foot { justify-content: center; }
 /* the count under a truncated itinerary */
 body[data-skin="modern"] .itp-more { color: var(--m-ink-2); }
+/* the gradient rides on top of each container's own flat tint, so the bottom
+   keeps its current value and only the top gains definition */
+body[data-skin="modern"] .resurface, body[data-skin="modern"] .itin-shell,
+body[data-skin="modern"] .itin-sugg,
+body[data-skin="modern"] .search-cards, body[data-skin="modern"] .ens-parts,
+body[data-skin="modern"] .visit-log {
+  background-image: linear-gradient(to bottom, rgba(0,0,0,.05), rgba(0,0,0,0) 45%);
+}
+body[data-skin="modern"][data-mode="light"] .resurface, body[data-skin="modern"][data-mode="light"] .itin-shell,
+body[data-skin="modern"][data-mode="light"] .itin-sugg,
+body[data-skin="modern"][data-mode="light"] .search-cards, body[data-skin="modern"][data-mode="light"] .ens-parts,
+body[data-skin="modern"][data-mode="light"] .visit-log,
+html.m-light body[data-skin="modern"][data-mode="system"] .resurface,
+html.m-light body[data-skin="modern"][data-mode="system"] .itin-shell,
+html.m-light body[data-skin="modern"][data-mode="system"] .itin-sugg,
+html.m-light body[data-skin="modern"][data-mode="system"] .search-cards,
+html.m-light body[data-skin="modern"][data-mode="system"] .ens-parts,
+html.m-light body[data-skin="modern"][data-mode="system"] .visit-log {
+  background-image: linear-gradient(to bottom, rgba(20,22,28,.045), rgba(20,22,28,0) 45%);
+}
+body[data-skin="modern"] .visit-log { border-radius: 16px; }

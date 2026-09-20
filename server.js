@@ -5427,7 +5427,7 @@ ${noters.length ? `<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span>${me && (me.id === c.user_id || me.id === SUBJ.user_id || me.is_admin) ? `<button type="button" class="nf-link-btn comment-del nf-del" data-del="DELPATH" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button>` : ''}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
 <div class="note-side">${relatedNotes(o, me)}${skinOf(me, req) === 'modern' ? colophon(o) : ''}</div>
 <script>
@@ -5490,7 +5490,7 @@ ${noters.length ? `<div class="section-rule"></div>
         </div>
       </form></details>` : '';
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(subject.handle)}">${esc(subject.handle)}</a> \u203a <span>Itineraries</span></h3>
-    ${own ? '<p class="ens-grid-sub">Places you mean to go, at whatever precision you have.</p>' : ''}
+
     ${create}
     ${rows.length ? `<div class="grid" id="feed-grid">${rows.map(preview).join('')}</div>` : ''}
     ${rows.length || own ? '' : emptyState(me, 'itineraries')}`;
@@ -5741,7 +5741,7 @@ ${remarkers.length ? `<div class="section-rule"></div>
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/m/${m.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>`
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span></p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> · <span class="stamp">${timeAgo(c.created_at)}</span>${me && (me.id === c.user_id || me.id === SUBJ.user_id || me.is_admin) ? `<button type="button" class="nf-link-btn comment-del nf-del" data-del="DELPATH" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button>` : ''}</p><p>${esc(c.body)}</p></div></li>`).join('') || '<li class="empty pad">No comments yet.</li>'}</ul>
 </section>
 </section></div>
 <script>
@@ -8910,6 +8910,23 @@ async function handle(req, res) {
     if (src.user_id === me.id) return send(res, 'You cannot re-note your own note', 400);
     const note = renoteFrom(src, me, webActor(me));
     return redirect(res, req.headers.referer || `/o/${note.id}`);
+  }
+  // A comment may be removed by whoever wrote it, or by the owner of the
+  // record it sits on -- the same two people who can act on it anywhere else.
+  if ((mt = p.match(/^\/(o|m)\/(\d+)\/comments\/(\d+)\/delete$/)) && m === 'POST') {
+    if (!me) return need();
+    const me2 = me;
+    const isNote = mt[1] === 'o';
+    const table = isNote ? 'comments' : 'mark_comments';
+    const fk = isNote ? 'object_id' : 'mark_id';
+    const subj = isNote ? q('SELECT * FROM objects WHERE id=?').get(+mt[2])
+                        : q('SELECT * FROM marks WHERE id=?').get(+mt[2]);
+    const c = q(`SELECT * FROM ${table} WHERE id=? AND ${fk}=?`).get(+mt[3], +mt[2]);
+    if (!subj || !c) return send(res, 'No such comment.', 404);
+    if (c.user_id !== me2.id && subj.user_id !== me2.id && !me2.is_admin) return send(res, 'Not yours to remove.', 403);
+    recordProvenance('comment', c.uid, 'deleted', webActor(me2), {});
+    q(`DELETE FROM ${table} WHERE id=?`).run(c.id);
+    return redirect(res, isNote ? `/o/${mt[2]}` : `/m/${mt[2]}`);
   }
   if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
