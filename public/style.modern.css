@@ -2321,3 +2321,7 @@ body[data-skin="modern"] .phone-wrap figcaption { color: var(--m-ink-3); }
 body[data-skin="modern"] main > .splash-pair { background: rgba(0,0,0,.035); }
 body[data-skin="modern"][data-mode="light"] main > .splash-pair,
 html.m-light body[data-skin="modern"][data-mode="system"] main > .splash-pair { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .auth-lead { color: var(--m-ink); }
+body[data-skin="modern"] .auth-says li { color: var(--m-ink-2); }
+body[data-skin="modern"] .auth-fine, body[data-skin="modern"] .conn-row .sugg-sub { color: var(--m-ink-3); }
+body[data-skin="modern"] .conn-row + .conn-row { border-top-color: var(--m-rule); }

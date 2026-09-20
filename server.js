@@ -6800,15 +6800,16 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${url.searchParams.get('conn') ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(url.searchParams.get('conn'))}</code></p>
               <p class="fine center">Copy this now — it is not stored and cannot be shown again.</p>` : ''}
             <div class="conn-list">
-              ${connectionsOf(me.id).map((c) => `<div class="conn-row">
-                <span class="conn-who">${esc(c.client_label)}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
-                <span class="conn-fine">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'}
+              <span class="lbl">Connected AI</span>
+              ${connectionsOf(me.id).map((c) => `<div class="sugg conn-row">
+                <span class="sugg-name">${esc(c.client_label)}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
+                <span class="sugg-sub">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'}
                   \u00b7 ${c.revoked_at ? 'revoked' : 'active'}
-                  \u00b7 since ${esc(monthYear(c.created_at))}${c.last_used_at ? ' \u00b7 last used ' + esc(monthYear(c.last_used_at)) : ''}</span>
-                ${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><button class="nf-link-btn">Revoke</button></form>`}
+                  \u00b7 since ${esc(monthYear(c.created_at))}${c.last_used_at ? ' \u00b7 used ' + esc(monthYear(c.last_used_at)) : ''}</span>
+                ${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><button class="link caps">Revoke</button></form>`}
               </div>`).join('') || '<p class="empty center">No AI connections yet.</p>'}
               <form method="post" action="/settings/connections" class="conn-new">
-                <input class="nf-field" name="label" placeholder="NAME THIS CONNECTION \u2014 CHATGPT, CLAUDE\u2026" maxlength="40">
+                <label class="slabel">Name this connection<input name="label" placeholder="ChatGPT, Claude\u2026" maxlength="40"></label>
                 <button class="btn3d block">Create a connection</button>
               </form>
             </div>
@@ -9224,8 +9225,8 @@ async function handle(req, res) {
     // Anything wrong with the request itself is shown to the member rather
     // than redirected: we must not send errors to a URI we have not validated.
     const bad = (why) => send(res, layout({ title: 'Authorization', me, req,
-      body: `<div class="cols"><section class="feed"><h3 class="strip">Authorization</h3>
-      <p class="empty pad">${esc(why)}</p></section></div>` }), 400);
+      body: `<h3 class="strip">Authorization</h3>
+      <div class="settings"><p class="empty pad">${esc(why)}</p></div>` }), 400);
     if (!client_id || !redirect_uri) return bad('That authorization request is missing required details.');
     if (method !== 'S256') return bad('This connection must use PKCE with S256.');
     if (!code_challenge) return bad('That authorization request is missing its PKCE challenge.');
@@ -9251,19 +9252,22 @@ async function handle(req, res) {
       const hidden = Object.entries({ client_id, redirect_uri, code_challenge,
         code_challenge_method: 'S256', state, resource, scope })
         .map(([k, v]) => `<input type="hidden" name="${k}" value="${esc(v)}">`).join('');
-      return send(res, layout({ title: 'Authorize', me, req, body: `<div class="cols"><section class="feed profile-feed">
-        <h3 class="strip">Authorize access</h3>
-        <div class="grid grid-single"><div class="note"><div class="card"><div class="text">
-          <h1 class="cons-h">${esc(label)} wants to connect to your Discriminantly account.</h1>
-          <p class="cons-p">It will be able to read everything you have kept, including private items, and add, change and remove things on your behalf.</p>
-          <p class="cons-p">Anything it does will be recorded as ${esc(label)} acting for you.</p>
-          <p class="cons-p">You can disconnect it at any time in Settings.</p>
-          <form method="post" action="/oauth/authorize" class="nf nf-compact"><div class="nf-box">
-            ${hidden}<input type="hidden" name="approve" value="1">
-            <button class="nf-post">Authorize</button>
-            <div class="nf-foot"><span></span><a class="nf-link-btn" href="/">Cancel</a></div>
-          </div></form>
-        </div></div></div></div></section></div>` }));
+      // The note-form card: a self-contained panel that does not depend on the
+      // feed's column layout, which is what collapsed this page to a sliver.
+      return send(res, layout({ title: 'Authorize', me, req, body: `<h3 class="strip">Authorize access</h3>
+        <div class="settings auth-page">
+        <form method="post" action="/oauth/authorize" class="nf nf-compact auth-form"><div class="nf-box">
+          <p class="auth-lead">${esc(label)} wants to connect to your Discriminantly account.</p>
+          <ul class="auth-says">
+            <li>It can read everything you have kept, including private items.</li>
+            <li>It can add, change and remove things on your behalf.</li>
+            <li>Anything it does is recorded as ${esc(label)} acting for you.</li>
+          </ul>
+          ${hidden}<input type="hidden" name="approve" value="1">
+          <button class="nf-post">Authorize</button>
+          <div class="nf-foot"><span class="auth-fine">You can disconnect it at any time in Settings.</span><a class="nf-link-btn" href="/">Cancel</a></div>
+        </div></form>
+        </div>` }));
     }
 
     if (!b.approve) return redirect(res, '/');
