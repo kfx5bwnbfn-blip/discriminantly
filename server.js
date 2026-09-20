@@ -4784,7 +4784,7 @@ function itineraryPreview(it, me) {
     <div class="byline"><span class="byline-who"><a href="/u/${esc(au.handle)}">${avatar({ handle: au.handle, avatar: au.avatar })}</a>${stackDate(it.created_at)}</span></div>
     <div class="itp itin-shell">
     <a class="itp-head ens-head itin-head" href="/t/${it.id}">
-      <p class="who"><span>${esc(au.handle)}</span> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
+      <p class="who"><a href="/u/${esc(au.handle)}">${esc(au.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
       <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
       ${when ? `<span class="itin-when">${esc(when)}</span>` : ''}
       ${it.context ? `<span class="itin-ctx itp-ctx">${esc(it.context)}</span>` : ''}

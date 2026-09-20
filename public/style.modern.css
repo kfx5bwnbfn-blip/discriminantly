@@ -167,6 +167,12 @@ body[data-skin="modern"] .card { color: var(--m-ink); padding: 0; }
 body[data-skin="modern"] .card .who, body[data-skin="modern"] .card .card-head .who {
   color: var(--m-ink-2); font-weight: 700; letter-spacing: .12em; font-size: .68rem;
 }
+/* The itinerary's byline line is not inside a .card, so it never matched the
+   rule above and fell back to the classic ink and link colours. Same tokens,
+   extended to it, rather than a parallel rule that could drift. */
+body[data-skin="modern"] .itin-shell .who, body[data-skin="modern"] .itin-head .who { color: var(--m-ink-2); }
+body[data-skin="modern"] .itin-shell .who a, body[data-skin="modern"] .itin-head .who a { color: var(--m-ink); }
+body[data-skin="modern"] .itin-shell .who a:hover, body[data-skin="modern"] .itin-head .who a:hover { color: var(--m-ink); }
 body[data-skin="modern"] .card .who a { color: var(--m-ink); }
 body[data-skin="modern"] .card .colls a {
   color: var(--m-ink-3); background: var(--m-glass-2); border-radius: 999px; padding: .2rem .7rem; font-size: .7rem; letter-spacing: .06em;
@@ -1995,7 +2001,8 @@ body[data-skin="modern"] .comment-form .nf-post:hover { background: var(--m-glas
    dark skin's, which sat heavy over a pale backdrop. Lighter and whiter,
    nearer the signed-out masthead; dark mode is untouched. ---- */
 body[data-skin="modern"][data-mode="light"] .searchbar, html.m-light body[data-skin="modern"][data-mode="system"] .searchbar {
-  background: rgba(255,255,255,.78) !important;
+  /* the signed-out masthead sits at .5; the signed-in bar was heavier at .78 */
+  background: rgba(255,255,255,.5) !important;
   box-shadow: inset 0 -1px 0 rgba(20,22,28,.06), 0 8px 30px -22px rgba(30,40,60,.25);
 }
 
