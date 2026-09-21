@@ -904,9 +904,9 @@ console.log('\nprofile rail follow-ups');
   ok('R20 the active dot is out of flow and uses the per-mode accent, so nothing shifts',
      /\.pgrp-nav \.wcell\.on span::after \{[^}]*position: absolute[^}]*background: var\(--m-accent\)/.test(css));
   ok('R13 the scroll row has shadow room on all four sides, not clipped',
-     /padding: 20px 12px 36px/.test(mobileCss));
+     /padding: 10px 12px 36px/.test(mobileCss));
   ok('R16 the side room is pulled back by exactly the rail padding, so the page never scrolls sideways',
-     /margin: 1\.2rem -12px -30px/.test(mobileCss) && /scroll-padding-inline: 12px/.test(mobileCss));
+     /margin: \.35rem -12px -30px/.test(mobileCss) && /scroll-padding-inline: 12px/.test(mobileCss));
   ok('R17 All has no invisible spacer above it, and its cell has no uneven padding',
      !/pgrp-spacer/.test(SRC) && /\.rail \.pgrp-nav \.pgrp-solo \.wcell-wide \{ padding: 0; \}/.test(css));
   ok('R14 the scrollbar is hidden cross-browser, not just webkit',
@@ -930,6 +930,61 @@ console.log('\nprofile identity container');
      && /\[data-mode="light"\] \.prail-id[^{]*\{\s*background: rgba\(20,22,28,\.04\);/.test(CSS_MODERN));
   ok('R23 it is modern-only; classic has no rule for it',
      !/prail-id/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'style.css'), 'utf8')));
+}
+
+// ---- plugin submission hardening ---------------------------------------------
+console.log('\nplugin submission');
+{
+  const toolsBlk = SRC.slice(SRC.indexOf('const TOOLS = ['), SRC.indexOf('\n];', SRC.indexOf('const TOOLS = [')));
+  const toolNames = [...toolsBlk.matchAll(/\{ name: '([a-z_]+)',/g)].map((m) => m[1]).sort();
+  const annBlk = SRC.slice(SRC.indexOf('const TOOL_ANNOTATIONS = {'), SRC.indexOf('for (const t of TOOLS) {', SRC.indexOf('const TOOL_ANNOTATIONS = {')));
+  const ann = {};
+  for (const m of annBlk.matchAll(/^\s+([a-z_]+):\s+\['([^']*)', (true|false), (true|false), (true|false)\]/gm))
+    ann[m[1]] = { title: m[2], ro: m[3] === 'true', de: m[4] === 'true', ow: m[5] === 'true' };
+  ok('PS1 every tool has annotations, and every annotation names a real tool',
+     toolNames.length === 54 && JSON.stringify(Object.keys(ann).sort()) === JSON.stringify(toolNames));
+  ok('PS2 a tool without annotations stops the server at startup',
+     /has no annotations -- add it to TOOL_ANNOTATIONS/.test(SRC) && /which is not a tool/.test(SRC));
+  ok('PS3 all three hints are emitted on every tool, plus a title',
+     /t\.annotations = \{ title: a\[0\], readOnlyHint: a\[1\], destructiveHint: a\[2\], openWorldHint: a\[3\] \}/.test(SRC));
+  ok('PS4 nothing is both read-only and destructive',
+     Object.values(ann).every((a) => !(a.ro && a.de)));
+  ok('PS5 every delete, discard and remove is destructive',
+     Object.entries(ann).filter(([n]) => /^(delete_|discard_|remove_)/.test(n)).every(([, a]) => a.de && !a.ro));
+  ok('PS6 edits that overwrite without history are destructive',
+     ['edit_note', 'edit_travel_mark', 'edit_checkin', 'edit_ensemble', 'update_itinerary', 'update_itinerary_stop', 'update_itinerary_temporal'].every((n) => ann[n].de));
+  ok('PS7 pure reads are read-only and non-destructive',
+     ['my_notes', 'my_travel_marks', 'search_catalogue', 'catalogue_stats', 'my_itineraries', 'view_images', 'list_checkins', 'read_comments'].every((n) => ann[n].ro && !ann[n].de));
+  ok('PS8 tools that reach the internet are open-world',
+     ['verify_place', 'add_travel_mark', 'upload_image', 'edit_note'].every((n) => ann[n].ow));
+  ok('PS9 tools that publish to other people are open-world',
+     ['note_object', 'comment', 'warrant', 're_note', 'keep_ensemble'].every((n) => ann[n].ow));
+  ok('PS10 check-ins, ownership and staging stay closed-world',
+     ['log_visit', 'record_note_ownership', 'create_pending_ensemble', 'begin_image_upload'].every((n) => !ann[n].ow));
+  ok('PS11 withdrawing a warrant is reversible, so not destructive',
+     !ann.revoke_warrant.de && !ann.revoke_warrant.ro);
+}
+{
+  ok('PS12 database errors never reach the client verbatim',
+     /const dbFault = e && \(\/\^ERR_SQLITE\//.test(SRC) && /!!e\.message && !dbFault/.test(SRC));
+  ok('PS13 a fault does not claim nothing was saved',
+     /so it may not have completed/.test(SRC) && !/while running this\. Nothing was saved\./.test(SRC));
+  const rar = SRC.slice(SRC.indexOf('async function resolveAssetRef('), SRC.indexOf('function diagnoseDataUrl('));
+  ok('PS14 the documented /i/<id> image reference works, through the ownership check',
+     /\(\?:\/i\/\)\?/.test(rar) && /if \(own\) return resolveOwnedImageUid\(userId, own\[1\], what\);/.test(rar)
+     && rar.indexOf('resolveOwnedImageUid(userId, own[1]') < rar.indexOf('ingestImage(userId, inline'));
+  ok('PS15 the domain-verification token is served raw, and 404s when unset',
+     /p === '\/\.well-known\/openai-apps-challenge'/.test(SRC) && /OPENAI_APPS_CHALLENGE/.test(SRC)
+     && /if \(!tokenValue\) return send\(res, 'Not found', 404\)/.test(SRC) && /return res\.end\(tokenValue\);/.test(SRC));
+  ok('PS16 privacy, terms and support pages exist and invent no contact or publisher',
+     /p === '\/privacy' \|\| p === '\/terms' \|\| p === '\/support'/.test(SRC)
+     && /process\.env\.SUPPORT_EMAIL/.test(SRC) && /process\.env\.PUBLISHER_NAME/.test(SRC)
+     && !/mailto:[a-z0-9._-]+@(discriminantly|discriminant\.ly)/i.test(SRC));
+  const ins = SRC.slice(SRC.indexOf("method === 'initialize'"), SRC.indexOf("method === 'initialize'") + 6000);
+  ok('PS17 instructions keep a mark distinct from a visit',
+     /a mark alone does not mean they went/.test(ins) && !/Travel marks are places they went/.test(ins));
+  ok('PS18 instructions say discussing or recommending is not saving',
+     /Recommending or discussing a place is not saving it/.test(ins) && /mentioning somewhere is not checking in/.test(ins));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

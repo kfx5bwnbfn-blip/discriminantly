@@ -1913,6 +1913,65 @@ const ICONS = {
   lens: '<svg viewBox="0 0 44 48" width="44" height="48" aria-hidden="true"><defs><linearGradient id="glare" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="18" cy="17" r="12.6" fill="url(%23glare)"/><circle cx="18" cy="17" r="12.6" fill="none" stroke="currentColor" stroke-width="3"/><path d="M26.9 26.2 29.4 28.7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="31.4" cy="31" r="2.3" fill="currentColor"/><circle cx="31.8" cy="36.4" r="1.7" fill="currentColor"/><circle cx="32" cy="41.4" r="1.3" fill="currentColor"/></svg>',
 };
 
+// Publisher and contact are configuration, not copy: set PUBLISHER_NAME and
+// SUPPORT_EMAIL on the server. Until SUPPORT_EMAIL is set the pages say so
+// plainly rather than showing an address nobody reads.
+const PUBLISHER = () => (process.env.PUBLISHER_NAME || '').trim();
+const SUPPORT_EMAIL = () => (process.env.SUPPORT_EMAIL || '').trim();
+function policyPage(req, res, me, which) {
+  const who = PUBLISHER() ? esc(PUBLISHER()) : 'the operator of Discriminantly';
+  const email = SUPPORT_EMAIL();
+  const contact = email
+    ? `<a href="mailto:${esc(email)}">${esc(email)}</a>`
+    : '<em>a support address has not been published yet</em>';
+  const P = (t) => `<p class="policy-p">${t}</p>`, H = (t) => `<h2 class="policy-h">${t}</h2>`;
+  const pages = {
+    privacy: ['Privacy', [
+      P(`Discriminantly is operated by ${who}. This page explains what Discriminantly keeps, who can see it, and what happens when you connect an AI assistant. Questions: ${contact}.`),
+      H('What we keep'),
+      P('Your account: your name, handle, email address, and password (stored only as a salted scrypt hash, never in readable form). Your profile: a short bio, a website, and an avatar if you add them.'),
+      P('What you add: notes, travel marks, check-ins, collections, itineraries, ensembles, comments, warrants, ownership records, and the photos attached to them.'),
+      P('AI connections: when you connect an assistant such as ChatGPT or Claude, we record which assistant it is, when you connected it, when it was last used, and, for each change it makes, that it acted on your behalf. We store only hashed versions of the credentials it uses.'),
+      P('Cookies: one cookie keeps you signed in, and two remember your chosen look (skin and light or dark mode). There is no advertising, no analytics, and no tracking across other sites.'),
+      H('Who can see it'),
+      P('Notes and travel marks are visible to other members, and can be viewed by anyone with the link, unless you mark them private. Itineraries start private. Private things are visible only to you and to AI assistants you have connected. Your email address is never shown to other members.'),
+      H('AI assistants you connect'),
+      P('A connected assistant can read everything you keep here, including private things, and can add, change, and remove things on your behalf. Everything it does is recorded as that assistant acting for you. What the assistant itself retains from your conversations is governed by its own provider\u2019s policies. You can disconnect any assistant at any time in Settings; it loses access immediately.'),
+      H('Services we rely on'),
+      P('Discriminantly is hosted by Railway, on servers in Amsterdam, the Netherlands. When you or your assistant look up a place, the place name is sent to Photon, an open map search service run by Komoot. When you give an image link, Discriminantly fetches that image from the site it links to. Pages load fonts from Google Fonts. We do not sell or share your information with anyone else.'),
+      H('Keeping and deleting'),
+      P(`We keep what you add until you delete it. You can delete notes, marks, check-ins, itineraries, and ensembles yourself at any time, and deletion is immediate. To delete your whole account, or to get a copy of your data, write to ${contact}.`),
+      H('Changes'),
+      P('If this policy changes in a way that matters, we will say so on the site before the change takes effect.'),
+    ]],
+    terms: ['Terms', [
+      P(`These terms govern your use of Discriminantly, operated by ${who}. By using it you agree to them. Questions: ${contact}.`),
+      H('Your account'),
+      P('Discriminantly is invitation-only. Keep your password to yourself; you are responsible for what happens under your account, including what AI assistants you connect do on your behalf.'),
+      H('Your content'),
+      P('What you add stays yours. You give Discriminantly permission to store it and to show it to the people your privacy settings allow, only for the purpose of running the service. Only add things you have the right to share, and nothing unlawful, abusive, or that infringes someone else\u2019s rights.'),
+      H('AI assistants'),
+      P('When you connect an assistant, you authorize it to act for you here. It can make mistakes; check what it records. You can disconnect it at any time in Settings.'),
+      H('The service'),
+      P('Discriminantly is provided as it is, without warranties. We may change or discontinue features, and may suspend accounts that break these terms. To the extent the law allows, we are not liable for indirect or consequential losses arising from your use of it.'),
+      H('Changes'),
+      P('We may update these terms and will say so on the site when we do. Continuing to use Discriminantly after that means you accept the updated terms.'),
+    ]],
+    support: ['Support', [
+      P(`For help with Discriminantly, write to ${contact}.`),
+      H('Connecting an AI assistant'),
+      P('Add Discriminantly from your assistant\u2019s connector or plugin settings, sign in with your Discriminantly account, and approve access. To disconnect, open Settings here and choose Revoke next to that assistant; it loses access immediately.'),
+      H('Your data'),
+      P(`You can delete individual notes, marks, check-ins, itineraries, and ensembles yourself. To delete your account or get a copy of your data, write to ${contact}.`),
+      H('Policies'),
+      P('<a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a>'),
+    ]],
+  };
+  const [title, parts] = pages[which];
+  return send(res, layout({ title, me, req,
+    body: `<h3 class="strip">${title}</h3><div class="settings policy">${parts.join('')}</div>` }));
+}
+
 function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
   req = req || CURRENT_REQ;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -4920,6 +4979,14 @@ async function resolveAssetRef(userId, ref, ctx, source, what) {
   const uid = (ref && typeof ref.image_uid === 'string') ? ref.image_uid.trim() : '';
   if (uid) return resolveOwnedImageUid(userId, uid, what);
   const inline = (ref && typeof ref.image === 'string') ? ref.image.trim() : '';
+  // The documented way to attach an uploaded image is the /i/<id> reference
+  // upload_image returns, and tools advertise it in `image` -- but it used to
+  // fall through to the URL ingester, which cannot read it, so the documented
+  // path always failed. A reference to an image already stored here (bare,
+  // /i/<id>, or this site's own absolute /i/ URL) now goes through the same
+  // ownership check as image_uid: a member can only attach their own images.
+  const own = new RegExp('^(?:' + PUBLIC_ORIGIN.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + ')?(?:/i/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$', 'i').exec(inline);
+  if (own) return resolveOwnedImageUid(userId, own[1], what);
   if (inline) return await ingestImage(userId, inline, ctx, source, what);
   return null;
 }
@@ -5001,7 +5068,7 @@ async function ingestImage(userId, input, ctx, source, what) {
   if (!v) return null;
   const dataUrl = /^data:image\//i.test(v) ? v
     : /^https?:\/\//i.test(v) ? await fetchImageAsDataUrl(v, what)
-    : (() => { throw new Error(`${what}: expected an https:// image URL or a data: URL, got "${v.slice(0, 48)}".`); })();
+    : (() => { throw new Error(`${what}: expected an https:// image URL, a data: URL, or the /i/<id> reference that upload_image returns, got "${v.slice(0, 48)}"${/^[0-9a-f-]{36}$/i.test(v) ? ` -- for a stored image, pass "/i/${v}"` : ''}.`); })();
   const uid = storeImageStrict(userId, dataUrl, ctx, source, what);
   // prove it, rather than trusting the insert
   const row = q('SELECT COALESCE(byte_count, length(bytes)) n, mime FROM images WHERE uid=?').get(uid);
@@ -7835,6 +7902,94 @@ const TOOLS = [
       limit: { type: 'integer' } } } },
 
 ];
+// ---- tool annotations -------------------------------------------------------
+// Every tool declares how it behaves, in the MCP-standard annotations that
+// ChatGPT (and any other client) uses to decide how much caution a call needs.
+// These are product metadata reviewed at submission, not comments: each value
+// follows from what the tool actually does, per these definitions --
+//   readOnly    it cannot change anything.
+//   destructive it can delete, or overwrite what the member wrote with no copy
+//               kept (provenance records THAT a record was edited, not its
+//               previous contents, so an edit is not reversible from here).
+//   openWorld   it reaches the public internet (Photon place lookup, fetching
+//               an image URL), or it makes something newly visible to other
+//               people: content that is public by default, publishing, a
+//               comment, a warrant, or changing privacy. Edits inside a record
+//               whose visibility is already set do not change who can see it.
+// [title, readOnly, destructive, openWorld]
+const TOOL_ANNOTATIONS = {
+  // reading the member's own catalogue (and other members' public notes)
+  my_notes:                   ['List my notes', true, false, false],
+  my_travel_marks:            ['List my travel marks', true, false, false],
+  my_collections:             ['List my collections', true, false, false],
+  my_itineraries:             ['List or open my itineraries', true, false, false],
+  search_catalogue:           ['Search my catalogue', true, false, false],
+  catalogue_stats:            ['Count what is in my catalogue', true, false, false],
+  recent_notes:               ['Recent notes across Discriminantly', true, false, false],
+  list_ensembles:             ['List my ensembles', true, false, false],
+  get_ensemble:               ['Open an ensemble', true, false, false],
+  list_unresolved_components: ['List unidentified ensemble pieces', true, false, false],
+  list_checkins:              ['List check-ins on a travel mark', true, false, false],
+  read_comments:              ['Read comments', true, false, false],
+  view_images:                ['View images from my catalogue', true, false, false],
+  verify_place:               ['Look up a place in map data', true, false, true],
+  // creating records -- notes and marks are public unless the member says private
+  note_object:                ['Add a note', false, false, true],
+  add_travel_mark:            ['Add a travel mark', false, false, true],
+  re_note:                    ['Re-note another member\u2019s note', false, false, true],
+  log_visit:                  ['Check in at a travel mark', false, false, false],
+  comment:                    ['Comment on a note or mark', false, false, true],
+  warrant:                    ['Warrant (stand behind) something', false, false, true],
+  record_note_ownership:      ['Record that I own this', false, false, false],
+  release_note_ownership:     ['Record that I no longer own this', false, false, false],
+  create_itinerary:           ['Start an itinerary', false, false, true],
+  add_itinerary_stops:        ['Add stops to an itinerary', false, false, false],
+  arrange_itinerary:          ['Arrange an itinerary\u2019s days', false, false, false],
+  resolve_itinerary_stop:     ['Link a stop to a travel mark', false, false, false],
+  // edits: overwrite what was there, with no copy kept
+  edit_note:                  ['Edit a note', false, true, true],
+  edit_travel_mark:           ['Edit a travel mark', false, true, true],
+  edit_checkin:               ['Edit a check-in', false, true, false],
+  update_itinerary:           ['Edit or publish an itinerary', false, true, true],
+  update_itinerary_temporal:  ['Change itinerary dates or times', false, true, false],
+  update_itinerary_stop:      ['Edit an itinerary stop', false, true, true],
+  edit_ensemble:              ['Edit an ensemble', false, true, true],
+  set_primary_artifact:       ['Choose an ensemble\u2019s main image', false, false, false],
+  // withdrawing a stand, with history kept -- reversible, so not destructive
+  revoke_warrant:             ['Withdraw a warrant', false, false, false],
+  // deletions and removals
+  delete_note:                ['Delete a note', false, true, false],
+  delete_travel_mark:         ['Delete a travel mark', false, true, false],
+  delete_checkin:             ['Delete a check-in', false, true, false],
+  delete_itinerary_entity:    ['Delete an itinerary, day or stop', false, true, false],
+  delete_ensemble:            ['Delete an ensemble', false, true, false],
+  discard_ensemble:           ['Discard a staged ensemble', false, true, false],
+  remove_ensemble_artifact:   ['Remove an ensemble image', false, true, false],
+  remove_ensemble_component:  ['Remove an ensemble piece', false, true, false],
+  correct_note_ownership_mistake: ['Withdraw a mistaken ownership record', false, true, false],
+  // ensembles: staged privately until kept
+  create_pending_ensemble:    ['Stage an ensemble', false, false, false],
+  keep_ensemble:              ['Keep a staged ensemble', false, false, true],
+  add_ensemble_artifact:      ['Add an image to an ensemble', false, false, false],
+  add_ensemble_component:     ['Add a piece to an ensemble', false, false, false],
+  resolve_ensemble_component: ['Identify an ensemble piece', false, false, false],
+  // image transport: bytes stay private to the member until used
+  upload_image:               ['Save an image', false, false, true],
+  begin_image_upload:         ['Start sending an image', false, false, false],
+  upload_image_chunk:         ['Send part of an image', false, false, false],
+  start_image_upload:         ['Start sending an image (compatibility)', false, false, false],
+  finish_image_upload:        ['Finish sending an image (compatibility)', false, false, false],
+};
+for (const t of TOOLS) {
+  const a = TOOL_ANNOTATIONS[t.name];
+  // Fail at startup, not at review: a tool without annotations must not ship.
+  if (!a) throw new Error(`Tool ${t.name} has no annotations -- add it to TOOL_ANNOTATIONS`);
+  t.title = a[0];
+  t.annotations = { title: a[0], readOnlyHint: a[1], destructiveHint: a[2], openWorldHint: a[3] };
+}
+for (const n of Object.keys(TOOL_ANNOTATIONS))
+  if (!TOOLS.some((t) => t.name === n)) throw new Error(`TOOL_ANNOTATIONS names ${n}, which is not a tool`);
+
 // Duplicate detection: a cheap normalized-string match rather than a new
 // dependency. Catches "de Buyer Mineral B" vs "de Buyer Mineral B Pro, 28cm"
 // — the common way a catalogue quietly forks the same object into two rows.
@@ -9158,11 +9313,11 @@ async function mcp(req, res, tok) {
 
 HOW TO WORK HERE. Never say something was saved before the tool call that saves it has returned successfully. If a call fails you will get a reference code — tell the member it failed, quote the reason and the code, and never quietly carry on as if it worked. Do not retry an identical failing call more than once. When a tool result tells you what to do next, do it without pausing to ask the member: internal plumbing is not their decision. Confirm before deleting anything.
 
-WHAT LIVES HERE. Notes are objects the member recorded. Travel marks are places they went, with check-ins recording when. Collections group either. A note or mark means they thought it worth recording — never that they own or endorse it; ownership is record_note_ownership and endorsement is warrant, each its own deliberate act. Comments are remarks in conversation, not records of taste.
+WHAT LIVES HERE. Notes are things the member recorded. Travel marks are places worth remembering — a mark alone does not mean they went; a check-in (log_visit) is the record that they did, and only when they say so. Itineraries are plans: an intention, not a record of going. Collections group notes or marks. A note or mark means they thought it worth recording — never that they own or endorse it; ownership is record_note_ownership and endorsement is warrant, each its own deliberate act. Comments are remarks in conversation, not records of taste. Notes and marks are visible to other members unless marked private; itineraries start private. Honour whatever the member says about privacy.
 
 BEFORE ANSWERING ABOUT THEIR CATALOGUE. For anything like \"have I noted…\", \"what's in my…\", \"how many…\", call search_catalogue or catalogue_stats. Do not answer from memory of this conversation, and do not settle for recent_notes.
 
-WRITING. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
+WRITING. Write only when the member asks you to keep, note, mark, check in or plan something. Recommending or discussing a place is not saving it, and mentioning somewhere is not checking in. When what they want is clear, just do it; ask only when it is genuinely ambiguous. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
 
 IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again.
 
@@ -9196,13 +9351,14 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
       // Deliberate refusals carry a message written for the member. An
       // unexpected fault does not, and must not leak internals — but it is the
       // one we most want in the log.
-      const deliberate = e instanceof Error && !!e.message && !/^(Cannot read|Cannot access|undefined is not|.* is not a function)/.test(e.message);
+      const dbFault = e && (/^ERR_SQLITE/.test(String(e.code || '')) || /SQLITE|constraint failed|no such (table|column)|syntax error|database is locked/i.test(String(e.message || '')));
+      const deliberate = e instanceof Error && !!e.message && !dbFault && !/^(Cannot read|Cannot access|undefined is not|.* is not a function)/.test(e.message);
       const argKeys = Object.keys(params.arguments || {}).join(',');   // names only, never values
       console.log(`[tool-error] ref=${ref} tool=${params.name} member=@${user.handle} args=[${argKeys}] `
         + `kind=${deliberate ? 'refused' : 'fault'} msg=${JSON.stringify(String(e.message || '').slice(0, 300))}`);
       if (!deliberate && e && e.stack) console.log(`[tool-error] ref=${ref} stack=${e.stack.split('\n').slice(0, 3).join(' | ')}`);
       const detail = deliberate ? e.message
-        : 'Something went wrong inside discriminant.ly while running this. Nothing was saved.';
+        : 'Something went wrong inside Discriminantly while running this, so it may not have completed. Check what exists before trying again.';
       return reply(id, {
         content: [{ type: 'text', text: `${detail}\n\n[${params.name} failed — reference ${ref}] `
           + `TELL THE MEMBER THIS FAILED, quote the reason and this reference, and say what you were attempting. `
@@ -9379,6 +9535,15 @@ async function handle(req, res) {
   // ---- OAuth discovery ------------------------------------------------------
   // Advertises only what is actually implemented. S256 is mandatory: the MCP
   // authorization spec treats a server whose metadata omits it as unsupported.
+  // OpenAI plugin domain verification. The portal issues a token; set it as
+  // OPENAI_APPS_CHALLENGE on the server. The response must be that token and
+  // nothing else -- no JSON, no newline, no page -- so it is sent raw.
+  if (p === '/.well-known/openai-apps-challenge' && m === 'GET') {
+    const tokenValue = (process.env.OPENAI_APPS_CHALLENGE || '').trim();
+    if (!tokenValue) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(tokenValue);
+  }
   if (p === '/.well-known/oauth-protected-resource' && m === 'GET') {
     return send(res, JSON.stringify({
       resource: MCP_RESOURCE(),
@@ -9566,6 +9731,11 @@ async function handle(req, res) {
   }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
+  // ---- public policy pages ------------------------------------------------
+  // Required for public plugin listing. Written to match what this server
+  // actually does; the publisher name and contact address come from the
+  // environment rather than being invented here.
+  if (p === '/privacy' || p === '/terms' || p === '/support') return policyPage(req, res, me, p.slice(1));
   if (p === '/about') return pages.about(req, res, me);
   if (p === '/welcome') return pages.welcome(req, res, me);
   if (p === '/objects.json') return json(res, q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
