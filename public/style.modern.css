@@ -2369,13 +2369,37 @@ body[data-skin="modern"] .rail .pgrp-nav .wtable.pgrp-group:not(.settings-table)
   justify-content: center; text-align: center; }
 body[data-skin="modern"] .rail .pgrp-nav .pgrp-solo .wcell-wide { padding: 0; }
 
-/* group chips: the current tab highlights the chip itself, as before */
-body[data-skin="modern"] .pgrp-nav .pgrp-group .wcell.on { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
-/* All activity / Warrants: highlight the one real box (the card), not the
-   padding-less inner element, so there is never a second box inside it */
-body[data-skin="modern"] .pgrp-nav .pgrp-solo:has(.wcell.on) { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+/* ---- active tab --------------------------------------------------------
+   Two signals, so it reads at a glance without relying on either alone: a
+   one-step more opaque surface, and a small soft dot under the label.
+
+   The welcome table's own chip rule comes in dark, light and system-light
+   versions, each more specific than the last, and every one of them was
+   outranking a single active rule -- so group chips showed no active state at
+   all. The active rule mirrors the same three prefixes, one level deeper
+   (.pgrp-nav, .on), so it wins in every mode. The chip's existing shadow is
+   left alone rather than replaced. */
+body[data-skin="modern"] .rail .pgrp-nav .wtable:not(.settings-table) > .wcell.on:not(.wcell-wide),
+body[data-skin="modern"][data-mode="light"] .rail .pgrp-nav .wtable:not(.settings-table) > .wcell.on:not(.wcell-wide),
+html.m-light body[data-skin="modern"][data-mode="system"] .rail .pgrp-nav .wtable:not(.settings-table) > .wcell.on:not(.wcell-wide) {
+  background: var(--m-glass-2);
+}
+/* All activity / Warrants: the card is the one visible box, so it is what
+   brightens; its drop shadow stays exactly as on the welcome table. */
+body[data-skin="modern"] .pgrp-nav .pgrp-solo:has(.wcell.on) { background: var(--m-glass-2); }
+
+/* The dot hangs off the label itself, positioned out of flow, so the active
+   chip is exactly the same size as an inactive one -- nothing shifts when
+   the tab changes. The accent token is already tuned per mode. */
+.pgrp-nav .wcell.on span { position: relative; }
+.pgrp-nav .wcell.on span::after {
+  content: ""; position: absolute; left: 50%; top: calc(100% + .38rem);
+  width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
+  background: var(--m-accent); filter: blur(.6px);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--m-accent) 70%, transparent);
+}
 .pgrp-all-short { display: none; }
-body[data-skin="modern"] .pgrp-nav .pgrp-solo { min-height: 4.3rem; }
+body[data-skin="modern"] .pgrp-nav .pgrp-solo { min-height: 5.1rem; }
 
 /* The real welcome table's shadow (reused as-is below) is a soft, wide one --
    fine sitting on a static page, but a horizontal scroll container implicitly

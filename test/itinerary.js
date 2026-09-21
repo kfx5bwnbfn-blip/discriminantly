@@ -890,9 +890,19 @@ console.log('\nprofile rail follow-ups');
   const css = CSS_MODERN.slice(CSS_MODERN.indexOf('PROFILE RAIL'));
   const mobileCss = css.slice(css.indexOf('@media (max-width: 52rem)'));
   ok('R12 the active state highlights the one real box, not a second one inside it',
-     /\.pgrp-nav \.pgrp-group \.wcell\.on \{ background/.test(css)
-     && /\.pgrp-nav \.pgrp-solo:has\(\.wcell\.on\) \{ background/.test(css)
+     /\.pgrp-nav \.pgrp-solo:has\(\.wcell\.on\) \{ background: var\(--m-glass-2\); \}/.test(css)
      && !/\.pgrp-solo \.wcell-wide \{[^}]*background/.test(css));
+  ok('R18 group-chip active state mirrors all three welcome-table chip prefixes, so it wins in every mode',
+     /body\[data-skin="modern"\] \.rail \.pgrp-nav \.wtable:not\(\.settings-table\) > \.wcell\.on:not\(\.wcell-wide\)/.test(css)
+     && /body\[data-skin="modern"\]\[data-mode="light"\] \.rail \.pgrp-nav \.wtable:not\(\.settings-table\) > \.wcell\.on:not\(\.wcell-wide\)/.test(css)
+     && /html\.m-light body\[data-skin="modern"\]\[data-mode="system"\] \.rail \.pgrp-nav \.wtable:not\(\.settings-table\) > \.wcell\.on:not\(\.wcell-wide\)/.test(css));
+  // the dot's own glow is a box-shadow on ::after, which is fine -- what must
+  // never happen is the chip or card losing its real shadow when active
+  const noDot = css.replace(/[^{}]*::after \{[^}]*\}/g, '');
+  ok('R19 the active state never replaces the drop shadow',
+     !/\.wcell\.on[^{]*\{[^}]*box-shadow/.test(noDot) && !/:has\(\.wcell\.on\) \{[^}]*box-shadow/.test(noDot));
+  ok('R20 the active dot is out of flow and uses the per-mode accent, so nothing shifts',
+     /\.pgrp-nav \.wcell\.on span::after \{[^}]*position: absolute[^}]*background: var\(--m-accent\)/.test(css));
   ok('R13 the scroll row has shadow room on all four sides, not clipped',
      /padding: 20px 12px 36px/.test(mobileCss));
   ok('R16 the side room is pulled back by exactly the rail padding, so the page never scrolls sideways',
