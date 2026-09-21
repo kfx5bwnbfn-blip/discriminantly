@@ -2404,9 +2404,9 @@ body[data-skin="modern"] .pgrp-nav .pgrp-solo:has(.wcell.on) { background: var(-
 .pgrp-nav .wcell.on span { position: relative; }
 .pgrp-nav .wcell.on span::after {
   content: ""; position: absolute; left: 50%; top: calc(100% + .38rem);
-  width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%;
-  background: var(--m-accent); filter: blur(.6px);
-  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--m-accent) 70%, transparent);
+  width: 4px; height: 4px; margin-left: -2px; border-radius: 50%;
+  background: var(--m-accent); filter: blur(1.1px); opacity: .8;
+  box-shadow: 0 0 5px 0 color-mix(in srgb, var(--m-accent) 55%, transparent);
 }
 .pgrp-all-short { display: none; }
 body[data-skin="modern"] .pgrp-nav .pgrp-solo { min-height: 5.1rem; }
