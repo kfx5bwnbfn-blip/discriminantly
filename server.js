@@ -6030,8 +6030,8 @@ const pages = {
       const warrantTally = warrantedSubjectUids(me.id, 'object').size + warrantedSubjectUids(me.id, 'mark').size;
       const itinTally = q('SELECT COUNT(*) c FROM itineraries WHERE user_id=?').get(me.id).c;
       const fc = followCounts(me.id);   // shown as following:followers
-      const fl = (k, label, short) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${short}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${label}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
-      rail = `<ul class="feednav">${fl('all', 'All Discriminant.ly', 'All')}${fl('following', 'From People You Follow', 'Following')}${fl('followers', 'From Your Followers', 'Followers')}</ul>
+      const fl = (k, name) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${name}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${name}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
+      rail = `<ul class="feednav">${fl('all', 'All')}${fl('following', 'Following')}${fl('followers', 'Followers')}</ul>
       <div class="wtable">
         <div class="wcell wcell-wide"><a href="/u/${esc(me.handle)}">${avatar(me, 'avatar big')}</a><p class="welcome-name">Welcome ${esc(me.handle)}</p></div>
         <div class="wcells">

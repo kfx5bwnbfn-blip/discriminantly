@@ -368,7 +368,8 @@ body[data-skin="modern"] .arc-title text, body[data-skin="modern"] .arc-title te
 body[data-skin="modern"] .feednav { margin-left: 0; margin-right: 0; padding: 4px; display: grid; gap: 2px; }
 body[data-skin="modern"] .feednav li + li::before, body[data-skin="modern"] .feednav li::after { display: none; }
 body[data-skin="modern"] .feednav a { color: var(--m-ink-2); border-radius: 14px; padding: .75rem .9rem;
-  background: transparent; background-image: none; box-shadow: none; }
+  background: transparent; background-image: none; box-shadow: none;
+  justify-content: center; text-align: center; gap: .4rem; }
 body[data-skin="modern"] .feednav a:hover { color: var(--m-ink); background: var(--m-glass-2); }
 body[data-skin="modern"] .feednav a.on { background: var(--m-glass-2); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line); }
 body[data-skin="modern"] .feednav a span { color: var(--m-ink-3); }
