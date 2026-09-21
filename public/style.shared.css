@@ -914,3 +914,8 @@
 .policy { max-width: 40rem; margin: 0 auto; text-align: left; }
 .policy-h { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; font-weight: 700; margin: 1.6rem 0 .4rem; }
 .policy-p { font-size: .95rem; line-height: 1.55; margin: 0 0 .8rem; }
+.policy-date { font-size: .72rem; opacity: .7; margin: 0 0 1.2rem; }
+/* the welcome page's small-print links to the policy pages */
+.welcome-foot { text-align: center; margin: 2.4rem auto 2rem; }
+body[data-skin] footer.welcome-foot a { color: inherit; text-decoration: none; }
+body[data-skin] footer.welcome-foot a:hover { text-decoration: underline; }

@@ -987,5 +987,45 @@ console.log('\nplugin submission');
      /Recommending or discussing a place is not saving it/.test(ins) && /mentioning somewhere is not checking in/.test(ins));
 }
 
+// ---- policy pages: accuracy and no placeholders ------------------------------
+console.log('\npolicy pages');
+{
+  const pp = SRC.slice(SRC.indexOf('function policyPage('), SRC.indexOf("function layout({ title, body, me, flash"));
+  const all = SRC.slice(SRC.indexOf('// Publisher and contact are configuration'), SRC.indexOf("function layout({ title, body, me, flash"));
+  ok('PP1 no placeholder operator or contact wording can be published',
+     !/operator of Discriminantly|has not been published|not been published yet/.test(all));
+  ok('PP2 without PUBLISHER_NAME and SUPPORT_EMAIL the pages refuse to render (503)',
+     /if \(!PUBLISHER\(\) \|\| !SUPPORT_EMAIL\(\)\) \{[\s\S]{0,300}503\)/.test(pp));
+  ok('PP3 a malformed support address counts as unset',
+     /return \/\^\[\^\\s@<>"\]\+@/.test(all));
+  ok('PP4 the configured publisher and address are escaped before rendering',
+     /const who = esc\(PUBLISHER\(\)\), email = SUPPORT_EMAIL\(\);/.test(pp) && /mailto:\$\{esc\(email\)\}/.test(pp));
+  ok('PP5 privacy and terms carry an effective and a last-updated date',
+     /const POLICY_DATE = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all) && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{POLICY_DATE\}/.test(pp)
+     && /privacy: \['Privacy', dated,/.test(pp) && /terms: \['Terms', dated,/.test(pp));
+  ok('PP6 every page links to the other two',
+     /<a href="\/terms">Terms<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)
+     && /<a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)
+     && /<a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/terms">Terms<\/a>/.test(pp));
+  ok('PP7 no environment secret is ever rendered',
+     !/OPENAI_APPS_CHALLENGE|ADMIN_PASSWORD|DB_PATH|process\.env\.(?!PUBLISHER_NAME|SUPPORT_EMAIL)/.test(pp));
+  ok('PP8 claims that proved untrue are gone',
+     !/We store only hashed versions/.test(pp) && !/do not sell or share your information with anyone else/i.test(pp)
+     && !/deletion is immediate/.test(pp) && !/Private things are visible only to you/.test(pp)
+     && !/invitation-only/i.test(pp) && !/What you add stays yours/.test(pp) && !/Everything it does is visible/.test(pp));
+  ok('PP9 the disclosures the implementation requires are present',
+     /Adobe Fonts/.test(pp) && /OpenStreetMap/.test(pp) && /Photon/.test(pp) && /visits that address from its server/.test(pp)
+     && /operator can also access stored information/.test(pp) && /does not use what you keep to train AI models/.test(pp)
+     && /copies can remain in backups/.test(pp) && /photos that were attached to it stay in storage/.test(pp)
+     && /Account deletion is currently done by hand/.test(pp));
+  ok('PP10 the AI-training claim is still true: the server calls no AI provider',
+     !/api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis|replicate\.com/.test(SRC.replace(/\/\/[^\n]*/g, '')));
+}
+
+{
+  ok('PP11 the welcome page links to Privacy, Terms and Support',
+     /<footer class="welcome-foot fine"><a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/terms">Terms<\/a> \\u00b7 <a href="\/support">Support<\/a><\/footer>/.test(SRC));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

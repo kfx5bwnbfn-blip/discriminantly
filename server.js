@@ -1914,62 +1914,99 @@ const ICONS = {
 };
 
 // Publisher and contact are configuration, not copy: set PUBLISHER_NAME and
-// SUPPORT_EMAIL on the server. Until SUPPORT_EMAIL is set the pages say so
-// plainly rather than showing an address nobody reads.
+// SUPPORT_EMAIL on the server. Nothing here invents either. Until both are
+// set, the policy pages refuse to render (503) rather than publish a
+// half-finished policy with a placeholder where the operator or address
+// should be.
 const PUBLISHER = () => (process.env.PUBLISHER_NAME || '').trim();
-const SUPPORT_EMAIL = () => (process.env.SUPPORT_EMAIL || '').trim();
+const SUPPORT_EMAIL = () => {
+  const e = (process.env.SUPPORT_EMAIL || '').trim();
+  return /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(e) ? e : '';
+};
+// The date this wording took effect. Change it whenever the text changes.
+const POLICY_DATE = '21 September 2026';
+if (!PUBLISHER() || !SUPPORT_EMAIL())
+  console.warn('Policy pages are offline until PUBLISHER_NAME and SUPPORT_EMAIL are set.');
+
 function policyPage(req, res, me, which) {
-  const who = PUBLISHER() ? esc(PUBLISHER()) : 'the operator of Discriminantly';
-  const email = SUPPORT_EMAIL();
-  const contact = email
-    ? `<a href="mailto:${esc(email)}">${esc(email)}</a>`
-    : '<em>a support address has not been published yet</em>';
+  if (!PUBLISHER() || !SUPPORT_EMAIL()) {
+    return send(res, layout({ title: 'Not yet available', me, req,
+      body: `<h3 class="strip">Not yet available</h3><div class="settings policy"><p class="policy-p">This page is being prepared and isn\u2019t published yet.</p></div>` }), 503);
+  }
+  const who = esc(PUBLISHER()), email = SUPPORT_EMAIL();
+  const contact = `<a href="mailto:${esc(email)}">${esc(email)}</a>`;
+  const mcpUrl = esc(PUBLIC_ORIGIN + '/mcp');
   const P = (t) => `<p class="policy-p">${t}</p>`, H = (t) => `<h2 class="policy-h">${t}</h2>`;
+  const dated = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${POLICY_DATE}</p>`;
   const pages = {
-    privacy: ['Privacy', [
+    privacy: ['Privacy', dated, [
       P(`Discriminantly is operated by ${who}. This page explains what Discriminantly keeps, who can see it, and what happens when you connect an AI assistant. Questions: ${contact}.`),
       H('What we keep'),
-      P('Your account: your name, handle, email address, and password (stored only as a salted scrypt hash, never in readable form). Your profile: a short bio, a website, and an avatar if you add them.'),
+      P('Your account: your name, handle, email address and password. Your password is stored only as a salted scrypt hash, never in readable form. Your profile: a bio, a website and an avatar, if you add them.'),
       P('What you add: notes, travel marks, check-ins, collections, itineraries, ensembles, comments, warrants, ownership records, and the photos attached to them.'),
-      P('AI connections: when you connect an assistant such as ChatGPT or Claude, we record which assistant it is, when you connected it, when it was last used, and, for each change it makes, that it acted on your behalf. We store only hashed versions of the credentials it uses.'),
-      P('Cookies: one cookie keeps you signed in, and two remember your chosen look (skin and light or dark mode). There is no advertising, no analytics, and no tracking across other sites.'),
+      P('A history of changes: when something is added, changed or removed, and whether you did it yourself or an assistant did it for you.'),
+      P('AI connections: which assistants you have connected, when you connected them, when each was last used, and the credentials they use to connect.'),
+      P('Cookies: one cookie keeps you signed in, and two remember your chosen look (the skin, and light or dark mode). Discriminantly itself runs no analytics and no advertising, and does not track you across other sites.'),
       H('Who can see it'),
-      P('Notes and travel marks are visible to other members, and can be viewed by anyone with the link, unless you mark them private. Itineraries start private. Private things are visible only to you and to AI assistants you have connected. Your email address is never shown to other members.'),
+      P('Notes, travel marks and ensembles are visible to other members, and to anyone with the link, unless you mark them private. Itineraries start private. Check-ins, collection names, comments and warrants appear with the note or mark they belong to, so whoever can see that note or mark can see them too. Ownership records are visible only to you and assistants you connect. Your email address is never shown to other members.'),
+      P('Something you mark private is not visible to other members or the public. AI assistants you connect can see it, as described below. The operator can also access stored information, including private things, when that is needed to run, secure or support Discriminantly.'),
       H('AI assistants you connect'),
-      P('A connected assistant can read everything you keep here, including private things, and can add, change, and remove things on your behalf. Everything it does is recorded as that assistant acting for you. What the assistant itself retains from your conversations is governed by its own provider\u2019s policies. You can disconnect any assistant at any time in Settings; it loses access immediately.'),
+      P('When you connect an assistant, such as ChatGPT or Claude, it can read everything you keep here, including private things, and can add, change and remove things on your behalf. Each change it makes is recorded as that assistant acting for you.'),
+      P('What the assistant\u2019s provider keeps from your conversations, and how it uses it, is governed by that provider\u2019s own policies. You can disconnect an assistant in Settings at any time, and it loses access immediately.'),
+      H('AI training'),
+      P('Discriminantly does not use what you keep to train AI models, and does not itself send it to any AI provider. It reaches an AI provider only through an assistant you have connected.'),
       H('Services we rely on'),
-      P('Discriminantly is hosted by Railway, on servers in Amsterdam, the Netherlands. When you or your assistant look up a place, the place name is sent to Photon, an open map search service run by Komoot. When you give an image link, Discriminantly fetches that image from the site it links to. Pages load fonts from Google Fonts. We do not sell or share your information with anyone else.'),
+      P('Hosting: Discriminantly runs on Railway, a cloud hosting provider, which stores and processes what is kept here on our behalf.'),
+      P('Place lookups: when you or an assistant look up a place, Discriminantly sends the search text, such as a place name and city, to Photon, an open map search service run by Komoot. The request comes from our server, not your browser.'),
+      P('Links and images: when you add a link or an image link, Discriminantly visits that address from its server to fetch the image, or the page\u2019s title and picture. The site sees our server, not you.'),
+      P('In your browser: pages load fonts from Google Fonts and Adobe Fonts, and maps are shown from OpenStreetMap. Your browser contacts those services directly, so they receive your IP address and basic browser details.'),
+      H('Sharing and disclosure'),
+      P('We do not sell your personal information and do not share it with advertisers. We share it with the services above only as needed to run Discriminantly, and with the assistants you choose to connect. We may also disclose information when the law or valid legal process requires it, or when it is reasonably necessary to protect Discriminantly\u2019s security, investigate abuse or enforce our Terms.'),
       H('Keeping and deleting'),
-      P(`We keep what you add until you delete it. You can delete notes, marks, check-ins, itineraries, and ensembles yourself at any time, and deletion is immediate. To delete your whole account, or to get a copy of your data, write to ${contact}.`),
+      P('We keep what you add until you delete it. When you delete a note, mark, check-in, itinerary or ensemble, it is removed from your account right away. Some traces can remain afterwards: photos that were attached to it stay in storage, though no longer shown with it; the history of changes keeps a record that it existed and was removed; and copies can remain in backups until those backups are removed.'),
+      P(`To delete your whole account, write to ${contact}. Account deletion is currently done by hand, so it may take a little time.`),
+      H('Security'),
+      P('We take reasonable technical and organizational measures to protect your account and what you keep here. No online service can guarantee complete security.'),
       H('Changes'),
-      P('If this policy changes in a way that matters, we will say so on the site before the change takes effect.'),
+      P('If we change this policy in a way that matters, we will say so on the site. The date at the top shows when it last changed.'),
+      P('<a href="/terms">Terms</a> \u00b7 <a href="/support">Support</a>'),
     ]],
-    terms: ['Terms', [
-      P(`These terms govern your use of Discriminantly, operated by ${who}. By using it you agree to them. Questions: ${contact}.`),
+    terms: ['Terms', dated, [
+      P(`These terms cover your use of Discriminantly, which is operated by ${who}. By using Discriminantly you agree to them. Questions: ${contact}.`),
       H('Your account'),
-      P('Discriminantly is invitation-only. Keep your password to yourself; you are responsible for what happens under your account, including what AI assistants you connect do on your behalf.'),
-      H('Your content'),
-      P('What you add stays yours. You give Discriminantly permission to store it and to show it to the people your privacy settings allow, only for the purpose of running the service. Only add things you have the right to share, and nothing unlawful, abusive, or that infringes someone else\u2019s rights.'),
+      P('You need an account to add to Discriminantly and to use its private features. You are responsible for keeping your sign-in details safe, for choosing which AI assistants to connect, and for disconnecting any you no longer want.'),
+      H('What you add'),
+      P('You keep whatever rights you have in what you add: your writing, your photos, your links, and anything else.'),
+      P('You give Discriminantly permission to store, copy, process and display what you add, and to send it to assistants you have connected, only as needed to run Discriminantly and in line with your privacy settings. We do not claim ownership of it. Only add material you have the right to add.'),
+      H('Public things'),
+      P('Anything you make public can be seen, and copied, by other people. Making it private later hides it on Discriminantly, but cannot undo copies someone made while it was public. Only publish what you are comfortable sharing and have the right to share.'),
       H('AI assistants'),
-      P('When you connect an assistant, you authorize it to act for you here. It can make mistakes; check what it records. You can disconnect it at any time in Settings.'),
+      P('Connecting an assistant lets it act for you through Discriminantly. It can read what you keep, including private things, and add, change and delete records. AI assistants can make mistakes, so check what yours does. What it adds and changes shows up in Discriminantly, where you can review and correct it yourself, and you can disconnect an assistant at any time in Settings.'),
+      H('Acceptable use'),
+      P('Do not use Discriminantly to break the law, infringe other people\u2019s rights, or harass or abuse anyone. Do not try to access other people\u2019s accounts or data, disrupt or compromise the service, or overload it with automated requests.'),
+      H('If these terms are broken'),
+      P('If you break these terms, or your use puts the service or other people at risk, we may restrict or suspend your access. Suspension on its own does not delete your content. You can stop using Discriminantly at any time and ask us to delete your account; if an account is closed, what it holds is deleted as described in our Privacy policy.'),
       H('The service'),
-      P('Discriminantly is provided as it is, without warranties. We may change or discontinue features, and may suspend accounts that break these terms. To the extent the law allows, we are not liable for indirect or consequential losses arising from your use of it.'),
+      P('We work to keep Discriminantly running and what you keep safe, but it is provided as it is, without warranties. Features may change over time. If we ever decide to shut Discriminantly down, we will aim to give reasonable notice, and to help you keep a copy of what you have kept, where practical.'),
+      P('To the extent the law allows, we are not liable for indirect or consequential losses arising from your use of Discriminantly. Nothing in these terms limits rights you have that the law does not allow to be limited.'),
       H('Changes'),
-      P('We may update these terms and will say so on the site when we do. Continuing to use Discriminantly after that means you accept the updated terms.'),
+      P('We may update these terms. If we do, we will say so on the site, and the date at the top will change. Continuing to use Discriminantly after that means you accept the updated terms.'),
+      P('<a href="/privacy">Privacy</a> \u00b7 <a href="/support">Support</a>'),
     ]],
-    support: ['Support', [
+    support: ['Support', '', [
       P(`For help with Discriminantly, write to ${contact}.`),
       H('Connecting an AI assistant'),
-      P('Add Discriminantly from your assistant\u2019s connector or plugin settings, sign in with your Discriminantly account, and approve access. To disconnect, open Settings here and choose Revoke next to that assistant; it loses access immediately.'),
-      H('Your data'),
-      P(`You can delete individual notes, marks, check-ins, itineraries, and ensembles yourself. To delete your account or get a copy of your data, write to ${contact}.`),
-      H('Policies'),
+      P(`In your AI assistant, add Discriminantly from its apps, plugins or connectors (the name varies by assistant), sign in with your Discriminantly account, and approve access. If it asks for a server address, use ${mcpUrl}. Some assistants use a personal connector address instead, which you can create in Settings.`),
+      H('Disconnecting'),
+      P('Open Settings, find the assistant under Connected AI, and choose Revoke. It loses access immediately. If you use a personal connector address, choose Replace connector URL to stop the old address working.'),
+      H('Your account and data'),
+      P(`You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To delete your account, write to ${contact}.`),
       P('<a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a>'),
     ]],
   };
-  const [title, parts] = pages[which];
+  const [title, date, parts] = pages[which];
   return send(res, layout({ title, me, req,
-    body: `<h3 class="strip">${title}</h3><div class="settings policy">${parts.join('')}</div>` }));
+    body: `<h3 class="strip">${title}</h3><div class="settings policy">${date}${parts.join('')}</div>` }));
 }
 
 function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
@@ -7231,6 +7268,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   </div>
   <p class="welcome-caption welcome-caption-close">Add, change, explore and plan as naturally as you think and talk.</p>
 </section>
+<footer class="welcome-foot fine"><a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a> \u00b7 <a href="/support">Support</a></footer>
 <div class="curtain dialog" id="splash-install-dialog">
   <div class="curtain-frame"><div class="curtain-body">
     <div class="nf-box">
