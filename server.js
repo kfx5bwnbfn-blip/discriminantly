@@ -985,6 +985,23 @@ const MIGRATIONS = [
     db.exec('CREATE INDEX IF NOT EXISTS idx_oauth_tok_family ON oauth_tokens(family_id)');
   }],
 
+  // Every "visits for this mark" lookup scanned the whole visits table: the
+  // only index was on uid. Additive and safe to build on a live database.
+  ['046-visits-mark-index', () => {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_visits_mark ON visits(mark_id)');
+  }],
+
+  // Photos move out of the database into files beside it, on the same volume.
+  // `stored` says where a row's bytes live: NULL means still in the database
+  // (every existing row, until the background move reaches it), 'file' means
+  // on disk. `byte_count` is recorded once, so a size never depends on where
+  // the bytes happen to be.
+  ['047-image-files', () => {
+    if (!hasColumn('images', 'stored')) db.exec('ALTER TABLE images ADD COLUMN stored TEXT');
+    if (!hasColumn('images', 'byte_count')) db.exec('ALTER TABLE images ADD COLUMN byte_count INTEGER');
+    db.exec('UPDATE images SET byte_count = length(bytes) WHERE byte_count IS NULL');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -3055,6 +3072,93 @@ function imageDimensions(b, mime) {
 // of the five call sites reached it — actorCtx defaults to a web session, so
 // the four existing web-form callers get provenance with no change on their
 // part; the MCP upload tool passes mcpActor(user) explicitly.
+// ---- image storage ----------------------------------------------------------
+// Photos live as files on the same volume as the database, not inside it, so
+// the database (and every backup of it) stays small. IMAGE_STORE=db keeps new
+// photos in the database and pauses the move, as a kill switch; reads always
+// handle both, so nothing depends on the move having finished.
+const IMAGE_DIR = path.join(path.dirname(DB_PATH), 'images');
+const IMAGE_STORE = process.env.IMAGE_STORE === 'db' ? 'db' : 'file';
+// uids are UUIDs, so they are safe as file names. Sharded by prefix so no
+// single directory grows to tens of thousands of entries.
+const imagePath = (uid) => {
+  if (!/^[0-9a-f-]{36}$/i.test(String(uid))) throw new Error('bad image uid');
+  return path.join(IMAGE_DIR, uid.slice(0, 2), uid);
+};
+const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+
+// The bytes of an image row, wherever they are.
+function imageBytes(row) {
+  if (!row) return null;
+  if (row.stored === 'file') {
+    try { return fs.readFileSync(imagePath(row.uid)); } catch { return null; }
+  }
+  return row.bytes && row.bytes.length ? Buffer.from(row.bytes) : null;
+}
+const imageByteCount = (row) => (row ? (row.byte_count ?? (row.bytes ? row.bytes.length : 0)) : 0);
+
+// Move one image's bytes from the database to its file. The database copy is
+// cleared ONLY after the file has been written, synced to disk, read back and
+// found to have the same fingerprint. Any failure leaves the image exactly as
+// it was, still served from the database. Safe to call repeatedly.
+function moveImageToFile(uid) {
+  const row = q('SELECT * FROM images WHERE uid=?').get(uid);
+  if (!row || row.stored === 'file') return false;
+  const buf = row.bytes && row.bytes.length ? Buffer.from(row.bytes) : null;
+  if (!buf) return false;
+  const want = row.sha256 || sha256(buf);
+  if (sha256(buf) !== want) { console.error(`image ${uid}: database bytes do not match their recorded fingerprint; left in place`); return false; }
+  const final = imagePath(uid), tmp = final + '.tmp';
+  try {
+    fs.mkdirSync(path.dirname(final), { recursive: true });
+    const fd = fs.openSync(tmp, 'w');
+    try { fs.writeSync(fd, buf); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(tmp, final);
+    const back = fs.readFileSync(final);
+    if (back.length !== buf.length || sha256(back) !== want) throw new Error('read-back did not match');
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch {}
+    console.error(`image ${uid}: could not move to file (${e.message}); left in the database`);
+    return false;
+  }
+  // Only now is the database copy released. The zero-length value satisfies
+  // the column's NOT NULL; `stored` says where the bytes really are.
+  q("UPDATE images SET bytes = x'', stored = 'file', byte_count = ?, sha256 = ? WHERE uid = ? AND stored IS NULL")
+    .run(buf.length, want, uid);
+  return true;
+}
+
+const removeImageFile = (uid) => { try { fs.unlinkSync(imagePath(uid)); } catch {} };
+
+// Move existing photos a few at a time after startup, so a large library
+// never delays the server coming up. Resumable: whatever is left is picked up
+// on the next start. When everything has moved, the database is compacted
+// once to hand the freed space back.
+function imageBackfill() {
+  if (IMAGE_STORE !== 'file') return;
+  const failed = new Set();
+  let moved = 0;
+  const step = () => {
+    const rows = q('SELECT uid FROM images WHERE stored IS NULL LIMIT 60').all().filter((r) => !failed.has(r.uid));
+    if (!rows.length) {
+      const left = q('SELECT COUNT(*) c FROM images WHERE stored IS NULL').get().c;
+      if (moved) console.log(`Images: moved ${moved} to files${left ? `, ${left} left in the database after errors` : ''}.`);
+      if (moved && !left) {
+        try {
+          const before = fs.statSync(DB_PATH).size;
+          db.exec('VACUUM');
+          db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+          console.log(`Database compacted: ${(before / 1048576).toFixed(1)} MB -> ${(fs.statSync(DB_PATH).size / 1048576).toFixed(1)} MB.`);
+        } catch (e) { console.error('Compaction skipped:', e.message); }
+      }
+      return;
+    }
+    for (const r of rows.slice(0, 10)) { if (moveImageToFile(r.uid)) moved++; else failed.add(r.uid); }
+    setTimeout(step, 250);
+  };
+  setTimeout(step, 3000);
+}
+
 function storeImage(userId, value, actorCtx, source) {
   const v = (value || '').trim();
   const m = /^data:(image\/[a-z+.-]+);base64,(.+)$/i.exec(v);
@@ -3077,10 +3181,14 @@ function storeImage(userId, value, actorCtx, source) {
   // backfill. See the implementation notes.
   const sha = crypto.createHash('sha256').update(bytes).digest('hex');
   const dim = imageDimensions(bytes, mime);
-  const r = q('INSERT INTO images(user_id,mime,bytes,sha256,width,height) VALUES(?,?,?,?,?,?)')
-    .run(userId, mime, bytes, sha, dim.w, dim.h);
+  const r = q('INSERT INTO images(user_id,mime,bytes,sha256,width,height,byte_count) VALUES(?,?,?,?,?,?,?)')
+    .run(userId, mime, bytes, sha, dim.w, dim.h, bytes.length);
   const uid = uidOf('images', r.lastInsertRowid);
   if (source) q('UPDATE images SET source=? WHERE rowid=?').run(source, r.lastInsertRowid);
+  // Saved first as it always was, then moved by the same function the
+  // background migration uses. If the move fails, the photo stays in the
+  // database and works exactly as before.
+  if (IMAGE_STORE === 'file') moveImageToFile(uid);
   recordProvenance('image', uid, 'created', actorCtx || webActor({ id: userId }), { source_kind: 'manual' });
   // Reference by uid, never by the sequential integer: the integer is
   // guessable and is meaningless outside this database.
@@ -3574,9 +3682,11 @@ const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
 function imageBlock(ref) {
   const uid = (ref || '').startsWith('/i/') ? ref.slice(3) : '';
   if (!uid) return null;
-  const im = q('SELECT mime, bytes FROM images WHERE uid=?').get(uid);
-  if (!im || !im.bytes || im.bytes.length > MAX_INLINE_IMAGE_BYTES) return null;
-  return { data: Buffer.from(im.bytes).toString('base64'), mimeType: im.mime };
+  const im = q('SELECT * FROM images WHERE uid=?').get(uid);
+  if (!im || !imageByteCount(im) || imageByteCount(im) > MAX_INLINE_IMAGE_BYTES) return null;
+  const buf = imageBytes(im);
+  if (!buf) return null;
+  return { data: buf.toString('base64'), mimeType: im.mime };
 }
 
 function imgTag(ref, alt, cls, eager) {
@@ -4744,7 +4854,7 @@ async function fetchImageAsDataUrl(rawUrl, what) {
 // checked against the acting member, not merely existence, so one member cannot
 // mount another member's asset into their own Ensemble by guessing a uid.
 function resolveOwnedImageUid(userId, uid, what) {
-  const row = q('SELECT uid, user_id, length(bytes) n, mime FROM images WHERE uid=?').get(String(uid).trim());
+  const row = q('SELECT uid, user_id, COALESCE(byte_count, length(bytes)) n, mime FROM images WHERE uid=?').get(String(uid).trim());
   if (!row) throw new Error(`${what}: no stored image with uid "${String(uid).slice(0, 40)}". `
     + `Use the uid returned by upload_image, or pass an https:// URL instead.`);
   if (row.user_id !== userId) throw new Error(`${what}: that image belongs to a different member.`);
@@ -4806,6 +4916,7 @@ function discardStoredImage(uid) {
   try {
     q("DELETE FROM provenance WHERE entity_type='image' AND entity_uid=?").run(uid);
     q('DELETE FROM images WHERE uid=?').run(uid);
+    removeImageFile(uid);
   } catch { /* best effort: the caller is already failing the request */ }
 }
 
@@ -4815,7 +4926,7 @@ function discardStoredImage(uid) {
 // correctly 404, which says nothing about storage. Every check here reads back
 // what was actually persisted.
 function verifyStoredImage(userId, uid, expectedBytes) {
-  const row = q('SELECT id, uid, user_id, mime, length(bytes) n, width, height FROM images WHERE uid=?').get(uid);
+  const row = q('SELECT id, uid, user_id, mime, COALESCE(byte_count, length(bytes)) n, width, height FROM images WHERE uid=?').get(uid);
   const problems = [];
   if (!row) problems.push('no image row for that uid');
   else {
@@ -4824,8 +4935,9 @@ function verifyStoredImage(userId, uid, expectedBytes) {
     if (!row.mime || !IMAGE_MIME_ALLOW.has(row.mime)) problems.push('stored without a usable image type');
     if (expectedBytes != null && row.n !== expectedBytes) problems.push(`stored ${row.n} bytes, expected ${expectedBytes}`);
     // read the bytes back rather than trusting the length column
-    const back = q('SELECT bytes FROM images WHERE uid=?').get(uid);
-    if (!back || !back.bytes || !back.bytes.length) problems.push('bytes could not be read back');
+    // read the actual bytes back, wherever they live
+    const back = imageBytes(q('SELECT * FROM images WHERE uid=?').get(uid));
+    if (!back || !back.length) problems.push('bytes could not be read back');
   }
   return { verified: problems.length === 0, problems,
     row: row || null };
@@ -4842,7 +4954,7 @@ async function ingestImage(userId, input, ctx, source, what) {
     : (() => { throw new Error(`${what}: expected an https:// image URL or a data: URL, got "${v.slice(0, 48)}".`); })();
   const uid = storeImageStrict(userId, dataUrl, ctx, source, what);
   // prove it, rather than trusting the insert
-  const row = q('SELECT length(bytes) n, mime FROM images WHERE uid=?').get(uid);
+  const row = q('SELECT COALESCE(byte_count, length(bytes)) n, mime FROM images WHERE uid=?').get(uid);
   if (!row || !row.n || !row.mime) {
     discardStoredImage(uid);
     throw new Error(`${what}: stored but not retrievable afterwards; nothing was saved.`);
@@ -4890,7 +5002,7 @@ function verifyEnsembleAssets(ens, saved) {
   const bad = [];
   const ck = (uid, what) => {
     if (!uid) return;
-    const r = q('SELECT length(bytes) n, mime FROM images WHERE uid=?').get(uid);
+    const r = q('SELECT COALESCE(byte_count, length(bytes)) n, mime FROM images WHERE uid=?').get(uid);
     if (!r) bad.push(`${what}: image ${uid} was not stored`);
     else if (!r.n) bad.push(`${what}: image ${uid} stored zero bytes`);
     else if (!r.mime) bad.push(`${what}: image ${uid} has no content type`);
@@ -5896,9 +6008,10 @@ const pages = {
     const itins = feed === 'all'
       ? q('SELECT * FROM itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
       : [];
-    const entries = [...rows.map((o) => ({ at: o.created_at, key: 'note:' + o.id, html: objectCard(o, me) })),
-                     ...marks.map((x) => ({ at: x.created_at, key: 'mark:' + x.id, html: markCard(x, me) })),
-                     ...itins.filter((it) => canSee(it, me)).map((it) => ({ at: it.created_at, key: 'itin:' + it.id, html: itineraryPreview(it, me) }))]
+    const lazy = (at, key, draw) => ({ at, key, get html() { return this._h ?? (this._h = draw()); } });
+    const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me))),
+                     ...marks.map((x) => lazy(x.created_at, 'mark:' + x.id, () => markCard(x, me))),
+                     ...itins.filter((it) => canSee(it, me)).map((it) => lazy(it.created_at, 'itin:' + it.id, () => itineraryPreview(it, me)))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
     const banner = resurfaceBanner(me, feed, !!(s || tag));
     const shown = banner.skip;
@@ -7865,7 +7978,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
   // The already-stored result, so an anxious retry of the final chunk returns
   // the same image instead of storing a second copy.
   const storedResult = (up) => {
-    const img = q('SELECT mime, length(bytes) n, width, height FROM images WHERE uid=?').get(up.image_uid) || {};
+    const img = q('SELECT mime, COALESCE(byte_count, length(bytes)) n, width, height FROM images WHERE uid=?').get(up.image_uid) || {};
     return { text: `Already stored. image_uid: ${up.image_uid}`,
       structured: { status: 'stored', upload_id: up.uid, image_uid: up.image_uid, verified: true,
         mime: img.mime || up.mime, byte_count: img.n || up.total_bytes,
@@ -7992,7 +8105,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
       const block = imageBlock(`/i/${uid}`);
       if (!block) { missing.push(uid); continue; }      // too large to inline
       images.push(block);
-      seen.push({ image_uid: uid, mime: img.mime, byte_count: img.bytes.length,
+      seen.push({ image_uid: uid, mime: img.mime, byte_count: imageByteCount(img),
         width: img.width || null, height: img.height || null });
     }
     const lines = [];
@@ -9093,11 +9206,13 @@ async function handle(req, res) {
       : q('SELECT * FROM images WHERE uid=?').get(key);
     if (!img) return send(res, 'Not found', 404);
     if (!imageVisibleTo(img, me)) return send(res, 'Not found', 404);
-    res.writeHead(200, { 'Content-Type': img.mime, 'Content-Length': img.bytes.length,
+    const buf = imageBytes(img);
+    if (!buf) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': img.mime, 'Content-Length': buf.length,
       // private images must not be cached by shared proxies
       'Cache-Control': imageIsPublic(img) ? 'public, max-age=31536000, immutable'
                                           : 'private, max-age=86400' });
-    return res.end(Buffer.from(img.bytes));
+    return res.end(buf);
   }
   if ((mt = p.match(/^\/avatars\/([a-z0-9_-]+\.png)$/))) {
     const f = path.join(__dirname, 'public', 'avatars', mt[1]);
@@ -9960,6 +10075,7 @@ const counts = ['users', 'objects', 'marks', 'visits', 'comments']
   .map((t) => `${t} ${q(`SELECT COUNT(*) c FROM ${t}`).get().c}`).join(', ');
 console.log(`Database: ${DB_PATH} (${(fs.statSync(DB_PATH).size / 1024).toFixed(0)} KB) — ${counts}`);
 
+imageBackfill();
 http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e); send(res, 'Something went wrong.', 500); })).listen(PORT, () => {
   console.log(`discriminant.ly on http://localhost:${PORT}`);
   // Adopt linked pictures once the server is answering, never during boot.

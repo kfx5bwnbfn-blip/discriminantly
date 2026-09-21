@@ -804,5 +804,42 @@ console.log('\ndirections');
      /MutationObserver/.test(SRC) && /a\[data-apple-maps\]/.test(SRC));
 }
 
+// ---- the feed draws only what it shows --------------------------------------
+console.log('\nfeed cost');
+{
+  const f = SRC.slice(SRC.indexOf('const lazy = (at, key, draw)'), SRC.indexOf('const banner = resurfaceBanner('));
+  ok('F1 feed cards are drawn on first read, not up front',
+     /get html\(\) \{ return this\._h \?\? \(this\._h = draw\(\)\); \}/.test(f));
+  ok('F2 no card is drawn while the entries are being built',
+     !/html: (objectCard|markCard|itineraryPreview)\(/.test(f));
+  ok('F3 visits are indexed by mark',
+     /CREATE INDEX IF NOT EXISTS idx_visits_mark ON visits\(mark_id\)/.test(SRC));
+}
+
+// ---- photos live in files beside the database -------------------------------
+console.log('\nimage storage');
+{
+  const mv = SRC.slice(SRC.indexOf('function moveImageToFile('), SRC.indexOf('const removeImageFile ='));
+  ok('P1 photos are stored on the same volume as the database',
+     /const IMAGE_DIR = path\.join\(path\.dirname\(DB_PATH\), 'images'\)/.test(SRC));
+  ok('P2 the database copy is released only after the file is verified',
+     mv.indexOf('fsyncSync') > 0 && mv.indexOf('read-back did not match') > 0
+     && mv.indexOf("SET bytes = x''") > mv.indexOf('read-back did not match'));
+  ok('P3 a failed move leaves the photo where it was',
+     /left in the database/.test(mv) && /return false;/.test(mv));
+  ok('P4 the move never touches a row already moved',
+     /WHERE uid = \? AND stored IS NULL/.test(mv));
+  ok('P5 every read goes through one accessor that handles both places',
+     /function imageBytes\(row\)/.test(SRC) && !/img\.bytes\.length|Buffer\.from\(img\.bytes\)|Buffer\.from\(im\.bytes\)/.test(SRC));
+  ok('P6 sizes never depend on where the bytes are',
+     !/[^_]length\(bytes\) n/.test(SRC.replace(/COALESCE\(byte_count, length\(bytes\)\)/g, '')));
+  ok('P7 uids are validated before becoming file paths',
+     /\^\[0-9a-f-\]\{36\}\$/.test(SRC.slice(SRC.indexOf('const imagePath ='), SRC.indexOf('const sha256 ='))));
+  ok('P8 there is a kill switch that keeps photos in the database',
+     /IMAGE_STORE === 'db' \? 'db' : 'file'/.test(SRC));
+  ok('P9 compaction checkpoints the log, so space is actually returned',
+     /db\.exec\('VACUUM'\);\s*db\.exec\('PRAGMA wal_checkpoint\(TRUNCATE\)'\);/.test(SRC));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
