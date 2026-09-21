@@ -1983,7 +1983,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
   <a class="iconrail-btn iconrail-compose" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.lens}</a>
 </nav>
-<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant.ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
+<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant\u2022ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
 <script>
 (function () {
   var si = document.getElementById('searchinput'), sb = document.getElementById('searchbar');
@@ -2008,7 +2008,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
 </div>
 `
   : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant.ly</span></a>
+  <a class="mark" href="/welcome"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}
 
@@ -7033,8 +7033,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const body = `
 <section class="splash">
   <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
-  <p class="splash-word">discriminant.ly</p>
-  <h1 class="splash-h">Your interests. Your travels. Wherever you go.</h1>
+  <p class="splash-word">discriminant\u2022ly</p>
+  <h1 class="splash-h">Your\u00a0interests\u00a0\u2022 Your\u00a0travels\u00a0\u2022 Wherever\u00a0you\u00a0go</h1>
   <p class="splash-sub">Discriminantly is an app and plugin that connects to your AI, giving you a place to keep the things you notice, the places you go, and the experiences worth remembering.</p>
   <p class="splash-sub">Add to it naturally through conversation with your AI. Explore what you’ve kept, make plans, and discover what comes next.</p>
   <a class="btn splash-enter" href="/">Enter</a>
@@ -7112,7 +7112,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         : `<picture><source srcset="/welcome-shot-itin-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-shot-itin-dark.jpg" alt="An itinerary in Discriminantly, with its map and nearby travel marks" width="2000" height="1174" loading="lazy"></picture>`}
     </div>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">Your Interests. Your Plans. Always at Hand.</p>
   <p class="welcome-caption welcome-caption-close">Add, change, explore and plan as naturally as you think and talk.</p>
 </section>
 <div class="curtain dialog" id="splash-install-dialog">
