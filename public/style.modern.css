@@ -2333,3 +2333,56 @@ body[data-skin="modern"][data-mode="light"] .welcome-caption,
 body[data-skin="modern"][data-mode="light"] .phone-wrap .welcome-caption,
 html.m-light body[data-skin="modern"][data-mode="system"] .welcome-caption,
 html.m-light body[data-skin="modern"][data-mode="system"] .phone-wrap .welcome-caption { color: var(--m-ink-2); }
+
+/* ============================================================================
+   PROFILE RAIL — grouped navigation (modern skin only)
+   Classic keeps its original .prail-nav list, completely untouched, hidden
+   here only under the modern skin. This block reuses the real .wtable/.wcell
+   markup (background, hover, active states, and -- critically -- the count
+   and label typography) rather than approximating it, so it is guaranteed to
+   match the welcome table exactly rather than by manual upkeep.
+   ========================================================================= */
+.pgrp-nav { display: none; }
+body[data-skin="modern"] .prail-nav { display: none; }
+body[data-skin="modern"] .pgrp-nav { display: grid; gap: .6rem; margin: 1.2rem 0 0; }
+
+/* The real welcome table forces a 4-column grid on any .wtable at this
+   ancestry, for its own 4-across layout. Scoping through the extra .pgrp-nav
+   ancestor gives this rule genuinely higher specificity than that one, so it
+   wins honestly -- no !important needed, and the real welcome table (which
+   is never inside .pgrp-nav) is completely unaffected. */
+body[data-skin="modern"] .rail .pgrp-nav .wtable.pgrp-group:not(.settings-table) {
+  grid-template-columns: minmax(0,1fr) minmax(0,1fr);
+}
+
+/* Places / Things / People: a quiet caption, not a tappable item -- title
+   case and italic rather than the small-caps treatment used elsewhere, and
+   deliberately lighter than the numbers and labels below it. */
+.pgrp-label { grid-column: 1 / -1; margin: 0; padding: .4rem .6rem 0; text-align: center;
+  font-size: .68rem; font-style: italic; font-weight: 400; color: var(--m-ink-3); }
+
+/* All activity / Warrants: shaped like one real chip, not a mini group panel.
+   The hidden spacer above "All activity" mirrors a chip's own big-number line,
+   so it lines up with every other item by sharing its structure, not by a
+   tuned height that could drift. */
+.pgrp-solo { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.pgrp-spacer { visibility: hidden; }
+.pgrp-all-short { display: none; }
+
+/* the current tab, matching the highlight the classic list gives it */
+body[data-skin="modern"] .pgrp-nav .wcell.on,
+body[data-skin="modern"] .pgrp-nav .pgrp-solo.on { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+
+@media (max-width: 52rem) {
+  /* All five items become one horizontally-scrolling row; flex's own default
+     stretch behaviour (align-items: stretch, unset here) is what gives All
+     activity and Warrants the same height as a two-chip group -- not a
+     tuned min-height that could drift out of sync with real content. */
+  body[data-skin="modern"] .pgrp-nav { display: flex; gap: .5rem; overflow-x: auto;
+    scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; padding-bottom: .1rem; }
+  body[data-skin="modern"] .pgrp-nav::-webkit-scrollbar { display: none; }
+  body[data-skin="modern"] .pgrp-nav .pgrp-group { flex: 0 0 11rem; scroll-snap-align: start; }
+  body[data-skin="modern"] .pgrp-nav .pgrp-solo { flex: 0 0 6.75rem; scroll-snap-align: start; }
+  .pgrp-all-full { display: none; }
+  .pgrp-all-short { display: inline; }
+}

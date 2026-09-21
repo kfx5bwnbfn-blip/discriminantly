@@ -13,6 +13,7 @@ const vm = require('vm');
 const { DatabaseSync } = require('node:sqlite');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+const CSS_MODERN = fs.readFileSync(path.join(__dirname, '..', 'public', 'style.modern.css'), 'utf8');
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail) => {
@@ -839,6 +840,36 @@ console.log('\nimage storage');
      /IMAGE_STORE === 'db' \? 'db' : 'file'/.test(SRC));
   ok('P9 compaction checkpoints the log, so space is actually returned',
      /db\.exec\('VACUUM'\);\s*db\.exec\('PRAGMA wal_checkpoint\(TRUNCATE\)'\);/.test(SRC));
+}
+
+// ---- profile rail: grouped nav for the modern skin, classic untouched ------
+console.log('\nprofile rail nav');
+{
+  const i = SRC.indexOf('<ul class="prail-nav">');
+  const j = SRC.indexOf('</aside>`;', i) + 10;
+  const rail = SRC.slice(i, j);
+  ok('R1 the classic list markup is completely unchanged',
+     /<li><a class="\$\{tab === 'activity' \? 'on' : ''\}" data-short="All&#10;Activity"/.test(rail));
+  ok('R2 the modern block reuses the real wtable\\/wcell component',
+     /class="wtable pgrp-group"/.test(rail) && /class="wcell\$\{cls\}"/.test(rail));
+  ok('R3 no custom font-size is set on the count or label -- inherits the real welcome-table typography',
+     !/\.pgrp-group[^}]*font-size/.test(rail) && !/\bwcell b\s*\{[^}]*font-size/.test(SRC));
+  ok('R5 Warrants and All activity are single b+span rows, not their own header row',
+     /pgrp-solo\$\{on\('activity'\)\}" href="\$\{link\('activity'\)\}">/.test(rail)
+     && /pgrp-solo\$\{on\('warrants'\)\}" href="\$\{link\('warrants'\)\}">\s*<b>\$\{warrantCount\}<\/b><span>Warrants<\/span>/.test(rail));
+}
+{
+  const css = CSS_MODERN.slice(CSS_MODERN.indexOf('PROFILE RAIL'));
+  const mobileCss = css.slice(css.indexOf('@media (max-width: 52rem)'));
+  ok('R4 Places/Things/People are title case and italic, not small-caps',
+     /\.pgrp-label \{[^}]*font-style: italic/.test(css)
+     && !/\.pgrp-label \{[^}]*text-transform:\s*uppercase/.test(css));
+  ok('R6 the 4-column welcome-table grid is overridden by specificity, not !important',
+     /grid-template-columns: minmax\(0,1fr\) minmax\(0,1fr\);/.test(css) && !/!important;/.test(css));
+  ok('R7 the override is scoped through .pgrp-nav, so the real welcome table is untouched',
+     /\.rail \.pgrp-nav \.wtable\.pgrp-group:not\(\.settings-table\)/.test(css));
+  ok('R8 mobile relies on flex default stretch, not a tuned height, to match card heights',
+     /\.pgrp-nav \{ display: flex;/.test(mobileCss) && !/\.pgrp-nav \{ display: flex;[^}]*align-items/.test(mobileCss));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

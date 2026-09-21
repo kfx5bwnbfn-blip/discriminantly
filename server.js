@@ -3588,6 +3588,41 @@ function profileRail(u, me, tab) {
       <li><a class="${tab === 'following' ? 'on' : ''}" data-short="Following" data-count="${fc.following}" href="${link('following')}">Following: ${fc.following} ${fc.following === 1 ? 'person' : 'people'} <span>›</span></a></li>
     </ul>
 
+    ${(() => {
+      // The modern skin's own grouped nav. Classic's list above is untouched
+      // and CSS hides one or the other by skin. Every .wtable/.wcell here is
+      // the real welcome-table component, not a lookalike: the numbers and
+      // labels inherit its actual typography rather than a copy of it, so
+      // they can never drift out of sync with it again.
+      const on = (t) => tab === t ? ' on' : '';
+      const itinLink = '/t' + (me && me.id === u.id ? '' : '?u=' + encodeURIComponent(u.handle));
+      const group = (label, items) => `<div class="wtable pgrp-group">
+        <p class="pgrp-label">${esc(label)}</p>
+        ${items.map(([href, cls, count, name]) => `<a class="wcell${cls}" href="${href}"><b>${count}</b><span>${esc(name)}</span></a>`).join('')}
+      </div>`;
+      return `<div class="pgrp-nav">
+        <a class="wtable pgrp-solo${on('activity')}" href="${link('activity')}">
+          <b class="pgrp-spacer" aria-hidden="true">&nbsp;</b>
+          <span class="pgrp-all-full">All activity</span><span class="pgrp-all-short">All</span>
+        </a>
+        ${group('Places', [
+          [link('marks'), on('marks'), markCount, 'Marks'],
+          [itinLink, on('itineraries'), itinCount, 'Itineraries'],
+        ])}
+        ${group('Things', [
+          [link('notes'), on('notes'), visible.length, 'Notes'],
+          [link('ensembles'), on('ensembles'), ensCount, 'Ensembles'],
+        ])}
+        ${group('People', [
+          [link('followers'), on('followers'), fc.followers, 'Followers'],
+          [link('following'), on('following'), fc.following, 'Following'],
+        ])}
+        <a class="wtable pgrp-solo${on('warrants')}" href="${link('warrants')}">
+          <b>${warrantCount}</b><span>Warrants</span>
+        </a>
+      </div>`;
+    })()}
+
   </aside>`;
 }
 
