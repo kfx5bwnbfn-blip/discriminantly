@@ -854,9 +854,8 @@ console.log('\nprofile rail nav');
      /class="wtable pgrp-group"/.test(rail) && /class="wcell\$\{cls\}"/.test(rail));
   ok('R3 no custom font-size is set on the count or label -- inherits the real welcome-table typography',
      !/\.pgrp-group[^}]*font-size/.test(rail) && !/\bwcell b\s*\{[^}]*font-size/.test(SRC));
-  ok('R5 Warrants and All activity are single b+span rows, not their own header row',
-     /pgrp-solo\$\{on\('activity'\)\}" href="\$\{link\('activity'\)\}">/.test(rail)
-     && /pgrp-solo\$\{on\('warrants'\)\}" href="\$\{link\('warrants'\)\}">\s*<b>\$\{warrantCount\}<\/b><span>Warrants<\/span>/.test(rail));
+  ok('R5 Warrants is a single b+span row, not its own header row',
+     /<a class="wcell wcell-wide\$\{on\('warrants'\)\}" href="\$\{link\('warrants'\)\}">\s*<b>\$\{warrantCount\}<\/b><span>Warrants<\/span>/.test(rail));
 }
 {
   const css = CSS_MODERN.slice(CSS_MODERN.indexOf('PROFILE RAIL'));
@@ -870,6 +869,41 @@ console.log('\nprofile rail nav');
      /\.rail \.pgrp-nav \.wtable\.pgrp-group:not\(\.settings-table\)/.test(css));
   ok('R8 mobile relies on flex default stretch, not a tuned height, to match card heights',
      /\.pgrp-nav \{ display: flex;/.test(mobileCss) && !/\.pgrp-nav \{ display: flex;[^}]*align-items/.test(mobileCss));
+}
+
+// ---- profile rail follow-ups: typography parity, active state, shadow -----
+console.log('\nprofile rail follow-ups');
+{
+  const i = SRC.indexOf('<ul class="prail-nav">');
+  const j = SRC.indexOf('</aside>`;', i) + 10;
+  const rail = SRC.slice(i, j);
+  ok('R9 All activity and Warrants wrap a real .wcell.wcell-wide child',
+     /<div class="wtable pgrp-solo">\s*<a class="wcell wcell-wide\$\{on\('activity'\)\}"/.test(rail)
+     && /<div class="wtable pgrp-solo">\s*<a class="wcell wcell-wide\$\{on\('warrants'\)\}"/.test(rail));
+  ok('R10 the on-load scroll only touches the active item, and does not animate',
+     /var active = document\.querySelector\('\.pgrp-nav \.wcell\.on'\)/.test(SRC)
+     && /scrollIntoView\(\{ block: 'nearest', inline: 'center' \}\)/.test(SRC));
+  ok('R11 the Apple Maps MutationObserver still runs inside its own closure (swap in scope)',
+     /var swap = function \(root\)[\s\S]*?new MutationObserver[\s\S]*?swap\(n\)[\s\S]*?\}\)\(\);/.test(SRC));
+}
+{
+  const css = CSS_MODERN.slice(CSS_MODERN.indexOf('PROFILE RAIL'));
+  const mobileCss = css.slice(css.indexOf('@media (max-width: 52rem)'));
+  ok('R12 the active state highlights the one real box, not a second one inside it',
+     /\.pgrp-nav \.pgrp-group \.wcell\.on \{ background/.test(css)
+     && /\.pgrp-nav \.pgrp-solo:has\(\.wcell\.on\) \{ background/.test(css)
+     && !/\.pgrp-solo \.wcell-wide \{[^}]*background/.test(css));
+  ok('R13 the scroll row has shadow room on all four sides, not clipped',
+     /padding: 20px 12px 36px/.test(mobileCss));
+  ok('R16 the side room is pulled back by exactly the rail padding, so the page never scrolls sideways',
+     /margin: 1\.2rem -12px -30px/.test(mobileCss) && /scroll-padding-inline: 12px/.test(mobileCss));
+  ok('R17 All has no invisible spacer above it, and its cell has no uneven padding',
+     !/pgrp-spacer/.test(SRC) && /\.rail \.pgrp-nav \.pgrp-solo \.wcell-wide \{ padding: 0; \}/.test(css));
+  ok('R14 the scrollbar is hidden cross-browser, not just webkit',
+     /scrollbar-width: none/.test(mobileCss) && /-ms-overflow-style: none/.test(mobileCss)
+     && /::-webkit-scrollbar \{ display: none/.test(mobileCss));
+  ok('R15 no overflow-y:visible left in -- it has no effect paired with overflow-x:auto',
+     !/overflow-y: visible/.test(mobileCss));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

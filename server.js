@@ -1946,6 +1946,16 @@ function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
     ms.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.querySelectorAll) swap(n); }); });
   }).observe(document.documentElement, { childList: true, subtree: true });
 })();
+// The mobile profile nav is a horizontal strip; if the tab loaded is not the
+// first one, its chip can be off-screen with no hint it exists. Bring it
+// into view once, on load, without animating (a jump, not a scroll gesture
+// the person didn't make).
+(function () {
+  document.addEventListener('DOMContentLoaded', function () {
+    var active = document.querySelector('.pgrp-nav .wcell.on');
+    if (active) active.closest('.pgrp-group, .pgrp-solo').scrollIntoView({ block: 'nearest', inline: 'center' });
+  });
+})();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 }
@@ -3601,10 +3611,11 @@ function profileRail(u, me, tab) {
         ${items.map(([href, cls, count, name]) => `<a class="wcell${cls}" href="${href}"><b>${count}</b><span>${esc(name)}</span></a>`).join('')}
       </div>`;
       return `<div class="pgrp-nav">
-        <a class="wtable pgrp-solo${on('activity')}" href="${link('activity')}">
-          <b class="pgrp-spacer" aria-hidden="true">&nbsp;</b>
-          <span class="pgrp-all-full">All activity</span><span class="pgrp-all-short">All</span>
-        </a>
+        <div class="wtable pgrp-solo">
+          <a class="wcell wcell-wide${on('activity')}" href="${link('activity')}">
+            <span class="pgrp-all-full">All activity</span><span class="pgrp-all-short">All</span>
+          </a>
+        </div>
         ${group('Places', [
           [link('marks'), on('marks'), markCount, 'Marks'],
           [itinLink, on('itineraries'), itinCount, 'Itineraries'],
@@ -3617,9 +3628,11 @@ function profileRail(u, me, tab) {
           [link('followers'), on('followers'), fc.followers, 'Followers'],
           [link('following'), on('following'), fc.following, 'Following'],
         ])}
-        <a class="wtable pgrp-solo${on('warrants')}" href="${link('warrants')}">
-          <b>${warrantCount}</b><span>Warrants</span>
-        </a>
+        <div class="wtable pgrp-solo">
+          <a class="wcell wcell-wide${on('warrants')}" href="${link('warrants')}">
+            <b>${warrantCount}</b><span>Warrants</span>
+          </a>
+        </div>
       </div>`;
     })()}
 
