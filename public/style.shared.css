@@ -895,3 +895,17 @@
 .conn-row + .conn-row { border-top: 1px solid var(--nf-rule, rgba(128,128,128,.18)); }
 .conn-row .sugg-name i { font-style: italic; opacity: .55; font-size: .8em; }
 .conn-new { margin-top: 1.1rem; }
+
+/* ---- welcome-caption: the welcome page's own caption voice -----------------
+   Forked from the phone figcaption so the welcome story can speak in sentence
+   case at a readable size without touching any other caption in the system.
+   Selectors outrank `.phone-wrap figcaption`, which still styles nothing else. */
+.welcome-caption, .phone-wrap .welcome-caption {
+  text-align: center; font-size: .8rem; letter-spacing: .02em; text-transform: none;
+  line-height: 1.45; font-style: normal;
+}
+.phone-wrap .welcome-caption { margin-top: 1.1rem; }
+.welcome-caption-close { display: block; max-width: 34rem; margin: .3rem auto 0; }
+@media (max-width: 52rem) {
+  .welcome-caption, .phone-wrap .welcome-caption { font-size: .72rem; letter-spacing: .01em; }
+}

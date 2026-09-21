@@ -2325,3 +2325,10 @@ body[data-skin="modern"] .auth-lead { color: var(--m-ink); }
 body[data-skin="modern"] .auth-says li { color: var(--m-ink-2); }
 body[data-skin="modern"] .auth-fine, body[data-skin="modern"] .conn-row .sugg-sub { color: var(--m-ink-3); }
 body[data-skin="modern"] .conn-row + .conn-row { border-top-color: var(--m-rule); }
+/* welcome-caption: ink-3 in dark, one step darker in light for legibility */
+body[data-skin="modern"] .welcome-caption,
+body[data-skin="modern"] .phone-wrap .welcome-caption { color: var(--m-ink-3); }
+body[data-skin="modern"][data-mode="light"] .welcome-caption,
+body[data-skin="modern"][data-mode="light"] .phone-wrap .welcome-caption,
+html.m-light body[data-skin="modern"][data-mode="system"] .welcome-caption,
+html.m-light body[data-skin="modern"][data-mode="system"] .phone-wrap .welcome-caption { color: var(--m-ink-2); }

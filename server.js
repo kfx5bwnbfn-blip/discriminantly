@@ -1914,6 +1914,21 @@ function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
 <script>
 // Registered mainly so Chrome's installability check sees a fetch handler —
 // see /sw.js for why. Deferred to load so it never competes with paint.
+// Directions open Apple Maps on iPhone, iPad and Mac, Google Maps elsewhere.
+// iPadOS reports itself as Macintosh, which is fine: both have Maps.
+(function () {
+  if (!/iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)) return;
+  var swap = function (root) {
+    (root || document).querySelectorAll('a[data-apple-maps]').forEach(function (a) {
+      a.href = a.getAttribute('data-apple-maps');
+    });
+  };
+  document.addEventListener('DOMContentLoaded', function () { swap(); });
+  // cards added later (feed paging, search) get the same treatment
+  new MutationObserver(function (ms) {
+    ms.forEach(function (m) { m.addedNodes.forEach(function (n) { if (n.querySelectorAll) swap(n); }); });
+  }).observe(document.documentElement, { childList: true, subtree: true });
+})();
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
 }
@@ -3237,6 +3252,13 @@ const placeLine = (m) => [m.locality, m.country].filter(Boolean).join(', ');
 const mapLink = (m) => m.lat != null && m.lng != null
   ? `https://www.google.com/maps/search/?api=1&query=${m.lat},${m.lng}`
   : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([m.name, m.address, placeLine(m)].filter(Boolean).join(' '))}`;
+// Apple Maps for the same place. On Apple devices a maps.apple.com link opens
+// the Maps app directly -- no native app or SDK needed. A pin at the
+// coordinates, labelled with the place's name, when we have coordinates;
+// otherwise a search on name, address and place, matching the Google link.
+const appleMapLink = (m) => m.lat != null && m.lng != null
+  ? `https://maps.apple.com/?ll=${m.lat},${m.lng}&q=${encodeURIComponent(m.name || '')}`
+  : `https://maps.apple.com/?q=${encodeURIComponent([m.name, m.address, placeLine(m)].filter(Boolean).join(' '))}`;
 const mapEmbed = (m) => {
   if (m.lat == null || m.lng == null) return '';
   const d = 0.004, [la, ln] = [m.lat, m.lng];
@@ -3316,7 +3338,7 @@ function markCard(m, me, full = false) {
       ${full ? '' : '</div></div><span class="mark-hint">Tap for more</span>'}
       <div class="noteit mark-visits">
         <div class="mark-buttons">
-          <a class="btn-note" href="${mapLink(m)}" rel="noopener">Directions</a>
+          <a class="btn-note" href="${mapLink(m)}" data-apple-maps="${esc(appleMapLink(m))}" rel="noopener">Directions</a>
           ${me && me.id === m.user_id ? `<button type="button" class="btn-note" data-checkin="/m/${m.id}/checkin" data-place="${esc(m.name)}">Check in</button>` : ''}
           ${me && me.id !== m.user_id ? `<form method="post" action="/m/${m.id}/remark"><button class="btn-note">Mark this</button></form>` : ''}
         </div>
@@ -6900,7 +6922,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
   <p class="splash-word">discriminant.ly</p>
   <h1 class="splash-h">Your interests. Your travels. Wherever you go.</h1>
-  <p class="splash-sub">Keep the things you notice, the places you go, and the experiences worth remembering. Connects to your AI to help you add, enrich, explore, and discover what comes next.</p>
+  <p class="splash-sub">Discriminantly is an app and plugin that connects to your AI, giving you a place to keep the things you notice, the places you go, and the experiences worth remembering.</p>
+  <p class="splash-sub">Add to it naturally through conversation with your AI. Explore what you’ve kept, make plans, and discover what comes next.</p>
   <a class="btn splash-enter" href="/">Enter</a>
   <div class="splash-install" id="splash-install" hidden>
     <button type="button" class="nf-post" id="splash-install-btn">Install Discriminantly</button>
@@ -6930,7 +6953,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           ? `<img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy">`
           : `<picture><source srcset="/welcome-phone-profile-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-profile-dark.jpg" alt="A Discriminantly profile" width="900" height="1845" loading="lazy"></picture>`}
       </span></span>
-      <figcaption>YOUR INTERESTS, ALL IN ONE PLACE</figcaption>
+      <figcaption class="welcome-caption">Your interests, all in one place</figcaption>
     </figure>
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6938,7 +6961,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <span class="phone"><span class="phone-notch"></span>
         <img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip" width="900" height="1845" loading="lazy">
       </span></span>
-      <figcaption>READY WHEN INSPIRATION STRIKES</figcaption>
+      <figcaption class="welcome-caption">Ready when inspiration strikes</figcaption>
     </figure>
   </div>
   <p class="splash-pair-lead splash-pair-lead-2">Plan Naturally.</p>
@@ -6949,7 +6972,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <span class="phone"><span class="phone-notch"></span>
         <img src="/welcome-phone-chat.jpg" alt="Planning a trip in a conversation with an AI" width="900" height="1845" loading="lazy">
       </span></span>
-      <figcaption>PLAN IT IN CONVERSATION</figcaption>
+      <figcaption class="welcome-caption">Plan it in conversation</figcaption>
     </figure>
     <figure class="phone-wrap">
       <span class="phone-body">
@@ -6961,10 +6984,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           ? `<img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy">`
           : `<picture><source srcset="/welcome-phone-app-light.jpg" media="(prefers-color-scheme: light)"><img src="/welcome-phone-app-dark.jpg" alt="The same day as an itinerary in Discriminantly" width="900" height="1845" loading="lazy"></picture>`}
       </span></span>
-      <figcaption>WATCH IT TAKE SHAPE</figcaption>
+      <figcaption class="welcome-caption">Watch it take shape</figcaption>
     </figure>
   </div>
-  <p class="splash-pair-lead splash-pair-lead-2">Keep What\u2019s Worth Keeping.</p>
+  <p class="splash-pair-lead splash-pair-lead-2">Your Interests. Your Plans. On the app and via your AI.</p>
   <div class="shot-wrap splash-shot-2">
     <div class="shot-shadow"></div>
     <div class="shot-frame">
@@ -6977,7 +7000,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     </div>
   </div>
   <p class="splash-pair-lead splash-pair-lead-2">Your Interests. Your Plans. Always at Hand.</p>
-  <p class="splash-pair-lead">Add, change, explore and plan as naturally as you think and talk.</p>
+  <p class="welcome-caption welcome-caption-close">Add, change, explore and plan as naturally as you think and talk.</p>
 </section>
 <div class="curtain dialog" id="splash-install-dialog">
   <div class="curtain-frame"><div class="curtain-body">
@@ -8863,16 +8886,44 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
         const days = groupOrder(it.id).map((g) => ({ uid: g.uid, label: g.label,
           when: temporalFormat(temporalOf(g)) || null, position: g.position,
           stops: itineraryStops(it.id, g.id).map(stopView) }));
-        return { text: `"${it.title}"${temporalFormat(temporalOf(it)) ? ' \u00b7 ' + temporalFormat(temporalOf(it)) : ''}`,
+        // The text is what the model reads, so it carries every uid the edit
+        // tools need -- the structured payload alone is not enough.
+        const unplaced = itineraryStops(it.id, null).map(stopView);
+        const stopLine = (s) => `    \u2022 ${s.label}${s.when ? ' \u00b7 ' + s.when : ''}`
+          + `${s.mark_uid ? ' \u00b7 linked' : ' \u00b7 ' + s.kind} \u00b7 stop uid: ${s.uid}`;
+        const when = temporalFormat(temporalOf(it));
+        const lines = [`"${it.title}"${when ? ' \u00b7 ' + when : ''} \u00b7 itinerary uid: ${it.uid}`];
+        for (const d of days) {
+          lines.push(`  ${d.label || 'Untitled day'}${d.when ? ' \u00b7 ' + d.when : ''} \u00b7 day uid: ${d.uid}`);
+          if (d.stops.length) for (const s of d.stops) lines.push(stopLine(s));
+          else lines.push('    (no stops)');
+        }
+        if (unplaced.length) {
+          lines.push('  Not yet on a day:');
+          for (const s of unplaced) lines.push(stopLine(s));
+        }
+        if (!days.length && !unplaced.length) lines.push('  (no days or stops yet)');
+        return { text: lines.join('\n'),
           structured: { ok: true, subject: 'itinerary', uid: it.uid, title: it.title,
             context: it.context, private: !!it.private,
             when: temporalFormat(temporalOf(it)) || null, days,
-            unplaced: itineraryStops(it.id, null).map(stopView),
+            unplaced,
             conflicts: groupConflicts(it.id) } };
       }
       const rows = q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?')
         .all(user.id, Math.min(a.limit || 20, 50));
-      return { text: rows.length ? rows.map((r) => `${r.title}${temporalFormat(temporalOf(r)) ? ' \u00b7 ' + temporalFormat(temporalOf(r)) : ''}`).join('\n') : 'No itineraries yet.',
+      // Each line carries its uid: this list is where every other itinerary
+      // tool gets one from. Day and stop counts tell similar plans apart.
+      const counts = (r) => ({
+        days: q('SELECT COUNT(*) c FROM itinerary_groups WHERE itinerary_id=?').get(r.id).c,
+        stops: q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(r.id).c,
+      });
+      const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+      return { text: rows.length ? rows.map((r) => {
+          const w = temporalFormat(temporalOf(r)), c = counts(r);
+          return `${r.title}${w ? ' \u00b7 ' + w : ''} \u00b7 ${plural(c.days, 'day')} \u00b7 ${plural(c.stops, 'stop')}`
+            + `${r.private ? ' \u00b7 private' : ''} \u00b7 uid: ${r.uid}`;
+        }).join('\n') : 'No itineraries yet.',
         structured: { ok: true, items: rows.map((r) => ({ uid: r.uid, title: r.title,
           when: temporalFormat(temporalOf(r)) || null, private: !!r.private,
           stops: q('SELECT COUNT(*) c FROM itinerary_stops WHERE itinerary_id=?').get(r.id).c })) } };

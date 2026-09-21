@@ -769,5 +769,40 @@ console.log('\nOAuth authorization');
      !/mtls/i.test(SRC.replace(/\/\/[^\n]*/g, '')));
 }
 
+// ---- my_itineraries must hand the model its uids ---------------------------
+// The list text omitted every uid while the structured payload carried them.
+// Models read the text, so from a fresh chat every itinerary tool was
+// unreachable even though the data was fine.
+console.log('\nmy_itineraries uids');
+{
+  const mi = SRC.slice(SRC.indexOf("if (name === 'my_itineraries')"),
+                       SRC.indexOf("throw new Error('Unknown tool ' + name)"));
+  ok('I1 the list text carries each itinerary uid',
+     /uid: \$\{r\.uid\}/.test(mi));
+  ok('I2 the list text carries day and stop counts',
+     /plural\(c\.days, 'day'\)/.test(mi) && /plural\(c\.stops, 'stop'\)/.test(mi));
+  ok('I3 the single view carries the itinerary uid in its text',
+     /itinerary uid: \$\{it\.uid\}/.test(mi));
+  ok('I4 the single view carries every day uid in its text',
+     /day uid: \$\{d\.uid\}/.test(mi));
+  ok('I5 the single view carries every stop uid, placed or not',
+     /stop uid: \$\{s\.uid\}/.test(mi) && /Not yet on a day/.test(mi));
+  ok('I6 the structured payload is unchanged',
+     /items: rows\.map\(\(r\) => \(\{ uid: r\.uid/.test(mi) && /subject: 'itinerary', uid: it\.uid/.test(mi));
+}
+
+// ---- Directions open Apple Maps on Apple devices ----------------------------
+console.log('\ndirections');
+{
+  ok('M1 an Apple Maps link exists for every place',
+     /const appleMapLink = \(m\)/.test(SRC) && /maps\.apple\.com\/\?ll=/.test(SRC) && /maps\.apple\.com\/\?q=/.test(SRC));
+  ok('M2 Google stays the default href, so it works without the script',
+     /href="\$\{mapLink\(m\)\}" data-apple-maps=/.test(SRC));
+  ok('M3 the swap applies only on Apple devices',
+     /iPhone\|iPad\|iPod\|Macintosh/.test(SRC));
+  ok('M4 cards added after load are swapped too',
+     /MutationObserver/.test(SRC) && /a\[data-apple-maps\]/.test(SRC));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
