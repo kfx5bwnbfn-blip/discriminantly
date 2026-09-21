@@ -3584,8 +3584,10 @@ function profileRail(u, me, tab) {
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
   const link = (t) => `/u/${esc(u.handle)}?tab=${t}`;
   return `<aside class="rail profile-rail">
+    <div class="prail-id">
     <a href="/u/${esc(u.handle)}">${avatar(u, 'avatar big')}</a><p class="prail-handle">${esc(u.handle)}</p>
     ${u.bio ? `<p class="prail-bio">${esc(u.bio)}</p>` : ''}${u.site ? `<p class="prail-site"><a href="${esc(u.site)}" rel="noopener">${esc(u.site.replace(/^https?:\/\//, ''))}</a></p>` : ''}
+    </div>
     ${me && me.id !== u.id ? `<form method="post" action="/u/${esc(u.handle)}/${following ? 'unfollow' : 'follow'}" class="prail-follow"><button class="btn3d block ${following ? 'is-following' : ''}">${following ? 'Following' : 'Follow'}</button></form>` : ''}
     <ul class="prail-nav">
       <li><a class="${tab === 'activity' ? 'on' : ''}" data-short="All&#10;Activity" data-short-modern="All" href="${link('activity')}">All Activity <span>›</span></a></li>

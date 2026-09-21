@@ -916,5 +916,21 @@ console.log('\nprofile rail follow-ups');
      !/overflow-y: visible/.test(mobileCss));
 }
 
+// ---- profile identity lockup in the invite-code container -----------------
+console.log('\nprofile identity container');
+{
+  const i = SRC.indexOf('<div class="prail-id">'), j = SRC.indexOf('</div>', i);
+  const lock = SRC.slice(i, j);
+  ok('R21 avatar, handle, bio and site sit inside the container; Follow does not',
+     /avatar big/.test(lock) && /prail-handle/.test(lock) && /prail-bio/.test(lock) && /prail-site/.test(lock) && !/prail-follow/.test(lock));
+  const sig = /\.signup \{\s*background: rgba\(0,0,0,\.035\)[^}]*border-radius: var\(--m-r\); padding: 1rem 1rem 1\.1rem;/;
+  const pid = /\.prail-id \{\s*background: rgba\(0,0,0,\.035\); border-radius: var\(--m-r\); padding: 1rem 1rem 1\.1rem;/;
+  ok('R22 it uses the invite-code container values, dark and light',
+     sig.test(CSS_MODERN) && pid.test(CSS_MODERN)
+     && /\[data-mode="light"\] \.prail-id[^{]*\{\s*background: rgba\(20,22,28,\.04\);/.test(CSS_MODERN));
+  ok('R23 it is modern-only; classic has no rule for it',
+     !/prail-id/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'style.css'), 'utf8')));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

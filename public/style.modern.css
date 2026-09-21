@@ -2102,6 +2102,16 @@ body[data-skin="modern"][data-mode="light"] .signup, html.m-light body[data-skin
   background: rgba(20,22,28,.04);
 }
 body[data-skin="modern"] .signup .lbl { color: var(--m-ink-2); }
+/* The profile rail's identity lockup (avatar, handle, bio, site) sits in the
+   same flat, faintly tinted container as the invite-code block above. */
+body[data-skin="modern"] .prail-id {
+  background: rgba(0,0,0,.035); border-radius: var(--m-r); padding: 1rem 1rem 1.1rem;
+}
+body[data-skin="modern"][data-mode="light"] .prail-id, html.m-light body[data-skin="modern"][data-mode="system"] .prail-id {
+  background: rgba(20,22,28,.04);
+}
+/* the last line's own bottom margin would otherwise add dead space inside */
+body[data-skin="modern"] .prail-id > :last-child { margin-bottom: 0; }
 body[data-skin="modern"] .signup input {
   background: var(--m-field); border: 0; color: var(--m-ink); border-radius: 999px;
   box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule);
