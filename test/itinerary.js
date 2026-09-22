@@ -1153,5 +1153,26 @@ console.log('\nrepeat creation');
      !/\n      (?:if \([^\n]*\) )?return [`'"]/.test(SRC.slice(i, j)));
 }
 
+// ---- profile All feed: same visibility rule as the section tabs -----------
+console.log('\nprofile feed');
+{
+  const i = SRC.indexOf('  user(req, res, me, handle, url) {'), b = SRC.slice(i, i + 40000);
+  ok('PF1 the All feed shows marks by the same rule as notes, itineraries and the Marks tab (canSee)',
+     /for \(const x of q\(MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC LIMIT 30'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
+     && !/if \(!x\.private \|\| owner\) acts\.push/.test(b));
+}
+
+// ---- MCP freeze: the submitted plugin surface must not change -------------
+console.log('\nMCP freeze');
+{
+  const { fingerprint, FILE } = require('./mcp-freeze');
+  const want = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  let have = {};
+  // A missing boundary marker means frozen code was edited around it: fail, don't crash.
+  try { have = fingerprint(); } catch (e) { ok('MF frozen region boundaries intact (' + e.message + ')', false); }
+  for (const k of new Set([...Object.keys(want), ...Object.keys(have)]))
+    ok('MF frozen: ' + k, want[k] && have[k] === want[k]);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

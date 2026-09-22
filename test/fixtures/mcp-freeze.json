@@ -1,0 +1,11 @@
+{
+  "OAuth core (tokens, codes, CIMD, resource binding)": "5eba7abd07e5870c04421540723745172ca1446865deb183a1196beddc66c394",
+  "Tool contract (output schemas, tool table, annotations)": "aeaa43d87d97816b735e72ad064b78dfd719c7da10973921cee0a6425163c58d",
+  "Tool dispatcher and /mcp endpoint (incl. server instructions, error replies)": "853cf298af263edb7cd01bfd4e47564de0c6613edab5f608f3408922f803ddad",
+  "MCP routes (legacy /mcp/<token> and /mcp)": "f6991ee5e9eca0d76459da63d06245192ea5f0b4ae93dbcca6fb6a8df2b4db88",
+  "Discovery, domain verification and OAuth routes": "7d47bc1690bb05efcad5cee8ed3e3f8acc208bdd2464090707bae87e029f49f2",
+  "plugin/assets/composer-icon.png": "dc4e054c989b5d51e0b936140545566fdf7ffa67d83b62cdc6c8abf0652b28ad",
+  "plugin/assets/logo.png": "8d9eb2b64b4c241a95aa9adc8079a6b62fe474c938da53713838c8876f19bbd8",
+  "plugin/chatgpt-app-submission.json": "61e439f2dfac1bb668abca1b1a2f3025b547854a81a3d5f978415e5da24d4c12",
+  "plugin/plugin.json": "ee4334748533904ab4da0672214c8c60fdba7f39eda5f5458c443c880c81f797"
+}

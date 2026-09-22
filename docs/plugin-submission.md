@@ -296,3 +296,19 @@ Verify identity → set `SUPPORT_EMAIL` and `PUBLISHER_NAME` → deploy → quic
 - Retire the two compatibility image-upload tools once no client uses them.
 - A UserInfo endpoint, if workspace domain restrictions are ever needed.
 - Rename `serverInfo.name` from `discriminant.ly` to `Discriminantly` for consistency.
+
+## MCP freeze (in effect since submission)
+
+The plugin was submitted to OpenAI for review at v2.52.7 with the submission file from commit fd09297. The MCP surface is frozen while it is under review; only web/app work is allowed.
+
+**Frozen** (fingerprinted in `test/fixtures/mcp-freeze.json`, enforced by the `MF` tests):
+- OAuth core: tokens, codes, CIMD, resource binding
+- Tool contract: output schemas, the tool table, annotations
+- Tool dispatcher and the `/mcp` endpoint, including server instructions and error replies
+- The two MCP routes: `/mcp/<token>` (legacy) and `/mcp`
+- Discovery, domain verification and OAuth routes
+- Everything in `plugin/`, including `chatgpt-app-submission.json`
+
+**Not frozen:** pages, templates, stylesheets, client scripts, settings (including the connections list), profile, welcome and policy pages.
+
+**To lift the freeze deliberately:** make the MCP change, run `node test/mcp-freeze.js --record`, and commit the new fingerprint with a message saying why. Any MCP change also needs a fresh Scan Tools run in the portal.

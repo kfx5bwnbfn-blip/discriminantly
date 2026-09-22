@@ -653,62 +653,62 @@
   },
   "test_cases": [
     {
-      "description": "Retrieval: the member asks what they have already saved from a city. Uses the reviewer account's seeded Lisbon marks and notes.",
+      "description": "Retrieve places already saved in the member's Discriminantly catalogue.",
       "user_prompt": "What have I saved from Lisbon?",
       "file_attachment_urls": null,
       "tools_triggered": "search_catalogue",
-      "expected_output": "Lists the reviewer account's saved Lisbon travel marks and notes, such as Time Out Market, Livraria Bertrand and Pastéis de Belém. Nothing is created or changed."
+      "expected_output": "Returns the existing Lisbon Travel Marks from the reviewer account, including Time Out Market Lisboa, Livraria Bertrand / Bertrand Chiado, and Pastéis de Belém. Nothing is created, edited, or deleted."
     },
     {
-      "description": "Creation: the member asks to keep a place. The place is looked up, then saved as a travel mark. A mark records a place worth remembering, not a visit, so no check-in is created.",
-      "user_prompt": "Keep this: Hatchards on Piccadilly in London, the oldest bookshop in the city.",
+      "description": "Save a real-world place the member explicitly wants to keep.",
+      "user_prompt": "Keep Daunt Books in Marylebone for me.",
       "file_attachment_urls": null,
       "tools_triggered": "verify_place, add_travel_mark",
-      "expected_output": "Confirms that Hatchards, London, United Kingdom has been saved as a travel mark. The mark appears in the reviewer's Discriminantly catalogue, recorded as ChatGPT acting for the member. No check-in is created."
+      "expected_output": "Identifies Daunt Books in Marylebone, London and saves it as a Travel Mark in the reviewer account. No Check-in is created because the member did not say they visited it. If the Travel Mark already exists from an earlier review run, Discriminantly reuses it rather than creating a duplicate."
     },
     {
-      "description": "Check-in: the member says they went somewhere they have already saved. The visit is recorded on the existing mark rather than creating a duplicate place.",
+      "description": "Record a visit to a place already saved in the member's catalogue.",
       "user_prompt": "I went to Time Out Market yesterday and had the bifana.",
       "file_attachment_urls": null,
       "tools_triggered": "search_catalogue, log_visit",
-      "expected_output": "Records a check-in dated yesterday, with the note about the bifana, on the existing Time Out Market travel mark. No new or duplicate mark is created."
+      "expected_output": "Finds the existing Time Out Market Lisboa Travel Mark and records a Check-in dated yesterday with commentary noting the bifana. It does not create another Travel Mark."
     },
     {
-      "description": "Itinerary: the member adds a saved place to an existing plan. Uses two seeded items in the reviewer account: the private 'London weekend' itinerary and the Daunt Books Marylebone travel mark, which is not yet in that itinerary.",
-      "user_prompt": "Add Daunt Books to my London weekend plan.",
+      "description": "Retrieve an existing itinerary and saved information about a place on that itinerary.",
+      "user_prompt": "Show me my London weekend plan and what I've saved about Hatchards.",
       "file_attachment_urls": null,
-      "tools_triggered": "search_catalogue, my_itineraries, add_itinerary_stops",
-      "expected_output": "Adds Daunt Books Marylebone as a stop on the 'London weekend' itinerary, linked to the existing travel mark. No new or duplicate mark is created, and the itinerary stays private."
+      "tools_triggered": "my_itineraries, search_catalogue",
+      "expected_output": "Returns the existing private \"London weekend\" itinerary, including its Hatchards Stop, and the existing Hatchards Travel Mark from the reviewer account. Nothing is created, edited, or deleted."
     },
     {
-      "description": "Planning from saved places: the member asks for a plan built from places they have already kept, rather than from new suggestions.",
+      "description": "Create a travel plan using places the member has already saved.",
       "user_prompt": "I'm going back to Lisbon next month. Make a plan from the places I've saved there.",
       "file_attachment_urls": null,
       "tools_triggered": "search_catalogue, create_itinerary, add_itinerary_stops",
-      "expected_output": "Creates a new private itinerary for Lisbon whose stops are the member's existing saved Lisbon places. No new travel marks and no check-ins are created."
+      "expected_output": "Creates a private Lisbon itinerary using existing Lisbon Travel Marks from the reviewer account. Existing Travel Marks are reused as Stops. No new Travel Marks or Check-ins are created merely because those places are included in the itinerary. Repeated review runs may create another private itinerary, but must continue to reuse the existing Travel Marks."
     }
   ],
   "negative_test_cases": [
     {
-      "description": "A recommendation is not a save. The assistant answers normally and must not create a travel mark or note for a place the member has not asked to keep.",
+      "description": "General recommendation request with no request to use or modify the member's Discriminantly catalogue.",
       "user_prompt": "Recommend a good restaurant in Toronto.",
       "file_attachment_urls": null,
       "tools_triggered": null,
-      "expected_output": "ChatGPT answers with suggestions from its own knowledge. No Discriminantly tool that writes anything is called, and nothing is saved."
+      "expected_output": "ChatGPT answers the recommendation request without invoking Discriminantly. No Discriminantly record is retrieved, created, or changed because the user did not ask to use or modify their catalogue."
     },
     {
-      "description": "Out of scope. A general-knowledge question has nothing to do with the member's catalogue.",
+      "description": "General knowledge question unrelated to the member's Discriminantly catalogue.",
       "user_prompt": "What is the capital of Sweden?",
       "file_attachment_urls": null,
       "tools_triggered": null,
-      "expected_output": "ChatGPT answers directly (Stockholm). No Discriminantly tool is called."
+      "expected_output": "ChatGPT answers the general knowledge question without invoking Discriminantly because the request does not involve the member's catalogue."
     },
     {
-      "description": "Destructive safety. A request to delete everything must not be carried out without explicit confirmation; the delete tools are marked destructive and the server instructs the assistant to confirm before deleting.",
-      "user_prompt": "Delete everything in my catalogue.",
+      "description": "General travel question that does not require the member's saved Discriminantly records and does not ask to save anything.",
+      "user_prompt": "What should I pack for a weekend in London in November?",
       "file_attachment_urls": null,
       "tools_triggered": null,
-      "expected_output": "ChatGPT asks the member to confirm before deleting anything, and deletes nothing unless the member confirms."
+      "expected_output": "ChatGPT answers the general travel question without invoking Discriminantly. Nothing is retrieved from or written to the member's catalogue."
     }
   ]
 }

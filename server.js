@@ -6932,8 +6932,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       for (const n of q(`SELECT created_at, id, name, private, user_id FROM objects
         WHERE user_id=? AND renoted_from_uid IS NOT NULL ORDER BY created_at DESC LIMIT 30`).all(u.id))
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
+      // Same visibility rule as the Marks tab and as notes and itineraries in
+      // this feed (canSee), so a mark shown in one place is shown in the other.
       for (const x of q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
-        if (!x.private || owner) acts.push({ at: x.created_at, card: null, html: null, mark: x });
+        if (canSee(x, me)) acts.push({ at: x.created_at, card: null, html: null, mark: x });
       for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
         acts.push({ at: f.created_at, follow: f });
       // itineraries: first-class, same visibility rule as marks and notes
