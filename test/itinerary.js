@@ -1046,25 +1046,38 @@ console.log('\nscan remediation');
   ok('SR5 the only warrant deletion is the cascade when the note or mark itself is deleted',
      (SRC.match(/DELETE FROM warrants/g) || []).length === 1 && /const dropWarrantsFor = /.test(SRC));
 }
+// Evaluate the real tool table (schemas + definitions) straight from server.js.
+function loadToolsFromSource(SRC) {
+  const pick = (name) => {
+    const i = SRC.indexOf('const ' + name + ' = ');
+    let j = i + name.length + 9, depth = 0, q = null;
+    for (; j < SRC.length; j++) {
+      const c = SRC[j];
+      if (q) { if (c === '\\') { j++; continue; } if (c === q) q = null; continue; }
+      if (c === "'" || c === '"' || c === '`') { q = c; continue; }
+      if ('([{'.includes(c)) depth++;
+      else if (')]}'.includes(c)) depth--;
+      else if (c === ';' && depth === 0) break;
+    }
+    return SRC.slice(i, j + 1);
+  };
+  const pre = ['OAUTH_SCOPE', 'IMAGE_FIELD_DESC'].map(pick).join('\n');
+  const a = SRC.search(/\nconst OS_[A-Z_]+ = /);
+  // run through the annotation step that follows the table, so annotations are the real ones
+  const tail = 'which is not a tool`);', e = SRC.indexOf(tail, SRC.indexOf('const TOOL_ANNOTATIONS = {')) + tail.length;
+  return new Function(pre + '\n' + SRC.slice(a, e) + '\nreturn TOOLS;')();
+}
 {
-  const names = ['create_itinerary', 'add_itinerary_stops', 'update_itinerary', 'update_itinerary_temporal', 'arrange_itinerary',
-    'resolve_itinerary_stop', 'update_itinerary_stop', 'delete_itinerary_entity', 'my_itineraries'];
-  const toolsBlk = SRC.slice(SRC.indexOf('const TOOLS = ['), SRC.indexOf('\n];', SRC.indexOf('const TOOLS = [')));
-  const constOf = {};
-  for (const n of names) { const m = new RegExp("\\{ name: '" + n + "', securitySchemes: SEC_OAUTH, outputSchema: (OS_[A-Z_]+),").exec(toolsBlk); constOf[n] = m && m[1]; }
-  ok('SR6 all nine itinerary tools declare an outputSchema', names.every((n) => constOf[n]));
-  // Evaluate the schema definitions exactly as written in server.js.
-  const start = SRC.indexOf('// ---- itinerary tool output schemas'), end = SRC.indexOf('const OS_PLACE_CANDIDATES = {');
-  const S = new Function(SRC.slice(start, end) + '\nreturn {' + [...new Set(Object.values(constOf))].join(',') + '};')();
+  const TOOLS_SRC = loadToolsFromSource(SRC);
+  const byName = Object.fromEntries(TOOLS_SRC.map((t) => [t.name, t]));
   const check = (v, sch) => {
     if (sch.anyOf) { const { anyOf, ...base } = sch; return (!Object.keys(base).length || check(v, base)) && anyOf.some((b) => check(v, b)); }
     if ('const' in sch && v !== sch.const) return false;
     if (sch.enum && !sch.enum.includes(v)) return false;
     if (sch.type) {
-      const ts = [].concat(sch.type);
       const is = (t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : t === 'integer' ? Number.isInteger(v)
-        : t === 'object' ? v !== null && typeof v === 'object' && !Array.isArray(v) : typeof v === t;
-      if (!ts.some(is)) return false;
+        : t === 'number' ? typeof v === 'number' : t === 'object' ? v !== null && typeof v === 'object' && !Array.isArray(v) : typeof v === t;
+      if (![].concat(sch.type).some(is)) return false;
     }
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       if ((sch.required || []).some((r) => !(r in v))) return false;
@@ -1075,24 +1088,45 @@ console.log('\nscan remediation');
     if (Array.isArray(v) && sch.items && !v.every((x) => check(x, sch.items))) return false;
     return true;
   };
-  ok('SR7 every schema has an object root, as MCP requires', names.every((n) => S[constOf[n]].type === 'object'));
-  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'itinerary-results.json'), 'utf8'));
-  const all = names.flatMap((n) => fx[n].map((r) => ({ n, r })));
-  ok('SR8 every recorded real result conforms, refusals and faults included (' + all.length + ' results)',
-     all.length >= 30 && all.every(({ n, r }) => check(r.structuredContent, S[constOf[n]])));
-  ok('SR9 each tool has at least one recorded success and one recorded error',
-     names.every((n) => fx[n].some((r) => !r.isError) && fx[n].some((r) => r.isError) || n === 'create_itinerary'));
-  const good = fx.add_itinerary_stops.find((r) => !r.isError).structuredContent, sch = S[constOf.add_itinerary_stops];
-  const bad = [
-    { ...good, surprise: 1 },
-    (() => { const b = JSON.parse(JSON.stringify(good)); delete b.itinerary_private; return b; })(),
+  ok('SC1 all 54 tools declare an outputSchema with an object root', TOOLS_SRC.length === 54 && TOOLS_SRC.every((t) => t.outputSchema && t.outputSchema.type === 'object'));
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-results.json'), 'utf8'));
+  const results = Object.entries(fx).flatMap(([n, rs]) => rs.map((r) => ({ n, r })));
+  const succ = results.filter(({ r }) => !r.isError), errs = results.filter(({ r }) => r.isError);
+  ok('SC2 every recorded real success conforms to its tool\u2019s schema as written in server.js (' + succ.length + ' results, ' + new Set(succ.map((x) => x.n)).size + ' tools)',
+     new Set(succ.map((x) => x.n)).size === 54 && succ.every(({ n, r }) => check(r.structuredContent, byName[n].outputSchema)));
+  ok('SC3 every recorded error is protocol-native: isError, no structuredContent, detail in _meta',
+     errs.length >= 5 && errs.every(({ r }) => r.structuredContent == null && r.has_meta_error));
+  const good = fx.add_itinerary_stops.find((r) => !r.isError).structuredContent, sch = byName.add_itinerary_stops.outputSchema;
+  const bad = [{ ...good, surprise: 1 }, (() => { const b = JSON.parse(JSON.stringify(good)); delete b.itinerary_private; return b; })(),
     (() => { const b = JSON.parse(JSON.stringify(good)); b.stops[0].position = '1'; return b; })(),
-    (() => { const b = JSON.parse(JSON.stringify(good)); b.stops[0].visibility = 'hidden'; return b; })(),
-    { ...good, ok: false },
-    { ok: false, error: { message: 'x' } },
-  ];
-  ok('SR10 the schemas reject malformed results (extra, missing, mistyped, off-enum, contradictory, bad error)',
-     bad.every((b) => !check(b, sch)));
+    (() => { const b = JSON.parse(JSON.stringify(good)); b.stops[0].visibility = 'hidden'; return b; })(), { ...good, ok: false }, { ok: false, error: { message: 'x' } }];
+  ok('SC4 the schemas reject malformed results (extra, missing, mistyped, off-enum, ok:false, error-shaped)', bad.every((b) => !check(b, sch)));
+  const L = SRC.indexOf("method === 'tools/call'"), handler = SRC.slice(L, SRC.indexOf("return reply(id, null, { code: -32601", L));
+  ok('SC5 the tool-call error reply carries no structuredContent, and keeps its detail in _meta',
+     /_meta: \{ 'discriminantly\/error': \{ reference: ref/.test(handler) && !/structuredContent: \{ ok: false/.test(SRC));
+  ok('SC6 an engine TypeError or ReferenceError is masked as a fault, never shown verbatim',
+     /const jsFault = e instanceof TypeError \|\| e instanceof ReferenceError;/.test(SRC) && /!dbFault && !jsFault/.test(SRC) && !/new TypeError|new ReferenceError/.test(SRC));
+  const msg = (n, label) => { const r = (fx[n] || []).find((x) => x.label === label); return r && r.isError ? JSON.stringify(r) : ''; };
+  ok('SD1 create_itinerary refuses a missing title instead of creating an untitled plan',
+     /if \(typeof a\.title !== 'string' \|\| !a\.title\.trim\(\)\) throw new Error\('title is required/.test(SRC) && !!msg('create_itinerary', 'no title'));
+  ok('SD2 update_itinerary_temporal refuses a non-list clear with a clear message',
+     /if \(a\.clear !== undefined && !\(Array\.isArray\(a\.clear\)/.test(SRC) && !!msg('update_itinerary_temporal', 'clear:true'));
+  ok('SD3 resolve_itinerary_stop with neither mark_uid nor unlink is refused and points to update_itinerary_stop',
+     /if \(!a\.unlink && !a\.mark_uid\)\s*throw new Error\('Pass mark_uid to link[^']*update_itinerary_stop/.test(SRC) && !!msg('resolve_itinerary_stop', 'kind only'));
+  const ann = Object.fromEntries(TOOLS_SRC.map((t) => [t.name, t.annotations]));
+  const closed = ['my_notes', 'my_travel_marks', 'my_collections', 'my_itineraries', 'search_catalogue', 'catalogue_stats', 'recent_notes',
+    'list_ensembles', 'get_ensemble', 'list_unresolved_components', 'list_checkins', 'read_comments', 'view_images',
+    'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake', 'create_pending_ensemble', 'keep_ensemble',
+    'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload'];
+  ok('SW1 closed-world is exactly the reads plus the writes confined to never-public data',
+     JSON.stringify(TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()));
+  ok('SW2 changing or removing content on a possibly-public record is open-world',
+     ['add_itinerary_stops', 'arrange_itinerary', 'resolve_itinerary_stop', 'update_itinerary_temporal', 'delete_itinerary_entity',
+      'edit_checkin', 'delete_checkin', 'revoke_warrant', 'set_primary_artifact', 'add_ensemble_artifact', 'add_ensemble_component',
+      'resolve_ensemble_component', 'remove_ensemble_artifact', 'remove_ensemble_component', 'delete_ensemble', 'discard_ensemble',
+      'delete_note', 'delete_travel_mark'].every((n) => ann[n].openWorldHint));
+  const cnt = (k) => TOOLS_SRC.filter((t) => t.annotations[k]).length;
+  ok('SW3 final counts: 14 read-only, 15 destructive, 32 open-world', cnt('readOnlyHint') === 14 && cnt('destructiveHint') === 15 && cnt('openWorldHint') === 32);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

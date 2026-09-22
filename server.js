@@ -7419,22 +7419,16 @@ const OS_WRITE = { type: 'object', additionalProperties: false,
   required: ['ok', 'action', 'subject', 'id', 'uid', 'name'],
   properties: {
     ok: { type: 'boolean' },
-    action: { type: 'string', enum: ['created', 'edited', 'deleted', 'asserted', 'released', 'revoked', 'corrected', 'unchanged'] },
-    subject: { type: 'string', enum: ['note', 'mark', 'visit', 'ownership', 'warrant', 'image'] },
+    action: { type: 'string', enum: ['created', 'edited', 'deleted', 'asserted', 'released', 'revoked', 'corrected', 'resolved', 'unchanged'] },
+    subject: { type: 'string', enum: ['note', 'mark', 'visit', 'ownership', 'warrant', 'image', 'comment', 'ensemble', 'ensemble_artifact', 'ensemble_component'] },
     id: { type: ['integer', 'null'], description: 'Integer id of the affected note, mark or check-in, where one applies.' },
     uid: { type: ['string', 'null'] },
     name: { type: 'string' },
     detail: { type: 'string' } } };
 // ---- itinerary tool output schemas -------------------------------------------
-// Each describes exactly what that tool's handler returns, including the
-// refusal and fault results the tool-call handler sends (isError: true), so
-// every structuredContent the server produces for these tools conforms.
-const OS_TOOL_ERROR = { type: 'object', additionalProperties: false, required: ['ok', 'error'],
-  properties: { ok: { const: false }, error: { type: 'object', additionalProperties: false,
-    required: ['reference', 'tool', 'kind', 'message', 'retryable'],
-    properties: { reference: { type: 'string' }, tool: { type: 'string' },
-      kind: { type: 'string', enum: ['refused', 'fault'] }, message: { type: 'string' }, retryable: { type: 'boolean' } } } } };
-const orError = (ok) => ({ type: 'object', anyOf: [ok, OS_TOOL_ERROR] });
+// Each describes exactly what that tool's handler returns on success. Errors
+// are reported with isError and no structuredContent, so need no branch here.
+const orError = (ok) => ok;
 const OS_ITIN_STOP = { type: 'object', additionalProperties: false,
   required: ['uid', 'label', 'kind', 'mark_uid', 'position', 'visibility', 'when'],
   properties: { uid: { type: 'string' }, label: { type: 'string' },
@@ -7481,8 +7475,7 @@ const OS_MY_ITINERARIES = { type: 'object', anyOf: [
     required: ['ok', 'subject', 'uid', 'title', 'context', 'private', 'when', 'days', 'unplaced', 'conflicts'],
     properties: { ok: { const: true }, subject: { const: 'itinerary' }, uid: { type: 'string' }, title: { type: 'string' },
       context: { type: 'string' }, private: { type: 'boolean' }, when: { type: ['string', 'null'] },
-      days: { type: 'array', items: OS_ITIN_DAY }, unplaced: { type: 'array', items: OS_ITIN_STOP }, conflicts: OS_CONFLICTS } },
-  OS_TOOL_ERROR ] };
+      days: { type: 'array', items: OS_ITIN_DAY }, unplaced: { type: 'array', items: OS_ITIN_STOP }, conflicts: OS_CONFLICTS } } ] };
 const OS_PLACE_CANDIDATES = { type: 'object', additionalProperties: false, required: ['items'],
   properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false,
     required: ['name', 'lat', 'lng'],
@@ -8008,10 +8001,13 @@ const TOOLS = [
 //               kept (provenance records THAT a record was edited, not its
 //               previous contents, so an edit is not reversible from here).
 //   openWorld   it reaches the public internet (Photon place lookup, fetching
-//               an image URL), or it makes something newly visible to other
-//               people: content that is public by default, publishing, a
-//               comment, a warrant, or changing privacy. Edits inside a record
-//               whose visibility is already set do not change who can see it.
+//               an image URL), or it can change what the public sees: create,
+//               publish, add to, modify or remove content on a record that is or
+//               can be public (notes, marks, their check-ins, comments and
+//               warrants, published itineraries, and ensembles). False only for
+//               tools confined to data that can never be public: reads, the
+//               member's private ownership records, staged ensembles, and image
+//               bytes in transit.
 // [title, readOnly, destructive, openWorld]
 const TOOL_ANNOTATIONS = {
   // reading the member's own catalogue (and other members' public notes)
@@ -8039,36 +8035,36 @@ const TOOL_ANNOTATIONS = {
   record_note_ownership:      ['Record that I own this', false, false, false],
   release_note_ownership:     ['Record that I no longer own this', false, false, false],
   create_itinerary:           ['Start an itinerary', false, false, true],
-  add_itinerary_stops:        ['Add stops to an itinerary', false, false, false],
-  arrange_itinerary:          ['Arrange an itinerary\u2019s days', false, false, false],
-  resolve_itinerary_stop:     ['Link a stop to a travel mark', false, false, false],
+  add_itinerary_stops:        ['Add stops to an itinerary', false, false, true],
+  arrange_itinerary:          ['Arrange an itinerary\u2019s days', false, false, true],
+  resolve_itinerary_stop:     ['Link a stop to a travel mark', false, false, true],
   // edits: overwrite what was there, with no copy kept
   edit_note:                  ['Edit a note', false, true, true],
   edit_travel_mark:           ['Edit a travel mark', false, true, true],
-  edit_checkin:               ['Edit a check-in', false, true, false],
+  edit_checkin:               ['Edit a check-in', false, true, true],
   update_itinerary:           ['Edit or publish an itinerary', false, true, true],
-  update_itinerary_temporal:  ['Change itinerary dates or times', false, true, false],
+  update_itinerary_temporal:  ['Change itinerary dates or times', false, true, true],
   update_itinerary_stop:      ['Edit an itinerary stop', false, true, true],
   edit_ensemble:              ['Edit an ensemble', false, true, true],
-  set_primary_artifact:       ['Choose an ensemble\u2019s main image', false, false, false],
+  set_primary_artifact:       ['Choose an ensemble\u2019s main image', false, false, true],
   // withdrawing a stand, with history kept -- reversible, so not destructive
-  revoke_warrant:             ['Withdraw a warrant', false, false, false],
+  revoke_warrant:             ['Withdraw a warrant', false, false, true],
   // deletions and removals
-  delete_note:                ['Delete a note', false, true, false],
-  delete_travel_mark:         ['Delete a travel mark', false, true, false],
-  delete_checkin:             ['Delete a check-in', false, true, false],
-  delete_itinerary_entity:    ['Delete an itinerary, day or stop', false, true, false],
-  delete_ensemble:            ['Delete an ensemble', false, true, false],
-  discard_ensemble:           ['Discard a staged ensemble', false, true, false],
-  remove_ensemble_artifact:   ['Remove an ensemble image', false, true, false],
-  remove_ensemble_component:  ['Remove an ensemble piece', false, true, false],
+  delete_note:                ['Delete a note', false, true, true],
+  delete_travel_mark:         ['Delete a travel mark', false, true, true],
+  delete_checkin:             ['Delete a check-in', false, true, true],
+  delete_itinerary_entity:    ['Delete an itinerary, day or stop', false, true, true],
+  delete_ensemble:            ['Delete an ensemble', false, true, true],
+  discard_ensemble:           ['Discard a staged ensemble', false, true, true],
+  remove_ensemble_artifact:   ['Remove an ensemble image', false, true, true],
+  remove_ensemble_component:  ['Remove an ensemble piece', false, true, true],
   correct_note_ownership_mistake: ['Withdraw a mistaken ownership record', false, false, false],  // appends a superseding record; nothing deleted
   // ensembles: staged privately until kept
   create_pending_ensemble:    ['Stage an ensemble', false, false, false],
   keep_ensemble:              ['Keep a staged ensemble', false, false, false],  // staged private, and keeping does not change that
-  add_ensemble_artifact:      ['Add an image to an ensemble', false, false, false],
-  add_ensemble_component:     ['Add a piece to an ensemble', false, false, false],
-  resolve_ensemble_component: ['Identify an ensemble piece', false, false, false],
+  add_ensemble_artifact:      ['Add an image to an ensemble', false, false, true],
+  add_ensemble_component:     ['Add a piece to an ensemble', false, false, true],
+  resolve_ensemble_component: ['Identify an ensemble piece', false, false, true],
   // image transport: bytes stay private to the member until used
   upload_image:               ['Save an image', false, false, true],
   begin_image_upload:         ['Start sending an image', false, false, false],
@@ -9190,6 +9186,8 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     });
 
     if (name === 'create_itinerary') {
+      // title is required by the schema; an untitled plan was being created.
+      if (typeof a.title !== 'string' || !a.title.trim()) throw new Error('title is required: what should this itinerary be called?');
       const ctx = mcpActor(user);
       const it = itineraryCreate(user, { title: a.title, context: a.context || '',
         temporal: T_IN(a), private: a.private === false ? 0 : 1 }, ctx);
@@ -9225,6 +9223,10 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     }
 
     if (name === 'update_itinerary_temporal') {
+      // clear is a list of the parts to unset; anything else used to reach the
+      // code that iterates it and fail with an internal error.
+      if (a.clear !== undefined && !(Array.isArray(a.clear) && a.clear.every((c) => typeof c === 'string')))
+        throw new Error('clear must be a list of the parts to unset, for example ["clock"] or ["day", "clock"].');
       const ctx = mcpActor(user);
       const intent = a.intent || null;
       const t = T_IN(a);
@@ -9264,6 +9266,10 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     }
 
     if (name === 'resolve_itinerary_stop') {
+      // kind only applies when unlinking; without mark_uid or unlink there is
+      // nothing to do, and it used to fall through to linking with no mark.
+      if (!a.unlink && !a.mark_uid)
+        throw new Error('Pass mark_uid to link this stop to a travel mark, or unlink: true to unlink it (kind sets what it becomes). To change the kind of a stop that is not linked, use update_itinerary_stop.');
       const ctx = mcpActor(user);
       const st = a.unlink
         ? stopUnresolve(user, a.stop_uid, a.kind || 'particular', ctx)
@@ -9448,7 +9454,10 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
       // unexpected fault does not, and must not leak internals — but it is the
       // one we most want in the log.
       const dbFault = e && (/^ERR_SQLITE/.test(String(e.code || '')) || /SQLITE|constraint failed|no such (table|column)|syntax error|database is locked/i.test(String(e.message || '')));
-      const deliberate = e instanceof Error && !!e.message && !dbFault && !/^(Cannot read|Cannot access|undefined is not|.* is not a function)/.test(e.message);
+      // Any engine-raised TypeError or ReferenceError is a fault in this server
+      // (none is thrown deliberately), so its message never reaches the client.
+      const jsFault = e instanceof TypeError || e instanceof ReferenceError;
+      const deliberate = e instanceof Error && !!e.message && !dbFault && !jsFault && !/^(Cannot read|Cannot access|undefined is not|.* is not a function)/.test(e.message);
       const argKeys = Object.keys(params.arguments || {}).join(',');   // names only, never values
       console.log(`[tool-error] ref=${ref} tool=${params.name} member=@${user.handle} args=[${argKeys}] `
         + `kind=${deliberate ? 'refused' : 'fault'} msg=${JSON.stringify(String(e.message || '').slice(0, 300))}`);
@@ -9460,7 +9469,11 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
           + `TELL THE MEMBER THIS FAILED, quote the reason and this reference, and say what you were attempting. `
           + `Do not describe the action as done, do not work around it silently, and do not retry the identical call `
           + `more than once.` }],
-        structuredContent: { ok: false, error: { reference: ref, tool: params.name,
+        // Protocol-native tool error: isError, message in content, and no
+        // structuredContent, so an error never contradicts the tool's
+        // outputSchema (which describes success). Machine-readable detail goes
+        // in _meta, which is not validated against the schema.
+        _meta: { 'discriminantly/error': { reference: ref, tool: params.name,
           kind: deliberate ? 'refused' : 'fault', message: detail, retryable: !deliberate } },
         isError: true });
     }

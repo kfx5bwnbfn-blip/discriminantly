@@ -122,9 +122,9 @@ Every tool requires OAuth with the single `discriminantly` scope, or the member'
 | `update_itinerary` | Edit or publish an itinerary | false | true | true | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: Yes — can publish or unpublish the itinerary. |
 | `update_itinerary_stop` | Edit an itinerary stop | false | true | true | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: Yes — can show or withhold a stop from public view. |
 | `update_itinerary_temporal` | Change itinerary dates or times | false | true | false | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: No — stays within the member’s own Discriminantly account. |
-Totals: **14 read-only · 40 write · 15 destructive · 14 open-world**. No tool is both read-only and destructive.
+Totals: **14 read-only · 40 write · 15 destructive · 32 open-world**. No tool is both read-only and destructive.
 
-> **Scan remediation (v2.52.5):** three values were corrected after verifying the code: `log_visit` openWorld → true, `keep_ensemble` openWorld → false, and `correct_note_ownership_mistake` destructive → false. The table above predates that correction. The authoritative per-tool values and justifications are in `plugin/chatgpt-app-submission.json`.
+> **Scan remediation (v2.52.5–v2.52.6):** annotations were re-verified against the code and OpenAI's rule, and 21 values changed. Final totals are **14 read-only · 15 destructive · 32 open-world**, with open-world now also covering tools that change or remove content on a record that is or can be public. The table above predates these corrections. The authoritative per-tool values and justifications are in `plugin/chatgpt-app-submission.json` and `annotation-justifications.md`.
 
 **One conflict with the brief.** The brief treats updates as non-destructive. OpenAI's definition explicitly includes *overwrite*, and edits here keep no previous version, so the seven edit tools are marked destructive. I followed OpenAI. The practical effect is that ChatGPT may ask before editing. If self-serve edit history is added later, those can be re-marked non-destructive. See §M.
 
@@ -194,8 +194,8 @@ Through ChatGPT the agent reads `chatgpt`. The local run shows `mcp-inspector`, 
    - Preconditions: the seeded Time Out Market mark.
    - Tools: `search_catalogue`, then `log_visit` with yesterday's date and the note.
    - Result: a check-in recorded. The mark itself is unchanged and no duplicate is created.
-4. **Itinerary.** *"Add Hatchards to my London weekend plan."*
-   - Preconditions: the seeded "London weekend" itinerary; Hatchards from test 2, or seeded.
+4. **Itinerary.** *"Add Daunt Books to my London weekend plan."*
+   - Preconditions: the seeded "London weekend" itinerary; the seeded Daunt Books Marylebone travel mark, which is not in that itinerary. Independent of every other test.
    - Tools: `my_itineraries`, then `add_itinerary_stops` linking the mark.
    - Result: the stop is added, and the itinerary stays private.
 5. **Planning from the corpus.** *"I'm going back to Lisbon next month — make a plan from the places I've saved there."*
@@ -253,7 +253,7 @@ Through ChatGPT the agent reads `chatgpt`. The local run shows `mcp-inspector`, 
    - An email address you control, which is never verified
    - A strong password
 3. Still signed in as the reviewer, add this small corpus in the app:
-   - **Travel marks:** Time Out Market (Lisbon, Portugal); Livraria Bertrand (Lisbon); Pastéis de Belém (Lisbon); Borough Market (London, UK). Leave Hatchards for test 2.
+   - **Travel marks:** Time Out Market (Lisbon, Portugal); Livraria Bertrand (Lisbon); Pastéis de Belém (Lisbon); Borough Market (London, UK); Daunt Books Marylebone (London, UK). Leave Hatchards unseeded, for test 2.
    - **One check-in:** at Pastéis de Belém, on any past date.
    - **Notes, each with any photo of your own:** a notebook; a pair of boots; a coffee grinder. Mark one of them private.
    - **One collection:** "Lisbon", containing the Lisbon marks.

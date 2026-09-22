@@ -11,36 +11,36 @@
     "add_ensemble_artifact": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: adds an image to an existing ensemble.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, the added image is publicly visible.",
         "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
       }
     },
     "add_ensemble_component": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: adds a piece to an existing ensemble.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, the added piece is publicly visible.",
         "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
       }
     },
     "add_itinerary_stops": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: adds stops to an itinerary, and can create a travel mark for a new place.",
-        "open_world_justification": "Closed-world: new stops, and any mark created for them, take the itinerary’s privacy, and itineraries start private. It reaches no outside service.",
+        "open_world_justification": "Open-world: on a published itinerary the new stops are publicly visible. Any travel mark it creates takes the itinerary’s privacy.",
         "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
       }
     },
@@ -59,12 +59,12 @@
     "arrange_itinerary": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: creates days in an itinerary, places stops on them and sets their order.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a published itinerary the days and order it sets are publicly visible.",
         "destructive_justification": "Not destructive: it adds days and reorders stops. Nothing is deleted, and the order can be changed again."
       }
     },
@@ -143,84 +143,84 @@
     "delete_checkin": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: deletes one of the member’s check-ins.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: check-ins appear on the travel mark’s page, and marks are public by default, so deleting one usually removes publicly visible content.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "delete_ensemble": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: deletes an ensemble and its images.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: it can delete a public ensemble, removing a page anyone with the link could see.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "delete_itinerary_entity": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: deletes an itinerary, a day or a stop.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: it can remove a published itinerary, or a day or stop from one, which changes what the public sees.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone. Deleting a day keeps its stops, unplaced."
       }
     },
     "delete_note": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: deletes one of the member’s notes.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: deleting a public note removes a page anyone with the link could see.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "delete_travel_mark": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: deletes one of the member’s travel marks and its check-ins.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: deleting a public travel mark removes a page anyone with the link could see, along with its check-ins.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "discard_ensemble": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
-        "read_only_justification": "Writes: discards a staged ensemble the member declined.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "read_only_justification": "Writes: discards an ensemble, and removes notes it had added that nothing else uses.",
+        "open_world_justification": "Open-world: it can discard any of the member’s ensembles, including a kept, public one, along with notes it had added.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "edit_checkin": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: edits a check-in’s date or notes.",
-        "open_world_justification": "Closed-world: it changes an existing check-in without changing who can see it, and reaches no outside service.",
+        "open_world_justification": "Open-world: check-ins appear on the travel mark’s page, and marks are public by default, so an edit usually changes publicly visible content.",
         "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
       }
     },
@@ -467,60 +467,60 @@
     "remove_ensemble_artifact": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: removes an image from an ensemble.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, removing an image changes what the public sees.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "remove_ensemble_component": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: removes a piece from an ensemble.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, removing a piece changes what the public sees.",
         "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
       }
     },
     "resolve_ensemble_component": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: records what an ensemble piece actually is.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, the piece’s identification is publicly visible.",
         "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
       }
     },
     "resolve_itinerary_stop": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: links an itinerary stop to one of the member’s travel marks, or unlinks it.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people. Linking a private mark makes a public itinerary private rather than disclosing the mark.",
+        "open_world_justification": "Open-world: on a published itinerary the stop’s link to a travel mark is publicly visible. Linking a private mark makes the itinerary private rather than disclosing the mark.",
         "destructive_justification": "Not destructive: linking and unlinking are reversible, and neither the stop nor the mark is deleted."
       }
     },
     "revoke_warrant": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: withdraws the member’s endorsement of something.",
-        "open_world_justification": "Closed-world: it withdraws rather than publishes, and reaches no outside service.",
+        "open_world_justification": "Open-world: it withdraws an endorsement that was published on a public note or travel mark, which changes what the public sees.",
         "destructive_justification": "Not destructive: it appends a withdrawal record and keeps the earlier one, so the history is preserved and the member can endorse it again."
       }
     },
@@ -539,12 +539,12 @@
     "set_primary_artifact": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Writes: chooses which existing image represents an ensemble.",
-        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "open_world_justification": "Open-world: on a public ensemble, the chosen main image is what the public sees.",
         "destructive_justification": "Not destructive: it only switches between images that already exist, and can be switched back."
       }
     },
@@ -587,12 +587,12 @@
     "update_itinerary_temporal": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": false,
+        "openWorldHint": true,
         "destructiveHint": true
       },
       "justifications": {
         "read_only_justification": "Writes: changes the dates or times on an itinerary, day or stop.",
-        "open_world_justification": "Closed-world: it changes timing without changing who can see anything, and reaches no outside service.",
+        "open_world_justification": "Open-world: on a published itinerary the dates and times it sets are publicly visible.",
         "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
       }
     },
@@ -680,11 +680,11 @@
       "expected_output": "Records a check-in dated yesterday, with the note about the bifana, on the existing Time Out Market travel mark. No new or duplicate mark is created."
     },
     {
-      "description": "Itinerary: the member adds a saved place to an existing plan. Uses the reviewer account's seeded private 'London weekend' itinerary; Hatchards is saved by the previous test or already seeded.",
-      "user_prompt": "Add Hatchards to my London weekend plan.",
+      "description": "Itinerary: the member adds a saved place to an existing plan. Uses two seeded items in the reviewer account: the private 'London weekend' itinerary and the Daunt Books Marylebone travel mark, which is not yet in that itinerary.",
+      "user_prompt": "Add Daunt Books to my London weekend plan.",
       "file_attachment_urls": null,
-      "tools_triggered": "my_itineraries, add_itinerary_stops",
-      "expected_output": "Adds Hatchards as a stop on the 'London weekend' itinerary, linked to the saved travel mark. The itinerary stays private."
+      "tools_triggered": "search_catalogue, my_itineraries, add_itinerary_stops",
+      "expected_output": "Adds Daunt Books Marylebone as a stop on the 'London weekend' itinerary, linked to the existing travel mark. No new or duplicate mark is created, and the itinerary stays private."
     },
     {
       "description": "Planning from saved places: the member asks for a plan built from places they have already kept, rather than from new suggestions.",

@@ -1,0 +1,1672 @@
+{
+ "catalogue_stats": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "notes": 6,
+    "marks": 0,
+    "notes_without_image": 0,
+    "notes_by_collection": [
+     {
+      "name": "Kitchen",
+      "count": 3
+     },
+     {
+      "name": "Made in Britain",
+      "count": 2
+     },
+     {
+      "name": "Travel",
+      "count": 1
+     },
+     {
+      "name": "Study",
+      "count": 1
+     },
+     {
+      "name": "Sartorial Matters",
+      "count": 1
+     }
+    ],
+    "marks_by_country": []
+   },
+   "has_meta_error": false
+  }
+ ],
+ "my_collections": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "collection",
+      "uid": "d7d15b8e-5db2-471c-967c-1fdca4196fb6",
+      "name": "Kitchen",
+      "kind": "note",
+      "count": 3,
+      "provenance": null
+     },
+     {
+      "type": "collection",
+      "uid": "1177596c-bb04-4477-af52-007bcc82be6c",
+      "name": "Made in Britain",
+      "kind": "note",
+      "count": 2,
+      "provenance": null
+     },
+     {
+      "type": "collection",
+      "uid": "1a948842-8bc0-4236-99f9-06614a5d5805",
+      "name": "Sartorial Matters",
+      "kind": "note",
+      "count": 1,
+      "provenance": null
+     },
+     {
+      "type": "collection",
+      "uid": "09a4f8d6-7c44-4340-91dc-a63e21c243a3",
+      "name": "Study",
+      "kind": "note",
+      "count": 1,
+      "provenance": null
+     },
+     {
+      "type": "collection",
+      "uid": "3187ae4e-c948-479e-8a36-1469a1ebf495",
+      "name": "Travel",
+      "kind": "note",
+      "count": 1,
+      "provenance": null
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "upload_image": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "type": "image",
+    "stored": true,
+    "verified": true,
+    "uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+    "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+    "id": 1,
+    "ref": "/i/449a733e-d1c5-4edf-89f2-23a6f603763a",
+    "mime": "image/png",
+    "bytes": 70,
+    "byte_count": 70,
+    "width": 1,
+    "height": 1,
+    "provenance": {
+     "action": "created",
+     "assertion": "explicit",
+     "actor_type": "ai_on_behalf",
+     "agent": "legacy",
+     "created_at": "2026-09-22 01:58:41"
+    }
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "type": "image",
+    "stored": true,
+    "verified": true,
+    "uid": "5e00fd04-31fe-4a68-9b3d-004f77714f5c",
+    "image_uid": "5e00fd04-31fe-4a68-9b3d-004f77714f5c",
+    "id": 2,
+    "ref": "/i/5e00fd04-31fe-4a68-9b3d-004f77714f5c",
+    "mime": "image/png",
+    "bytes": 70,
+    "byte_count": 70,
+    "width": 1,
+    "height": 1,
+    "provenance": {
+     "action": "created",
+     "assertion": "explicit",
+     "actor_type": "ai_on_behalf",
+     "agent": "legacy",
+     "created_at": "2026-09-22 01:58:41"
+    }
+   },
+   "has_meta_error": false
+  }
+ ],
+ "note_object": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "note",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "note",
+    "id": 8,
+    "uid": "fcf18478-903c-45b9-b546-94362f744cca",
+    "name": "Boots"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "my_notes": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "object",
+      "uid": "fcf18478-903c-45b9-b546-94362f744cca",
+      "id": 8,
+      "name": "Boots",
+      "why": "d",
+      "tags": "",
+      "url": "",
+      "private": true,
+      "has_image": true,
+      "image_uid": "5e00fd04-31fe-4a68-9b3d-004f77714f5c",
+      "image_url": null,
+      "renoted_from_uid": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "equivalent_notes": [],
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     },
+     {
+      "type": "object",
+      "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "id": 7,
+      "name": "Field notebook",
+      "why": "d",
+      "tags": "paper",
+      "url": "",
+      "private": false,
+      "has_image": true,
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+      "image_url": null,
+      "renoted_from_uid": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "equivalent_notes": [],
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     },
+     {
+      "type": "object",
+      "uid": "3b9641aa-7173-46ab-9053-9e0961cb8a9c",
+      "id": 6,
+      "name": "Mauviel M'250 copper saucepan",
+      "why": "Villedieu-les-Poêles has made copper pans since the 1200s. Responds to heat the second you touch the flame.",
+      "tags": "kitchen, copper, france",
+      "url": "https://www.mauviel.com",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/mauviel.jpg",
+      "renoted_from_uid": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "equivalent_notes": [],
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "04d171f4-60af-4b09-a31d-96502dbb2d7f",
+      "id": 5,
+      "name": "Rimowa Original cabin",
+      "why": "Aluminium. Every dent is a trip. Buy it once.",
+      "tags": "travel, luggage, germany",
+      "url": "https://www.rimowa.com",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/rimowa.jpg",
+      "renoted_from_uid": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "equivalent_notes": [],
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "18f88cbc-5252-477a-9884-984180b5a308",
+      "id": 4,
+      "name": "Pilot Custom 823",
+      "why": "The vacuum filler holds a week of writing and the 14k nib never skips. Unremarkable to look at, which is the point.",
+      "tags": "study, pens, japan",
+      "url": "https://www.pilotpen.com",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/pilot.jpg",
+      "renoted_from_uid": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "equivalent_notes": [],
+      "provenance": null
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "search_catalogue": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "object",
+      "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "id": 7,
+      "name": "Field notebook",
+      "why": "d",
+      "tags": "paper",
+      "private": false,
+      "has_image": true,
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+      "image_url": null,
+      "owned": {
+       "state": null,
+       "since": null,
+       "history_count": 0
+      },
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "recent_notes": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "object",
+      "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "id": 7,
+      "name": "Field notebook",
+      "why": "d",
+      "tags": "paper",
+      "url": "",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+      "image_url": null,
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     },
+     {
+      "type": "object",
+      "uid": "3b9641aa-7173-46ab-9053-9e0961cb8a9c",
+      "id": 6,
+      "name": "Mauviel M'250 copper saucepan",
+      "why": "Villedieu-les-Poêles has made copper pans since the 1200s. Responds to heat the second you touch the flame.",
+      "tags": "kitchen, copper, france",
+      "url": "https://www.mauviel.com",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/mauviel.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "04d171f4-60af-4b09-a31d-96502dbb2d7f",
+      "id": 5,
+      "name": "Rimowa Original cabin",
+      "why": "Aluminium. Every dent is a trip. Buy it once.",
+      "tags": "travel, luggage, germany",
+      "url": "https://www.rimowa.com",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/rimowa.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "18f88cbc-5252-477a-9884-984180b5a308",
+      "id": 4,
+      "name": "Pilot Custom 823",
+      "why": "The vacuum filler holds a week of writing and the 14k nib never skips. Unremarkable to look at, which is the point.",
+      "tags": "study, pens, japan",
+      "url": "https://www.pilotpen.com",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/pilot.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "8fb792b3-e90d-4732-96f6-e35f24e9ea66",
+      "id": 3,
+      "name": "Jamieson's Shetland crewneck",
+      "why": "Wool spun on the islands from the islands' sheep. Fifteen winters in and it is still the one I reach for.",
+      "tags": "wardrobe, knitwear, scotland",
+      "url": "https://www.jamiesonsofshetland.co.uk",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/jamiesons.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "d7cb50db-f102-4668-84e9-084674ab8f33",
+      "id": 2,
+      "name": "Blenheim Forge Model 1 chef's knife",
+      "why": "Three friends who taught themselves to forge under a railway arch in Peckham. Blue paper steel, oak handle. The edge holds for months.",
+      "tags": "kitchen, knives, london",
+      "url": "https://blenheimforge.co.uk",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/blenheim.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     },
+     {
+      "type": "object",
+      "uid": "ca7235ca-d5fa-4638-9ced-6c056870b6ea",
+      "id": 1,
+      "name": "de Buyer carbon steel pan, 28 cm",
+      "why": "Seasoned once and it outcooks every nonstick pan I have owned. Made in Le Val-d'Ajol since 1830. Heavy in the right way.",
+      "tags": "kitchen, carbon steel, france",
+      "url": "https://www.debuyer.com",
+      "handle": "elicierto",
+      "private": false,
+      "has_image": true,
+      "image_uid": null,
+      "image_url": "https://www.discriminantly.com/seed/debuyer.jpg",
+      "already_adopted": {
+       "count": 0,
+       "note_uids": []
+      },
+      "provenance": null
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "edit_note": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "note",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "record_note_ownership": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "asserted",
+    "subject": "ownership",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "asserted",
+    "subject": "ownership",
+    "id": 8,
+    "uid": "fcf18478-903c-45b9-b546-94362f744cca",
+    "name": "Boots"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "release_note_ownership": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "released",
+    "subject": "ownership",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "correct_note_ownership_mistake": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "corrected",
+    "subject": "ownership",
+    "id": 8,
+    "uid": "fcf18478-903c-45b9-b546-94362f744cca",
+    "name": "Boots"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "warrant": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "asserted",
+    "subject": "warrant",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook",
+    "detail": "published"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "asserted",
+    "subject": "warrant",
+    "id": 1,
+    "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+    "name": "Hatchards",
+    "detail": "published"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "revoke_warrant": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "revoked",
+    "subject": "warrant",
+    "id": 7,
+    "uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "comment": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "comment",
+    "id": 1,
+    "uid": "363cedcb-cffd-4d5a-bd30-5c027288d131",
+    "name": "Field notebook"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "comment",
+    "id": 1,
+    "uid": "d085012c-c43e-4ecf-9d1e-7d9bf62e1668",
+    "name": "Hatchards"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "read_comments": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "comment",
+      "uid": "363cedcb-cffd-4d5a-bd30-5c027288d131",
+      "id": 1,
+      "subject_type": "note",
+      "subject_id": 7,
+      "subject_name": "Field notebook",
+      "handle": "elicierto",
+      "name": "Brian Elicierto",
+      "body": "nice",
+      "created_at": "2026-09-22 01:58:41",
+      "mine": true
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "view_images": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+      "mime": "image/png",
+      "byte_count": 70,
+      "width": 1,
+      "height": 1
+     }
+    ],
+    "missing": []
+   },
+   "has_meta_error": false
+  }
+ ],
+ "verify_place": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": []
+   },
+   "has_meta_error": false
+  }
+ ],
+ "add_travel_mark": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "mark",
+    "id": 1,
+    "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+    "name": "Hatchards"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "my_travel_marks": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "mark",
+      "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+      "id": 1,
+      "name": "Hatchards",
+      "locality": "London",
+      "country": "United Kingdom",
+      "why": "books",
+      "tags": "",
+      "private": false,
+      "verified": false,
+      "remarked_from_uid": null,
+      "has_image": false,
+      "image_uid": null,
+      "image_url": null,
+      "visit_count": 0,
+      "visits": [],
+      "warrant": {
+       "state": null,
+       "since": null,
+       "published": false,
+       "history_count": 0
+      },
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "edit_travel_mark": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "mark",
+    "id": 1,
+    "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+    "name": "Hatchards"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "log_visit": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "visit",
+    "id": 1,
+    "uid": "3339b0ca-2b2a-46cf-aac7-5e911a54b27c",
+    "name": "Hatchards",
+    "detail": "1 total"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "list_checkins": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "visit",
+      "uid": "3339b0ca-2b2a-46cf-aac7-5e911a54b27c",
+      "id": 1,
+      "date_known": true,
+      "visited_on": "2026-09-01",
+      "ended_on": null,
+      "range": "Sep 1, 2026",
+      "body": "browsed",
+      "days": [],
+      "provenance": {
+       "action": "created",
+       "assertion": "explicit",
+       "actor_type": "ai_on_behalf",
+       "agent": "legacy",
+       "created_at": "2026-09-22 01:58:41"
+      }
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "edit_checkin": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "visit",
+    "id": 1,
+    "uid": "3339b0ca-2b2a-46cf-aac7-5e911a54b27c",
+    "name": "Sep 1, 2026"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "create_itinerary": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary",
+    "id": 1,
+    "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+    "name": "London weekend"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "no title",
+   "isError": true,
+   "structuredContent": null,
+   "has_meta_error": true
+  }
+ ],
+ "add_itinerary_stops": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary_stop",
+    "stops": [
+     {
+      "uid": "09250710-f1c3-470d-b708-03a6a2af9748",
+      "label": "Hatchards",
+      "kind": "linked",
+      "mark_uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+      "label": "Chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "itinerary_private": true
+   },
+   "has_meta_error": false
+  }
+ ],
+ "my_itineraries": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "subject": "itinerary",
+    "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+    "title": "London weekend",
+    "context": "",
+    "private": true,
+    "when": null,
+    "days": [],
+    "unplaced": [
+     {
+      "uid": "09250710-f1c3-470d-b708-03a6a2af9748",
+      "label": "Hatchards",
+      "kind": "linked",
+      "mark_uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+      "label": "Chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "conflicts": []
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "items": [
+     {
+      "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+      "title": "London weekend",
+      "when": null,
+      "private": true,
+      "stops": 2
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "arrange_itinerary": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+    "days": [
+     {
+      "uid": "ffa7bf3b-344c-46e3-8c47-fff01e5cb2fd",
+      "label": "Day 1",
+      "when": null,
+      "stops": [
+       {
+        "uid": "09250710-f1c3-470d-b708-03a6a2af9748",
+        "label": "Hatchards",
+        "kind": "linked",
+        "mark_uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+        "position": null,
+        "visibility": "visible",
+        "when": null
+       }
+      ]
+     }
+    ],
+    "unplaced": [
+     {
+      "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+      "label": "Chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "conflicts": []
+   },
+   "has_meta_error": false
+  }
+ ],
+ "update_itinerary": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "id": 1,
+    "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+    "name": "London long weekend"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "update_itinerary_temporal": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "uid": "697f4752-7b31-4342-8152-df488384eb6a",
+    "when": "November 20, 2026",
+    "conflicts": []
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "clear:true",
+   "isError": true,
+   "structuredContent": null,
+   "has_meta_error": true
+  }
+ ],
+ "resolve_itinerary_stop": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+    "stop": {
+     "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+     "label": "Chilli crab",
+     "kind": "linked",
+     "mark_uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+     "position": null,
+     "visibility": "visible",
+     "when": null
+    },
+    "itinerary_private": true
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "corrected",
+    "subject": "itinerary_stop",
+    "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+    "stop": {
+     "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+     "label": "Chilli crab",
+     "kind": "experiential",
+     "mark_uid": null,
+     "position": null,
+     "visibility": "visible",
+     "when": null
+    },
+    "itinerary_private": true
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "kind only",
+   "isError": true,
+   "structuredContent": null,
+   "has_meta_error": true
+  }
+ ],
+ "update_itinerary_stop": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "id": 2,
+    "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+    "name": "Chilli crab somewhere"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "create_pending_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "status": "pending_review",
+    "ensemble_uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "ensemble_id": 1,
+    "private": true,
+    "primary_artifact_uid": "c03560cf-df6c-48fa-b480-4d1ef1db0f7e",
+    "artifacts": [
+     "c03560cf-df6c-48fa-b480-4d1ef1db0f7e"
+    ],
+    "artifact_image_uid": "fe533135-bb65-486f-9282-6bceef48d1b3",
+    "components": [
+     {
+      "component_uid": "21e982b2-1eef-468c-a48d-5ebeef2f6137",
+      "state": "linked",
+      "note_uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "note_origin": "pre_existing",
+      "label": "Field notebook",
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a"
+     },
+     {
+      "component_uid": "61df71a6-34bb-4069-874d-d6ad713961ca",
+      "state": "unresolved",
+      "note_uid": null,
+      "note_origin": null,
+      "label": "A lamp",
+      "image_uid": "b9c9137a-0359-4c07-9ee6-f8931516ffd5"
+     }
+    ],
+    "notes_created": [],
+    "notes_reused": [],
+    "unresolved_component_uids": [
+     "61df71a6-34bb-4069-874d-d6ad713961ca"
+    ]
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "status": "pending_review",
+    "ensemble_uid": "ca562d04-0cc4-41c7-8144-5e42be9233f8",
+    "ensemble_id": 2,
+    "private": true,
+    "primary_artifact_uid": "b0068cef-8357-4c70-8dcd-ee8eaa5b780c",
+    "artifacts": [
+     "b0068cef-8357-4c70-8dcd-ee8eaa5b780c"
+    ],
+    "artifact_image_uid": "43c4e4f4-dbdc-455a-846b-d5fb60bac051",
+    "components": [
+     {
+      "component_uid": "689aba0d-955a-476e-b25f-d5c05d108ee3",
+      "state": "unresolved",
+      "note_uid": null,
+      "note_origin": null,
+      "label": "x",
+      "image_uid": "b491527a-b37f-4012-96f3-b46dff83d6c5"
+     }
+    ],
+    "notes_created": [],
+    "notes_reused": [],
+    "unresolved_component_uids": [
+     "689aba0d-955a-476e-b25f-d5c05d108ee3"
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "list_ensembles": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "type": "ensemble",
+      "uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+      "id": 1,
+      "title": "Desk setup",
+      "private": true,
+      "primary_image": "/i/fe533135-bb65-486f-9282-6bceef48d1b3",
+      "component_count": 2,
+      "unresolved_count": 1,
+      "created_at": "2026-09-22 01:58:42"
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "get_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "type": "ensemble",
+    "uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "id": 1,
+    "title": "Desk setup",
+    "description": "",
+    "private": true,
+    "status": "pending_review",
+    "created_at": "2026-09-22 01:58:42",
+    "updated_at": null,
+    "primary_artifact_uid": "c03560cf-df6c-48fa-b480-4d1ef1db0f7e",
+    "artifacts": [
+     {
+      "artifact_uid": "c03560cf-df6c-48fa-b480-4d1ef1db0f7e",
+      "image": "/i/fe533135-bb65-486f-9282-6bceef48d1b3",
+      "is_primary": true,
+      "lineage": [
+       {
+        "component_uid": "21e982b2-1eef-468c-a48d-5ebeef2f6137",
+        "state_at_generation": "linked",
+        "note_uid_at_generation": "7984c6d9-0480-401f-a081-bc15a964402c",
+        "label_at_generation": "Field notebook",
+        "image_uid_at_generation": "449a733e-d1c5-4edf-89f2-23a6f603763a",
+        "position_at_generation": 0
+       },
+       {
+        "component_uid": "61df71a6-34bb-4069-874d-d6ad713961ca",
+        "state_at_generation": "unresolved",
+        "note_uid_at_generation": null,
+        "label_at_generation": "A lamp",
+        "image_uid_at_generation": "b9c9137a-0359-4c07-9ee6-f8931516ffd5",
+        "position_at_generation": 1
+       }
+      ],
+      "created_at": "2026-09-22 01:58:42"
+     }
+    ],
+    "components": [
+     {
+      "component_uid": "21e982b2-1eef-468c-a48d-5ebeef2f6137",
+      "position": 0,
+      "state": "linked",
+      "label": "Field notebook",
+      "image": "/i/449a733e-d1c5-4edf-89f2-23a6f603763a",
+      "source_url": "",
+      "note_uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "note_id": 7,
+      "note_origin": "pre_existing",
+      "note_available": true,
+      "history": [
+       {
+        "action": "created",
+        "basis": "unidentified",
+        "note_uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+        "actor": "ai_on_behalf",
+        "assertion": "explicit",
+        "superseded": null,
+        "at": "2026-09-22 01:58:42"
+       }
+      ]
+     },
+     {
+      "component_uid": "61df71a6-34bb-4069-874d-d6ad713961ca",
+      "position": 1,
+      "state": "unresolved",
+      "label": "A lamp",
+      "image": "/i/b9c9137a-0359-4c07-9ee6-f8931516ffd5",
+      "source_url": "",
+      "note_uid": null,
+      "note_id": null,
+      "note_origin": null,
+      "note_available": false,
+      "history": [
+       {
+        "action": "created",
+        "basis": "unidentified",
+        "note_uid": null,
+        "actor": "ai_on_behalf",
+        "assertion": "explicit",
+        "superseded": null,
+        "at": "2026-09-22 01:58:42"
+       }
+      ]
+     }
+    ],
+    "provenance": {
+     "action": "created",
+     "assertion": "explicit",
+     "actor_type": "ai_on_behalf",
+     "agent": "legacy",
+     "created_at": "2026-09-22 01:58:42"
+    }
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "missing",
+   "isError": true,
+   "structuredContent": null,
+   "has_meta_error": true
+  }
+ ],
+ "list_unresolved_components": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "items": [
+     {
+      "component_uid": "61df71a6-34bb-4069-874d-d6ad713961ca",
+      "ensemble_uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+      "ensemble_id": 1,
+      "ensemble_title": "Desk setup",
+      "label": "A lamp",
+      "image": "/i/b9c9137a-0359-4c07-9ee6-f8931516ffd5"
+     }
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "add_ensemble_artifact": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "ensemble_artifact",
+    "id": 1,
+    "uid": "1e327d04-d8d2-4c47-aa03-ca4f1acf362d",
+    "name": "Desk setup"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "add_ensemble_component": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "ensemble_component",
+    "id": 1,
+    "uid": "fb3378bc-5629-4854-9dd3-95b7a78a2905",
+    "name": "A pen"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "keep_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "status": "saved",
+    "ensemble_uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "ensemble_id": 1,
+    "private": true,
+    "primary_artifact_uid": "1e327d04-d8d2-4c47-aa03-ca4f1acf362d",
+    "artifact_image_uid": "7f3f77d1-165e-43d0-8260-d4a4bb0621ca",
+    "components": [
+     {
+      "component_uid": "21e982b2-1eef-468c-a48d-5ebeef2f6137",
+      "state": "linked",
+      "note_uid": "7984c6d9-0480-401f-a081-bc15a964402c",
+      "note_origin": "pre_existing",
+      "label": "Field notebook",
+      "image_uid": "449a733e-d1c5-4edf-89f2-23a6f603763a"
+     },
+     {
+      "component_uid": "61df71a6-34bb-4069-874d-d6ad713961ca",
+      "state": "unresolved",
+      "note_uid": null,
+      "note_origin": null,
+      "label": "A lamp",
+      "image_uid": "b9c9137a-0359-4c07-9ee6-f8931516ffd5"
+     },
+     {
+      "component_uid": "fb3378bc-5629-4854-9dd3-95b7a78a2905",
+      "state": "unresolved",
+      "note_uid": null,
+      "note_origin": null,
+      "label": "A pen",
+      "image_uid": "98cec99a-20df-4b3e-a32e-e86276abccee"
+     }
+    ],
+    "notes_created": [],
+    "notes_reused": [
+     "7984c6d9-0480-401f-a081-bc15a964402c"
+    ],
+    "unresolved_component_uids": [
+     "61df71a6-34bb-4069-874d-d6ad713961ca",
+     "fb3378bc-5629-4854-9dd3-95b7a78a2905"
+    ]
+   },
+   "has_meta_error": false
+  }
+ ],
+ "edit_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "ensemble",
+    "id": 1,
+    "uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "name": "Desk setup, 2026"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "set_primary_artifact": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "ensemble",
+    "id": 1,
+    "uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "name": "Desk setup, 2026"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "resolve_ensemble_component": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "resolved",
+    "subject": "ensemble_component",
+    "id": 3,
+    "uid": "fb3378bc-5629-4854-9dd3-95b7a78a2905",
+    "name": "A fountain pen"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "remove_ensemble_component": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "ensemble_component",
+    "id": 3,
+    "uid": "fb3378bc-5629-4854-9dd3-95b7a78a2905",
+    "name": "A pen"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "remove_ensemble_artifact": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "ensemble_artifact",
+    "id": 1,
+    "uid": "1e327d04-d8d2-4c47-aa03-ca4f1acf362d",
+    "name": "Desk setup, 2026"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "discard_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "ensemble_uid": "ca562d04-0cc4-41c7-8144-5e42be9233f8",
+    "notes_deleted": [],
+    "notes_kept": []
+   },
+   "has_meta_error": false
+  }
+ ],
+ "delete_ensemble": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "ensemble",
+    "id": 1,
+    "uid": "4586f3e0-cf0f-4c33-b728-07de8dcd3ae2",
+    "name": "Desk setup, 2026"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "begin_image_upload": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "status": "stored",
+    "upload_id": "393f1610-5e22-4124-b45a-3365705cac6e",
+    "image_uid": "f5300407-6697-4a36-9256-20d74a89791d",
+    "verified": true,
+    "mime": "image/png",
+    "byte_count": 70,
+    "width": 1,
+    "height": 1,
+    "total_bytes": 70,
+    "received_bytes": 70,
+    "total_chunks": 1,
+    "next_index": null
+   },
+   "has_meta_error": false
+  }
+ ],
+ "start_image_upload": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "status": "receiving",
+    "upload_id": "0c7923d1-ec7f-48b4-84a1-d969f9510600",
+    "image_uid": null,
+    "verified": false,
+    "mime": "image/png",
+    "byte_count": null,
+    "width": null,
+    "height": null,
+    "total_bytes": 70,
+    "received_bytes": 0,
+    "total_chunks": 1,
+    "next_index": 0
+   },
+   "has_meta_error": false
+  }
+ ],
+ "upload_image_chunk": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "status": "stored",
+    "upload_id": "0c7923d1-ec7f-48b4-84a1-d969f9510600",
+    "image_uid": "b427368d-6b8b-4621-bf99-9bdd2da923fb",
+    "verified": true,
+    "mime": "image/png",
+    "byte_count": 70,
+    "width": 1,
+    "height": 1,
+    "total_bytes": 70,
+    "received_bytes": 70,
+    "total_chunks": 1,
+    "next_index": null
+   },
+   "has_meta_error": false
+  }
+ ],
+ "finish_image_upload": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "status": "stored",
+    "upload_id": "0c7923d1-ec7f-48b4-84a1-d969f9510600",
+    "image_uid": "b427368d-6b8b-4621-bf99-9bdd2da923fb",
+    "verified": true,
+    "mime": "image/png",
+    "byte_count": 70,
+    "width": 1,
+    "height": 1,
+    "total_bytes": 70,
+    "received_bytes": 70,
+    "total_chunks": 1,
+    "next_index": null
+   },
+   "has_meta_error": false
+  }
+ ],
+ "re_note": [
+  {
+   "label": "own note (refusal expected)",
+   "isError": true,
+   "structuredContent": null,
+   "has_meta_error": true
+  },
+  {
+   "label": "another member public note",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "note",
+    "id": 11,
+    "uid": "06a40fc5-eb71-41fe-b83b-3bb160e425de",
+    "name": "Bea public note"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "delete_itinerary_entity": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "itinerary_stop",
+    "id": null,
+    "uid": "79d858eb-44f3-46dd-bf0a-41e4f1afc691",
+    "name": ""
+   },
+   "has_meta_error": false
+  }
+ ],
+ "delete_checkin": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "visit",
+    "id": 1,
+    "uid": "3339b0ca-2b2a-46cf-aac7-5e911a54b27c",
+    "name": "2026-09-01"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "delete_travel_mark": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "mark",
+    "id": 1,
+    "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
+    "name": "Hatchards"
+   },
+   "has_meta_error": false
+  }
+ ],
+ "delete_note": [
+  {
+   "label": "",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "note",
+    "id": 8,
+    "uid": "fcf18478-903c-45b9-b546-94362f744cca",
+    "name": "Boots"
+   },
+   "has_meta_error": false
+  }
+ ]
+}
