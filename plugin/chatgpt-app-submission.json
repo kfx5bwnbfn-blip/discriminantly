@@ -1,12 +1,6 @@
 {
   "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
   "schema_version": 1,
-  "app_info": {
-    "display_name": "Discriminantly",
-    "subtitle": "Keep things, places and plans",
-    "description": "Discriminantly is an app and plugin that connects to your AI, giving you a place to keep the things you notice, the places you go, and the experiences worth remembering.\n\nAdd to it through ordinary conversation. Tell ChatGPT about a bookshop you want to remember, a watch you bought, or a restaurant you went to last night, and it is kept in your Discriminantly catalogue as a note, a travel mark or a check-in. Ask what you have saved from a city, group things into collections, and plan a trip with an itinerary built from the places you already know.\n\nYou stay in control. Notes and places can be private or shared with other members. Everything ChatGPT adds or changes is recorded as ChatGPT acting for you, and you can see and edit all of it in the Discriminantly app. You can disconnect ChatGPT at any time in Settings.",
-    "category": "TRAVEL"
-  },
   "tools": {
     "add_ensemble_artifact": {
       "annotations": {

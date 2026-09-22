@@ -165,6 +165,60 @@
     "name": "Boots"
    },
    "has_meta_error": false
+  },
+  {
+   "label": "repeat first (legacy)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "note",
+    "id": 7,
+    "uid": "0969f3c1-b6af-4e72-95ea-de93d4e3252f",
+    "name": "Field notebook A"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat second (legacy)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "unchanged",
+    "subject": "note",
+    "id": 7,
+    "uid": "0969f3c1-b6af-4e72-95ea-de93d4e3252f",
+    "name": "Field notebook A",
+    "detail": "already_exists"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat first (oauth)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "note",
+    "id": 8,
+    "uid": "ee331735-8717-4586-9574-fbe0bbdbd2ae",
+    "name": "Field notebook B"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat second (oauth)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "unchanged",
+    "subject": "note",
+    "id": 8,
+    "uid": "ee331735-8717-4586-9574-fbe0bbdbd2ae",
+    "name": "Field notebook B",
+    "detail": "already_exists"
+   },
+   "has_meta_error": false
   }
  ],
  "my_notes": [
@@ -726,6 +780,60 @@
     "id": 1,
     "uid": "d7f4c704-d4fa-496c-b7c5-b2b40b636085",
     "name": "Hatchards"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat first (legacy)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "mark",
+    "id": 1,
+    "uid": "6f9ff94e-28c0-4dc8-bdff-2bbcc85254fe",
+    "name": "Daunt Books Marylebone A"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat second (legacy)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "unchanged",
+    "subject": "mark",
+    "id": 1,
+    "uid": "6f9ff94e-28c0-4dc8-bdff-2bbcc85254fe",
+    "name": "Daunt Books Marylebone A",
+    "detail": "already_exists"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat first (oauth)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "mark",
+    "id": 3,
+    "uid": "e0bc6e2f-2893-427a-ad82-544d99c3c6ce",
+    "name": "Daunt Books Marylebone B"
+   },
+   "has_meta_error": false
+  },
+  {
+   "label": "repeat second (oauth)",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "unchanged",
+    "subject": "mark",
+    "id": 3,
+    "uid": "e0bc6e2f-2893-427a-ad82-544d99c3c6ce",
+    "name": "Daunt Books Marylebone B",
+    "detail": "already_exists"
    },
    "has_meta_error": false
   }

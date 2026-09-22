@@ -8118,7 +8118,9 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     if (!a.image) throw new Error('image is required: every note carries an image');
     if (!a.allow_duplicate) {
       const dup = findSimilarNote(user.id, a.headline);
-      if (dup) return `This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`;
+      // As for marks: nothing is created, so report the existing note as unchanged.
+      if (dup) return wr(`This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`,
+        'unchanged', 'note', dup.id, uidOf('objects', dup.id), dup.name, 'already_exists');
     }
     // Bring the picture INTO discriminant.ly rather than storing a link to
     // someone else's server. A note pointing at a retailer's URL loses its
@@ -8512,7 +8514,11 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     if (!a.place) throw new Error('place is required');
     if (!a.allow_duplicate) {
       const dup = findSimilarMark(user.id, a.place);
-      if (dup) return `This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`;
+      // Nothing is created, so the result reports the existing mark as unchanged
+      // (a structured result, as the outputSchema requires). No provenance is
+      // written: no record changed.
+      if (dup) return wr(`This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`,
+        'unchanged', 'mark', dup.id, uidOf('marks', dup.id), dup.name, 'already_exists');
     }
     // Coordinates being supplied is not the same claim as "this was checked
     // against mapping data" — verified defaults to 0 here exactly as it does

@@ -1129,5 +1129,29 @@ function loadToolsFromSource(SRC) {
   ok('SW3 final counts: 14 read-only, 15 destructive, 32 open-world', cnt('readOnlyHint') === 14 && cnt('destructiveHint') === 15 && cnt('openWorldHint') === 32);
 }
 
+// ---- repeat creation: duplicate results are structured and conform ----------
+console.log('\nrepeat creation');
+{
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-results.json'), 'utf8'));
+  const pair = (tool, via) => [fx[tool].find((r) => r.label === `repeat first (${via})`), fx[tool].find((r) => r.label === `repeat second (${via})`)];
+  for (const [tool, subject, re] of [['add_travel_mark', 'mark', /if \(dup\) return wr\(`This looks like it may already be marked: [\s\S]*?,\s*'unchanged', 'mark', dup\.id, uidOf\('marks', dup\.id\), dup\.name, 'already_exists'\);/],
+                                     ['note_object', 'note', /if \(dup\) return wr\(`This looks like it may already be noted: [\s\S]*?,\s*'unchanged', 'note', dup\.id, uidOf\('objects', dup\.id\), dup\.name, 'already_exists'\);/]]) {
+    ok(`SU ${tool}: a detected duplicate returns the standard write result, action unchanged`, re.test(SRC));
+    for (const via of ['legacy', 'oauth']) {
+      const [a, b] = pair(tool, via);
+      ok(`SU ${tool} (${via}): the repeat reports unchanged and identifies the existing ${subject}`,
+         a && b && !b.isError && a.structuredContent.action === 'created' && b.structuredContent.action === 'unchanged'
+         && b.structuredContent.subject === subject && b.structuredContent.id === a.structuredContent.id
+         && b.structuredContent.uid === a.structuredContent.uid && b.structuredContent.name === a.structuredContent.name);
+    }
+  }
+  ok('SU unchanged is an action the shared write schema already allowed', /action: \{ type: 'string', enum: \[[^\]]*'unchanged'/.test(SRC));
+  ok('SU the duplicate paths write no provenance (nothing changed)',
+     ['may already be marked', 'may already be noted'].every((k) => { const i = SRC.indexOf(k); const seg = SRC.slice(SRC.lastIndexOf('if (!a.allow_duplicate)', i), SRC.indexOf('\n    }', i)); return !/recordProvenance\(/.test(seg); }));
+  const i = SRC.indexOf('async function mcpCall('), j = SRC.indexOf("throw new Error('Unknown tool ' + name)", i);
+  ok('SU no tool branch returns plain text any more (every success is structured)',
+     !/\n      (?:if \([^\n]*\) )?return [`'"]/.test(SRC.slice(i, j)));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
