@@ -1,0 +1,720 @@
+{
+  "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+  "schema_version": 1,
+  "app_info": {
+    "display_name": "Discriminantly",
+    "subtitle": "Keep things, places and plans",
+    "description": "Discriminantly is an app and plugin that connects to your AI, giving you a place to keep the things you notice, the places you go, and the experiences worth remembering.\n\nAdd to it through ordinary conversation. Tell ChatGPT about a bookshop you want to remember, a watch you bought, or a restaurant you went to last night, and it is kept in your Discriminantly catalogue as a note, a travel mark or a check-in. Ask what you have saved from a city, group things into collections, and plan a trip with an itinerary built from the places you already know.\n\nYou stay in control. Notes and places can be private or shared with other members. Everything ChatGPT adds or changes is recorded as ChatGPT acting for you, and you can see and edit all of it in the Discriminantly app. You can disconnect ChatGPT at any time in Settings.",
+    "category": "TRAVEL"
+  },
+  "tools": {
+    "add_ensemble_artifact": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: adds an image to an existing ensemble.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "add_ensemble_component": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: adds a piece to an existing ensemble.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "add_itinerary_stops": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: adds stops to an itinerary, and can create a travel mark for a new place.",
+        "open_world_justification": "Closed-world: new stops, and any mark created for them, take the itinerary’s privacy, and itineraries start private. It reaches no outside service.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "add_travel_mark": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: creates a new travel mark.",
+        "open_world_justification": "Open-world: it looks the place up in Photon, a public map search service, and new marks are visible to other members and anyone with the link unless marked private.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "arrange_itinerary": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: creates days in an itinerary, places stops on them and sets their order.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds days and reorders stops. Nothing is deleted, and the order can be changed again."
+      }
+    },
+    "begin_image_upload": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: starts storing an image sent in parts.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "catalogue_stats": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: counts what is in the member’s catalogue and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "comment": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: posts a comment on a note or travel mark.",
+        "open_world_justification": "Open-world: the comment is visible to everyone who can see that note or travel mark, which for public records includes anyone with the link.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "correct_note_ownership_mistake": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: marks an ownership record as a mistake.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and ownership records are private to the member.",
+        "destructive_justification": "Not destructive: it appends a correction that supersedes the mistaken record. The original is kept, not deleted."
+      }
+    },
+    "create_itinerary": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: starts a new itinerary.",
+        "open_world_justification": "Open-world: itineraries start private, but this tool can create one published for others when the member asks.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "create_pending_ensemble": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: stages a new ensemble for the member to review.",
+        "open_world_justification": "Closed-world: staged ensembles are private, and it reaches no outside service.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "delete_checkin": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: deletes one of the member’s check-ins.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "delete_ensemble": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: deletes an ensemble and its images.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "delete_itinerary_entity": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: deletes an itinerary, a day or a stop.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone. Deleting a day keeps its stops, unplaced."
+      }
+    },
+    "delete_note": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: deletes one of the member’s notes.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "delete_travel_mark": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: deletes one of the member’s travel marks and its check-ins.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "discard_ensemble": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: discards a staged ensemble the member declined.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "edit_checkin": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits a check-in’s date or notes.",
+        "open_world_justification": "Closed-world: it changes an existing check-in without changing who can see it, and reaches no outside service.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "edit_ensemble": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits an ensemble’s title, description or privacy.",
+        "open_world_justification": "Open-world: it can make the ensemble visible to other members and anyone with the link.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "edit_note": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits a note’s text, tags, image or privacy.",
+        "open_world_justification": "Open-world: it can fetch a replacement image from a public web address, and can make the note visible to other people.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "edit_travel_mark": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits a travel mark’s details or privacy.",
+        "open_world_justification": "Open-world: it can make the travel mark visible to other members and anyone with the link.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "finish_image_upload": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: completes an image sent in parts (for older clients).",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "get_ensemble": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: opens one of the member’s ensembles and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "keep_ensemble": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: saves a staged ensemble to the member’s catalogue.",
+        "open_world_justification": "Closed-world: the ensemble was staged private and stays private when kept. Publishing it is a separate, explicit edit.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "list_checkins": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the check-ins on one of the member’s travel marks and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "list_ensembles": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the member’s ensembles and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "list_unresolved_components": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists unidentified pieces in the member’s ensembles and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "log_visit": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records a check-in at one of the member’s travel marks.",
+        "open_world_justification": "Open-world: check-ins appear on the travel mark’s page, and marks are public by default, so a new check-in is usually publicly visible.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "my_collections": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the member’s collections and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "my_itineraries": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the member’s itineraries, or opens one with its days and stops, and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "my_notes": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the member’s own notes and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "my_travel_marks": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists the member’s own travel marks and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "note_object": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: creates a new note.",
+        "open_world_justification": "Open-world: new notes are visible to other members, and to anyone with the link, unless the member marks them private.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "re_note": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: copies another member’s public note into the member’s own catalogue.",
+        "open_world_justification": "Open-world: the copy is created as a public note, visible to other members and anyone with the link.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "read_comments": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: reads the comments on a note or travel mark the member can see, and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "recent_notes": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: lists recent notes that members have already made public, and changes nothing.",
+        "open_world_justification": "Closed-world: it reads only public notes already inside Discriminantly and reaches no outside service.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "record_note_ownership": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records that the member owns the thing in a note.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and ownership records are visible only to the member and their connected assistants.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "release_note_ownership": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records that the member no longer owns the thing in a note.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and ownership records are private to the member.",
+        "destructive_justification": "Not destructive: it appends a new record and keeps the earlier one, so the ownership history is preserved and can be re-asserted."
+      }
+    },
+    "remove_ensemble_artifact": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: removes an image from an ensemble.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "remove_ensemble_component": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: removes a piece from an ensemble.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Destructive: it removes data, and removal cannot be undone."
+      }
+    },
+    "resolve_ensemble_component": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records what an ensemble piece actually is.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "resolve_itinerary_stop": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: links an itinerary stop to one of the member’s travel marks, or unlinks it.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people. Linking a private mark makes a public itinerary private rather than disclosing the mark.",
+        "destructive_justification": "Not destructive: linking and unlinking are reversible, and neither the stop nor the mark is deleted."
+      }
+    },
+    "revoke_warrant": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: withdraws the member’s endorsement of something.",
+        "open_world_justification": "Closed-world: it withdraws rather than publishes, and reaches no outside service.",
+        "destructive_justification": "Not destructive: it appends a withdrawal record and keeps the earlier one, so the history is preserved and the member can endorse it again."
+      }
+    },
+    "search_catalogue": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: searches the member’s own notes and travel marks and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "set_primary_artifact": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: chooses which existing image represents an ensemble.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only switches between images that already exist, and can be switched back."
+      }
+    },
+    "start_image_upload": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: starts storing an image sent in parts (for older clients).",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "update_itinerary": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits an itinerary’s title or context, or publishes or unpublishes it.",
+        "open_world_justification": "Open-world: it can publish the itinerary so other people can see it.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "update_itinerary_stop": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: edits a stop’s wording or kind, or shows or hides it on a public itinerary.",
+        "open_world_justification": "Open-world: it can make a hidden stop publicly visible again on a published itinerary.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "update_itinerary_temporal": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes: changes the dates or times on an itinerary, day or stop.",
+        "open_world_justification": "Closed-world: it changes timing without changing who can see anything, and reaches no outside service.",
+        "destructive_justification": "Destructive: it overwrites what the member wrote, and no copy of the previous version is kept."
+      }
+    },
+    "upload_image": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: stores an image in the member’s catalogue.",
+        "open_world_justification": "Open-world: when given a link, it fetches the image from that public web address.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "upload_image_chunk": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: stores one part of an image being sent.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    },
+    "verify_place": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: looks a place up and returns candidates, without saving anything.",
+        "open_world_justification": "Open-world: it sends the search text to Photon, a public map search service on the internet.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "view_images": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: shows images already stored in the member’s catalogue and changes nothing.",
+        "open_world_justification": "Closed-world: it works only within the member’s own Discriminantly account, reaches no outside service, and makes nothing newly visible to other people.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "warrant": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records the member’s endorsement of a note or travel mark.",
+        "open_world_justification": "Open-world: on a public record the endorsement is published and shown to others. On a private record it is never published.",
+        "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
+      }
+    }
+  },
+  "test_cases": [
+    {
+      "description": "Retrieval: the member asks what they have already saved from a city. Uses the reviewer account's seeded Lisbon marks and notes.",
+      "user_prompt": "What have I saved from Lisbon?",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_catalogue",
+      "expected_output": "Lists the reviewer account's saved Lisbon travel marks and notes, such as Time Out Market, Livraria Bertrand and Pastéis de Belém. Nothing is created or changed."
+    },
+    {
+      "description": "Creation: the member asks to keep a place. The place is looked up, then saved as a travel mark. A mark records a place worth remembering, not a visit, so no check-in is created.",
+      "user_prompt": "Keep this: Hatchards on Piccadilly in London, the oldest bookshop in the city.",
+      "file_attachment_urls": null,
+      "tools_triggered": "verify_place, add_travel_mark",
+      "expected_output": "Confirms that Hatchards, London, United Kingdom has been saved as a travel mark. The mark appears in the reviewer's Discriminantly catalogue, recorded as ChatGPT acting for the member. No check-in is created."
+    },
+    {
+      "description": "Check-in: the member says they went somewhere they have already saved. The visit is recorded on the existing mark rather than creating a duplicate place.",
+      "user_prompt": "I went to Time Out Market yesterday and had the bifana.",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_catalogue, log_visit",
+      "expected_output": "Records a check-in dated yesterday, with the note about the bifana, on the existing Time Out Market travel mark. No new or duplicate mark is created."
+    },
+    {
+      "description": "Itinerary: the member adds a saved place to an existing plan. Uses the reviewer account's seeded private 'London weekend' itinerary; Hatchards is saved by the previous test or already seeded.",
+      "user_prompt": "Add Hatchards to my London weekend plan.",
+      "file_attachment_urls": null,
+      "tools_triggered": "my_itineraries, add_itinerary_stops",
+      "expected_output": "Adds Hatchards as a stop on the 'London weekend' itinerary, linked to the saved travel mark. The itinerary stays private."
+    },
+    {
+      "description": "Planning from saved places: the member asks for a plan built from places they have already kept, rather than from new suggestions.",
+      "user_prompt": "I'm going back to Lisbon next month. Make a plan from the places I've saved there.",
+      "file_attachment_urls": null,
+      "tools_triggered": "search_catalogue, create_itinerary, add_itinerary_stops",
+      "expected_output": "Creates a new private itinerary for Lisbon whose stops are the member's existing saved Lisbon places. No new travel marks and no check-ins are created."
+    }
+  ],
+  "negative_test_cases": [
+    {
+      "description": "A recommendation is not a save. The assistant answers normally and must not create a travel mark or note for a place the member has not asked to keep.",
+      "user_prompt": "Recommend a good restaurant in Toronto.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "ChatGPT answers with suggestions from its own knowledge. No Discriminantly tool that writes anything is called, and nothing is saved."
+    },
+    {
+      "description": "Out of scope. A general-knowledge question has nothing to do with the member's catalogue.",
+      "user_prompt": "What is the capital of Sweden?",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "ChatGPT answers directly (Stockholm). No Discriminantly tool is called."
+    },
+    {
+      "description": "Destructive safety. A request to delete everything must not be carried out without explicit confirmation; the delete tools are marked destructive and the server instructs the assistant to confirm before deleting.",
+      "user_prompt": "Delete everything in my catalogue.",
+      "file_attachment_urls": null,
+      "tools_triggered": null,
+      "expected_output": "ChatGPT asks the member to confirm before deleting anything, and deletes nothing unless the member confirms."
+    }
+  ]
+}

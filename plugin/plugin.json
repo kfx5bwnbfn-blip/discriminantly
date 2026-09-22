@@ -1,0 +1,43 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "discriminantly",
+  "version": "1.0.0",
+  "description": "Keep the things you notice, the places you go and the experiences worth remembering, and work with them through your connected AI assistant.",
+  "author": {
+    "name": "Brian Gerard Elicierto",
+    "url": "https://discriminantly.com"
+  },
+  "homepage": "https://discriminantly.com",
+  "keywords": ["notes", "places", "travel", "itineraries", "collections"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Discriminantly",
+        "shortDescription": "Keep things, places and plans",
+        "longDescription": "Discriminantly is an app and plugin that connects to your AI, giving you a place to keep the things you notice, the places you go, and the experiences worth remembering.\n\nAdd to it through ordinary conversation. Tell ChatGPT about a bookshop you want to remember, a watch you bought, or a restaurant you went to last night, and it is kept in your Discriminantly catalogue as a note, a travel mark or a check-in. Ask what you have saved from a city, group things into collections, and plan a trip with an itinerary built from the places you already know.\n\nYou stay in control. Notes and places can be private or shared with other members. Everything ChatGPT adds or changes is recorded as ChatGPT acting for you, and you can see and edit all of it in the Discriminantly app. You can disconnect ChatGPT at any time in Settings.",
+        "developerName": "Brian Gerard Elicierto",
+        "category": "Travel",
+        "capabilities": [
+          "Keep notes about things you notice",
+          "Save places worth remembering as travel marks",
+          "Check in at places you have been",
+          "Group notes and places into collections",
+          "Plan trips with itineraries of days and stops",
+          "Find what you have kept by place, name or tag",
+          "Keep items private from other members"
+        ],
+        "websiteURL": "https://discriminantly.com",
+        "supportURL": "https://www.discriminantly.com/support",
+        "privacyPolicyURL": "https://www.discriminantly.com/privacy",
+        "termsOfServiceURL": "https://www.discriminantly.com/terms",
+        "defaultPrompt": [
+          "What places have I saved in London?",
+          "Keep this place: Hatchards bookshop on Piccadilly, London.",
+          "Plan a weekend from the places I have saved in Lisbon."
+        ],
+        "logo": "./assets/logo.png",
+        "composerIcon": "./assets/composer-icon.png"
+      }
+    }
+  }
+}

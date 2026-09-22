@@ -7425,6 +7425,64 @@ const OS_WRITE = { type: 'object', additionalProperties: false,
     uid: { type: ['string', 'null'] },
     name: { type: 'string' },
     detail: { type: 'string' } } };
+// ---- itinerary tool output schemas -------------------------------------------
+// Each describes exactly what that tool's handler returns, including the
+// refusal and fault results the tool-call handler sends (isError: true), so
+// every structuredContent the server produces for these tools conforms.
+const OS_TOOL_ERROR = { type: 'object', additionalProperties: false, required: ['ok', 'error'],
+  properties: { ok: { const: false }, error: { type: 'object', additionalProperties: false,
+    required: ['reference', 'tool', 'kind', 'message', 'retryable'],
+    properties: { reference: { type: 'string' }, tool: { type: 'string' },
+      kind: { type: 'string', enum: ['refused', 'fault'] }, message: { type: 'string' }, retryable: { type: 'boolean' } } } } };
+const orError = (ok) => ({ type: 'object', anyOf: [ok, OS_TOOL_ERROR] });
+const OS_ITIN_STOP = { type: 'object', additionalProperties: false,
+  required: ['uid', 'label', 'kind', 'mark_uid', 'position', 'visibility', 'when'],
+  properties: { uid: { type: 'string' }, label: { type: 'string' },
+    kind: { type: 'string', enum: ['linked', 'particular', 'experiential', 'allocation'] },
+    mark_uid: { type: ['string', 'null'], description: 'The travel mark this stop points at, when it is linked.' },
+    position: { type: ['integer', 'null'] }, visibility: { type: 'string', enum: ['visible', 'suspended'] },
+    when: { type: ['string', 'null'], description: 'Human-readable time, or null when undated.' } } };
+const OS_ITIN_DAY = { type: 'object', additionalProperties: false, required: ['uid', 'label', 'when', 'stops'],
+  properties: { uid: { type: 'string' }, label: { type: ['string', 'null'] }, when: { type: ['string', 'null'] },
+    position: { type: ['integer', 'null'] }, stops: { type: 'array', items: OS_ITIN_STOP } } };
+const OS_CONFLICTS = { type: 'array', items: { type: 'string' }, description: 'Plain-language notes about dates that do not fit together.' };
+const itinWrite = (actions, subjects) => orError({ type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'id', 'uid', 'name'],
+  properties: { ok: { const: true }, action: { type: 'string', enum: actions }, subject: { type: 'string', enum: subjects },
+    id: { type: ['integer', 'null'] }, uid: { type: ['string', 'null'] }, name: { type: 'string' }, detail: { type: 'string' } } });
+const OS_CREATE_ITINERARY = itinWrite(['created'], ['itinerary']);
+const OS_UPDATE_ITINERARY = itinWrite(['edited'], ['itinerary']);
+const OS_UPDATE_STOP = itinWrite(['edited'], ['itinerary_stop']);
+const OS_DELETE_ITIN_ENTITY = itinWrite(['deleted'], ['itinerary', 'itinerary_group', 'itinerary_stop']);
+const OS_ADD_STOPS = orError({ type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'stops', 'itinerary_private'],
+  properties: { ok: { const: true }, action: { const: 'created' }, subject: { const: 'itinerary_stop' },
+    stops: { type: 'array', items: OS_ITIN_STOP }, itinerary_private: { type: 'boolean' } } });
+const OS_TEMPORAL = orError({ type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'uid', 'when', 'conflicts'],
+  properties: { ok: { const: true }, action: { type: 'string', enum: ['edited', 'enriched', 'corrected'] },
+    subject: { type: 'string', enum: ['itinerary', 'day', 'stop'] }, uid: { type: 'string' },
+    when: { type: ['string', 'null'] }, conflicts: OS_CONFLICTS } });
+const OS_ARRANGE = orError({ type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'uid', 'days', 'unplaced', 'conflicts'],
+  properties: { ok: { const: true }, action: { const: 'edited' }, subject: { const: 'itinerary' }, uid: { type: 'string' },
+    days: { type: 'array', items: OS_ITIN_DAY }, unplaced: { type: 'array', items: OS_ITIN_STOP }, conflicts: OS_CONFLICTS } });
+const OS_RESOLVE_STOP = orError({ type: 'object', additionalProperties: false,
+  required: ['ok', 'action', 'subject', 'uid', 'stop', 'itinerary_private'],
+  properties: { ok: { const: true }, action: { type: 'string' }, subject: { type: 'string' }, uid: { type: 'string' },
+    stop: OS_ITIN_STOP, itinerary_private: { type: 'boolean' } } });
+const OS_MY_ITINERARIES = { type: 'object', anyOf: [
+  { type: 'object', additionalProperties: false, required: ['ok', 'items'],
+    properties: { ok: { const: true }, items: { type: 'array', items: { type: 'object', additionalProperties: false,
+      required: ['uid', 'title', 'when', 'private', 'stops'],
+      properties: { uid: { type: 'string' }, title: { type: 'string' }, when: { type: ['string', 'null'] },
+        private: { type: 'boolean' }, stops: { type: 'integer', description: 'How many stops the itinerary has.' } } } } } },
+  { type: 'object', additionalProperties: false,
+    required: ['ok', 'subject', 'uid', 'title', 'context', 'private', 'when', 'days', 'unplaced', 'conflicts'],
+    properties: { ok: { const: true }, subject: { const: 'itinerary' }, uid: { type: 'string' }, title: { type: 'string' },
+      context: { type: 'string' }, private: { type: 'boolean' }, when: { type: ['string', 'null'] },
+      days: { type: 'array', items: OS_ITIN_DAY }, unplaced: { type: 'array', items: OS_ITIN_STOP }, conflicts: OS_CONFLICTS } },
+  OS_TOOL_ERROR ] };
 const OS_PLACE_CANDIDATES = { type: 'object', additionalProperties: false, required: ['items'],
   properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false,
     required: ['name', 'lat', 'lng'],
@@ -7853,7 +7911,7 @@ const TOOLS = [
   // Nine tools, deliberately composable rather than one per operation: adding
   // three stops is one call, and grouping plus sequencing is one call, because
   // that is how a member says it. Identity is always the uid, never the row id.
-  { name: 'create_itinerary', securitySchemes: SEC_OAUTH, description: "Start an itinerary: somewhere the member means to go. Title is the destination as they say it (\"Singapore\", \"Next time I'm in London\"). Context is their own prose about the trip. Time is optional at every level and nothing should be invented: give only the components they actually said.",
+  { name: 'create_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_CREATE_ITINERARY, description: "Start an itinerary: somewhere the member means to go. Title is the destination as they say it (\"Singapore\", \"Next time I'm in London\"). Context is their own prose about the trip. Time is optional at every level and nothing should be invented: give only the components they actually said.",
     inputSchema: { type: 'object', required: ['title'], properties: {
       title: { type: 'string', description: 'The destination, in the member\u2019s words.' },
       context: { type: 'string', description: 'Their own remarks about the trip. Optional.' },
@@ -7864,7 +7922,7 @@ const TOOLS = [
       modifier: { type: 'string', enum: ['early', 'mid', 'late'], description: 'Only with modifier_scope.' },
       modifier_scope: { type: 'string', enum: ['year', 'period', 'month'], description: 'WHICH component the modifier describes. "late 2028" is modifier=late, scope=year. "late fall 2028" is scope=period. Never guess: ask, or leave both out.' } } } },
 
-  { name: 'add_itinerary_stops', securitySchemes: SEC_OAUTH, description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
+  { name: 'add_itinerary_stops', securitySchemes: SEC_OAUTH, outputSchema: OS_ADD_STOPS, description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
     inputSchema: { type: 'object', required: ['itinerary_uid', 'stops'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       stops: { type: 'array', items: { type: 'object', required: ['label'], properties: {
@@ -7879,13 +7937,13 @@ const TOOLS = [
         daypart: { type: 'string', enum: ['morning', 'afternoon', 'evening', 'night'] },
         clock: { type: 'string', description: 'HH:MM, 24-hour, only if they gave a time.' } } } } } } },
 
-  { name: 'update_itinerary', securitySchemes: SEC_OAUTH, description: "Change an itinerary's title, context, or whether it is private. Publishing fails, with the reason, while a visible stop points at a private travel mark \u2014 that is deliberate: the member resolves it by publishing the mark or suspending the stop.",
+  { name: 'update_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_UPDATE_ITINERARY, description: "Change an itinerary's title, context, or whether it is private. Publishing fails, with the reason, while a visible stop points at a private travel mark \u2014 that is deliberate: the member resolves it by publishing the mark or suspending the stop.",
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       title: { type: 'string' }, context: { type: 'string' },
       private: { type: 'boolean', description: 'false publishes it. Publishing fails, naming the marks, while a visible stop points at a private travel mark.' } } } },
 
-  { name: 'update_itinerary_temporal', securitySchemes: SEC_OAUTH, description: 'Set or change time on an itinerary, a day, or a stop. Give only the components the member asserted; omitted components stay as they were, and nothing is invented. intent matters for the record: "refine" when the plan simply got more precise (fall 2028 -> October 2028), "correct" when the earlier assertion was wrong ("no, October, not fall"). OMIT intent when you do not actually know which \u2014 an honest plain edit is recorded instead of a guess.',
+  { name: 'update_itinerary_temporal', securitySchemes: SEC_OAUTH, outputSchema: OS_TEMPORAL, description: 'Set or change time on an itinerary, a day, or a stop. Give only the components the member asserted; omitted components stay as they were, and nothing is invented. intent matters for the record: "refine" when the plan simply got more precise (fall 2028 -> October 2028), "correct" when the earlier assertion was wrong ("no, October, not fall"). OMIT intent when you do not actually know which \u2014 an honest plain edit is recorded instead of a guess.',
     inputSchema: { type: 'object', required: ['target', 'uid'], properties: {
       target: { type: 'string', enum: ['itinerary', 'day', 'stop'], description: 'Which thing the time belongs to. A trip may be "late fall 2028" while one of its days is "April 8" and one stop is "7:30 PM" \u2014 set each at its own level rather than repeating it.' },
       uid: { type: 'string', description: 'The uid of that itinerary, day or stop, all of which my_itineraries returns.' },
@@ -7899,7 +7957,7 @@ const TOOLS = [
       clock: { type: 'string', description: 'HH:MM, 24-hour.' },
       clear: { type: 'array', items: { type: 'string' }, description: 'Component names to unset.' } } } },
 
-  { name: 'arrange_itinerary', securitySchemes: SEC_OAUTH, description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
+  { name: 'arrange_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_ARRANGE, description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       create_day: { type: 'object', properties: {
@@ -7914,7 +7972,7 @@ const TOOLS = [
       order_stops: { type: 'array', description: 'Stop uids in the order the member asked for.', items: { type: 'string' } },
       order_days: { type: 'array', description: 'Day uids in the order the member asked for.', items: { type: 'string' } } } } },
 
-  { name: 'resolve_itinerary_stop', securitySchemes: SEC_OAUTH, description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
+  { name: 'resolve_itinerary_stop', securitySchemes: SEC_OAUTH, outputSchema: OS_RESOLVE_STOP, description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
     inputSchema: { type: 'object', required: ['stop_uid'], properties: {
       stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
       mark_uid: { type: 'string', description: 'The travel mark, from my_travel_marks or search_catalogue \u2014 or from add_travel_mark if the place was not marked before. Omit, with unlink:true, to un-resolve.' },
@@ -7922,19 +7980,19 @@ const TOOLS = [
       kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'What it becomes when unlinked.' },
       intent: { type: 'string', enum: ['refine', 'correct'] } } } },
 
-  { name: 'update_itinerary_stop', securitySchemes: SEC_OAUTH, description: "Change a stop's wording or kind, or withhold it from public view. Suspending is context-local: it hides the stop from this itinerary's public page and changes nothing about the travel mark anywhere else.",
+  { name: 'update_itinerary_stop', securitySchemes: SEC_OAUTH, outputSchema: OS_UPDATE_STOP, description: "Change a stop's wording or kind, or withhold it from public view. Suspending is context-local: it hides the stop from this itinerary's public page and changes nothing about the travel mark anywhere else.",
     inputSchema: { type: 'object', required: ['stop_uid'], properties: {
       stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
       label: { type: 'string' },
       kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'Only for stops with no travel mark; use resolve_itinerary_stop to unlink one first.' },
       visibility: { type: 'string', enum: ['visible', 'suspended'] } } } },
 
-  { name: 'delete_itinerary_entity', securitySchemes: SEC_OAUTH, description: 'Delete an itinerary, a day, or a stop. Deleting a day does not delete its stops \u2014 they return to the itinerary unplaced, and any order they had within that day is dropped, because it was an order within that day. Nothing here touches travel marks or check-ins: those are the member\u2019s canonical records and outlive any itinerary that referred to them.',
+  { name: 'delete_itinerary_entity', securitySchemes: SEC_OAUTH, outputSchema: OS_DELETE_ITIN_ENTITY, description: 'Delete an itinerary, a day, or a stop. Deleting a day does not delete its stops \u2014 they return to the itinerary unplaced, and any order they had within that day is dropped, because it was an order within that day. Nothing here touches travel marks or check-ins: those are the member\u2019s canonical records and outlive any itinerary that referred to them.',
     inputSchema: { type: 'object', required: ['kind', 'uid'], properties: {
       kind: { type: 'string', enum: ['itinerary', 'day', 'stop'] },
       uid: { type: 'string', description: 'The uid of that itinerary, day or stop, from my_itineraries. Deleting a stop never deletes the travel mark it pointed at, and never deletes check-ins.' } } } },
 
-  { name: 'my_itineraries', securitySchemes: SEC_OAUTH, description: "The member's itineraries \u2014 places they mean to go. With a uid, returns that one in full: its days, its stops, what each stop is, and how time was expressed at every level. Read it as intention only: a stop with a past date does not mean they went, an unsequenced stop is not an unfinished one, and a day with no date is not missing information. Check whether they actually went by looking at the travel mark's check-ins.",
+  { name: 'my_itineraries', securitySchemes: SEC_OAUTH, outputSchema: OS_MY_ITINERARIES, description: "The member's itineraries \u2014 places they mean to go. With a uid, returns that one in full: its days, its stops, what each stop is, and how time was expressed at every level. Read it as intention only: a stop with a past date does not mean they went, an unsequenced stop is not an unfinished one, and a day with no date is not missing information. Check whether they actually went by looking at the travel mark's check-ins.",
     inputSchema: { type: 'object', properties: {
       uid: { type: 'string', description: 'Omit to list them all. This is where the uids for every other itinerary tool come from.' },
       limit: { type: 'integer' } } } },
@@ -7975,7 +8033,7 @@ const TOOL_ANNOTATIONS = {
   note_object:                ['Add a note', false, false, true],
   add_travel_mark:            ['Add a travel mark', false, false, true],
   re_note:                    ['Re-note another member\u2019s note', false, false, true],
-  log_visit:                  ['Check in at a travel mark', false, false, false],
+  log_visit:                  ['Check in at a travel mark', false, false, true],   // check-ins show publicly on a public mark, and marks are public by default
   comment:                    ['Comment on a note or mark', false, false, true],
   warrant:                    ['Warrant (stand behind) something', false, false, true],
   record_note_ownership:      ['Record that I own this', false, false, false],
@@ -8004,10 +8062,10 @@ const TOOL_ANNOTATIONS = {
   discard_ensemble:           ['Discard a staged ensemble', false, true, false],
   remove_ensemble_artifact:   ['Remove an ensemble image', false, true, false],
   remove_ensemble_component:  ['Remove an ensemble piece', false, true, false],
-  correct_note_ownership_mistake: ['Withdraw a mistaken ownership record', false, true, false],
+  correct_note_ownership_mistake: ['Withdraw a mistaken ownership record', false, false, false],  // appends a superseding record; nothing deleted
   // ensembles: staged privately until kept
   create_pending_ensemble:    ['Stage an ensemble', false, false, false],
-  keep_ensemble:              ['Keep a staged ensemble', false, false, true],
+  keep_ensemble:              ['Keep a staged ensemble', false, false, false],  // staged private, and keeping does not change that
   add_ensemble_artifact:      ['Add an image to an ensemble', false, false, false],
   add_ensemble_component:     ['Add a piece to an ensemble', false, false, false],
   resolve_ensemble_component: ['Identify an ensemble piece', false, false, false],

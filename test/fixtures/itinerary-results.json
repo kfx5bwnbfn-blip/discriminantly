@@ -1,0 +1,672 @@
+{
+ "create_itinerary": [
+  {
+   "label": "ok, month only",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary",
+    "id": 1,
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "name": "London weekend"
+   }
+  },
+  {
+   "label": "ok, full date + public",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary",
+    "id": 2,
+    "uid": "fc07b0f8-dc14-4f14-a485-16fcad17ca7c",
+    "name": "Paris"
+   }
+  },
+  {
+   "label": "error: no title",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary",
+    "id": 3,
+    "uid": "86a12ab1-23d8-4f3e-a4a0-b661f5ac3b27",
+    "name": ""
+   }
+  }
+ ],
+ "add_itinerary_stops": [
+  {
+   "label": "ok, 3 stops",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "created",
+    "subject": "itinerary_stop",
+    "stops": [
+     {
+      "uid": "fd34ca9e-4a1d-48a0-a205-4ef7a098740d",
+      "label": "Hatchards",
+      "kind": "linked",
+      "mark_uid": "ca5c9bb1-374c-40ff-b824-1d6142a22dea",
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+      "label": "Some chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+      "label": "Borough Market",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "itinerary_private": true
+   }
+  },
+  {
+   "label": "error: bad itinerary",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-AF9A6B",
+     "tool": "add_itinerary_stops",
+     "kind": "refused",
+     "message": "No such itinerary.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "arrange_itinerary": [
+  {
+   "label": "ok, create day + assign",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "days": [
+     {
+      "uid": "5c63b0c2-3c89-4828-aff0-dcd34a48bffd",
+      "label": "Day 1",
+      "when": "November 20",
+      "stops": [
+       {
+        "uid": "fd34ca9e-4a1d-48a0-a205-4ef7a098740d",
+        "label": "Hatchards",
+        "kind": "linked",
+        "mark_uid": "ca5c9bb1-374c-40ff-b824-1d6142a22dea",
+        "position": null,
+        "visibility": "visible",
+        "when": null
+       }
+      ]
+     }
+    ],
+    "unplaced": [
+     {
+      "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+      "label": "Some chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+      "label": "Borough Market",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": null,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, order stops",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "days": [
+     {
+      "uid": "5c63b0c2-3c89-4828-aff0-dcd34a48bffd",
+      "label": "Day 1",
+      "when": "November 20",
+      "stops": [
+       {
+        "uid": "fd34ca9e-4a1d-48a0-a205-4ef7a098740d",
+        "label": "Hatchards",
+        "kind": "linked",
+        "mark_uid": "ca5c9bb1-374c-40ff-b824-1d6142a22dea",
+        "position": 1,
+        "visibility": "visible",
+        "when": null
+       }
+      ]
+     }
+    ],
+    "unplaced": [
+     {
+      "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+      "label": "Some chilli crab",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": 1,
+      "visibility": "visible",
+      "when": null
+     },
+     {
+      "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+      "label": "Borough Market",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": 2,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "conflicts": []
+   }
+  },
+  {
+   "label": "error: bad uid",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-ED91BE",
+     "tool": "arrange_itinerary",
+     "kind": "refused",
+     "message": "No such itinerary.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "update_itinerary": [
+  {
+   "label": "ok, rename",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "id": 1,
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "name": "London long weekend"
+   }
+  },
+  {
+   "label": "ok, publish",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "id": 1,
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "name": "London long weekend"
+   }
+  },
+  {
+   "label": "error: bad uid",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-A55F15",
+     "tool": "update_itinerary",
+     "kind": "refused",
+     "message": "No such itinerary.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "update_itinerary_temporal": [
+  {
+   "label": "ok, itinerary",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "when": "November 19, 2026",
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, day clock",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "day",
+    "uid": "5c63b0c2-3c89-4828-aff0-dcd34a48bffd",
+    "when": "November 20 · morning",
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, stop clock",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "stop",
+    "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+    "when": "10:30 AM",
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, clear",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-CBB257",
+     "tool": "update_itinerary_temporal",
+     "kind": "refused",
+     "message": "boolean true is not iterable (cannot read property Symbol(Symbol.iterator))",
+     "retryable": false
+    }
+   }
+  },
+  {
+   "label": "error: bad target",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-6EF4BC",
+     "tool": "update_itinerary_temporal",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  },
+  {
+   "label": "ok, refine",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "enriched",
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "when": "November 21, 2026",
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, correct",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "corrected",
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "when": "November 22, 2026",
+    "conflicts": []
+   }
+  },
+  {
+   "label": "ok, clear stop",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-F721FA",
+     "tool": "update_itinerary_temporal",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "resolve_itinerary_stop": [
+  {
+   "label": "ok, link",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+    "stop": {
+     "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+     "label": "Borough Market",
+     "kind": "linked",
+     "mark_uid": "ca5c9bb1-374c-40ff-b824-1d6142a22dea",
+     "position": 2,
+     "visibility": "visible",
+     "when": null
+    },
+    "itinerary_private": false
+   }
+  },
+  {
+   "label": "ok, unlink",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "corrected",
+    "subject": "itinerary_stop",
+    "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+    "stop": {
+     "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+     "label": "Borough Market",
+     "kind": "particular",
+     "mark_uid": null,
+     "position": 2,
+     "visibility": "visible",
+     "when": null
+    },
+    "itinerary_private": false
+   }
+  },
+  {
+   "label": "ok, kind",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-0BFB73",
+     "tool": "resolve_itinerary_stop",
+     "kind": "fault",
+     "message": "Something went wrong inside Discriminantly while running this, so it may not have completed. Check what exists before trying again.",
+     "retryable": true
+    }
+   }
+  },
+  {
+   "label": "error: bad stop",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-1947F3",
+     "tool": "resolve_itinerary_stop",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  },
+  {
+   "label": "ok, kind particular",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-BD925C",
+     "tool": "resolve_itinerary_stop",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "update_itinerary_stop": [
+  {
+   "label": "ok, relabel",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "id": 2,
+    "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+    "name": "Chilli crab somewhere"
+   }
+  },
+  {
+   "label": "ok, hide",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "id": 2,
+    "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+    "name": "Chilli crab somewhere"
+   }
+  },
+  {
+   "label": "ok, show",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "edited",
+    "subject": "itinerary_stop",
+    "id": 2,
+    "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+    "name": "Chilli crab somewhere"
+   }
+  },
+  {
+   "label": "error: bad stop",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-A4908A",
+     "tool": "update_itinerary_stop",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  }
+ ],
+ "my_itineraries": [
+  {
+   "label": "ok, list",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "items": [
+     {
+      "uid": "86a12ab1-23d8-4f3e-a4a0-b661f5ac3b27",
+      "title": "",
+      "when": null,
+      "private": true,
+      "stops": 0
+     },
+     {
+      "uid": "fc07b0f8-dc14-4f14-a485-16fcad17ca7c",
+      "title": "Paris",
+      "when": "December 3, 2026",
+      "private": false,
+      "stops": 0
+     },
+     {
+      "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+      "title": "London long weekend",
+      "when": "November 19, 2026",
+      "private": false,
+      "stops": 3
+     }
+    ]
+   }
+  },
+  {
+   "label": "ok, list limit 1",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "items": [
+     {
+      "uid": "86a12ab1-23d8-4f3e-a4a0-b661f5ac3b27",
+      "title": "",
+      "when": null,
+      "private": true,
+      "stops": 0
+     }
+    ]
+   }
+  },
+  {
+   "label": "ok, one",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "subject": "itinerary",
+    "uid": "4ebaf803-29fb-4fbb-80eb-d2317ac0ff0f",
+    "title": "London long weekend",
+    "context": "",
+    "private": false,
+    "when": "November 19, 2026",
+    "days": [
+     {
+      "uid": "5c63b0c2-3c89-4828-aff0-dcd34a48bffd",
+      "label": "Day 1",
+      "when": "November 20 · morning",
+      "position": null,
+      "stops": [
+       {
+        "uid": "fd34ca9e-4a1d-48a0-a205-4ef7a098740d",
+        "label": "Hatchards",
+        "kind": "linked",
+        "mark_uid": "ca5c9bb1-374c-40ff-b824-1d6142a22dea",
+        "position": 1,
+        "visibility": "visible",
+        "when": null
+       }
+      ]
+     }
+    ],
+    "unplaced": [
+     {
+      "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+      "label": "Chilli crab somewhere",
+      "kind": "experiential",
+      "mark_uid": null,
+      "position": 1,
+      "visibility": "visible",
+      "when": "10:30 AM"
+     },
+     {
+      "uid": "91061ec8-86e2-4831-9903-799a77a8494d",
+      "label": "Borough Market",
+      "kind": "particular",
+      "mark_uid": null,
+      "position": 2,
+      "visibility": "visible",
+      "when": null
+     }
+    ],
+    "conflicts": []
+   }
+  },
+  {
+   "label": "error: bad uid",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-5C2052",
+     "tool": "my_itineraries",
+     "kind": "refused",
+     "message": "No such itinerary.",
+     "retryable": false
+    }
+   }
+  },
+  {
+   "label": "ok, one undated",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "subject": "itinerary",
+    "uid": "73d9d509-b956-4a6a-8347-2f0030233432",
+    "title": "Undated plan",
+    "context": "",
+    "private": true,
+    "when": null,
+    "days": [],
+    "unplaced": [],
+    "conflicts": []
+   }
+  }
+ ],
+ "delete_itinerary_entity": [
+  {
+   "label": "ok, stop",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "itinerary_stop",
+    "id": null,
+    "uid": "77eee57f-c75a-4197-90fb-1385aecae28b",
+    "name": ""
+   }
+  },
+  {
+   "label": "ok, day",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "itinerary_group",
+    "id": null,
+    "uid": "5c63b0c2-3c89-4828-aff0-dcd34a48bffd",
+    "name": ""
+   }
+  },
+  {
+   "label": "error: bad kind",
+   "isError": true,
+   "structuredContent": {
+    "ok": false,
+    "error": {
+     "reference": "DL-72D838",
+     "tool": "delete_itinerary_entity",
+     "kind": "refused",
+     "message": "No such stop.",
+     "retryable": false
+    }
+   }
+  },
+  {
+   "label": "ok, itinerary",
+   "isError": false,
+   "structuredContent": {
+    "ok": true,
+    "action": "deleted",
+    "subject": "itinerary",
+    "id": null,
+    "uid": "73ad971d-e78d-4629-ab14-3fc568d4c3b1",
+    "name": ""
+   }
+  }
+ ]
+}

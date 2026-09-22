@@ -122,7 +122,9 @@ Every tool requires OAuth with the single `discriminantly` scope, or the member'
 | `update_itinerary` | Edit or publish an itinerary | false | true | true | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: Yes — can publish or unpublish the itinerary. |
 | `update_itinerary_stop` | Edit an itinerary stop | false | true | true | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: Yes — can show or withhold a stop from public view. |
 | `update_itinerary_temporal` | Change itinerary dates or times | false | true | false | Changes stored data. Overwrites what the member wrote; no copy of the previous version is kept. Open world: No — stays within the member’s own Discriminantly account. |
-Totals: **14 read-only · 40 write · 16 destructive · 14 open-world**. No tool is both read-only and destructive.
+Totals: **14 read-only · 40 write · 15 destructive · 14 open-world**. No tool is both read-only and destructive.
+
+> **Scan remediation (v2.52.5):** three values were corrected after verifying the code: `log_visit` openWorld → true, `keep_ensemble` openWorld → false, and `correct_note_ownership_mistake` destructive → false. The table above predates that correction. The authoritative per-tool values and justifications are in `plugin/chatgpt-app-submission.json`.
 
 **One conflict with the brief.** The brief treats updates as non-destructive. OpenAI's definition explicitly includes *overwrite*, and edits here keep no previous version, so the seven edit tools are marked destructive. I followed OpenAI. The practical effect is that ChatGPT may ask before editing. If self-serve edit history is added later, those can be re-marked non-destructive. See §M.
 

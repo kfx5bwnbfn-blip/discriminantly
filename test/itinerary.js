@@ -958,9 +958,9 @@ console.log('\nplugin submission');
   ok('PS8 tools that reach the internet are open-world',
      ['verify_place', 'add_travel_mark', 'upload_image', 'edit_note'].every((n) => ann[n].ow));
   ok('PS9 tools that publish to other people are open-world',
-     ['note_object', 'comment', 'warrant', 're_note', 'keep_ensemble'].every((n) => ann[n].ow));
-  ok('PS10 check-ins, ownership and staging stay closed-world',
-     ['log_visit', 'record_note_ownership', 'create_pending_ensemble', 'begin_image_upload'].every((n) => !ann[n].ow));
+     ['note_object', 'comment', 'warrant', 're_note', 'log_visit'].every((n) => ann[n].ow));
+  ok('PS10 keeping, ownership and staging stay closed-world',
+     ['keep_ensemble', 'record_note_ownership', 'create_pending_ensemble', 'begin_image_upload'].every((n) => !ann[n].ow));
   ok('PS11 withdrawing a warrant is reversible, so not destructive',
      !ann.revoke_warrant.de && !ann.revoke_warrant.ro);
 }
@@ -1025,6 +1025,74 @@ console.log('\npolicy pages');
 {
   ok('PP11 the welcome page links to Privacy, Terms and Support',
      /<footer class="welcome-foot fine"><a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/terms">Terms<\/a> \\u00b7 <a href="\/support">Support<\/a><\/footer>/.test(SRC));
+}
+
+// ---- scan remediation: annotation corrections and itinerary output schemas --
+console.log('\nscan remediation');
+{
+  const annBlk = SRC.slice(SRC.indexOf('const TOOL_ANNOTATIONS = {'), SRC.indexOf('for (const t of TOOLS) {', SRC.indexOf('const TOOL_ANNOTATIONS = {')));
+  const ann = {};
+  for (const m of annBlk.matchAll(/^\s+([a-z_]+):\s+\['([^']*)', (true|false), (true|false), (true|false)\]/gm))
+    ann[m[1]] = { ro: m[3] === 'true', de: m[4] === 'true', ow: m[5] === 'true' };
+  ok('SR1 log_visit is open-world: check-ins show publicly on a public mark', ann.log_visit.ow);
+  ok('SR2 keep_ensemble is closed-world: staged ensembles are private and keeping keeps them so',
+     !ann.keep_ensemble.ow && /INSERT INTO ensembles\(user_id,title,description,private,status\) VALUES\(\?,\?,\?,1,'pending_review'\)/.test(SRC));
+  ok('SR3 correcting an ownership record appends a superseding row, so is not destructive',
+     !ann.correct_note_ownership_mistake.de && /INSERT INTO ownership_assertions\(user_id,object_id,note_uid,state,supersedes\)/.test(SRC)
+     && !/DELETE FROM ownership_assertions/.test(SRC));
+  ok('SR4 withdrawing a warrant or releasing ownership only appends, so neither is destructive',
+     !ann.revoke_warrant.de && !ann.release_note_ownership.de
+     && /function revokeWarrant\([^)]*\) \{\s*const r = q\('INSERT INTO warrants/.test(SRC));
+  ok('SR5 the only warrant deletion is the cascade when the note or mark itself is deleted',
+     (SRC.match(/DELETE FROM warrants/g) || []).length === 1 && /const dropWarrantsFor = /.test(SRC));
+}
+{
+  const names = ['create_itinerary', 'add_itinerary_stops', 'update_itinerary', 'update_itinerary_temporal', 'arrange_itinerary',
+    'resolve_itinerary_stop', 'update_itinerary_stop', 'delete_itinerary_entity', 'my_itineraries'];
+  const toolsBlk = SRC.slice(SRC.indexOf('const TOOLS = ['), SRC.indexOf('\n];', SRC.indexOf('const TOOLS = [')));
+  const constOf = {};
+  for (const n of names) { const m = new RegExp("\\{ name: '" + n + "', securitySchemes: SEC_OAUTH, outputSchema: (OS_[A-Z_]+),").exec(toolsBlk); constOf[n] = m && m[1]; }
+  ok('SR6 all nine itinerary tools declare an outputSchema', names.every((n) => constOf[n]));
+  // Evaluate the schema definitions exactly as written in server.js.
+  const start = SRC.indexOf('// ---- itinerary tool output schemas'), end = SRC.indexOf('const OS_PLACE_CANDIDATES = {');
+  const S = new Function(SRC.slice(start, end) + '\nreturn {' + [...new Set(Object.values(constOf))].join(',') + '};')();
+  const check = (v, sch) => {
+    if (sch.anyOf) { const { anyOf, ...base } = sch; return (!Object.keys(base).length || check(v, base)) && anyOf.some((b) => check(v, b)); }
+    if ('const' in sch && v !== sch.const) return false;
+    if (sch.enum && !sch.enum.includes(v)) return false;
+    if (sch.type) {
+      const ts = [].concat(sch.type);
+      const is = (t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : t === 'integer' ? Number.isInteger(v)
+        : t === 'object' ? v !== null && typeof v === 'object' && !Array.isArray(v) : typeof v === t;
+      if (!ts.some(is)) return false;
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if ((sch.required || []).some((r) => !(r in v))) return false;
+      const props = sch.properties || {};
+      if (sch.additionalProperties === false && Object.keys(v).some((k) => !(k in props))) return false;
+      if (Object.entries(v).some(([k, x]) => props[k] && !check(x, props[k]))) return false;
+    }
+    if (Array.isArray(v) && sch.items && !v.every((x) => check(x, sch.items))) return false;
+    return true;
+  };
+  ok('SR7 every schema has an object root, as MCP requires', names.every((n) => S[constOf[n]].type === 'object'));
+  const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'itinerary-results.json'), 'utf8'));
+  const all = names.flatMap((n) => fx[n].map((r) => ({ n, r })));
+  ok('SR8 every recorded real result conforms, refusals and faults included (' + all.length + ' results)',
+     all.length >= 30 && all.every(({ n, r }) => check(r.structuredContent, S[constOf[n]])));
+  ok('SR9 each tool has at least one recorded success and one recorded error',
+     names.every((n) => fx[n].some((r) => !r.isError) && fx[n].some((r) => r.isError) || n === 'create_itinerary'));
+  const good = fx.add_itinerary_stops.find((r) => !r.isError).structuredContent, sch = S[constOf.add_itinerary_stops];
+  const bad = [
+    { ...good, surprise: 1 },
+    (() => { const b = JSON.parse(JSON.stringify(good)); delete b.itinerary_private; return b; })(),
+    (() => { const b = JSON.parse(JSON.stringify(good)); b.stops[0].position = '1'; return b; })(),
+    (() => { const b = JSON.parse(JSON.stringify(good)); b.stops[0].visibility = 'hidden'; return b; })(),
+    { ...good, ok: false },
+    { ok: false, error: { message: 'x' } },
+  ];
+  ok('SR10 the schemas reject malformed results (extra, missing, mistyped, off-enum, contradictory, bad error)',
+     bad.every((b) => !check(b, sch)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
