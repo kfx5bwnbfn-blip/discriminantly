@@ -5920,7 +5920,7 @@ function markColophonEntries(m, me) {
   const out = [];
   const rows = q("SELECT * FROM provenance WHERE entity_type='mark' AND entity_uid=? ORDER BY id").all(m.uid);
   const created = rows.find((r) => r.action === 'created');
-  out.push(['Marked', monthYear(m.created_at)]);
+  out.push(['Recorded', monthYear(m.created_at)]);
 
   // Causal, never inferred: only a creation row that names an itinerary can
   // say the mark was added while planning one.
@@ -6011,7 +6011,7 @@ function ensembleColophonEntries(e, me) {
   if (kept.length) out.push(['Kept', monthYear(kept[kept.length - 1].created_at)]);
   return out;
 }
-const ensembleColophon = (e, me) => colophonFrame('This composition was', ensembleColophonEntries(e, me),
+const ensembleColophon = (e, me) => colophonFrame('This ensemble was', ensembleColophonEntries(e, me),
   'What this composition was made from', 'ens-colophon');
 
 // ---- itinerary colophon -----------------------------------------------------
@@ -6158,7 +6158,7 @@ function itineraryColophonEntries(it, me) {
     : q("SELECT * FROM provenance WHERE entity_type='itinerary' AND entity_uid=?").all(it.uid);
 
   // ---- Tier 1: authorship ---------------------------------------------------
-  out.push(['Planned', monthYear(it.created_at)]);
+  out.push(['Started', monthYear(it.created_at)]);
   // An AI line is earned only by actions the member authorised: every row in
   // this ledger is a canonical write that already happened. Unaccepted
   // suggestions are never written, so they cannot appear here.

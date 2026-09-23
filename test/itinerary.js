@@ -433,7 +433,7 @@ console.log('\ncolophon contracts');
   const render = src.slice(fnEnd, src.indexOf('function itineraryPreview('));
 
   ok('C1 created date comes from the record, not inferred',
-     /out\.push\(\['Planned', monthYear\(it\.created_at\)\]\)/.test(fn));
+     /out\.push\(\['Started', monthYear\(it\.created_at\)\]\)/.test(fn));
   ok('C2 AI authorship requires ai_on_behalf AND explicit',
      /actor_type === 'ai_on_behalf' && r\.assertion === 'explicit'/.test(fn));
   ok('C3 corpus lineage is causal: source_kind=itinerary on the mark\u2019s creation',
