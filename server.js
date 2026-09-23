@@ -1008,6 +1008,42 @@ const MIGRATIONS = [
     if (!hasColumn('users', 'admin_private_view')) db.exec('ALTER TABLE users ADD COLUMN admin_private_view INTEGER NOT NULL DEFAULT 0');
   }],
 
+  // Check-ins and comments keep a record of their end when their parent goes
+  // (v2.53.1). Deleting a mark removes its check-ins and comments, and
+  // deleting a note removes its comments, through foreign-key cascades that
+  // wrote no history for them. These triggers fire only when the PARENT is
+  // deleted, before the cascade, so every path (web, MCP, anything later) is
+  // covered once. Deleting a single check-in or comment directly is still
+  // recorded by the app with its real actor, and no trigger fires for it. The
+  // row is a consequence, not an act: actor 'system', source_kind 'cascade',
+  // source_ref the parent's uid, whose own 'deleted' row names who acted.
+  ['049-cascade-deletion-provenance', () => {
+    const row = (type, alias) => `SELECT '${type}', ${alias}.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, NULL`;
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_mark_delete_children_provenance BEFORE DELETE ON marks BEGIN
+      INSERT INTO provenance (${cols}) ${row('visit', 'v')} FROM visits v WHERE v.mark_id = OLD.id AND v.uid IS NOT NULL;
+      INSERT INTO provenance (${cols}) ${row('mark_comment', 'c')} FROM mark_comments c WHERE c.mark_id = OLD.id AND c.uid IS NOT NULL;
+    END`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_note_delete_children_provenance BEFORE DELETE ON objects BEGIN
+      INSERT INTO provenance (${cols}) ${row('comment', 'c')} FROM comments c WHERE c.object_id = OLD.id AND c.uid IS NOT NULL;
+    END`);
+  }],
+
+  // Per-day check-in notes keep a record of their end too (v2.53.2). Their
+  // creation and edits are already recorded, but nothing tied them to their
+  // check-in or recorded that they went when it did. This fires when a
+  // check-in is deleted, directly or because its mark was (SQLite fires it
+  // inside the cascade), and points each day note at its check-in. Removing a
+  // single day note directly is still recorded by applyVisitDays with the
+  // real actor; no trigger fires for that.
+  ['050-visit-day-deletion-provenance', () => {
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_visit_delete_days_provenance BEFORE DELETE ON visits BEGIN
+      INSERT INTO provenance (${cols}) SELECT 'visit_day', d.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, NULL
+        FROM visit_days d WHERE d.visit_id = OLD.id AND d.uid IS NOT NULL;
+    END`);
+  }],
+
 ];
 
 function backupTo(file) {
@@ -6655,7 +6691,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const colls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(u.id).map((c) => {
       const ids = new Set(q('SELECT note_id FROM note_collections WHERE collection_id=?').all(c.id).map((r) => r.note_id));
       const items = visible.filter((o) => ids.has(o.id)); return { ...c, count: items.length, image: (items.find((o) => o.image) || {}).image || '' };
-    });
+    // A collection's name is the member's own organisation: someone else sees
+    // it only when they can see at least one note in it (the count above is
+    // already what this viewer can see). Owners see all of theirs.
+    }).filter((c) => owner || c.count > 0);
     const link = (t, extra = '') => `/u/${esc(u.handle)}?tab=${t}${extra}`;
 
     let main = '';
@@ -6743,7 +6782,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       const mcolls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(u.id).map((c) => {
         const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(c.id).map((r) => r.mark_id));
         return { ...c, count: all.filter((x) => ids.has(x.id)).length };
-      });
+      // As for notes: shown to others only when they can see a mark in it.
+      }).filter((c) => owner || c.count > 0);
       const mtile = (id, name, count, on) => `<div class="tile-slot"><a class="tile ${on ? 'on' : ''}" href="${q1({ c: id || '' })}"><span class="tile-img"><span class="tile-glyph">${ICONS.lens}</span></span><span class="tile-name">${esc(name)}</span><span class="tile-count">${count}</span></a>${owner && id && on ? `<button type="button" class="tile-del" data-del-id="${id}" data-del-name="${esc(name)}" aria-label="Delete collection"><img src="/close.png" alt="" width="28" height="28"></button>
   <button type="button" class="tile-ren" aria-label="Rename collection">···</button>
   <form class="tile-edit" method="post" action="/collections/${id}/rename">

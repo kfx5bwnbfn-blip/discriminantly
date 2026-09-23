@@ -1191,6 +1191,37 @@ console.log('\nadmin private view');
      && /if \(adminOn\(me\)\) body = `<p class="admin-view-note">/.test(SRC));
 }
 
+// ---- D4: check-ins and comments keep a record of their end ---------------
+console.log('\ncascade deletion provenance');
+{
+  const i = SRC.indexOf("['049-cascade-deletion-provenance'"), b = SRC.slice(i, SRC.indexOf('}],', i));
+  ok('CD1 deleting a mark records each of its check-ins and mark comments as deleted, by cascade',
+     i > 0 && /BEFORE DELETE ON marks BEGIN[\s\S]*row\('visit', 'v'\)[\s\S]*FROM visits v WHERE v\.mark_id = OLD\.id[\s\S]*row\('mark_comment', 'c'\)[\s\S]*FROM mark_comments c WHERE c\.mark_id = OLD\.id/.test(b));
+  ok('CD2 deleting a note records each of its comments as deleted, by cascade',
+     /BEFORE DELETE ON objects BEGIN[\s\S]*row\('comment', 'c'\)[\s\S]*FROM comments c WHERE c\.object_id = OLD\.id/.test(b));
+  ok('CD3 the cascade row is attributed honestly: system, source cascade, pointing at the parent',
+     /'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD\.uid, NULL/.test(b));
+  // The app records a directly deleted check-in or comment itself, so no
+  // trigger may record THAT record again. (The trigger on visits records the
+  // check-in's day notes, never the check-in.)
+  const onVisits = (SRC.match(/BEFORE DELETE ON visits BEGIN([\s\S]*?)END`/) || [, ''])[1];
+  ok('CD4 no trigger re-records a directly deleted check-in or comment (the app records those itself)',
+     !/BEFORE DELETE ON (comments|mark_comments)\b/.test(SRC) && !/SELECT 'visit',/.test(onVisits) && /SELECT 'visit_day',/.test(onVisits));
+}
+
+// ---- residual hygiene: day notes and collection names ----------------------
+console.log('\nday notes and collection names');
+{
+  const i = SRC.indexOf("['050-visit-day-deletion-provenance'"), b = SRC.slice(i, SRC.indexOf('}],', i));
+  ok('VD1 deleting a check-in (directly or with its mark) records each day note as deleted, pointing at the check-in',
+     i > 0 && /BEFORE DELETE ON visits BEGIN[\s\S]*SELECT 'visit_day', d\.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD\.uid, NULL\s*FROM visit_days d WHERE d\.visit_id = OLD\.id/.test(b));
+  ok('VD2 removing one day note directly is still recorded by the app, with no trigger on visit_days',
+     /recordProvenance\('visit_day', existing\.uid, 'deleted', ctx, \{\}\);/.test(SRC) && !/BEFORE DELETE ON visit_days\b/.test(SRC));
+  const u = SRC.indexOf('  user(req, res, me, handle, url) {'), ub = SRC.slice(u, u + 60000);
+  ok('CL1 a collection name is shown to someone else only when they can see an item in it (notes and marks tabs)',
+     (ub.match(/\}\)\.filter\(\(c\) => owner \|\| c\.count > 0\);/g) || []).length === 2);
+}
+
 // ---- MCP freeze: the submitted plugin surface must not change -------------
 console.log('\nMCP freeze');
 {
