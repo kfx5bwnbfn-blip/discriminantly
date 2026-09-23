@@ -1002,6 +1002,12 @@ const MIGRATIONS = [
     db.exec('UPDATE images SET byte_count = length(bytes) WHERE byte_count IS NULL');
   }],
 
+  // Admin's view of members' private content (v2.53): a setting, off unless
+  // the admin turns it on in Settings > Admin. Additive; existing rows get 0.
+  ['048-admin-private-view', () => {
+    if (!hasColumn('users', 'admin_private_view')) db.exec('ALTER TABLE users ADD COLUMN admin_private_view INTEGER NOT NULL DEFAULT 0');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1072,7 +1078,12 @@ const followCounts = (id) => ({ followers: q('SELECT COUNT(*) c FROM follows WHE
 const isFollowing = (a, b) => !!q('SELECT 1 FROM follows WHERE follower_id=? AND followee_id=?').get(a, b);
 const objCollections = (noteId) => q(`SELECT c.id, c.name FROM note_collections nc
   JOIN collections c ON c.id=nc.collection_id WHERE nc.note_id=? ORDER BY c.name`).all(noteId);
-const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || me.is_admin));
+// The admin sees members' private content only while "Show members' private
+// content" is on in Settings, and only in the web app: currentUser() is the one
+// place that sets adminPrivateView, so AI connections (which load their user
+// separately) never carry it.
+const adminOn = (me) => !!(me && me.is_admin && me.adminPrivateView === true);
+const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || adminOn(me)));
 // An image is public only while some public record actually shows it. Nothing
 // else makes bytes public: an orphan upload, or one used solely by private
 // records, stays owner-only. Both reference forms are checked because rows
@@ -1090,7 +1101,7 @@ function imageIsPublic(img) {
   return false;
 }
 const imageVisibleTo = (img, me) =>
-  (me && (me.id === img.user_id || me.is_admin)) ? true : imageIsPublic(img);
+  (me && (me.id === img.user_id || adminOn(me))) ? true : imageIsPublic(img);
 const hasTable = (t) => !!q("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(t);
 const tagList = (t) => String(t || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 
@@ -1878,7 +1889,9 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 24) || '
 
 function currentUser(req) {
   const t = cookies(req).sid; if (!t) return null;
-  return q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?').get(t) || null;
+  const u = q('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=?').get(t) || null;
+  if (u && u.is_admin && u.admin_private_view) u.adminPrivateView = true;
+  return u;
 }
 function readBody(req) {
   return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => res(Object.fromEntries(new URLSearchParams(b)))); });
@@ -2011,6 +2024,7 @@ function policyPage(req, res, me, which) {
 
 function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
   req = req || CURRENT_REQ;
+  if (adminOn(me)) body = `<p class="admin-view-note">Admin view is on: you can see members’ private content. <a href="/settings#admin">Turn it off</a></p>` + body;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <script>
@@ -4018,8 +4032,8 @@ const imageUidOf = (rec) => {
 };
 
 const ensCanSee = (e, me) => (e.status === 'pending_review')
-  ? !!(me && (me.id === e.user_id || me.is_admin))
-  : (!e.private || (me && (me.id === e.user_id || me.is_admin)));
+  ? !!(me && (me.id === e.user_id || adminOn(me)))
+  : (!e.private || (me && (me.id === e.user_id || adminOn(me))));
 
 // A component's OWN representation — label and image belong to the Ensemble,
 // not to the linked Note. That is what lets a public Ensemble describe a
@@ -4596,7 +4610,7 @@ function markPrivacyChanged(markUid, nowPrivate, ctx) {
 // rule forbids. A deleted mark is different -- there is no private information
 // left to protect, so the retained label stands on its own.
 function canSeeStop(stop, itin, me) {
-  if (me && (me.id === itin.user_id || me.is_admin)) {
+  if (me && (me.id === itin.user_id || adminOn(me))) {
     const mk = stop.mark_uid ? q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid) : null;
     return { see: true, owner: true, mark: mk || null, dangling: !!(stop.mark_uid && !mk) };
   }
@@ -5424,8 +5438,9 @@ function itineraryNumbers(it) {
 function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // `owner` governs what is VISIBLE (canSeeStop); `ctl` governs whether the
   // owner's controls render. A preview is the owner's own view minus controls.
-  const isOwner = !!(me && (me.id === it.user_id || me.is_admin));
-  const owner = isOwner;
+  // Controls are the real owner's alone; the admin's view (when on) only sees.
+  const isOwner = !!(me && me.id === it.user_id);
+  const owner = isOwner || adminOn(me);
   const ctl = interactive && isOwner;
   const groups = groupOrder(it.id);
   const base = `/t/${it.id}`;
@@ -6016,7 +6031,7 @@ function relatedNotes(o, me) {
 
 function itineraryColophonEntries(it, me) {
   const out = [];
-  const owner = !!(me && (me.id === it.user_id || me.is_admin));
+  const owner = !!(me && (me.id === it.user_id || adminOn(me)));
   const stops = q('SELECT * FROM itinerary_stops WHERE itinerary_id=?').all(it.id);
   const uids = stops.map((st) => st.uid);
   const rows = uids.length
@@ -6259,7 +6274,7 @@ ${noters.length ? `<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-o-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === o.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-o-${c.id}" class="cmt-toggle" hidden><form method="post" action="/o/${o.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-o-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === o.user_id || adminOn(me)) ? `<input type="checkbox" id="cmt-o-${c.id}" class="cmt-toggle" hidden><form method="post" action="/o/${o.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
 <div class="note-side">${relatedNotes(o, me)}${skinOf(me, req) === 'modern' ? colophon(o) : ''}</div>
 <script>
@@ -6335,7 +6350,8 @@ ${noters.length ? `<div class="section-rule"></div>
   itinerary(req, res, me, url, id) {
     const it = q('SELECT * FROM itineraries WHERE id=?').get(id);
     if (!it || !canSee(it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
-    const owner = !!(me && (me.id === it.user_id || me.is_admin));
+    // Editing controls and the owner's script: the real owner only.
+    const owner = !!(me && me.id === it.user_id);
     const author = q('SELECT * FROM users WHERE id=?').get(it.user_id);
     const groups = groupOrder(it.id);
     const base = `/t/${it.id}`;
@@ -6523,7 +6539,7 @@ ${noters.length ? `<div class="section-rule"></div>
 
   mark(req, res, me, url, id) {
     const m = q(MARK_SQL + ' WHERE m.id=?').get(id);
-    if (!m || (m.private && !(me && (me.id === m.user_id || me.is_admin)))) return send(res, layout({ title: 'Not found', body: '<p>No such mark.</p>', me }), 404);
+    if (!m || !canSee(m, me)) return send(res, layout({ title: 'Not found', body: '<p>No such mark.</p>', me }), 404);
     const owner = me && me.id === m.user_id;
     const visits = markVisits(m.id);
     const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
@@ -6558,7 +6574,7 @@ ${remarkers.length ? `<div class="section-rule"></div>
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/m/${m.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>`
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
-  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || me.is_admin) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
+  <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || adminOn(me)) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
 </section>
 </div>
 <aside class="mark-side">
@@ -6702,12 +6718,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       }).join('')}</div>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'marks') {
       let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
-        .filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
+        .filter((x) => canSee(x, me));
       if (owner && vis === 'public') rows = rows.filter((x) => !x.private);
       if (owner && vis === 'private') rows = rows.filter((x) => x.private);
       if (cid) { const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(cid).map((r) => r.mark_id)); rows = rows.filter((x) => ids.has(x.id)); }
       if (s) { const k = s.toLowerCase(); rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
-      const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => !x.private || (me && (me.id === x.user_id || me.is_admin)));
+      const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => canSee(x, me));
       const countrySel = url.searchParams.getAll('country').filter(Boolean);
       const citySel = url.searchParams.getAll('city').filter(Boolean);
       if (countrySel.length) rows = rows.filter((x) => countrySel.includes(x.country));
@@ -7078,6 +7094,17 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               e.preventDefault(); var f = a.closest('form'); f.elements.mode.value = a.dataset.mode; f.submit(); }); });</script>` : ''}
           </div>
         </div>
+        ${me.is_admin ? `<div class="wtable settings-table settings-admin" id="admin">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Admin</p>
+            <p class="sbox-sub">Only you see this section.</p>
+            <form method="post" action="/settings/admin-view" class="look-form">
+              <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
+                <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
+            </form>
+            <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
+          </div>
+        </div>` : ''}
         <div class="wtable settings-table settings-connector">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Connect to your AI</p>
@@ -9633,6 +9660,12 @@ async function handle(req, res) {
       return;
     } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
   }
+  if (p === '/settings/admin-view' && m === 'POST') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const b = await readBody(req);
+    q('UPDATE users SET admin_private_view=? WHERE id=?').run(b.on === '1' ? 1 : 0, me.id);
+    return redirect(res, '/settings#admin');
+  }
   if (p === '/settings/skin' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req);
@@ -10080,7 +10113,7 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/m\/(\d+)$/))) return pages.mark(req, res, me, url, +mt[1]);
   if ((mt = p.match(/^\/m\/(\d+)\/edit$/))) {
     if (!me) return need();
-    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
+    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0);
     if (!mk) return send(res, 'Not yours', 403);
     if (m === 'GET') return pages.markForm(req, res, me, mk);
     const b = await readBodyMulti(req);
@@ -10120,7 +10153,7 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/m\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
-    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin);
+    const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0);
     if (!mk) return send(res, 'Not yours', 403);
     recordProvenance('mark', mk.uid, 'deleted', webActor(me));
     dropWarrantsFor('mark', mk.uid);
@@ -10320,7 +10353,7 @@ async function handle(req, res) {
                         : q('SELECT * FROM marks WHERE id=?').get(+mt[2]);
     const c = q(`SELECT * FROM ${table} WHERE id=? AND ${fk}=?`).get(+mt[3], +mt[2]);
     if (!subj || !c) return send(res, 'No such comment.', 404);
-    if (c.user_id !== me2.id && subj.user_id !== me2.id && !me2.is_admin) return send(res, 'Not yours to remove.', 403);
+    if (c.user_id !== me2.id && subj.user_id !== me2.id && !adminOn(me2)) return send(res, 'Not yours to remove.', 403);
     recordProvenance('comment', c.uid, 'deleted', webActor(me2), {});
     q(`DELETE FROM ${table} WHERE id=?`).run(c.id);
     return redirect(res, isNote ? `/o/${mt[2]}` : `/m/${mt[2]}`);
@@ -10337,7 +10370,7 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/o\/(\d+)\/edit$/))) {
     if (!me) return need();
-    const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
+    const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0); if (!o) return send(res, 'Not yours', 403);
     if (m === 'GET') return pages.form(req, res, me, o);
     const b = await readBodyMulti(req);
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
@@ -10349,7 +10382,7 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/o\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
-    const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, me.is_admin); if (!o) return send(res, 'Not yours', 403);
+    const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0); if (!o) return send(res, 'Not yours', 403);
     recordProvenance('object', o.uid, 'deleted', webActor(me));
     dropWarrantsFor('object', o.uid);
     q('DELETE FROM objects WHERE id=?').run(o.id);

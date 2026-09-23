@@ -919,3 +919,11 @@
 .welcome-foot { text-align: center; margin: 2.4rem auto 2rem; }
 body[data-skin] footer.welcome-foot a { color: inherit; text-decoration: none; }
 body[data-skin] footer.welcome-foot a:hover { text-decoration: underline; }
+/* Shown on every page while the admin's view of private content is on. It is
+   a direct child of <main>, whose children are otherwise styled as content
+   blocks (background, padding, margin), so the selector is one step more
+   specific than those rules in either skin. */
+body[data-skin] main > p.admin-view-note { margin: .6rem auto 1rem; max-width: 46rem; padding: .5rem 1rem;
+  border-radius: 999px; font-size: .85rem; line-height: 1.4; text-align: center; color: inherit;
+  background-color: rgba(214, 150, 40, .16); border: 1px solid rgba(214, 150, 40, .45); }
+body[data-skin] main > p.admin-view-note a { color: inherit; text-decoration: underline; }

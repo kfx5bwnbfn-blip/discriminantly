@@ -296,7 +296,7 @@ console.log('\ncanSeeStop, all seven cases (correction 1)');
   const marks = new Map();
   const c2 = { q: (sql) => ({ get: (uid) => marks.get(uid) ?? undefined }), MARK_SQL: 'SELECT m.* FROM marks m' };
   c2.globalThis = c2; vm.createContext(c2);
-  vm.runInContext(SRC.slice(from2, to2) + '\nglobalThis.S = canSeeStop;', c2);
+  vm.runInContext(SRC.match(/const adminOn = [^\n]*/)[0] + '\n' + SRC.slice(from2, to2) + '\nglobalThis.S = canSeeStop;', c2);
   const S = c2.S;
 
   const pubItin = { id: 1, user_id: 9, private: 0 };
@@ -1160,6 +1160,35 @@ console.log('\nprofile feed');
   ok('PF1 the All feed shows marks by the same rule as notes, itineraries and the Marks tab (canSee)',
      /for \(const x of q\(MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC LIMIT 30'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
      && !/if \(!x\.private \|\| owner\) acts\.push/.test(b));
+}
+
+// ---- admin view of private content: a setting, web only -------------------
+console.log('\nadmin private view');
+{
+  const lines = SRC.split('\n');
+  const adminLines = lines.map((l, i) => [i, l]).filter(([, l]) => /is_admin/.test(l));
+  const allowed = [/is_admin INTEGER DEFAULT 0/, /^const adminOn = \(me\) => !!\(me && me\.is_admin && me\.adminPrivateView === true\);$/,
+    /if \(u && u\.is_admin && u\.admin_private_view\) u\.adminPrivateView = true;/, /\$\{me\.is_admin \? `<div class="wtable settings-table settings-admin" id="admin">/,
+    /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/, /INSERT INTO users\(handle,name,email,pass,is_admin,avatar,ui_skin\)/];
+  ok('AV1 no visibility or ownership check uses is_admin directly; the one exception is adminOn',
+     adminLines.every(([, l]) => allowed.some((r) => r.test(l))));
+  ok('AV2 one rule for first-class records: canSee, images, ensembles and stops all use adminOn',
+     /const canSee = \(o, me\) => !o\.private \|\| \(me && \(me\.id === o\.user_id \|\| adminOn\(me\)\)\);/.test(SRC)
+     && /\(me && \(me\.id === img\.user_id \|\| adminOn\(me\)\)\) \? true : imageIsPublic\(img\)/.test(SRC)
+     && (SRC.match(/me\.id === e\.user_id \|\| adminOn\(me\)/g) || []).length === 2
+     && /function canSeeStop\(stop, itin, me\) \{\s*if \(me && \(me\.id === itin\.user_id \|\| adminOn\(me\)\)\)/.test(SRC));
+  const i = SRC.indexOf('async function mcpCall('), j = SRC.indexOf('const STATIC = {');
+  ok('AV3 only the web session sets the admin view; the MCP code never sees it',
+     (SRC.match(/adminPrivateView = true/g) || []).length === 1 && !/adminPrivateView|admin_private_view|adminOn\(/.test(SRC.slice(i, j)));
+  ok('AV4 the setting has its own migration, off by default',
+     /\['048-admin-private-view', \(\) => \{\s*if \(!hasColumn\('users', 'admin_private_view'\)\) db\.exec\('ALTER TABLE users ADD COLUMN admin_private_view INTEGER NOT NULL DEFAULT 0'\);/.test(SRC)
+     && !/\['038-ui-skin'[\s\S]{0,400}admin_private_view/.test(SRC));
+  ok('AV5 itinerary controls stay with the real owner, even with the admin view on',
+     /const isOwner = !!\(me && me\.id === it\.user_id\);\s*const owner = isOwner \|\| adminOn\(me\);\s*const ctl = interactive && isOwner;/.test(SRC)
+     && /\/\/ Editing controls and the owner's script: the real owner only\.\s*const owner = !!\(me && me\.id === it\.user_id\);/.test(SRC));
+  ok('AV6 only an admin can change the setting, and every page shows a notice while it is on',
+     /if \(p === '\/settings\/admin-view' && m === 'POST'\) \{\s*if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/.test(SRC)
+     && /if \(adminOn\(me\)\) body = `<p class="admin-view-note">/.test(SRC));
 }
 
 // ---- MCP freeze: the submitted plugin surface must not change -------------
