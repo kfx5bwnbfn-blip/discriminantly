@@ -1272,6 +1272,24 @@ console.log('\nstop notes');
      /const myNotes = ctl \? /.test(SRC) && /\$\{ctl \? `<form method="post" action="\$\{base\}\/stops\/\$\{st\.uid\}\/notes\/\$\{o\.uid\}\/delete"/.test(SRC));
 }
 
+// ---- MCP contract guard: generated tool definitions vs the submitted snapshot
+// test/fixtures/submitted-mcp-contract.json is the submitted surface. It is only
+// rewritten deliberately (node test/mcp-contract.js --record). This part needs
+// no server: it generates every tool definition from server.js itself, so a
+// change anywhere that feeds a definition (IMAGE_FIELD_DESC, a schema constant,
+// an annotation) is caught, not just edits inside the fingerprinted regions.
+console.log('\nMCP contract (definitions)');
+{
+  const snap = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json'), 'utf8'));
+  const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
+  const gen = norm(loadToolsFromSource(SRC));
+  ok('MC1 the snapshot holds the submitted 54 tools', Array.isArray(snap.tools) && snap.tools.length === 54);
+  const changed = snap.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return !g || JSON.stringify(g) !== JSON.stringify(t); }).map((t) => t.name);
+  const added = gen.filter((g) => !snap.tools.find((t) => t.name === g.name)).map((g) => g.name);
+  ok('MC2 every tool definition generated from source matches the submitted snapshot',
+     !changed.length && !added.length, [changed.length ? 'changed: ' + changed.join(', ') : '', added.length ? 'added: ' + added.join(', ') : ''].filter(Boolean).join('; '));
+}
+
 // ---- MCP freeze: the submitted plugin surface must not change -------------
 console.log('\nMCP freeze');
 {

@@ -313,5 +313,46 @@ The plugin was submitted to OpenAI for review at v2.52.7 with the submission fil
 
 **To lift the freeze deliberately:** make the MCP change, run `node test/mcp-freeze.js --record`, and commit the new fingerprint with a message saying why. Any MCP change also needs a fresh Scan Tools run in the portal.
 
-**Freeze log.** 23 September 2026 (v2.54.1): the *Tool dispatcher and /mcp endpoint* fingerprint was re-recorded deliberately after removing request IDs from error replies. This is a live-result change that OpenAI's requirements allow without resubmission; errors carry no structured content, so no schema is involved. Contract changes waiting for the freeze to lift are in `docs/post-freeze-backlog.md`.
+**Freeze log.** 23 September 2026 (v2.54.1): the *Tool dispatcher and /mcp endpoint* fingerprint was re-recorded deliberately after removing request IDs from error replies. This is a live-result change that OpenAI's requirements allow without resubmission; errors carry no structured content, so no schema is involved. Contract changes waiting for the freeze to lift are in `docs/mcp-vnext.md`.
+
+### The guard, in two parts
+Both parts compare against one snapshot, `test/fixtures/submitted-mcp-contract.json`, which was checked to be identical to the submission-time scan.
+- **Every test run (no server):** the `MC` tests generate every tool definition from `server.js`, including constants defined outside the MCP code, and compare them with the snapshot. The `MF` tests additionally fingerprint the MCP source regions, as an early warning.
+- **Against a running server:** `test/mcp-contract.js` checks:
+  - the tool list, the server instructions, server info and capabilities;
+  - OAuth and protected-resource discovery, and the unauthenticated challenge;
+  - the result shapes of representative tools, including `my_itineraries` on a stop with a note attached.
+
+  Run it with `BASE=http://localhost:3000 TOKEN=<api token> SID=<session> node test/mcp-contract.js`.
+- **Normalised on purpose:**
+  - the site origin becomes `{ORIGIN}`;
+  - the member's name and handle at the start of the instructions become placeholders;
+  - `protocolVersion` is requested at a fixed value;
+  - result shapes keep keys and types, never values.
+- **The snapshot is never rewritten by a test run.** `--record` is a deliberate decision, made when a contract change is approved or the freeze lifts.
+
+### Migrations during the freeze
+Every migration added during the freeze is assessed against the frozen MCP tools:
+
+| Migration | MCP reads | MCP writes | Serialization | Verdict |
+|---|---|---|---|---|
+| 048 admin private view | unchanged | unchanged | unchanged | Additive column. The AI path never carries the setting. |
+| 049 cascade deletion history | unchanged | deletes add history rows only | unchanged | Additive triggers, with no required fields. |
+| 050 day-note deletion history | unchanged | same as 049 | unchanged | Additive trigger. |
+| 051 Stop → Note | unchanged | deleting a stop, itinerary or note now also removes its attachments, and never deletes a Note | unchanged (checked by the live guard) | Additive table. No old tool can create an attachment. |
+
+### For every feature built during the freeze
+Report an **MCP Freeze Assessment** covering whether the change:
+- touched frozen MCP code;
+- changed tool discovery;
+- changed any schema, description or annotation;
+- changed OAuth or resource metadata;
+- changed an MCP response contract;
+- needs a future MCP capability, and if so whether it's in `docs/mcp-vnext.md`.
+
+Run the `MC` and `MF` tests and `test/mcp-contract.js` before calling it complete.
+
+### Before or after review, not code
+If the submission includes Codex, OpenAI requires the test cases to pass there too. Run the five positive and three negative prompts on Codex as the reviewer.
+
 
