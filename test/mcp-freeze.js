@@ -1,9 +1,18 @@
-// MCP freeze (since the OpenAI plugin submission, v2.52.7 + submission file
-// fd09297). Fingerprints every part of server.js that the plugin surface is
-// made of, plus the submitted plugin/ files. test/itinerary.js fails if any of
-// them changes, so web/app work cannot alter the MCP surface by accident.
+// Submitted-contract compatibility: the regions that must not move at all.
 //
-// Lifting the freeze is a deliberate act: change the MCP code, then run
+// Until 23 September 2026 the whole MCP surface was frozen while the OpenAI
+// plugin submission (v2.52.7, submission file fd09297) is under review. The
+// rule is now narrower (docs/plugin-submission.md, "Submitted-contract
+// compatibility"): preserve the submitted contract and its observable
+// behaviour, and allow additive MCP capability around it. So:
+//   - the tool table and the dispatcher may change; the submitted tools'
+//     definitions are held by the MC tests (test/itinerary.js), their
+//     results by the live guard (test/mcp-contract.js) and the behaviour
+//     tests (test/adoption.js, test/plugin-audit.js);
+//   - OAuth, the MCP routes, discovery and the submitted plugin/ files have no
+//     reason to change for additive work, so they stay fingerprinted here.
+//
+// Changing one of these is a deliberate act: make the change, run
 //   node test/mcp-freeze.js --record
 // and commit the new test/fixtures/mcp-freeze.json with a message saying why.
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
@@ -15,11 +24,8 @@ const between = (src, start, end, { inclusiveEnd = false } = {}) => {
 };
 function regions() {
   const SRC = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
-  const schemaStart = SRC.slice(SRC.search(/\nconst OS_[A-Z_]+ = /) + 1);
   const R = {
     'OAuth core (tokens, codes, CIMD, resource binding)': between(SRC, 'const OAUTH_SCOPE = ', 'function clientInfoFrom(params)'),
-    'Tool contract (output schemas, tool table, annotations)': between(schemaStart, 'const OS_', 'which is not a tool`);', { inclusiveEnd: true }),
-    'Tool dispatcher and /mcp endpoint (incl. server instructions, error replies)': between(SRC, 'async function mcpCall(', 'const STATIC = {'),
     'MCP routes (legacy /mcp/<token> and /mcp)': between(SRC, 'if ((mt = p.match(/^\\/mcp\\/([A-Za-z0-9_-]+)$/)))', "if (p === '/mcp') return mcp(req, res, null);", { inclusiveEnd: true }),
     'Discovery, domain verification and OAuth routes': between(SRC, '// ---- OAuth discovery', "if (p === '/settings/connections' && m === 'POST')"),
   };

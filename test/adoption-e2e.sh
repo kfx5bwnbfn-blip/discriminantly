@@ -7,7 +7,8 @@
 #      pages, except that a Note made for a pending Ensemble leaves its
 #      owner's corpus (compared with the old code on the fixture minus it)
 #   2. test/adoption.js: backfill, projection, privacy, transitions, invariants
-#   3. test/mcp-contract.js: the frozen MCP surface, live
+#      test/recommendations.js: Recommendation and the additive MCP tools
+#   3. test/mcp-contract.js: /mcp (submitted, for every connection) and /mcp-dev (developer), live
 #
 #   test/adoption-e2e.sh [pre-052 commit, default 01f2b2c] [work dir]
 set -euo pipefail
@@ -48,7 +49,15 @@ node --no-warnings "$ROOT/test/adoption-pages.js" compare "$W/before.json" "$W/w
 
 boot "$W/live" "$ROOT" 3205
 BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/adoption.js"
+BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/recommendations.js"
+BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/tool-audit.js"
 echo
-TOKEN=$(q "console.log(require('$W/live/d.db.fixture.json').tokA)") SID=$(q "console.log(require('$W/live/d.db.fixture.json').sidA)") \
-  BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
-echo; echo "Adoption end-to-end: all passed. Work files in $W"
+TA=$(q "console.log(require('$W/live/d.db.fixture.json').tokA)"); SA=$(q "console.log(require('$W/live/d.db.fixture.json').sidA)")
+TB=$(q "console.log(require('$W/live/d.db.fixture.json').tokB)"); SB=$(q "console.log(require('$W/live/d.db.fixture.json').sidB)")
+echo; echo "/mcp, the founder's connection: exactly the submitted surface"
+TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
+echo; echo "/mcp, any other member's connection (e.g. the reviewer account): exactly the submitted surface"
+TOKEN=$TB SID=$SB BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
+echo; echo "/mcp-dev, the founder: the submitted tools unchanged, plus the recorded additive surface"
+SURFACE=developer TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
+echo; echo "Adoption and Recommendation end-to-end: all passed. Work files in $W"

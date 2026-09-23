@@ -2,7 +2,9 @@
 
 Written against the commit that adds migration 052, on top of `01f2b2c`. It's the report asked for in `docs/recommendations-design.md` §6 before any Recommendation work starts.
 
-**Status: built and tested. Increment 2 (Recommendation) hasn't started.** Four points need Brian's decision; they're in §6.
+**Status: built and tested.** The four decisions in §6 were made on 23 September 2026; see `docs/recommendations-decisions-report.md`.
+
+> **Update, v2.55.0.** The blanket MCP freeze was replaced by the submitted-contract compatibility rule. The frozen corpus reads listed in §4 and §5 have since moved to the Adopted projection behind their unchanged contracts. The current state, and the compatibility report, are in `docs/recommendations-increments-2-3-report.md`.
 
 ## 1. The migration (052-adoptions)
 

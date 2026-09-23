@@ -1,0 +1,1814 @@
+{
+  "additive_tools": [
+    {
+      "name": "record_recommendations",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "items"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "recommendation",
+                "created",
+                "target_origin"
+              ],
+              "properties": {
+                "recommendation": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "uid",
+                    "kind",
+                    "label",
+                    "resolution",
+                    "known",
+                    "target",
+                    "context",
+                    "workflow",
+                    "rationale",
+                    "evidence_uids",
+                    "status",
+                    "reaction"
+                  ],
+                  "properties": {
+                    "uid": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "object",
+                        "place",
+                        "experience",
+                        "itinerary"
+                      ]
+                    },
+                    "label": {
+                      "type": "string",
+                      "description": "The proposition in its original words. Never changes."
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "enum": [
+                        "unresolved",
+                        "partial",
+                        "resolved"
+                      ]
+                    },
+                    "known": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "maker": {
+                          "type": "string"
+                        },
+                        "product": {
+                          "type": "string"
+                        },
+                        "variant": {
+                          "type": "string"
+                        },
+                        "url": {
+                          "type": "string"
+                        },
+                        "place_name": {
+                          "type": "string"
+                        },
+                        "locality": {
+                          "type": "string"
+                        },
+                        "country": {
+                          "type": "string"
+                        },
+                        "address": {
+                          "type": "string"
+                        },
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "image_uid": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "target": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": false,
+                      "required": [
+                        "type",
+                        "uid",
+                        "id",
+                        "name",
+                        "exists",
+                        "kept"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "note",
+                            "mark",
+                            "itinerary"
+                          ]
+                        },
+                        "uid": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "exists": {
+                          "type": "boolean"
+                        },
+                        "kept": {
+                          "type": "boolean",
+                          "description": "True only once the member has kept it: then it is one of their notes, marks or itineraries."
+                        }
+                      }
+                    },
+                    "context": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "additionalProperties": false,
+                      "required": [
+                        "itinerary_uid",
+                        "itinerary_title",
+                        "stop_uid",
+                        "stop_label"
+                      ],
+                      "properties": {
+                        "itinerary_uid": {
+                          "type": "string"
+                        },
+                        "itinerary_title": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stop_uid": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "stop_label": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "workflow": {
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "type": "string"
+                    },
+                    "evidence_uids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "open",
+                        "kept",
+                        "not_this_trip",
+                        "not_for_me",
+                        "dismissed"
+                      ],
+                      "description": "open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly."
+                    },
+                    "reaction": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "dismissed",
+                        "not_this_trip",
+                        "not_for_me",
+                        null
+                      ]
+                    }
+                  }
+                },
+                "created": {
+                  "type": "boolean",
+                  "description": "False when this exact proposition was already recommended in this context: the existing one is returned, not duplicated."
+                },
+                "target_origin": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "enum": [
+                    "pre_existing",
+                    "created_for_recommendation",
+                    null
+                  ],
+                  "description": "pre_existing: an existing record of the member’s now also carries this recommendation. created_for_recommendation: a private record made for it, NOT kept."
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "Save, as recommendations, the suggestions you have just presented when the member asked you for recommendations in Discriminantly (things or places for a trip, for another time, or to start their catalogue). Record only what you actually put in front of them, never candidates you considered and dropped, and not suggestions made in passing in unrelated conversation. Not for something the member asked to note or mark themselves: that is note_object or add_travel_mark. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation). Record the resolution you actually reached: a category (\"medium-roast Kaʻu coffee\") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind \"itinerary\" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "One entry per recommendation presented.",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "label",
+                "workflow"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "object",
+                    "place",
+                    "experience",
+                    "itinerary"
+                  ],
+                  "description": "object: a thing (a coffee, a knife). place: somewhere to go. experience: something to do, often with an operator (a manta night snorkel). itinerary: a whole plan."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "The proposition as you would say it to the member, e.g. \"medium-roast Kaʻu coffee\". Kept verbatim forever, however far it is later resolved."
+                },
+                "resolution": {
+                  "type": "string",
+                  "enum": [
+                    "unresolved",
+                    "partial",
+                    "resolved"
+                  ],
+                  "description": "How far the identity is actually established. unresolved: a category or description. partial: some identity known (the producer, the operator) but not the specific thing. resolved: the specific thing or place. Say only what your research established: partial is a truthful, complete answer, never a failure. An itinerary is always resolved."
+                },
+                "maker": {
+                  "type": "string",
+                  "description": "Maker, producer or operator, when known."
+                },
+                "product": {
+                  "type": "string",
+                  "description": "The specific product or offering, when known."
+                },
+                "variant": {
+                  "type": "string",
+                  "description": "Size, roast, edition or similar, when known."
+                },
+                "url": {
+                  "type": "string",
+                  "description": "A canonical page for it, when there is a trustworthy one."
+                },
+                "image_uid": {
+                  "type": "string",
+                  "description": "Its picture, from upload_image or begin_image_upload. Required to resolve an object that is not already one of their notes."
+                },
+                "image": {
+                  "type": "string",
+                  "description": "Alternative to image_uid: an https:// URL to its picture."
+                },
+                "place_name": {
+                  "type": "string"
+                },
+                "locality": {
+                  "type": "string"
+                },
+                "country": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "lat": {
+                  "type": "number"
+                },
+                "lng": {
+                  "type": "number"
+                },
+                "target_uid": {
+                  "type": "string",
+                  "description": "When this IS something the member already has: the uid of that note (my_notes, search_catalogue), travel mark (my_travel_marks) or itinerary (my_itineraries). The existing record gains the recommendation; nothing is duplicated. Needs resolution \"resolved\". Omit it and a resolved proposition is matched to their records or given a private record of its own, not kept."
+                },
+                "target_type": {
+                  "type": "string",
+                  "enum": [
+                    "object",
+                    "mark",
+                    "itinerary"
+                  ],
+                  "description": "Only needed when an experience points at a note rather than a travel mark."
+                },
+                "context_itinerary_uid": {
+                  "type": "string",
+                  "description": "The trip this is for, from my_itineraries or from an itinerary recommendation’s target. Omit for \"for another time\"."
+                },
+                "context_stop_uid": {
+                  "type": "string",
+                  "description": "The stop within that trip it belongs to, from my_itineraries."
+                },
+                "workflow": {
+                  "type": "string",
+                  "enum": [
+                    "cold_start",
+                    "destination_objects",
+                    "for_another_time"
+                  ],
+                  "description": "Which request this answers: cold_start (starting a new member’s catalogue), destination_objects (things or places for a particular trip), for_another_time (things to keep in mind with no trip)."
+                },
+                "rationale": {
+                  "type": "string",
+                  "description": "Why it suits this member, in a sentence or two. Private to them."
+                },
+                "evidence_uids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "uids of the member’s own kept records that the rationale rests on (notes, marks, check-ins, warrants...). Never another recommendation."
+                }
+              }
+            }
+          }
+        }
+      },
+      "title": "Record recommendations",
+      "annotations": {
+        "title": "Record recommendations",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "resolve_recommendation",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "recommendation",
+          "changed",
+          "kept"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "recommendation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "uid",
+              "kind",
+              "label",
+              "resolution",
+              "known",
+              "target",
+              "context",
+              "workflow",
+              "rationale",
+              "evidence_uids",
+              "status",
+              "reaction"
+            ],
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "object",
+                  "place",
+                  "experience",
+                  "itinerary"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "description": "The proposition in its original words. Never changes."
+              },
+              "resolution": {
+                "type": "string",
+                "enum": [
+                  "unresolved",
+                  "partial",
+                  "resolved"
+                ]
+              },
+              "known": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "maker": {
+                    "type": "string"
+                  },
+                  "product": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "place_name": {
+                    "type": "string"
+                  },
+                  "locality": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "image_uid": {
+                    "type": "string"
+                  }
+                }
+              },
+              "target": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "uid",
+                  "id",
+                  "name",
+                  "exists",
+                  "kept"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note",
+                      "mark",
+                      "itinerary"
+                    ]
+                  },
+                  "uid": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "exists": {
+                    "type": "boolean"
+                  },
+                  "kept": {
+                    "type": "boolean",
+                    "description": "True only once the member has kept it: then it is one of their notes, marks or itineraries."
+                  }
+                }
+              },
+              "context": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "itinerary_uid",
+                  "itinerary_title",
+                  "stop_uid",
+                  "stop_label"
+                ],
+                "properties": {
+                  "itinerary_uid": {
+                    "type": "string"
+                  },
+                  "itinerary_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_uid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "evidence_uids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "kept",
+                  "not_this_trip",
+                  "not_for_me",
+                  "dismissed"
+                ],
+                "description": "open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly."
+              },
+              "reaction": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "dismissed",
+                  "not_this_trip",
+                  "not_for_me",
+                  null
+                ]
+              }
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What this call recorded, e.g. resolution:partial, maker, target."
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "uid"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "note",
+                    "mark",
+                    "itinerary"
+                  ]
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Records newly kept by this call (keep_recommendation only). Empty when they were already kept."
+          }
+        }
+      },
+      "description": "Add what you have since established about a recommendation: the producer, the exact product, the place, its picture. Resolution only ever gains precision, and the original words are kept. Pass only what you actually know; leaving it partial is correct when the exact item cannot be established. Reaching \"resolved\" links it to the member’s existing record, or makes a private record for it that is NOT kept.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "recommendation_uid"
+        ],
+        "properties": {
+          "recommendation_uid": {
+            "type": "string",
+            "description": "From record_recommendations or list_recommendations."
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "unresolved",
+              "partial",
+              "resolved"
+            ],
+            "description": "How far the identity is actually established. unresolved: a category or description. partial: some identity known (the producer, the operator) but not the specific thing. resolved: the specific thing or place. Say only what your research established: partial is a truthful, complete answer, never a failure. An itinerary is always resolved."
+          },
+          "maker": {
+            "type": "string",
+            "description": "Maker, producer or operator, when known."
+          },
+          "product": {
+            "type": "string",
+            "description": "The specific product or offering, when known."
+          },
+          "variant": {
+            "type": "string",
+            "description": "Size, roast, edition or similar, when known."
+          },
+          "url": {
+            "type": "string",
+            "description": "A canonical page for it, when there is a trustworthy one."
+          },
+          "image_uid": {
+            "type": "string",
+            "description": "Its picture, from upload_image or begin_image_upload. Required to resolve an object that is not already one of their notes."
+          },
+          "image": {
+            "type": "string",
+            "description": "Alternative to image_uid: an https:// URL to its picture."
+          },
+          "place_name": {
+            "type": "string"
+          },
+          "locality": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "target_uid": {
+            "type": "string",
+            "description": "When this IS something the member already has: the uid of that note (my_notes, search_catalogue), travel mark (my_travel_marks) or itinerary (my_itineraries). The existing record gains the recommendation; nothing is duplicated. Needs resolution \"resolved\". Omit it and a resolved proposition is matched to their records or given a private record of its own, not kept."
+          },
+          "target_type": {
+            "type": "string",
+            "enum": [
+              "object",
+              "mark",
+              "itinerary"
+            ],
+            "description": "Only needed when an experience points at a note rather than a travel mark."
+          }
+        }
+      },
+      "title": "Resolve a recommendation",
+      "annotations": {
+        "title": "Resolve a recommendation",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_recommendations",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total",
+          "shown",
+          "groups"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer"
+          },
+          "shown": {
+            "type": "integer"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "itinerary_uid",
+                "title",
+                "items"
+              ],
+              "properties": {
+                "itinerary_uid": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "uid",
+                      "kind",
+                      "label",
+                      "resolution",
+                      "known",
+                      "target",
+                      "context",
+                      "workflow",
+                      "rationale",
+                      "evidence_uids",
+                      "status",
+                      "reaction"
+                    ],
+                    "properties": {
+                      "uid": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "object",
+                          "place",
+                          "experience",
+                          "itinerary"
+                        ]
+                      },
+                      "label": {
+                        "type": "string",
+                        "description": "The proposition in its original words. Never changes."
+                      },
+                      "resolution": {
+                        "type": "string",
+                        "enum": [
+                          "unresolved",
+                          "partial",
+                          "resolved"
+                        ]
+                      },
+                      "known": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "maker": {
+                            "type": "string"
+                          },
+                          "product": {
+                            "type": "string"
+                          },
+                          "variant": {
+                            "type": "string"
+                          },
+                          "url": {
+                            "type": "string"
+                          },
+                          "place_name": {
+                            "type": "string"
+                          },
+                          "locality": {
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string"
+                          },
+                          "address": {
+                            "type": "string"
+                          },
+                          "lat": {
+                            "type": "number"
+                          },
+                          "lng": {
+                            "type": "number"
+                          },
+                          "image_uid": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "target": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                          "type",
+                          "uid",
+                          "id",
+                          "name",
+                          "exists",
+                          "kept"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [
+                              "note",
+                              "mark",
+                              "itinerary"
+                            ]
+                          },
+                          "uid": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": [
+                              "integer",
+                              "null"
+                            ]
+                          },
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "exists": {
+                            "type": "boolean"
+                          },
+                          "kept": {
+                            "type": "boolean",
+                            "description": "True only once the member has kept it: then it is one of their notes, marks or itineraries."
+                          }
+                        }
+                      },
+                      "context": {
+                        "type": [
+                          "object",
+                          "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                          "itinerary_uid",
+                          "itinerary_title",
+                          "stop_uid",
+                          "stop_label"
+                        ],
+                        "properties": {
+                          "itinerary_uid": {
+                            "type": "string"
+                          },
+                          "itinerary_title": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "stop_uid": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "stop_label": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        }
+                      },
+                      "workflow": {
+                        "type": "string"
+                      },
+                      "rationale": {
+                        "type": "string"
+                      },
+                      "evidence_uids": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "status": {
+                        "type": "string",
+                        "enum": [
+                          "open",
+                          "kept",
+                          "not_this_trip",
+                          "not_for_me",
+                          "dismissed"
+                        ],
+                        "description": "open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly."
+                      },
+                      "reaction": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "enum": [
+                          "dismissed",
+                          "not_this_trip",
+                          "not_for_me",
+                          null
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "List what has been recommended to the member through record_recommendations, grouped by trip or \"for another time\", newest first; by default only open ones (neither kept nor dismissed). Use when the member asks what was suggested before. These are proposals, not their records: for their own notes, marks and plans use my_notes, my_travel_marks and my_itineraries. A recommended itinerary’s full plan opens with my_itineraries and its target uid.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "context_itinerary_uid": {
+            "type": "string",
+            "description": "Only those for this trip, from my_itineraries or a recommended itinerary’s target."
+          },
+          "workflow": {
+            "type": "string",
+            "description": "Only those from this workflow, e.g. for_another_time."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "kept",
+              "not_this_trip",
+              "not_for_me",
+              "dismissed",
+              "reacted",
+              "all"
+            ],
+            "description": "Default open. reacted: any of the three reactions."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Default 30, at most 100."
+          }
+        }
+      },
+      "title": "List recommendations",
+      "annotations": {
+        "title": "List recommendations",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "keep_recommendation",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "recommendation",
+          "changed",
+          "kept"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "recommendation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "uid",
+              "kind",
+              "label",
+              "resolution",
+              "known",
+              "target",
+              "context",
+              "workflow",
+              "rationale",
+              "evidence_uids",
+              "status",
+              "reaction"
+            ],
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "object",
+                  "place",
+                  "experience",
+                  "itinerary"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "description": "The proposition in its original words. Never changes."
+              },
+              "resolution": {
+                "type": "string",
+                "enum": [
+                  "unresolved",
+                  "partial",
+                  "resolved"
+                ]
+              },
+              "known": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "maker": {
+                    "type": "string"
+                  },
+                  "product": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "place_name": {
+                    "type": "string"
+                  },
+                  "locality": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "image_uid": {
+                    "type": "string"
+                  }
+                }
+              },
+              "target": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "uid",
+                  "id",
+                  "name",
+                  "exists",
+                  "kept"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note",
+                      "mark",
+                      "itinerary"
+                    ]
+                  },
+                  "uid": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "exists": {
+                    "type": "boolean"
+                  },
+                  "kept": {
+                    "type": "boolean",
+                    "description": "True only once the member has kept it: then it is one of their notes, marks or itineraries."
+                  }
+                }
+              },
+              "context": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "itinerary_uid",
+                  "itinerary_title",
+                  "stop_uid",
+                  "stop_label"
+                ],
+                "properties": {
+                  "itinerary_uid": {
+                    "type": "string"
+                  },
+                  "itinerary_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_uid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "evidence_uids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "kept",
+                  "not_this_trip",
+                  "not_for_me",
+                  "dismissed"
+                ],
+                "description": "open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly."
+              },
+              "reaction": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "dismissed",
+                  "not_this_trip",
+                  "not_for_me",
+                  null
+                ]
+              }
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What this call recorded, e.g. resolution:partial, maker, target."
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "uid"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "note",
+                    "mark",
+                    "itinerary"
+                  ]
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Records newly kept by this call (keep_recommendation only). Empty when they were already kept."
+          }
+        }
+      },
+      "description": "Call ONLY when the member says to keep a recommendation (\"keep it\", \"add that to my notes\", \"yes, that plan\"). Keeping brings the recommended note, travel mark or itinerary into their own catalogue; the recommendation stays as history. Keeping a recommended itinerary keeps the plan with the places and notes in its stops, as they are; unresolved stops stay unresolved. Buying, owning, visiting or praising it is NOT a request to keep it: record those with record_note_ownership, log_visit or warrant, which work on a recommended note or mark without keeping it, and keep only if they also say to. An unresolved or partial recommendation must be resolved to a specific thing first.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "recommendation_uid"
+        ],
+        "properties": {
+          "recommendation_uid": {
+            "type": "string",
+            "description": "From record_recommendations or list_recommendations."
+          }
+        }
+      },
+      "title": "Keep a recommendation",
+      "annotations": {
+        "title": "Keep a recommendation",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "dismiss_recommendation",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "recommendation",
+          "changed",
+          "kept"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "recommendation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "uid",
+              "kind",
+              "label",
+              "resolution",
+              "known",
+              "target",
+              "context",
+              "workflow",
+              "rationale",
+              "evidence_uids",
+              "status",
+              "reaction"
+            ],
+            "properties": {
+              "uid": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "object",
+                  "place",
+                  "experience",
+                  "itinerary"
+                ]
+              },
+              "label": {
+                "type": "string",
+                "description": "The proposition in its original words. Never changes."
+              },
+              "resolution": {
+                "type": "string",
+                "enum": [
+                  "unresolved",
+                  "partial",
+                  "resolved"
+                ]
+              },
+              "known": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "maker": {
+                    "type": "string"
+                  },
+                  "product": {
+                    "type": "string"
+                  },
+                  "variant": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "place_name": {
+                    "type": "string"
+                  },
+                  "locality": {
+                    "type": "string"
+                  },
+                  "country": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "lat": {
+                    "type": "number"
+                  },
+                  "lng": {
+                    "type": "number"
+                  },
+                  "image_uid": {
+                    "type": "string"
+                  }
+                }
+              },
+              "target": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "uid",
+                  "id",
+                  "name",
+                  "exists",
+                  "kept"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note",
+                      "mark",
+                      "itinerary"
+                    ]
+                  },
+                  "uid": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "exists": {
+                    "type": "boolean"
+                  },
+                  "kept": {
+                    "type": "boolean",
+                    "description": "True only once the member has kept it: then it is one of their notes, marks or itineraries."
+                  }
+                }
+              },
+              "context": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "itinerary_uid",
+                  "itinerary_title",
+                  "stop_uid",
+                  "stop_label"
+                ],
+                "properties": {
+                  "itinerary_uid": {
+                    "type": "string"
+                  },
+                  "itinerary_title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_uid": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "stop_label": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              "workflow": {
+                "type": "string"
+              },
+              "rationale": {
+                "type": "string"
+              },
+              "evidence_uids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "open",
+                  "kept",
+                  "not_this_trip",
+                  "not_for_me",
+                  "dismissed"
+                ],
+                "description": "open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly."
+              },
+              "reaction": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "dismissed",
+                  "not_this_trip",
+                  "not_for_me",
+                  null
+                ]
+              }
+            }
+          },
+          "changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What this call recorded, e.g. resolution:partial, maker, target."
+          },
+          "kept": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "uid"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "note",
+                    "mark",
+                    "itinerary"
+                  ]
+                },
+                "uid": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Records newly kept by this call (keep_recommendation only). Empty when they were already kept."
+          }
+        }
+      },
+      "description": "Record the member’s answer when they turn a recommendation down, only when they say so; silence is no answer. Use the reason they actually gave: \"not_this_trip\" (wrong for this trip or plan, which says nothing about whether they like it), \"not_for_me\" (they say it does not suit them), or \"dismissed\" (no reason given). Each is recorded exactly as said and is never treated as evidence of their taste. It leaves the open list; nothing is deleted. Recording the same reason again changes nothing.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "recommendation_uid"
+        ],
+        "properties": {
+          "recommendation_uid": {
+            "type": "string",
+            "description": "From record_recommendations or list_recommendations."
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "not_this_trip",
+              "not_for_me",
+              "dismissed"
+            ],
+            "description": "The reason they gave; dismissed (the default) when they gave none."
+          }
+        }
+      },
+      "title": "Dismiss a recommendation",
+      "annotations": {
+        "title": "Dismiss a recommendation",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "set_stop_note",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "itinerary_uid",
+          "stops"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "itinerary_uid": {
+            "type": "string"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stop_uid",
+                "label",
+                "notes"
+              ],
+              "properties": {
+                "stop_uid": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "uid",
+                      "id",
+                      "name",
+                      "kept",
+                      "image_uid"
+                    ],
+                    "properties": {
+                      "uid": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kept": {
+                        "type": "boolean"
+                      },
+                      "image_uid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "Attach one of the member’s notes to a stop in one of their plans, or detach it (attached: false). It means only \"this is worth noticing, seeking or trying at this stop\": not a purchase, ownership, reservation, check-in or warrant. In a plan they have kept, only a kept note can be attached: if the note is only recommended, ask whether they want to keep it rather than keeping it for them. In a recommended plan, a recommended note can be attached. Never make a note from a vague category: record it as a recommendation instead (record_recommendations). Attaching a note that is already there changes nothing. Returns the plan’s notes by stop.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "stop_uid",
+          "note_uid"
+        ],
+        "properties": {
+          "stop_uid": {
+            "type": "string",
+            "description": "From my_itineraries (a stop’s uid)."
+          },
+          "note_uid": {
+            "type": "string",
+            "description": "The note’s uid, from my_notes, search_catalogue, or a recommendation’s target."
+          },
+          "attached": {
+            "type": "boolean",
+            "description": "Default true. false detaches it; the note itself is untouched."
+          }
+        }
+      },
+      "title": "Attach or detach a stop note",
+      "annotations": {
+        "title": "Attach or detach a stop note",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "list_stop_notes",
+      "securitySchemes": [
+        {
+          "type": "oauth2",
+          "scopes": [
+            "discriminantly"
+          ]
+        }
+      ],
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "itinerary_uid",
+          "stops"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "itinerary_uid": {
+            "type": "string"
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stop_uid",
+                "label",
+                "notes"
+              ],
+              "properties": {
+                "stop_uid": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "notes": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "uid",
+                      "id",
+                      "name",
+                      "kept",
+                      "image_uid"
+                    ],
+                    "properties": {
+                      "uid": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "kept": {
+                        "type": "boolean"
+                      },
+                      "image_uid": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "description": "List the notes attached to each stop of one of the member’s plans, which my_itineraries does not include. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "itinerary_uid"
+        ],
+        "properties": {
+          "itinerary_uid": {
+            "type": "string",
+            "description": "From my_itineraries, or a recommended itinerary’s target."
+          }
+        }
+      },
+      "title": "List a plan’s stop notes",
+      "annotations": {
+        "title": "List a plan’s stop notes",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "instructions_appendix": "\n\nRECOMMENDATIONS. When the member asks you for recommendations in Discriminantly (for a trip, for another time, or to start their catalogue), save the ones you actually present, and only those, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). Earlier ones: list_recommendations."
+}

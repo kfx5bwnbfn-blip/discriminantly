@@ -1146,17 +1146,18 @@ const MIGRATIONS = [
 
     // Ensembles. Notes made for a composition still pending review are NOT
     // corpus membership (migration 031): they exist because the pending
-    // Ensemble does, and discarding it removes them. Two transitions change
-    // that, and both live in the frozen MCP dispatcher, so they are observed
-    // here structurally rather than edited there:
-    //   Keep    (pending_review -> saved): the commitment boundary. Every Note
-    //           this Ensemble made is adopted, as a consequence of that act.
-    //   Discard or delete while pending: Notes the member had since made their
-    //           own (edited, filed, used elsewhere...) survive, as they always
-    //           have, and stay in the member's notes. Surviving has always meant
-    //           corpus membership, so it is recorded as such, citing the cause.
-    // Each adoption is written with a provenance row saying it was derived
-    // from that act; the act itself carries its own actor.
+    // Ensemble does. Keep (pending_review -> saved) is the commitment
+    // boundary, observed here structurally: every Note this Ensemble made is
+    // adopted, as a consequence of that act, with a provenance row saying it
+    // was derived from it (the act itself carries its own actor).
+    //
+    // Discarding or deleting a pending Ensemble adopts NOTHING (decision A).
+    // A Note that survives it does so because another explicit relationship
+    // explains it (ownership, a warrant, another ensemble, a stop, a
+    // recommendation), and stays outside the corpus, owner-only. Survival is
+    // never read as Owned => Kept or Warrant => Kept. Only the historical
+    // backfill below reconstructs 'ensemble_retained', because under the
+    // semantics in force before 052 a survivor really did stay in the corpus.
     const madeBy = (ens) => `SELECT o.user_id, o.uid FROM objects o
       WHERE o.user_id = ${ens}.user_id
         AND o.uid IN (SELECT p.entity_uid FROM provenance p WHERE p.entity_type = 'object'
@@ -1173,12 +1174,6 @@ const MIGRATIONS = [
         INSERT INTO adoptions (user_id, subject_type, subject_uid, state)
           SELECT n.user_id, 'object', n.uid, 'adopted' FROM (${madeBy('NEW')}) n;
         ${adoptProv('ensemble_kept', 'NEW')};
-      END`);
-    run(`CREATE TRIGGER IF NOT EXISTS trg_ensemble_pending_delete_retains BEFORE DELETE ON ensembles
-      WHEN OLD.status = 'pending_review' BEGIN
-        INSERT INTO adoptions (user_id, subject_type, subject_uid, state)
-          SELECT n.user_id, 'object', n.uid, 'adopted' FROM (${madeBy('OLD')}) n;
-        ${adoptProv('ensemble_retained', 'OLD')};
       END`);
 
     // Only a Kept record joins a collection. setCollections refuses with a
@@ -1251,6 +1246,63 @@ const MIGRATIONS = [
     }
     const summary = Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(', ');
     if (summary) console.log(`  adoption backfill: ${summary}`);
+  }],
+
+  // ---- Recommendations, Increment 2: Recommendation ----------------------
+  // Asserts: an AI (or the system), in a named workflow, deliberately
+  // proposed this proposition to this member, in this context, for this
+  // stated reason. It does NOT assert that the member saw it, likes it, kept
+  // it, owns it, visited it or endorses it, and it is never taste evidence.
+  //
+  // A proposition keeps its original words for life (`label`, never cleared)
+  // and gains precision in place: resolution unresolved -> partial -> resolved,
+  // each step recorded as 'enriched' provenance naming the fields. Once
+  // resolved it may point at the member's own record (`target_*`, a plain
+  // reference with no foreign key, so deleting either never touches the
+  // other). Only propositions a workflow deliberately selects and presents
+  // become rows: the AI's research space is not the member's semantic space.
+  // Private to the recipient, always, rationale and evidence included.
+  ['053-recommendations', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    const run = (sql) => db.exec(sql);
+    run(`CREATE TABLE IF NOT EXISTS recommendations (
+      id            INTEGER PRIMARY KEY,
+      uid           TEXT,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind          TEXT NOT NULL CHECK (kind IN ('object','place','experience','itinerary')),
+      label         TEXT NOT NULL,
+      resolution    TEXT NOT NULL DEFAULT 'unresolved' CHECK (resolution IN ('unresolved','partial','resolved')),
+      maker         TEXT NOT NULL DEFAULT '',
+      product       TEXT NOT NULL DEFAULT '',
+      variant       TEXT NOT NULL DEFAULT '',
+      url           TEXT NOT NULL DEFAULT '',
+      image_uid     TEXT,
+      place_name    TEXT NOT NULL DEFAULT '',
+      locality      TEXT NOT NULL DEFAULT '',
+      country       TEXT NOT NULL DEFAULT '',
+      address       TEXT NOT NULL DEFAULT '',
+      lat           REAL,
+      lng           REAL,
+      target_type   TEXT CHECK (target_type IS NULL OR target_type IN ('object','mark','itinerary')),
+      target_uid    TEXT,
+      context_itinerary_uid TEXT,
+      context_stop_uid      TEXT,
+      workflow      TEXT NOT NULL,
+      rationale     TEXT NOT NULL DEFAULT '',
+      evidence_uids TEXT NOT NULL DEFAULT '[]',
+      reaction      TEXT CHECK (reaction IS NULL OR reaction IN ('dismissed','not_this_trip','not_for_me')),
+      created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TEXT,
+      CHECK ((target_type IS NULL) = (target_uid IS NULL)))`);
+    run(`CREATE TRIGGER IF NOT EXISTS trg_recommendations_uid AFTER INSERT ON recommendations
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE recommendations SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    run('CREATE UNIQUE INDEX IF NOT EXISTS idx_recommendations_uid ON recommendations(uid)');
+    run('CREATE INDEX IF NOT EXISTS idx_recommendations_member ON recommendations(user_id, reaction, id)');
+    run('CREATE INDEX IF NOT EXISTS idx_recommendations_target ON recommendations(target_type, target_uid)');
+    run('CREATE INDEX IF NOT EXISTS idx_recommendations_context ON recommendations(user_id, context_itinerary_uid)');
   }],
 
 ];
@@ -1893,7 +1945,12 @@ function warrantState(userId, subjectType, subjectUid) {
 const publicWarrant = (userId, subjectType, subjectUid) =>
   warrantState(userId, subjectType, subjectUid).state === 'active';
 
+// Idempotent: saying "I own this" again while it is already owned records
+// nothing. A second 'owned' row would restart the ownership period (and its
+// patina), and a later correction would retract only the newer row, leaving
+// the first live -- so a retry must not append one. Returns null when unchanged.
 function assertOwned(userId, objectId, ctx) {
+  if (ownedState(userId, objectId).state === 'owned') return null;
   const r = q('INSERT INTO ownership_assertions(user_id,object_id,note_uid,state) VALUES(?,?,?,\'owned\')').run(userId, objectId, uidOf('objects', objectId));
   recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'asserted', ctx, { source_kind: 'manual' });
   return uidOf('ownership_assertions', r.lastInsertRowid);
@@ -1979,16 +2036,55 @@ function withdrawAdoption(userId, subjectType, subjectUid, ctx) {
   recordProvenance('adoption', uid, 'withdrawn', ctx, { source_kind: 'manual', fields: `${subjectType}:${subjectUid}` });
   return uid;
 }
-// Why does a record without Adoption exist? Every such Note or Mark must have
-// an answer, or it is a neutral orphan, which the design forbids. Today the
-// only answer is a pending Ensemble that made the Note; Increment 2 adds
-// Recommendation. Returns a short reason, or null for an orphan.
+// Why does a record without Adoption exist? Every such Note, Mark or Itinerary
+// must have an answer, or it is a neutral orphan, which the design forbids.
+// Answers: a pending Ensemble that made the Note; a Recommendation that
+// targets the record; a recommended itinerary the record sits in (a place
+// added to its plan, or a Note attached to one of its Stops). Returns a short
+// reason, or null for an orphan.
 function unadoptedExplanation(subjectType, row) {
+  const rec = q(`SELECT uid FROM recommendations WHERE target_type=? AND target_uid=? AND user_id=? LIMIT 1`)
+    .get(subjectType, row.uid, row.user_id);
+  if (rec) return `recommendation:${rec.uid}`;
+  const recommendedPlan = (itinUid) => itinUid && !isAdopted('itinerary', itinUid)
+    && !!q("SELECT 1 FROM recommendations WHERE target_type='itinerary' AND target_uid=? AND user_id=?").get(itinUid, row.user_id);
   if (subjectType === 'object') {
     const e = q(`SELECT e.uid FROM provenance p JOIN ensembles e ON e.uid = p.source_ref
       WHERE p.entity_type='object' AND p.entity_uid=? AND p.action='created' AND p.source_kind='ensemble'
         AND e.status='pending_review' AND e.user_id=?`).get(row.uid, row.user_id);
     if (e) return `pending_ensemble:${e.uid}`;
+    for (const it of q(`SELECT DISTINCT i.uid FROM itinerary_stop_notes a JOIN itinerary_stops s ON s.id=a.stop_id
+        JOIN itineraries i ON i.id=s.itinerary_id JOIN objects o ON o.id=a.note_id WHERE o.uid=?`).all(row.uid))
+      if (recommendedPlan(it.uid)) return `recommended_itinerary:${it.uid}`;
+  }
+  if (subjectType === 'mark') {
+    for (const it of q(`SELECT DISTINCT i.uid FROM itinerary_stops s JOIN itineraries i ON i.id=s.itinerary_id WHERE s.mark_uid=?`).all(row.uid))
+      if (recommendedPlan(it.uid)) return `recommended_itinerary:${it.uid}`;
+    const c = q(`SELECT source_ref FROM provenance WHERE entity_type='mark' AND entity_uid=? AND action='created' AND source_kind='itinerary'`).get(row.uid);
+    if (c && recommendedPlan(c.source_ref)) return `recommended_itinerary:${c.source_ref}`;
+  }
+  // Other explicit relationships the member recorded. Each explains why the
+  // record exists; none of them makes it Kept (decision A).
+  return independentRelationship(subjectType, row);
+}
+// The member's own explicit relationships to a Note or Mark, other than
+// Adoption and Recommendation: Owned (asserted, not merely a retracted
+// mistake), Warrant, a Check-in, a place in another ensemble, a Stop, or a
+// legacy collection membership. Returns the first found, or null.
+function independentRelationship(subjectType, row) {
+  if (subjectType === 'object') {
+    const owned = q(`SELECT 1 FROM ownership_assertions a WHERE a.note_uid=? AND a.user_id=? AND a.state IN ('owned','released')
+      AND NOT EXISTS (SELECT 1 FROM ownership_assertions b WHERE b.supersedes=a.uid)`).get(row.uid, row.user_id);
+    if (owned) return 'owned';
+    if (q("SELECT 1 FROM warrants WHERE subject_type='object' AND subject_uid=? AND user_id=?").get(row.uid, row.user_id)) return 'warrant';
+    if (q('SELECT 1 FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id WHERE c.note_uid=? AND e.user_id=?').get(row.uid, row.user_id)) return 'ensemble_component';
+    if (q('SELECT 1 FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE o.uid=?').get(row.uid)) return 'stop_note';
+    if (q('SELECT 1 FROM note_collections nc JOIN objects o ON o.id=nc.note_id WHERE o.uid=?').get(row.uid)) return 'collection_legacy';
+  }
+  if (subjectType === 'mark') {
+    if (q("SELECT 1 FROM warrants WHERE subject_type='mark' AND subject_uid=? AND user_id=?").get(row.uid, row.user_id)) return 'warrant';
+    if (q('SELECT 1 FROM visits v JOIN marks m ON m.id=v.mark_id WHERE m.uid=? AND v.user_id=?').get(row.uid, row.user_id)) return 'check_in';
+    if (q('SELECT 1 FROM itinerary_stops WHERE mark_uid=?').get(row.uid)) return 'stop';
   }
   return null;
 }
@@ -3416,8 +3512,8 @@ function emptyState(me, kind, subject = null) {
 
 
 // ---------- travel marks ----------
-// As OBJ_SQL above: MARK_SQL is every row (frozen MCP and single-record
-// reads), ADOPTED_MARK_SQL is the member's corpus.
+// As OBJ_SQL below: MARK_SQL is every row, for single-record reads;
+// ADOPTED_MARK_SQL is the member's corpus.
 const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM marks m JOIN users u ON u.id=m.user_id';
 const ADOPTED_MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM adopted_marks m JOIN users u ON u.id=m.user_id';
 const markCollections = (id) => q('SELECT c.id, c.name FROM mark_collections mc JOIN collections c ON c.id=mc.collection_id WHERE mc.mark_id=? ORDER BY c.name').all(id);
@@ -4206,7 +4302,9 @@ function warrantedSubjectUids(userId, subjectType) {
 // visit runs visited_on..ended_on INCLUSIVE, and day-level commentary may be
 // attached to any date in that range. These helpers carry every invariant so
 // the web form and the MCP tools cannot drift apart.
-const isYMD = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !isNaN(Date.parse(v));
+// A real calendar date: Date.parse alone accepts 2026-02-30 (it rolls over to
+// March 2), which let a check-in be recorded on a day that does not exist.
+const isYMD = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && isValidCalendarDate(String(v));
 const todayYMD = () => new Date().toISOString().slice(0, 10);
 const inRange = (day, start, end) => day >= start && day <= (end || start);
 
@@ -4491,7 +4589,7 @@ function stopPrefix(scope) {
 }
 
 // ---- itinerary --------------------------------------------------------------
-function itineraryCreate(user, { title = '', context = '', temporal = {}, private: priv = 1 }, ctx) {
+function itineraryCreate(user, { title = '', context = '', temporal = {}, private: priv = 1 }, ctx, { adopt = true } = {}) {
   const t = { ...temporalOf({}), ...temporal };
   const bad = temporalValidate(t); if (bad) throw new Error(bad);
   const cols = T_COLS.join(',');
@@ -4500,7 +4598,8 @@ function itineraryCreate(user, { title = '', context = '', temporal = {}, privat
     .run(user.id, String(title).trim(), String(context).trim(), priv ? 1 : 0, ...T_COLS.map((k) => t[k]));
   const uid = uidOf('itineraries', r.lastInsertRowid);
   recordProvenance('itinerary', uid, 'created', ctx, { source_kind: 'manual' });
-  recordAdoption(user.id, 'itinerary', uid, ctx, { source_kind: 'created', source_ref: uid });
+  // a recommended itinerary (recommendationCreate) is not Kept until the member keeps it
+  if (adopt) recordAdoption(user.id, 'itinerary', uid, ctx, { source_kind: 'created', source_ref: uid });
   return itinByUid(uid);
 }
 
@@ -4639,6 +4738,290 @@ function groupDelete(user, uid, ctx) {
 // resolution and mark_uid are derived together, never accepted as an
 // independent pair: the CHECK constraint would reject a contradiction anyway,
 // but the caller should not be able to express one.
+// ---- Recommendation (Increment 2; migration 053) -----------------------------
+// One implementation of "a workflow deliberately proposed this to the member".
+// Skills decide what is worth recommending and resolve as far as the truth
+// allows; these functions persist exactly the resolution achieved, never more.
+//
+// Independence, as for Adoption: nothing here asserts Owned, Check-in or
+// Warrant, and a Recommendation is never evidence of the member's taste.
+// Only recommendationKeep records Adoption, and only because the member (or
+// AI on their explicit instruction) said to keep it.
+const REC_KINDS = ['object', 'place', 'experience', 'itinerary'];
+const REC_LEVELS = ['unresolved', 'partial', 'resolved'];
+const REC_TEXT = ['maker', 'product', 'variant', 'url', 'place_name', 'locality', 'country', 'address'];
+const REC_TARGET_TYPES = { object: ['object'], place: ['mark'], experience: ['mark', 'object'], itinerary: ['itinerary'] };
+const REC_REACTIONS = ['dismissed', 'not_this_trip', 'not_for_me'];
+const REC_TABLE = { object: 'objects', mark: 'marks', itinerary: 'itineraries' };
+const recByUid = (uid) => q('SELECT * FROM recommendations WHERE uid=?').get(String(uid || ''));
+// A refusal never distinguishes "not yours" from "does not exist".
+function recOwned(user, uid) {
+  const r = recByUid(uid);
+  if (!r || r.user_id !== user.id) throw new Error('No such recommendation.');
+  return r;
+}
+// Evidence cites the member's own CANONICAL records: Kept notes, marks and
+// itineraries, check-ins, saved ensembles, warrants and ownership assertions.
+// Never a recommendation, and never a record that exists only because of one.
+function recEvidence(user, uids) {
+  const list = [...new Set((Array.isArray(uids) ? uids : []).map((x) => String(x).trim()).filter(Boolean))];
+  if (list.length > 20) throw new Error('evidence_uids: at most 20.');
+  for (const u of list) {
+    const ok = q('SELECT 1 FROM adopted_objects WHERE uid=? AND user_id=?').get(u, user.id)
+      || q('SELECT 1 FROM adopted_marks WHERE uid=? AND user_id=?').get(u, user.id)
+      || q('SELECT 1 FROM adopted_itineraries WHERE uid=? AND user_id=?').get(u, user.id)
+      || q('SELECT 1 FROM visits WHERE uid=? AND user_id=?').get(u, user.id)
+      || q("SELECT 1 FROM ensembles WHERE uid=? AND user_id=? AND status='saved'").get(u, user.id)
+      || q("SELECT 1 FROM warrants WHERE uid=? AND user_id=?").get(u, user.id)
+      || q('SELECT 1 FROM ownership_assertions WHERE uid=? AND user_id=?').get(u, user.id);
+    if (!ok) throw new Error(`evidence_uids: "${u.slice(0, 40)}" is not one of the member's own kept records `
+      + '(a kept note, mark or itinerary, a check-in, a kept ensemble, a warrant or an ownership). A recommendation is never evidence.');
+  }
+  return list;
+}
+function recContext(user, itinUid, stopUid) {
+  let it = null, st = null;
+  if (itinUid) { it = itinByUid(String(itinUid)); if (!it || it.user_id !== user.id) throw new Error('No such itinerary.'); }
+  if (stopUid) {
+    st = stopByUid(String(stopUid));
+    if (!st) throw new Error('No such stop.');
+    const sit = itinById(st.itinerary_id);
+    if (!sit || sit.user_id !== user.id) throw new Error('No such stop.');
+    if (it && sit.id !== it.id) throw new Error('That stop belongs to another itinerary.');
+    it = it || sit;
+  }
+  return { itinerary_uid: it ? it.uid : null, stop_uid: st ? st.uid : null };
+}
+// The member's own record the target names, of a type the kind allows.
+function recTarget(user, kind, type, uid) {
+  if (!REC_TARGET_TYPES[kind].includes(type)) throw new Error(`A ${kind} recommendation cannot point at a ${type}.`);
+  const row = q(`SELECT * FROM ${REC_TABLE[type]} WHERE uid=?`).get(String(uid || ''));
+  if (!row || row.user_id !== user.id) throw new Error(`No such ${type === 'object' ? 'note' : type === 'mark' ? 'travel mark' : 'itinerary'}.`);
+  return row;
+}
+// Reuse before creation (design Q18): an existing record of the member's,
+// Kept or not, gains Recommendation evidence and is never duplicated.
+function findExistingMark(userId, { place_name, locality }) {
+  const n = normTitle(place_name);
+  if (!n) return null;
+  const loc = String(locality || '').trim().toLowerCase();
+  return q('SELECT * FROM marks WHERE user_id=? ORDER BY id').all(userId)
+    .find((m) => normTitle(m.name) === n && (!loc || !m.locality || m.locality.toLowerCase() === loc)) || null;
+}
+const recNoteName = (r) => r.product ? [r.maker, r.product].filter(Boolean).join(' ') + (r.variant ? `, ${r.variant}` : '') : r.label;
+// Resolved: find the member's record, or make one outside the corpus that
+// this Recommendation explains. Returns { type, uid, origin } or null (an
+// experience may be resolved without any record of its own).
+function recMaterialise(user, r, ctx) {
+  if (r.kind === 'object') {
+    const existing = findExistingNote(user.id, { source_url: r.url, label: recNoteName(r) });
+    if (existing) return { type: 'object', uid: existing.uid, origin: 'pre_existing' };
+    if (!r.image_uid) throw new Error('A resolved object needs its image (image_uid) to become a note, or a target_uid for a note the member already has.');
+    const n = noteCreate(user, { name: recNoteName(r), url: r.url, image: `/i/${r.image_uid}`, private: true },
+      ctx, { source_kind: 'recommendation', source_ref: r.uid, adopt: false });
+    return { type: 'object', uid: n.uid, origin: 'created_for_recommendation' };
+  }
+  if (r.kind === 'place') {
+    const place = r.place_name || r.label;
+    const existing = findExistingMark(user.id, { place_name: place, locality: r.locality });
+    if (existing) return { type: 'mark', uid: existing.uid, origin: 'pre_existing' };
+    const m = markCreate(user, { name: place, locality: r.locality, country: r.country, address: r.address,
+      lat: r.lat, lng: r.lng, url: r.url, image: r.image_uid ? `/i/${r.image_uid}` : '', private: true },
+      ctx, { source_kind: 'recommendation', source_ref: r.uid, adopt: false });
+    return { type: 'mark', uid: m.uid, origin: 'created_for_recommendation' };
+  }
+  if (r.kind === 'itinerary') {
+    const it = itineraryCreate(user, { title: r.label, private: 1 }, ctx, { adopt: false });
+    return { type: 'itinerary', uid: it.uid, origin: 'created_for_recommendation' };
+  }
+  return null;
+}
+function recAttrs(input) {
+  const out = {};
+  for (const k of REC_TEXT) if (input[k] !== undefined && input[k] !== null && String(input[k]).trim() !== '') out[k] = String(input[k]).trim();
+  for (const k of ['lat', 'lng']) if (input[k] !== undefined && input[k] !== null && !Number.isNaN(Number(input[k]))) out[k] = Number(input[k]);
+  if (out.url && !/^https?:\/\//i.test(out.url)) throw new Error('url must be an http(s) address.');
+  return out;
+}
+function recommendationCreate(user, input, ctx) {
+  const kind = String(input.kind || '');
+  if (!REC_KINDS.includes(kind)) throw new Error(`kind must be one of ${REC_KINDS.join(', ')}.`);
+  const label = String(input.label || '').trim();
+  if (!label) throw new Error('label is required: the proposition in its original words.');
+  const workflow = String(input.workflow || '').trim();
+  if (!/^[a-z][a-z0-9_]{1,40}$/.test(workflow)) throw new Error('workflow is required, e.g. for_another_time, destination_objects or cold_start.');
+  const rationale = String(input.rationale || '').trim();
+  if (rationale.length > 600) throw new Error('rationale: keep it to a sentence or two (600 characters at most).');
+  let resolution = kind === 'itinerary' ? 'resolved' : String(input.resolution || 'unresolved');
+  if (!REC_LEVELS.includes(resolution)) throw new Error(`resolution must be one of ${REC_LEVELS.join(', ')}.`);
+  const attrs = recAttrs(input);
+  const image_uid = input.image_uid ? resolveOwnedImageUid(user.id, input.image_uid, 'The recommendation image') : null;
+  const evidence = recEvidence(user, input.evidence_uids);
+  const cx = recContext(user, input.context_itinerary_uid, input.context_stop_uid);
+  let target = null;
+  if (input.target_uid) {
+    if (resolution !== 'resolved') throw new Error('target_uid names the member’s record for this proposition, so resolution must be "resolved".');
+    const type = input.target_type || REC_TARGET_TYPES[kind][0];
+    recTarget(user, kind, type, input.target_uid);
+    target = { type, uid: String(input.target_uid), origin: 'pre_existing' };
+  }
+  // The same proposition already recommended in the same context is the same
+  // assertion, not a second one: the existing row is returned.
+  const same = target
+    ? q(`SELECT * FROM recommendations WHERE user_id=? AND target_type=? AND target_uid=? AND reaction IS NULL
+         AND IFNULL(context_itinerary_uid,'')=IFNULL(?,'') AND IFNULL(context_stop_uid,'')=IFNULL(?,'')`)
+      .get(user.id, target.type, target.uid, cx.itinerary_uid, cx.stop_uid)
+    : q(`SELECT * FROM recommendations WHERE user_id=? AND kind=? AND lower(label)=lower(?) AND reaction IS NULL
+         AND IFNULL(context_itinerary_uid,'')=IFNULL(?,'') AND IFNULL(context_stop_uid,'')=IFNULL(?,'')`)
+      .get(user.id, kind, label, cx.itinerary_uid, cx.stop_uid);
+  if (same) return { rec: same, created: false, target: same.target_uid ? { type: same.target_type, uid: same.target_uid, origin: 'pre_existing' } : null };
+
+  const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
+  try {
+    const cols = ['user_id', 'kind', 'label', 'resolution', 'workflow', 'rationale', 'evidence_uids', 'image_uid',
+      'context_itinerary_uid', 'context_stop_uid', ...Object.keys(attrs)];
+    const vals = [user.id, kind, label, resolution, workflow, rationale, JSON.stringify(evidence), image_uid,
+      cx.itinerary_uid, cx.stop_uid, ...Object.values(attrs)];
+    const ins = q(`INSERT INTO recommendations(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`).run(...vals);
+    let rec = q('SELECT * FROM recommendations WHERE id=?').get(ins.lastInsertRowid);
+    recordProvenance('recommendation', rec.uid, 'created', ctx, { source_kind: workflow, source_ref: cx.itinerary_uid,
+      fields: [`resolution:${resolution}`, ...Object.keys(attrs), image_uid ? 'image_uid' : null].filter(Boolean) });
+    if (!target && resolution === 'resolved') target = recMaterialise(user, rec, ctx);
+    if (target) {
+      q('UPDATE recommendations SET target_type=?, target_uid=? WHERE id=?').run(target.type, target.uid, rec.id);
+      rec = q('SELECT * FROM recommendations WHERE id=?').get(rec.id);
+    }
+    if (tx) db.exec('COMMIT');
+    return { rec, created: true, target };
+  } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+}
+// Resolution adds knowledge; it never rewrites history. The label is never
+// touched, the level only rises, and each step is its own 'enriched' row.
+function recommendationResolve(user, uid, input, ctx) {
+  const r0 = recOwned(user, uid);
+  const level = input.resolution ? String(input.resolution) : r0.resolution;
+  if (!REC_LEVELS.includes(level)) throw new Error(`resolution must be one of ${REC_LEVELS.join(', ')}.`);
+  if (REC_LEVELS.indexOf(level) < REC_LEVELS.indexOf(r0.resolution))
+    throw new Error(`This is already ${r0.resolution}; resolution only ever gains precision.`);
+  const attrs = recAttrs(input);
+  const image_uid = input.image_uid ? resolveOwnedImageUid(user.id, input.image_uid, 'The recommendation image') : null;
+  if (input.target_uid && level !== 'resolved') throw new Error('target_uid needs resolution "resolved".');
+  const changed = Object.keys(attrs).filter((k) => String(r0[k] ?? '') !== String(attrs[k]));
+  if (image_uid && image_uid !== r0.image_uid) changed.push('image_uid');
+  const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
+  try {
+    const sets = changed.map((k) => `${k}=?`);
+    const vals = changed.map((k) => (k === 'image_uid' ? image_uid : attrs[k]));
+    if (level !== r0.resolution) { sets.push('resolution=?'); vals.push(level); changed.push(`resolution:${level}`); }
+    let target = r0.target_uid ? { type: r0.target_type, uid: r0.target_uid, origin: 'pre_existing' } : null;
+    if (input.target_uid && (!target || target.uid !== String(input.target_uid))) {
+      const type = input.target_type || REC_TARGET_TYPES[r0.kind][0];
+      recTarget(user, r0.kind, type, input.target_uid);
+      if (target) changed.push(`target_superseded:${target.uid}`);
+      target = { type, uid: String(input.target_uid), origin: 'pre_existing' };
+      sets.push('target_type=?', 'target_uid=?'); vals.push(type, target.uid); changed.push('target');
+    }
+    if (!changed.length) { if (tx) db.exec('COMMIT'); return { rec: r0, changed: [], target }; }
+    q(`UPDATE recommendations SET ${sets.join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(...vals, r0.id);
+    let rec = q('SELECT * FROM recommendations WHERE id=?').get(r0.id);
+    if (!rec.target_uid && rec.resolution === 'resolved') {
+      target = recMaterialise(user, rec, ctx);
+      if (target) {
+        q('UPDATE recommendations SET target_type=?, target_uid=? WHERE id=?').run(target.type, target.uid, rec.id);
+        changed.push('target');
+        rec = q('SELECT * FROM recommendations WHERE id=?').get(rec.id);
+      }
+    }
+    recordProvenance('recommendation', rec.uid, 'enriched', ctx, { source_kind: 'resolution', fields: changed });
+    if (tx) db.exec('COMMIT');
+    return { rec, changed, target };
+  } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+}
+// Keep: the member brings the recommended record into their corpus. The
+// Recommendation survives as history. For an itinerary, the plan and the
+// resolved places and Notes in it are kept together, in one transaction, with
+// the same Stops (nothing is copied); unresolved Stops stay unresolved.
+function recommendationKeep(user, uid, ctx) {
+  const r = recOwned(user, uid);
+  if (!r.target_uid) throw new Error(r.resolution === 'resolved'
+    ? 'This recommendation has no record of its own to keep.'
+    : `This recommendation is ${r.resolution}: resolve it to a specific thing or place first (resolve_recommendation).`);
+  const row = q(`SELECT * FROM ${REC_TABLE[r.target_type]} WHERE uid=?`).get(r.target_uid);
+  if (!row || row.user_id !== user.id) throw new Error('The record this recommended no longer exists.');
+  const kept = [];
+  const keep = (type, u) => { if (recordAdoption(user.id, type, u, ctx, { source_kind: 'recommendation', source_ref: r.uid })) kept.push({ type, uid: u }); };
+  const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
+  try {
+    keep(r.target_type, r.target_uid);
+    if (r.target_type === 'itinerary') {
+      for (const m of q(`SELECT DISTINCT s.mark_uid FROM itinerary_stops s WHERE s.itinerary_id=? AND s.mark_uid IS NOT NULL`).all(row.id))
+        if (q('SELECT 1 FROM marks WHERE uid=? AND user_id=?').get(m.mark_uid, user.id)) keep('mark', m.mark_uid);
+      for (const n of q(`SELECT DISTINCT o.uid FROM itinerary_stop_notes a JOIN itinerary_stops s ON s.id=a.stop_id
+          JOIN objects o ON o.id=a.note_id WHERE s.itinerary_id=? AND o.user_id=?`).all(row.id, user.id)) keep('object', n.uid);
+    }
+    recordProvenance('recommendation', r.uid, 'kept', ctx, { source_kind: 'manual', fields: kept.map((k) => `${k.type}:${k.uid}`) });
+    if (tx) db.exec('COMMIT');
+  } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+  return { rec: recByUid(r.uid), kept };
+}
+// A reaction, kept minimal: silence records nothing and there is no score.
+// The three are distinct assertions, recorded exactly as the member gave them
+// and each as its own provenance action (decision on reaction semantics):
+//   not_this_trip -- wrong for this planning context; says nothing about
+//                    whether they like the thing or place.
+//   not_for_me    -- they say it does not suit them.
+//   dismissed     -- turned down, no reason given.
+// None is ever read as taste evidence; nothing derives anything from them.
+function recommendationDismiss(user, uid, reason, ctx) {
+  const r = recOwned(user, uid);
+  const why = reason ? String(reason) : 'dismissed';
+  if (!REC_REACTIONS.includes(why)) throw new Error(`reason must be one of ${REC_REACTIONS.join(', ')}.`);
+  if (r.reaction === why) return { rec: r, changed: false };
+  q('UPDATE recommendations SET reaction=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(why, r.id);
+  recordProvenance('recommendation', r.uid, why, ctx, { source_kind: 'manual', fields: r.reaction ? `superseded:${r.reaction}` : null });
+  return { rec: recByUid(r.uid), changed: true };
+}
+// What a member (or their AI) sees of one Recommendation. Owner-only by
+// construction: callers pass the member's own rows.
+function recommendationView(r) {
+  const out = { uid: r.uid, kind: r.kind, label: r.label, resolution: r.resolution, known: {},
+    target: null, context: null, workflow: r.workflow, rationale: r.rationale,
+    evidence_uids: JSON.parse(r.evidence_uids || '[]'), status: 'open', reaction: r.reaction || null };
+  for (const k of [...REC_TEXT, 'lat', 'lng', 'image_uid']) if (r[k] !== null && r[k] !== undefined && r[k] !== '') out.known[k] = r[k];
+  if (r.target_uid) {
+    const t = q(`SELECT id, uid, ${r.target_type === 'itinerary' ? 'title AS name' : 'name'} FROM ${REC_TABLE[r.target_type]} WHERE uid=?`).get(r.target_uid);
+    out.target = { type: r.target_type === 'object' ? 'note' : r.target_type, uid: r.target_uid, id: t ? t.id : null,
+      name: t ? t.name : null, exists: !!t, kept: !!t && isAdopted(r.target_type, r.target_uid) };
+    if (out.target.kept) out.status = 'kept';
+  }
+  if (out.status !== 'kept' && r.reaction) out.status = r.reaction;   // the reaction itself, not a flattened 'dismissed'
+  if (r.context_itinerary_uid) {
+    const it = itinByUid(r.context_itinerary_uid), st = r.context_stop_uid ? stopByUid(r.context_stop_uid) : null;
+    out.context = { itinerary_uid: r.context_itinerary_uid, itinerary_title: it ? it.title : null,
+      stop_uid: r.context_stop_uid || null, stop_label: st ? st.label : null };
+  }
+  return out;
+}
+// Bounded, and grouped by context: a trip, or "For another time".
+function recommendationsList(user, { context_itinerary_uid = null, workflow = null, status = 'open', limit = 30 } = {}) {
+  const lim = Math.min(Math.max(+limit || 30, 1), 100);
+  const args = [user.id], where = ['user_id=?'];
+  if (context_itinerary_uid) { where.push('context_itinerary_uid=?'); args.push(String(context_itinerary_uid)); }
+  if (workflow) { where.push('workflow=?'); args.push(String(workflow)); }
+  const rows = q(`SELECT * FROM recommendations WHERE ${where.join(' AND ')} ORDER BY id DESC`).all(...args)
+    .map(recommendationView).filter((v) => status === 'all' || v.status === status || (status === 'reacted' && !!v.reaction && v.status !== 'kept'));
+  const top = rows.slice(0, lim);
+  const groups = [];
+  for (const v of top) {
+    const key = v.context ? v.context.itinerary_uid : 'for_another_time';
+    let g = groups.find((x) => x.key === key);
+    if (!g) groups.push(g = { key, itinerary_uid: v.context ? v.context.itinerary_uid : null,
+      title: v.context ? (v.context.itinerary_title || 'A trip') : 'For another time', items: [] });
+    g.items.push(v);
+  }
+  return { total: rows.length, shown: top.length, groups: groups.map(({ key, ...g }) => g) };
+}
+
 // ---- canonical note creation ------------------------------------------------
 // One implementation of "the member kept this".
 //
@@ -4653,7 +5036,7 @@ function groupDelete(user, uid, ctx) {
 function noteCreate(user, {
   name, why = '', tags = '', url = '', image = null,
   private: priv = false, collections = null,
-}, ctx, { source_kind = 'manual', source_ref = null, fields = null } = {}) {
+}, ctx, { source_kind = 'manual', source_ref = null, fields = null, adopt = true } = {}) {
   const title = String(name || '').trim();
   if (!title) throw new Error('A note needs a title.');
   const img = image || '';
@@ -4675,7 +5058,9 @@ function noteCreate(user, {
   // Keep adopts it (trigger trg_ensemble_keep_adopts).
   const forPendingEnsemble = source_kind === 'ensemble' && source_ref
     && !!q("SELECT 1 FROM ensembles WHERE uid=? AND status='pending_review'").get(source_ref);
-  if (!forPendingEnsemble) recordAdoption(user.id, 'object', uid, ctx, { source_kind: 'created', source_ref: uid });
+  // `adopt: false` is only for a Note made as a Recommendation's target
+  // (recommendationCreate), whose existence the Recommendation explains.
+  if (adopt && !forPendingEnsemble) recordAdoption(user.id, 'object', uid, ctx, { source_kind: 'created', source_ref: uid });
   // after Adoption: only a Kept Note can join a collection
   if (collections) setCollections(user.id, id, collections);
   return { id, uid };
@@ -4692,7 +5077,7 @@ function markCreate(user, {
   name, locality = '', country = '', address = '',
   lat = null, lng = null, why = '', tags = '', url = '', image = null,
   private: priv = false, collections = null, remarked_from_uid = null,
-}, ctx, { source_kind = 'manual', source_ref = null } = {}) {
+}, ctx, { source_kind = 'manual', source_ref = null, adopt = true } = {}) {
   const place = String(name || '').trim();
   if (!place) throw new Error('A mark needs a place name.');
   const la = lat === null || lat === undefined || Number.isNaN(Number(lat)) ? null : Number(lat);
@@ -4705,14 +5090,18 @@ function markCreate(user, {
          remarked_from_uid || null);
   const uid = uidOf('marks', r.lastInsertRowid);
   recordProvenance('mark', uid, 'created', ctx, { source_kind, source_ref });
-  // Kept as it is made: every caller is the member's act. A place added to an
-  // adopted itinerary is Kept too (the Mark boundary, refined in Increment 1).
-  recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'created', source_ref: uid });
+  // Kept as it is made when it is the member's act. Not Kept (`adopt: false`)
+  // only when a Recommendation explains it: a recommended place, or a new
+  // place added to a recommended itinerary (the refined Mark boundary).
+  if (adopt) recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'created', source_ref: uid });
   if (collections) setMarkCollections(user.id, r.lastInsertRowid, collections);
   return { id: r.lastInsertRowid, uid };
 }
 
 // ---- canonical visit recording ----------------------------------------------
+// How long an identical write counts as a retry of the same request rather
+// than a new act (log_visit, comment).
+const RETRY_WINDOW_S = 120;
 // One implementation of "the member went there". Marking a place is not
 // evidence of visiting it, so nothing else in the system writes a visit: a
 // caller that wants one asks for it here, explicitly.
@@ -4725,6 +5114,23 @@ function visitRecord(user, markId, { visited_on = null, ended_on = null,
   const mk = q('SELECT * FROM marks WHERE id=?').get(markId);
   if (!mk) throw new Error(`No travel mark #${markId}`);
   if (mk.user_id !== user.id) throw new Error(`Travel mark #${markId} does not belong to this member`);
+  // A retried request (a client resending after a timeout, a double submit)
+  // must not become a second visit. The same check-in -- same mark, dates and
+  // words, no day notes -- recorded by this member within RETRY_WINDOW_S is
+  // returned as it is. Two genuine visits differ in date or words, and a
+  // deliberate repeat minutes later is not a separate trip.
+  if (!(days && days.length)) {
+    const same = date_unknown
+      ? q(`SELECT * FROM visits WHERE mark_id=? AND user_id=? AND date_known=0 AND body=?
+           AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`).get(mk.id, user.id, String(body || '').trim(), `-${RETRY_WINDOW_S} seconds`)
+      : (() => { let r; try { r = normaliseVisitRange(visited_on, ended_on); } catch { return null; }
+          return q(`SELECT * FROM visits WHERE mark_id=? AND user_id=? AND date_known<>0 AND visited_on=? AND IFNULL(ended_on,'')=IFNULL(?,'')
+            AND body=? AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`)
+            .get(mk.id, user.id, r.start, r.end, String(body || '').trim(), `-${RETRY_WINDOW_S} seconds`); })();
+    if (same && !q('SELECT 1 FROM visit_days WHERE visit_id=?').get(same.id))
+      return { id: same.id, mark: mk, start: same.date_known ? same.visited_on : null, end: same.date_known ? same.ended_on : null,
+        date_known: same.date_known, repeated: true };
+  }
 
   if (date_unknown) {
     // A caller giving both a date and "I cannot say when" is contradicting
@@ -4763,11 +5169,19 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
   // causal rather than guessed.
   if (!mark_uid && new_place && String(new_place.name || '').trim()) {
     const np = new_place;
-    mark_uid = markCreate(user, {
+    // In a recommended plan, a place the member already has a Mark for is
+    // that Mark (it gains the plan's context), never a duplicate (decision C).
+    // A kept plan keeps its submitted behaviour.
+    const reuse = !isAdopted('itinerary', it.uid) ? findExistingMark(user.id, { place_name: np.name, locality: np.locality }) : null;
+    if (reuse) mark_uid = reuse.uid;
+    else mark_uid = markCreate(user, {
       name: np.name, locality: np.locality, country: np.country, address: np.address,
       lat: np.lat, lng: np.lng, why: np.why, tags: np.tags, url: np.url,
       private: !!it.private,                       // a new place inherits the plan's privacy
-    }, ctx, { source_kind: 'itinerary', source_ref: it.uid }).uid;
+    }, ctx, { source_kind: 'itinerary', source_ref: it.uid,
+      // added to an adopted plan IS marked (Kept); added to a recommended plan,
+      // the plan's Recommendation explains it until the member keeps the plan
+      adopt: isAdopted('itinerary', it.uid) }).uid;
   }
   const t = { ...temporalOf({}), ...temporal };
   const bad = temporalValidate(t); if (bad) throw new Error(bad);
@@ -5581,22 +5995,53 @@ function verifyEnsembleAssets(ens, saved) {
 // A Note that has since taken on a life of its own is kept, because destroying
 // it would delete something the member did, not something we did for them.
 function notesSafeToDiscard(ens) {
-  const created = q(`SELECT o.id, o.uid, o.name FROM objects o
+  const created = q(`SELECT o.id, o.uid, o.name, o.user_id FROM objects o
     JOIN provenance p ON p.entity_uid = o.uid
     WHERE p.entity_type='object' AND p.action='created'
       AND p.source_kind='ensemble' AND p.source_ref=? AND o.user_id=?`).all(ens.uid, ens.user_id);
   const keep = [], drop = [];
   for (const n of created) {
     const reasons = [];
+    if (ens.status === 'pending_review' && !isAdopted('object', n.uid)) {
+      // Never kept: this Note exists only because of the pending composition.
+      // It survives only where another explicit relationship explains it,
+      // and then stays outside the corpus (decision A). Editing a staged
+      // record is not such a relationship; neither is re-noting, which a
+      // record outside the corpus cannot be the source of.
+      if (q(`SELECT 1 FROM ownership_assertions a WHERE a.note_uid=? AND a.state IN ('owned','released')
+             AND NOT EXISTS (SELECT 1 FROM ownership_assertions b WHERE b.supersedes=a.uid)`).get(n.uid)) reasons.push('marked owned');
+      if (q('SELECT 1 FROM warrants WHERE subject_uid=?').get(n.uid)) reasons.push('warranted');
+      if (q('SELECT 1 FROM ensemble_components WHERE note_uid=? AND ensemble_id<>?').get(n.uid, ens.id)) reasons.push('used in another ensemble');
+      if (q('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?').get(n.id)) reasons.push('on an itinerary stop');
+      if (q("SELECT 1 FROM recommendations WHERE target_type='object' AND target_uid=?").get(n.uid)) reasons.push('recommended');
+      if (q('SELECT 1 FROM note_collections WHERE note_id=?').get(n.id)) reasons.push('filed in a collection');
+      if (reasons.length) keep.push({ ...n, reasons }); else drop.push(n);
+      continue;
+    }
     if (q('SELECT 1 FROM ownership_assertions WHERE note_uid=?').get(n.uid)) reasons.push('marked owned');
     if (q('SELECT 1 FROM warrants WHERE subject_uid=?').get(n.uid)) reasons.push('warranted');
     if (q('SELECT 1 FROM note_collections WHERE note_id=?').get(n.id)) reasons.push('filed in a collection');
     if (q('SELECT 1 FROM objects WHERE renoted_from_uid=?').get(n.uid)) reasons.push('adopted by someone else');
     if (q('SELECT 1 FROM ensemble_components WHERE note_uid=? AND ensemble_id<>?').get(n.uid, ens.id)) reasons.push('used in another ensemble');
     if (q(`SELECT 1 FROM provenance WHERE entity_type='object' AND entity_uid=? AND action='edited'`).get(n.uid)) reasons.push('edited since');
+    if (q('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?').get(n.id)) reasons.push('on an itinerary stop');
     if (reasons.length) keep.push({ ...n, reasons }); else drop.push(n);
   }
   return { keep, drop };
+}
+// Deleting a pending Ensemble outright (delete_ensemble, or Delete on the
+// web) removes the never-kept Notes it made exactly as discarding does, so
+// none is left behind with nothing explaining it. A Kept Ensemble's Notes are
+// the member's records and are never touched here.
+function dropPendingEnsembleNotes(ens, ctx) {
+  if (ens.status !== 'pending_review') return [];
+  const { drop } = notesSafeToDiscard(ens);
+  for (const n of drop) {
+    recordProvenance('object', n.uid, 'deleted', ctx, { source_kind: 'ensemble_discarded', source_ref: ens.uid });
+    dropWarrantsFor('object', n.uid);
+    q('DELETE FROM objects WHERE id=?').run(n.id);
+  }
+  return drop;
 }
 
 // The compound save. Saving a durable composition is itself the evidence that
@@ -5679,12 +6124,10 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
   }
   return out;
 }
-// OBJ_SQL reads every Note row. It is the name the frozen MCP dispatcher uses,
-// so it stays exactly as submitted until MCP vNext moves those reads to the
-// Adopted projection (docs/mcp-vnext.md). Everything else that lists, counts,
-// searches or publishes the corpus reads ADOPTED_OBJ_SQL; a single record
-// reached by id or uid may read OBJ_SQL, and is then shown only through
-// canView('object', ...).
+// OBJ_SQL reads every Note row, so it is used only to reach ONE record by id
+// or uid, which is then shown through canView('object', ...). Everything that
+// lists, counts, searches or publishes the member's corpus, on the web and
+// behind the submitted MCP tools alike, reads ADOPTED_OBJ_SQL (test K1).
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
 const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM adopted_objects o JOIN users u ON u.id=o.user_id';
 
@@ -7565,7 +8008,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
                 <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
                   <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
               </form>
-              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
+              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments.
+              <p class="sbox-sub">Developer connector (recommendation tools, for your own testing): ${me.api_token ? `<code>${esc(baseUrl(req))}/mcp-dev/${esc(me.api_token)}</code>` : 'create a connector URL above first.'} Everyone else, and the plugin under review, uses /mcp.</p> It never applies to your connected AI. Leave it off otherwise.</p>
             </div>
             <div class="wcell wcell-wide">
               <form method="post" action="/settings/admin-handle">
@@ -8062,6 +8506,75 @@ const OS_STATS = { type: 'object', additionalProperties: false,
 // tool could change later without moving everything.
 const SEC_OAUTH = [{ type: 'oauth2', scopes: [OAUTH_SCOPE] }];
 
+// ---- additive tools (Recommendations orbit, Stop -> Note) ------------------
+// Not part of the submitted contract: added around it under the compatibility
+// rule (docs/plugin-submission.md). Their descriptors may still change during
+// founder dogfood; the submitted tools' may not.
+const OS_REC_KNOWN = { type: 'object', additionalProperties: false, properties: {
+  maker: { type: 'string' }, product: { type: 'string' }, variant: { type: 'string' }, url: { type: 'string' },
+  place_name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, address: { type: 'string' },
+  lat: { type: 'number' }, lng: { type: 'number' }, image_uid: { type: 'string' } } };
+const OS_REC = { type: 'object', additionalProperties: false,
+  required: ['uid', 'kind', 'label', 'resolution', 'known', 'target', 'context', 'workflow', 'rationale', 'evidence_uids', 'status', 'reaction'],
+  properties: {
+    uid: { type: 'string' }, kind: { type: 'string', enum: ['object', 'place', 'experience', 'itinerary'] },
+    label: { type: 'string', description: 'The proposition in its original words. Never changes.' },
+    resolution: { type: 'string', enum: ['unresolved', 'partial', 'resolved'] },
+    known: OS_REC_KNOWN,
+    target: { type: ['object', 'null'], additionalProperties: false, required: ['type', 'uid', 'id', 'name', 'exists', 'kept'],
+      properties: { type: { type: 'string', enum: ['note', 'mark', 'itinerary'] }, uid: { type: 'string' }, id: { type: ['integer', 'null'] },
+        name: { type: ['string', 'null'] }, exists: { type: 'boolean' },
+        kept: { type: 'boolean', description: 'True only once the member has kept it: then it is one of their notes, marks or itineraries.' } } },
+    context: { type: ['object', 'null'], additionalProperties: false, required: ['itinerary_uid', 'itinerary_title', 'stop_uid', 'stop_label'],
+      properties: { itinerary_uid: { type: 'string' }, itinerary_title: { type: ['string', 'null'] },
+        stop_uid: { type: ['string', 'null'] }, stop_label: { type: ['string', 'null'] } } },
+    workflow: { type: 'string' }, rationale: { type: 'string' },
+    evidence_uids: { type: 'array', items: { type: 'string' } },
+    status: { type: 'string', enum: ['open', 'kept', 'not_this_trip', 'not_for_me', 'dismissed'], description: 'open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly.' },
+    reaction: { type: ['string', 'null'], enum: ['dismissed', 'not_this_trip', 'not_for_me', null] } } };
+const OS_REC_WRITE = { type: 'object', additionalProperties: false, required: ['ok', 'items'], properties: {
+  ok: { type: 'boolean' },
+  items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['recommendation', 'created', 'target_origin'],
+    properties: { recommendation: OS_REC, created: { type: 'boolean', description: 'False when this exact proposition was already recommended in this context: the existing one is returned, not duplicated.' },
+      target_origin: { type: ['string', 'null'], enum: ['pre_existing', 'created_for_recommendation', null],
+        description: 'pre_existing: an existing record of the member’s now also carries this recommendation. created_for_recommendation: a private record made for it, NOT kept.' } } } } } };
+const OS_REC_ONE = { type: 'object', additionalProperties: false, required: ['ok', 'recommendation', 'changed', 'kept'], properties: {
+  ok: { type: 'boolean' }, recommendation: OS_REC,
+  changed: { type: 'array', items: { type: 'string' }, description: 'What this call recorded, e.g. resolution:partial, maker, target.' },
+  kept: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['type', 'uid'],
+    properties: { type: { type: 'string', enum: ['note', 'mark', 'itinerary'] }, uid: { type: 'string' } } },
+    description: 'Records newly kept by this call (keep_recommendation only). Empty when they were already kept.' } } };
+const OS_REC_LIST = { type: 'object', additionalProperties: false, required: ['total', 'shown', 'groups'], properties: {
+  total: { type: 'integer' }, shown: { type: 'integer' },
+  groups: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['itinerary_uid', 'title', 'items'],
+    properties: { itinerary_uid: { type: ['string', 'null'] }, title: { type: 'string' }, items: { type: 'array', items: OS_REC } } } } } };
+const OS_STOP_NOTE = { type: 'object', additionalProperties: false, required: ['uid', 'id', 'name', 'kept', 'image_uid'],
+  properties: { uid: { type: 'string' }, id: { type: 'integer' }, name: { type: 'string' }, kept: { type: 'boolean' }, image_uid: { type: ['string', 'null'] } } };
+const OS_STOP_NOTES = { type: 'object', additionalProperties: false, required: ['ok', 'itinerary_uid', 'stops'], properties: {
+  ok: { type: 'boolean' }, itinerary_uid: { type: 'string' },
+  stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['stop_uid', 'label', 'notes'],
+    properties: { stop_uid: { type: 'string' }, label: { type: 'string' }, notes: { type: 'array', items: OS_STOP_NOTE } } } } } };
+const REC_ITEM_PROPS = {
+  kind: { type: 'string', enum: ['object', 'place', 'experience', 'itinerary'], description: 'object: a thing (a coffee, a knife). place: somewhere to go. experience: something to do, often with an operator (a manta night snorkel). itinerary: a whole plan.' },
+  label: { type: 'string', description: 'The proposition as you would say it to the member, e.g. "medium-roast Kaʻu coffee". Kept verbatim forever, however far it is later resolved.' },
+  resolution: { type: 'string', enum: ['unresolved', 'partial', 'resolved'], description: 'How far the identity is actually established. unresolved: a category or description. partial: some identity known (the producer, the operator) but not the specific thing. resolved: the specific thing or place. Say only what your research established: partial is a truthful, complete answer, never a failure. An itinerary is always resolved.' },
+  maker: { type: 'string', description: 'Maker, producer or operator, when known.' },
+  product: { type: 'string', description: 'The specific product or offering, when known.' },
+  variant: { type: 'string', description: 'Size, roast, edition or similar, when known.' },
+  url: { type: 'string', description: 'A canonical page for it, when there is a trustworthy one.' },
+  image_uid: { type: 'string', description: 'Its picture, from upload_image or begin_image_upload. Required to resolve an object that is not already one of their notes.' },
+  image: { type: 'string', description: 'Alternative to image_uid: an https:// URL to its picture.' },
+  place_name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, address: { type: 'string' },
+  lat: { type: 'number' }, lng: { type: 'number' },
+  target_uid: { type: 'string', description: 'When this IS something the member already has: the uid of that note (my_notes, search_catalogue), travel mark (my_travel_marks) or itinerary (my_itineraries). The existing record gains the recommendation; nothing is duplicated. Needs resolution "resolved". Omit it and a resolved proposition is matched to their records or given a private record of its own, not kept.' },
+  target_type: { type: 'string', enum: ['object', 'mark', 'itinerary'], description: 'Only needed when an experience points at a note rather than a travel mark.' },
+  context_itinerary_uid: { type: 'string', description: 'The trip this is for, from my_itineraries or from an itinerary recommendation’s target. Omit for "for another time".' },
+  context_stop_uid: { type: 'string', description: 'The stop within that trip it belongs to, from my_itineraries.' },
+  workflow: { type: 'string', enum: ['cold_start', 'destination_objects', 'for_another_time'], description: 'Which request this answers: cold_start (starting a new member\u2019s catalogue), destination_objects (things or places for a particular trip), for_another_time (things to keep in mind with no trip).' },
+  rationale: { type: 'string', description: 'Why it suits this member, in a sentence or two. Private to them.' },
+  evidence_uids: { type: 'array', items: { type: 'string' }, description: 'uids of the member’s own kept records that the rationale rests on (notes, marks, check-ins, warrants...). Never another recommendation.' },
+};
+
 const TOOLS = [
   { name: 'note_object', securitySchemes: SEC_OAUTH, description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
     inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
@@ -8433,7 +8946,50 @@ const TOOLS = [
       uid: { type: 'string', description: 'Omit to list them all. This is where the uids for every other itinerary tool come from.' },
       limit: { type: 'integer' } } } },
 
+  // ---- additive: Recommendations orbit ---------------------------------------
+  { name: 'record_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_WRITE, description: 'Save, as recommendations, the suggestions you have just presented when the member asked you for recommendations in Discriminantly (things or places for a trip, for another time, or to start their catalogue). Record only what you actually put in front of them, never candidates you considered and dropped, and not suggestions made in passing in unrelated conversation. Not for something the member asked to note or mark themselves: that is note_object or add_travel_mark. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation). Record the resolution you actually reached: a category ("medium-roast Ka\u02bbu coffee") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind "itinerary" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one.',
+    inputSchema: { type: 'object', required: ['items'], properties: {
+      items: { type: 'array', minItems: 1, maxItems: 10, description: 'One entry per recommendation presented.',
+        items: { type: 'object', required: ['kind', 'label', 'workflow'], properties: REC_ITEM_PROPS } } } } },
+  { name: 'resolve_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Add what you have since established about a recommendation: the producer, the exact product, the place, its picture. Resolution only ever gains precision, and the original words are kept. Pass only what you actually know; leaving it partial is correct when the exact item cannot be established. Reaching "resolved" links it to the member\u2019s existing record, or makes a private record for it that is NOT kept.',
+    inputSchema: { type: 'object', required: ['recommendation_uid'], properties: {
+      recommendation_uid: { type: 'string', description: 'From record_recommendations or list_recommendations.' },
+      ...Object.fromEntries(Object.entries(REC_ITEM_PROPS).filter(([k]) => !['kind', 'label', 'workflow', 'rationale', 'evidence_uids', 'context_itinerary_uid', 'context_stop_uid'].includes(k))) } } },
+  { name: 'list_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_LIST, description: 'List what has been recommended to the member through record_recommendations, grouped by trip or "for another time", newest first; by default only open ones (neither kept nor dismissed). Use when the member asks what was suggested before. These are proposals, not their records: for their own notes, marks and plans use my_notes, my_travel_marks and my_itineraries. A recommended itinerary\u2019s full plan opens with my_itineraries and its target uid.',
+    inputSchema: { type: 'object', properties: {
+      context_itinerary_uid: { type: 'string', description: 'Only those for this trip, from my_itineraries or a recommended itinerary\u2019s target.' },
+      workflow: { type: 'string', description: 'Only those from this workflow, e.g. for_another_time.' },
+      status: { type: 'string', enum: ['open', 'kept', 'not_this_trip', 'not_for_me', 'dismissed', 'reacted', 'all'], description: 'Default open. reacted: any of the three reactions.' },
+      limit: { type: 'integer', description: 'Default 30, at most 100.' } } } },
+  { name: 'keep_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Call ONLY when the member says to keep a recommendation ("keep it", "add that to my notes", "yes, that plan"). Keeping brings the recommended note, travel mark or itinerary into their own catalogue; the recommendation stays as history. Keeping a recommended itinerary keeps the plan with the places and notes in its stops, as they are; unresolved stops stay unresolved. Buying, owning, visiting or praising it is NOT a request to keep it: record those with record_note_ownership, log_visit or warrant, which work on a recommended note or mark without keeping it, and keep only if they also say to. An unresolved or partial recommendation must be resolved to a specific thing first.',
+    inputSchema: { type: 'object', required: ['recommendation_uid'], properties: {
+      recommendation_uid: { type: 'string', description: 'From record_recommendations or list_recommendations.' } } } },
+  { name: 'dismiss_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Record the member\u2019s answer when they turn a recommendation down, only when they say so; silence is no answer. Use the reason they actually gave: "not_this_trip" (wrong for this trip or plan, which says nothing about whether they like it), "not_for_me" (they say it does not suit them), or "dismissed" (no reason given). Each is recorded exactly as said and is never treated as evidence of their taste. It leaves the open list; nothing is deleted. Recording the same reason again changes nothing.',
+    inputSchema: { type: 'object', required: ['recommendation_uid'], properties: {
+      recommendation_uid: { type: 'string', description: 'From record_recommendations or list_recommendations.' },
+      reason: { type: 'string', enum: ['not_this_trip', 'not_for_me', 'dismissed'], description: 'The reason they gave; dismissed (the default) when they gave none.' } } } },
+  // ---- additive: Stop -> Note --------------------------------------------------
+  { name: 'set_stop_note', securitySchemes: SEC_OAUTH, outputSchema: OS_STOP_NOTES, description: 'Attach one of the member\u2019s notes to a stop in one of their plans, or detach it (attached: false). It means only "this is worth noticing, seeking or trying at this stop": not a purchase, ownership, reservation, check-in or warrant. In a plan they have kept, only a kept note can be attached: if the note is only recommended, ask whether they want to keep it rather than keeping it for them. In a recommended plan, a recommended note can be attached. Never make a note from a vague category: record it as a recommendation instead (record_recommendations). Attaching a note that is already there changes nothing. Returns the plan\u2019s notes by stop.',
+    inputSchema: { type: 'object', required: ['stop_uid', 'note_uid'], properties: {
+      stop_uid: { type: 'string', description: 'From my_itineraries (a stop\u2019s uid).' },
+      note_uid: { type: 'string', description: 'The note\u2019s uid, from my_notes, search_catalogue, or a recommendation\u2019s target.' },
+      attached: { type: 'boolean', description: 'Default true. false detaches it; the note itself is untouched.' } } } },
+  { name: 'list_stop_notes', securitySchemes: SEC_OAUTH, outputSchema: OS_STOP_NOTES, description: 'List the notes attached to each stop of one of the member\u2019s plans, which my_itineraries does not include. Read-only.',
+    inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
+      itinerary_uid: { type: 'string', description: 'From my_itineraries, or a recommended itinerary\u2019s target.' } } } },
+
 ];
+// Two MCP surfaces, one domain (decision E). The SUBMITTED surface at /mcp is
+// exactly what the plugin under review declared -- 54 tools, their
+// definitions and the submitted server instructions -- for every connection,
+// whoever it belongs to. The DEVELOPER surface at /mcp-dev adds the tools
+// below and their instructions paragraph, for founder dogfood; it is gated
+// by ordinary authorization (the admin account), not by which tools a given
+// member is shown. Same database, domain, privacy and provenance behind both.
+const ADDITIVE_TOOLS = new Set(['record_recommendations', 'resolve_recommendation', 'list_recommendations', 'keep_recommendation',
+  'dismiss_recommendation', 'set_stop_note', 'list_stop_notes']);
+const SUBMITTED_TOOLS = TOOLS.filter((t) => !ADDITIVE_TOOLS.has(t.name));
+const developerSurfaceAllowed = (user) => !!(user && user.is_admin);
 // ---- tool annotations -------------------------------------------------------
 // Every tool declares how it behaves, in the MCP-standard annotations that
 // ChatGPT (and any other client) uses to decide how much caution a call needs.
@@ -8514,6 +9070,14 @@ const TOOL_ANNOTATIONS = {
   upload_image_chunk:         ['Send part of an image', false, false, false],
   start_image_upload:         ['Start sending an image (compatibility)', false, false, false],
   finish_image_upload:        ['Finish sending an image (compatibility)', false, false, false],
+  // additive: Recommendations orbit and Stop -> Note (all private to the member)
+  record_recommendations:     ['Record recommendations', false, false, true],
+  resolve_recommendation:     ['Resolve a recommendation', false, false, true],
+  list_recommendations:       ['List recommendations', true, false, false],
+  keep_recommendation:        ['Keep a recommendation', false, false, false],
+  dismiss_recommendation:     ['Dismiss a recommendation', false, false, false],
+  set_stop_note:              ['Attach or detach a stop note', false, false, true],   // a note on a public plan's stop can be seen by others
+  list_stop_notes:            ['List a plan\u2019s stop notes', true, false, false],
 };
 for (const t of TOOLS) {
   const a = TOOL_ANNOTATIONS[t.name];
@@ -8534,7 +9098,11 @@ const normTitle = (s) => String(s || '').toLowerCase()
 function findSimilarNote(userId, title) {
   const norm = normTitle(title);
   if (!norm) return null;
-  for (const r of q('SELECT id, name FROM objects WHERE user_id=?').all(userId)) {
+  // The member's corpus only: "this may already be noted" must never present
+  // a record they have not Kept (a pending Ensemble's Note, later a
+  // Recommendation) as one of their notes. Reuse of such a record by identity
+  // is findExistingNote's job, which deliberately reads every row.
+  for (const r of q('SELECT id, name FROM adopted_objects WHERE user_id=?').all(userId)) {
     const rn = normTitle(r.name);
     if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
   }
@@ -8543,18 +9111,20 @@ function findSimilarNote(userId, title) {
 function findSimilarMark(userId, place) {
   const norm = normTitle(place);
   if (!norm) return null;
-  for (const r of q('SELECT id, name FROM marks WHERE user_id=?').all(userId)) {
+  for (const r of q('SELECT id, name FROM adopted_marks WHERE user_id=?').all(userId)) {
     const rn = normTitle(r.name);
     if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
   }
   return null;
 }
 
-async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
+async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface = 'submitted') {
   // Every AI-originated write in this dispatcher attributes itself through the
   // connection that made the call. Shadowing the module-level helper keeps the
   // 42 existing call sites correct without editing each one.
   const mcpActor = (u) => aiActor(u, conn, authMethod);
+  // an additive tool does not exist on the submitted surface
+  if (ADDITIVE_TOOLS.has(name) && surface !== 'developer') throw new Error(`Unknown tool ${name}`);
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
@@ -8606,7 +9176,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
   }
   if (name === 'recent_notes') {
     const lim = Math.min(+a.limit || 10, 50); const sq = (a.query || '').trim();
-    const rows = sq ? q(OBJ_SQL + ' WHERE o.private=0 AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC LIMIT ?').all(`%${sq}%`, `%${sq}%`, `%${sq}%`, lim) : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT ?').all(lim);
+    const rows = sq ? q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC LIMIT ?').all(`%${sq}%`, `%${sq}%`, `%${sq}%`, lim) : q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT ?').all(lim);
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
@@ -8616,14 +9186,14 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
   }
   if (name === 'my_collections') {
     const rows = q(`SELECT c.uid, c.name, c.kind,
-        (SELECT COUNT(*) FROM note_collections nc WHERE nc.collection_id=c.id) n
+        (SELECT COUNT(*) FROM note_collections nc JOIN adopted_objects o ON o.id=nc.note_id WHERE nc.collection_id=c.id) n
       FROM collections c WHERE c.user_id=? ORDER BY c.name`).all(user.id);
     return { text: rows.map((c) => `${c.name} (${c.n})`).join('\n') || 'No collections yet.',
       structured: { items: rows.map((c) => ({ type: 'collection', uid: c.uid, name: c.name, kind: c.kind || 'note',
         count: c.n, provenance: provenanceOf('collection', c.uid) })) } };
   }
   if (name === 'my_notes') {
-    const rows = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50));
+    const rows = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT ?').all(user.id, Math.min(+a.limit || 20, 50));
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, private: !!o.private,
@@ -8869,13 +9439,17 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
       ? q(OBJ_SQL + ' WHERE o.id=?').get(a.id)
       : q(MARK_SQL + ' WHERE m.id=?').get(a.id);
     if (!subj) throw new Error(`No ${kind} #${a.id}`);
-    const visible = isNote ? canSee(subj, user) : (!subj.private || subj.user_id === user.id);
+    const visible = isNote ? canView('object', subj, user) : (isAdopted('mark', subj.uid) ? (!subj.private || subj.user_id === user.id) : subj.user_id === user.id);
     if (!visible) throw new Error(`No ${kind} #${a.id}`);   // never confirm a private record exists
     const table = isNote ? 'comments' : 'mark_comments';
     const fk = isNote ? 'object_id' : 'mark_id';
     if (name === 'comment') {
       const body = String(a.body || '').trim();
       if (!body) throw new Error('body is required — a comment with nothing in it is not worth posting.');
+      // a retried request must not post the same remark twice
+      const again = q(`SELECT id, uid FROM ${table} WHERE ${fk}=? AND user_id=? AND body=? AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`)
+        .get(subj.id, user.id, body, `-${RETRY_WINDOW_S} seconds`);
+      if (again) return wr(`That comment on ${subj.name} was just posted; it was not posted again.`, 'unchanged', 'comment', again.id, again.uid, subj.name);
       const r = q(`INSERT INTO ${table}(${fk},user_id,body) VALUES(?,?,?)`).run(subj.id, user.id, body);
       const uid = uidOf(table, r.lastInsertRowid);
       recordProvenance('comment', uid, 'created', mcpActor(user), { source_kind: 'manual' });
@@ -9046,6 +9620,8 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
       const rec = visitRecord(user, mk.id, { date_unknown: true, body: a.body }, ctx);
       const v = { lastInsertRowid: rec.id };
       const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
+      if (rec.repeated) return wr(`That visit to ${mk.name} was just recorded; nothing new was added — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+        'unchanged', 'visit', v.lastInsertRowid, uidOf('visits', v.lastInsertRowid), mk.name, `${n} total`);
       return wr(`Logged a visit to ${mk.name} with the date unknown — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
         'created', 'visit', v.lastInsertRowid, uidOf('visits', v.lastInsertRowid), mk.name, `${n} total`);
     }
@@ -9055,6 +9631,8 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     const vid = rec.id;
     const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(mk.id).c;
     const dn = visitDaysOf(vid).length;
+    if (rec.repeated) return wr(`That visit to ${mk.name} (${prettyRange(start, end)}) was just recorded; nothing new was added — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+      'unchanged', 'visit', vid, uidOf('visits', vid), mk.name, `${n} total`);
     return wr(`Logged a visit to ${mk.name}: ${prettyRange(start, end)}${dn ? ` with notes on ${dn} day${dn === 1 ? '' : 's'}` : ''} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
       'created', 'visit', vid, uidOf('visits', vid), mk.name, `${n} total`);
   }
@@ -9158,7 +9736,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
   }
   if (name === 'my_travel_marks') {
     const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
-    let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(user.id);
+    let rows = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(user.id);
     if (k) rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k));
     const top = rows.slice(0, lim);
     return { text: top.map((x) => {
@@ -9182,7 +9760,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     const kl = k.toLowerCase();
     const hits = [];
     if (kind !== 'mark') {
-      q(OBJ_SQL + ' WHERE o.user_id=? AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC')
+      q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? AND (o.name LIKE ? OR o.why LIKE ? OR o.tags LIKE ?) ORDER BY o.id DESC')
         .all(user.id, `%${k}%`, `%${k}%`, `%${k}%`)
         .forEach((o) => hits.push({ at: o.created_at,
           line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
@@ -9191,7 +9769,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
                   owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid) } }));
     }
     if (kind !== 'note') {
-      q(MARK_SQL + ' WHERE m.user_id=?').all(user.id)
+      q(ADOPTED_MARK_SQL + ' WHERE m.user_id=?').all(user.id)
         .filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(kl))
         .forEach((x) => hits.push({ at: x.created_at,
           line: `MARK #${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''}`,
@@ -9207,13 +9785,13 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     };
   }
   if (name === 'catalogue_stats') {
-    const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(user.id).c;
-    const marks = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(user.id).c;
-    const noImage = q("SELECT COUNT(*) c FROM objects WHERE user_id=? AND (image IS NULL OR image='')").get(user.id).c;
+    const notes = q('SELECT COUNT(*) c FROM adopted_objects WHERE user_id=?').get(user.id).c;
+    const marks = q('SELECT COUNT(*) c FROM adopted_marks WHERE user_id=?').get(user.id).c;
+    const noImage = q("SELECT COUNT(*) c FROM adopted_objects WHERE user_id=? AND (image IS NULL OR image='')").get(user.id).c;
     const byColl = q(`SELECT c.name, COUNT(*) n FROM note_collections nc
-      JOIN collections c ON c.id=nc.collection_id JOIN objects o ON o.id=nc.note_id
+      JOIN collections c ON c.id=nc.collection_id JOIN adopted_objects o ON o.id=nc.note_id
       WHERE o.user_id=? GROUP BY c.id ORDER BY n DESC`).all(user.id);
-    const byCountry = q("SELECT country, COUNT(*) n FROM marks WHERE user_id=? AND country<>'' GROUP BY country ORDER BY n DESC").all(user.id);
+    const byCountry = q("SELECT country, COUNT(*) n FROM adopted_marks WHERE user_id=? AND country<>'' GROUP BY country ORDER BY n DESC").all(user.id);
     const lines = [`${notes} notes, ${marks} travel marks.`];
     if (noImage) lines.push(`${noImage} note${noImage === 1 ? '' : 's'} with no image.`);
     if (byColl.length) lines.push('Notes by collection: ' + byColl.map((r) => `${r.name} (${r.n})`).join(', '));
@@ -9242,7 +9820,8 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     // object. Objects are shared, so anyone who has noted it may assert.
     if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
     if (name === 'record_note_ownership') {
-      assertOwned(user.id, o.id, mcpActor(user));
+      if (!assertOwned(user.id, o.id, mcpActor(user)))
+        return wr(`${o.name} is already marked as owned; nothing changed.`, 'unchanged', 'ownership', o.id, o.uid, o.name);
       return wr(`Marked as owned: ${o.name}. This is private — only the member and their own AI can see it.`,
         'asserted', 'ownership', o.id, o.uid, o.name);
     }
@@ -9537,9 +10116,11 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
       recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: f.join(',') });
       return wr(`Updated ${a.title || e.title}.`, 'edited', 'ensemble', e.id, e.uid, a.title || e.title);
     }
+    const gone = dropPendingEnsembleNotes(e, ctx);
     recordProvenance('ensemble', e.uid, 'deleted', ctx, {});
     q('DELETE FROM ensembles WHERE id=?').run(e.id);
-    return wr(`Deleted ensemble: ${e.title}. Linked notes were kept.`, 'deleted', 'ensemble', e.id, e.uid, e.title);
+    return wr(`Deleted ensemble: ${e.title}. ${gone.length ? `Its ${gone.length} staged piece note${gone.length === 1 ? '' : 's'}, never kept, went with it; notes` : 'Notes'} in the member\u2019s catalogue were kept.`,
+      'deleted', 'ensemble', e.id, e.uid, e.title);
   }
   if (name === 'remove_ensemble_component') {
     const c = q('SELECT c.*, e.user_id, e.title, e.uid AS euid FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id WHERE c.uid=?').get(a.component_uid);
@@ -9778,7 +10359,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
             unplaced,
             conflicts: groupConflicts(it.id) } };
       }
-      const rows = q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?')
+      const rows = q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?')
         .all(user.id, Math.min(a.limit || 20, 50));
       // Each line carries its uid: this list is where every other itinerary
       // tool gets one from. Day and stop counts tell similar plans apart.
@@ -9798,6 +10379,77 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined) {
     }
   }
 
+  // ---- additive: Recommendations orbit (thin wrappers over the domain) --------
+  if (name === 'record_recommendations' || name === 'resolve_recommendation') {
+    const ctx = mcpActor(user);
+    // an image named by URL is ingested before any write, as note_object does
+    const withImage = async (x, what) => {
+      const iu = await resolveAssetRef(user.id, { image_uid: x.image_uid, image: x.image }, ctx, 'upload', what);
+      return { ...x, image_uid: iu || undefined };
+    };
+    if (name === 'resolve_recommendation') {
+      const out = recommendationResolve(user, a.recommendation_uid, await withImage(a, 'The recommendation image'), ctx);
+      const v = recommendationView(out.rec);
+      return { text: out.changed.length ? `Recorded for "${v.label}": ${out.changed.join(', ')}. Now ${v.resolution}${v.target ? `, linked to ${v.target.type} ${v.target.name || v.target.uid}${v.target.kept ? ' (kept)' : ' (not kept)'}` : ''}.`
+        : `Nothing new to record for "${v.label}".`,
+        structured: { ok: true, recommendation: v, changed: out.changed, kept: [] } };
+    }
+    const items = Array.isArray(a.items) ? a.items : [];
+    if (!items.length) throw new Error('items is required: one entry per recommendation presented.');
+    if (items.length > 10) throw new Error('At most 10 recommendations per call.');
+    for (const x of items) if (!['cold_start', 'destination_objects', 'for_another_time'].includes(x.workflow))
+      throw new Error('workflow must be cold_start, destination_objects or for_another_time. Nothing was recorded.');
+    const prepared = [];
+    for (const x of items) prepared.push(await withImage(x, `The image for "${x.label || 'a recommendation'}"`));
+    const results = [];
+    db.exec('BEGIN');
+    try {
+      for (const x of prepared) results.push(recommendationCreate(user, x, ctx));
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    const out = results.map((r) => ({ recommendation: recommendationView(r.rec), created: r.created, target_origin: r.target ? r.target.origin : null }));
+    return { text: out.map((o) => `${o.created ? 'Recommended' : 'Already recommended'}: ${o.recommendation.label} (${o.recommendation.resolution}`
+        + `${o.target_origin === 'pre_existing' ? ', on something they already have' : o.target_origin ? ', private record, not kept' : ''}) · uid: ${o.recommendation.uid}`).join('\n'),
+      structured: { ok: true, items: out } };
+  }
+  if (name === 'list_recommendations') {
+    const st = ['open', 'kept', 'not_this_trip', 'not_for_me', 'dismissed', 'reacted', 'all'].includes(a.status) ? a.status : 'open';
+    const r = recommendationsList(user, { context_itinerary_uid: a.context_itinerary_uid, workflow: a.workflow, status: st, limit: a.limit });
+    return { text: r.groups.map((g) => `${g.title}:\n` + g.items.map((v) => `  ${v.label} (${v.kind}, ${v.resolution}${v.status !== 'open' ? ', ' + v.status : ''}) · uid: ${v.uid}`).join('\n')).join('\n')
+        || 'Nothing recommended' + (st === 'open' ? ' is open.' : '.'),
+      structured: r };
+  }
+  if (name === 'keep_recommendation') {
+    const out = recommendationKeep(user, a.recommendation_uid, mcpActor(user));
+    const v = recommendationView(out.rec);
+    const kept = out.kept.map((k) => ({ type: k.type === 'object' ? 'note' : k.type, uid: k.uid }));
+    return { text: kept.length ? `Kept: ${v.target ? v.target.name : v.label}${kept.length > 1 ? `, with ${kept.length - 1} place${kept.length === 2 ? '' : 's'} and notes from its stops` : ''}.`
+        : `${v.target ? v.target.name : v.label} was already kept.`,
+      structured: { ok: true, recommendation: v, changed: kept.length ? ['kept'] : [], kept } };
+  }
+  if (name === 'dismiss_recommendation') {
+    const out = recommendationDismiss(user, a.recommendation_uid, a.reason, mcpActor(user));
+    const v = recommendationView(out.rec);
+    return { text: out.changed ? `Noted: ${v.label} — ${String(v.reaction).replace(/_/g, ' ')}.` : `${v.label} already has that answer recorded.`,
+      structured: { ok: true, recommendation: v, changed: out.changed ? [`reaction:${v.reaction}`] : [], kept: [] } };
+  }
+  // ---- additive: Stop -> Note -------------------------------------------------
+  if (name === 'set_stop_note' || name === 'list_stop_notes') {
+    let it;
+    if (name === 'set_stop_note') {
+      const ctx = mcpActor(user);
+      if (a.attached === false) stopNoteDetach(user, a.stop_uid, a.note_uid, ctx);
+      else stopNoteAttach(user, a.stop_uid, a.note_uid, ctx, { origin: 'existing' });
+      it = itinById(stopByUid(a.stop_uid).itinerary_id);
+    } else it = itinOwned(user, a.itinerary_uid);
+    const stops = q('SELECT id, uid, label FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id).map((st) => ({
+      stop_uid: st.uid, label: st.label,
+      notes: stopNotesVisible(st.id, user).map((o) => ({ uid: o.uid, id: o.id, name: o.name, kept: isAdopted('object', o.uid), image_uid: imageUidOf(o) })) }));
+    const withNotes = stops.filter((st) => st.notes.length);
+    return { text: withNotes.map((st) => `${st.label}: ${st.notes.map((n) => n.name + (n.kept ? '' : ' (recommended)')).join('; ')}`).join('\n') || 'No notes on any stop.',
+      structured: { ok: true, itinerary_uid: it.uid, stops } };
+  }
+
   throw new Error('Unknown tool ' + name);
 }
 // The structured challenge an MCP client needs to start or repair the
@@ -9815,6 +10467,8 @@ function mcpAuthChallenge(res, error = 'invalid_token') {
 }
 
 async function mcp(req, res, tok) {
+  // which MCP surface this request is for; only the /mcp-dev routes set it
+  const surface = req.mcpSurface === 'developer' ? 'developer' : 'submitted';
   // Three ways to arrive, one place to resolve them. Whatever the credential,
   // what comes out is the same pair -- a user and, where one exists, the
   // connection that acted -- so no tool implementation is forked by how the
@@ -9839,6 +10493,10 @@ async function mcp(req, res, tok) {
     if (!conn && user) authMethod = 'mcp_token_legacy';
   }
   if (!user) return mcpAuthChallenge(res, 'invalid_token');
+  if (surface === 'developer' && !developerSurfaceAllowed(user)) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ error: 'forbidden', error_description: 'This MCP endpoint is for the developer account only. Use /mcp.' }));
+  }
   if (conn) q('UPDATE connections SET last_used_at=CURRENT_TIMESTAMP WHERE id=?').run(conn.id);
   if (req.method === 'GET') { res.writeHead(405); return res.end(); }
   if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
@@ -9874,12 +10532,14 @@ IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_u
 
 ${ingestDirective(user).line}\n\nIMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
 
-ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.` });
+ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.${surface === 'developer' ? `
+
+RECOMMENDATIONS. When the member asks you for recommendations in Discriminantly (for a trip, for another time, or to start their catalogue), save the ones you actually present, and only those, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). Earlier ones: list_recommendations.` : ''}` });
   if (method === 'ping') return reply(id, {});
-  if (method === 'tools/list') return reply(id, { tools: TOOLS });
+  if (method === 'tools/list') return reply(id, { tools: surface === 'developer' ? TOOLS : SUBMITTED_TOOLS });
   if (method === 'tools/call') {
     try {
-      const out = await mcpCall(user, conn, params.name, params.arguments, authMethod);
+      const out = await mcpCall(user, conn, params.name, params.arguments, authMethod, surface);
       // Text stays exactly as it was, so existing clients are unaffected.
       // structuredContent is additive and carries provenance, so the six
       // questions in the MCP Policy remain answerable inside the AI's context
@@ -9998,6 +10658,9 @@ async function handle(req, res) {
   }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
+  // developer surface (decision E): the member's connector token, or a bearer token
+  if ((mt = p.match(/^\/mcp-dev\/([A-Za-z0-9_-]+)$/))) { req.mcpSurface = 'developer'; return mcp(req, res, mt[1]); }
+  if (p === '/mcp-dev') { req.mcpSurface = 'developer'; return mcp(req, res, null); }
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
   // The modern entry point: same dispatcher, same domain functions, same
   // privacy rules. Only how the caller proved its authority differs.
@@ -10387,8 +11050,9 @@ async function handle(req, res) {
       return redirect(res, act === 'keep' ? `/e/${e.id}` : '/e');
     }
     if (act === 'delete') {
+      dropPendingEnsembleNotes(e, ctx);   // a pending one's never-kept Notes go with it, as on Discard
       recordProvenance('ensemble', e.uid, 'deleted', ctx, {});
-      q('DELETE FROM ensembles WHERE id=?').run(e.id);   // components + artifacts cascade; Notes are untouched
+      q('DELETE FROM ensembles WHERE id=?').run(e.id);   // components + artifacts cascade; kept Notes are untouched
       return redirect(res, '/e');
     }
     if (act === 'primary') {
@@ -10601,8 +11265,8 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/m\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
-    const mk = q('SELECT id, uid, user_id FROM marks WHERE id=?').get(+mt[1]);
-    if (!mk || (!isAdopted('mark', mk.uid) && mk.user_id !== me.id)) return send(res, 'Not found', 404);
+    const mk = q('SELECT * FROM marks WHERE id=?').get(+mt[1]);
+    if (!mk || !canView('mark', mk, me)) return send(res, 'Not found', 404);   // same rule as the note route
     const b = await readBody(req); const t = (b.body || '').trim();
     if (t) {
       const r = q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
@@ -10800,9 +11464,10 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
-    const o = q('SELECT id, uid, user_id FROM objects WHERE id=?').get(+mt[1]);
-    // a Note outside its member's corpus is theirs alone: nobody else can reach it to comment
-    if (!o || (!isAdopted('object', o.uid) && o.user_id !== me.id)) return send(res, 'Not found', 404);
+    const o = q('SELECT * FROM objects WHERE id=?').get(+mt[1]);
+    // Commenting needs the same access as seeing the note: a private note, or
+    // one outside its member's corpus, cannot be reached by id (decision D).
+    if (!o || !canView('object', o, me)) return send(res, 'Not found', 404);
     const b = await readBody(req); const body = (b.body || '').trim();
     if (body) {
       const r = q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
@@ -10892,8 +11557,10 @@ try {
   const orphans = [
     ...q('SELECT uid, user_id FROM objects o WHERE NOT EXISTS (SELECT 1 FROM adopted_objects x WHERE x.id=o.id)').all()
       .filter((r) => !unadoptedExplanation('object', r)).map((r) => 'note ' + r.uid),
-    ...q('SELECT uid FROM marks m WHERE NOT EXISTS (SELECT 1 FROM adopted_marks x WHERE x.id=m.id)').all().map((r) => 'mark ' + r.uid),
-    ...q('SELECT uid FROM itineraries i WHERE NOT EXISTS (SELECT 1 FROM adopted_itineraries x WHERE x.id=i.id)').all().map((r) => 'itinerary ' + r.uid)];
+    ...q('SELECT uid, user_id FROM marks m WHERE NOT EXISTS (SELECT 1 FROM adopted_marks x WHERE x.id=m.id)').all()
+      .filter((r) => !unadoptedExplanation('mark', r)).map((r) => 'mark ' + r.uid),
+    ...q('SELECT uid, user_id FROM itineraries i WHERE NOT EXISTS (SELECT 1 FROM adopted_itineraries x WHERE x.id=i.id)').all()
+      .filter((r) => !unadoptedExplanation('itinerary', r)).map((r) => 'itinerary ' + r.uid)];
   if (orphans.length) console.warn(`WARNING: ${orphans.length} record(s) outside the corpus with nothing explaining them: ${orphans.slice(0, 10).join(', ')}`);
 } catch (e) { console.warn('Adoption invariant check failed:', e.message); }
 

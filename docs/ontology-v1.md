@@ -122,9 +122,30 @@ AI actions are therefore canonical evidence that something happened, but always 
 | Provenance | States `adopted` and `withdrawn`, as rows, plus provenance rows. |
 | Privacy | A record without Adoption is private to its member, whatever its own flag, and appears on no corpus or public surface (the Adopted projection). |
 | Deletion | Withdrawing appends a row. Deleting the record removes its rows (trigger) and records each removal as `deleted`, `cascade`. |
-| Retrieval | The Adopted projection: views `adopted_objects`, `adopted_marks`, `adopted_itineraries`. Frozen MCP reads still read every row until MCP vNext. |
-| Invariant | No orphans: a Note or Mark without Adoption must have another relationship explaining it (today only a pending Ensemble; Recommendation in Increment 2). Checked at boot. |
+| Retrieval | The Adopted projection: views `adopted_objects`, `adopted_marks`, `adopted_itineraries`. Every corpus read, on the web and behind the submitted MCP tools, reads it. |
+| Invariant | No orphans: a Note, Mark or Itinerary without Adoption must have another truthful relationship explaining it. That can be a pending Ensemble, a Recommendation, a recommended plan it sits in, or an explicit relationship the member recorded: Owned, Warrant, a Check-in, a place in an ensemble or on a stop. None of these makes it Kept (decision A). Checked at boot. |
 | AI may infer | Nothing. |
+
+### Recommendation (migration 053)
+| Question | Answer |
+|---|---|
+| Asserts | An AI (or the system), in a named workflow, deliberately proposed this proposition to this member, in this context, for this stated reason. |
+| Does not assert | That the member saw, likes, kept, owns, visited or endorses it. **Never taste evidence:** nothing may cite it as evidence about the member. |
+| Created by | AI through the additive `record_recommendations` tool, for propositions a Skill deliberately selected and presented. Candidates it considered and dropped never become rows. |
+| Identity | A row in `recommendations` with a `uid`, for one member (the recipient). |
+| Proposition | `kind` (object, place, experience or itinerary) and `label`, the original words, never changed. |
+| Resolution | `unresolved`, `partial` or `resolved`, plus the known attributes only (maker, product, variant, url, image, place fields). Only ever gains precision, each step an `enriched` provenance row naming the fields. Partial is a complete, truthful state. |
+| Target | Once resolved: the member's Note, Mark or Itinerary, as a plain reference with no foreign key. Reused when it exists (Kept or not); otherwise a private record made for it, not Kept. |
+| Context and reasoning | `context_itinerary_uid` and `context_stop_uid`; `workflow`; `rationale`; `evidence_uids`, only the member's own canonical records (Kept records, check-ins, kept ensembles, warrants, ownership), never a recommendation or a record that exists only because of one. |
+| Privacy | Private to the recipient, always, rationale and evidence included. A recommendation-only target is private and outside every corpus and public surface. |
+| Legal transitions | Resolve (precision only rises). Keep: the target gains Adoption, and the recommendation remains as history. A recommended itinerary is kept with the places and Notes in its stops, in one transaction. React, with three distinct assertions each recorded as its own provenance action:
+- `not_this_trip`: wrong for this planning context; says nothing about taste.
+- `not_for_me`: the member says it doesn't suit them.
+- `dismissed`: no reason given.
+
+Silence records nothing, and no reaction is ever taste evidence. |
+| Deletion | No deletion operation. Deleting the target leaves the recommendation's reference as history. |
+| AI may infer | Nothing about the member from it. |
 
 ### Collection
 | Question | Answer |

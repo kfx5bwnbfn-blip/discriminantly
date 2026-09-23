@@ -10,6 +10,7 @@
 // must hold on any database (no orphans, one live adoption per record).
 const fs = require('fs');
 const { DatabaseSync } = require('node:sqlite');
+const orphans = require('./orphans');
 const BASE = (process.env.BASE || 'http://localhost:3000').replace(/\/$/, '');
 const DB_PATH = process.env.DB_PATH;
 if (!DB_PATH) { console.error('DB_PATH is required'); process.exit(2); }
@@ -67,7 +68,7 @@ const A = fx.tokA, B = fx.tokB;
   console.log('\nthe Adopted projection');
   const pid = noteId(fx.pendingNote);
   const mine = (await call(A, 'my_notes', { limit: 50 })).items || [];
-  ok('P1 frozen MCP: my_notes still reads every row, exactly as submitted', mine.some((n) => n.uid === fx.pendingNote));
+  ok('P1 MCP my_notes means "the member\u2019s Notes": the unkept one is not among them', !mine.some((n) => n.uid === fx.pendingNote) && mine.some((n) => n.uid === fx.notePublic));
   ok('P2 the web corpus does not list it', !(await page(fx.sidA, '/u/elicierto?tab=notes')).body.includes('Pending piece')
      && !(await page(fx.sidA, '/')).body.includes('Pending piece') && !(await page(fx.sidA, '/?q=piece')).body.includes('>Pending piece<'));
   ok('P3 its owner still reaches it by id', (await page(fx.sidA, '/o/' + pid)).status === 200);
@@ -114,6 +115,46 @@ const A = fx.tokA, B = fx.tokB;
   ok('P16b ...nor withdraw yours from it', !!one('SELECT 1 FROM adopted_objects WHERE uid=?', fx.notePublic));
   db.prepare("DELETE FROM adoptions WHERE user_id=? AND subject_uid IN (?,?)").run(bu, fx.pendingNote, fx.notePublic);   // test scaffolding only
 
+  // ---- C: submitted MCP tools, behind unchanged contracts --------------------
+  console.log('\nsubmitted MCP tools (compatibility)');
+  const srch = (await call(A, 'search_catalogue', { query: 'piece', limit: 50 })).items;
+  ok('C1 search_catalogue does not return the unkept Note', !srch.some((x) => x.uid === fx.pendingNote) && srch.some((x) => x.uid === fx.keptByKeep));
+  const stats = await call(A, 'catalogue_stats', {});
+  ok('C2 catalogue_stats counts the corpus', stats.notes === one('SELECT COUNT(*) n FROM adopted_objects WHERE user_id=1').n
+     && stats.notes === one('SELECT COUNT(*) n FROM objects WHERE user_id=1').n - 1);
+  const rec = (await call(B, 'recent_notes', { limit: 50 })).items;
+  ok('C3 recent_notes (public) does not carry the unkept Note even though it was made public', !rec.some((x) => x.uid === fx.pendingNote) && rec.some((x) => x.uid === fx.notePublic));
+  const rc = await rpc(B, 'read_comments', { subject_type: 'note', id: pid });
+  ok('C4 read_comments on it refuses another member, like the page', rc.isError === true);
+  const dupe = await call(A, 'note_object', { headline: 'Pending piece', image: (await call(A, 'upload_image', { image: PNG })).ref });
+  ok('C5 note_object never calls the unkept Note "already noted": it makes a Kept Note, as its contract says', dupe.action === 'created' && kept('object', dupe.uid));
+  const dupe2 = await rpc(A, 'note_object', { headline: 'Fixture public note', image: (await call(A, 'upload_image', { image: PNG })).ref });
+  ok('C5b ...while a Kept near-duplicate is still refused exactly as before', dupe2.structuredContent && dupe2.structuredContent.action === 'unchanged');
+  await call(A, 'delete_note', { id: dupe.id });
+  const reuse = await call(A, 'create_pending_ensemble', { title: 'Reuse check', artifact_uid: (await call(A, 'upload_image', { image: PNG })).image_uid,
+    components: [{ label: 'Pending piece', identity_basis: 'user_identity', image_uid: (await call(A, 'upload_image', { image: PNG })).image_uid }] }).catch((e) => ({ error: e.message }));
+  ok('C6 identity reuse still finds an existing member record that is not Kept, without Keeping it',
+     reuse.components && reuse.components[0].note_uid === fx.pendingNote && !kept('object', fx.pendingNote), JSON.stringify(reuse).slice(0, 160));
+  if (reuse.ensemble_id) await call(A, 'discard_ensemble', { id: reuse.ensemble_id });
+  // Marks and itineraries: none can be unkept yet (Increment 2 adds that), so
+  // take one out of the corpus as scaffolding and put it back afterwards.
+  const mkId = one('SELECT id FROM marks WHERE uid=?', fx.mark).id;
+  db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'mark',?,'withdrawn')").run(fx.mark);
+  db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'itinerary',?,'withdrawn')").run(fx.itinerary);
+  const myMarks = (await call(A, 'my_travel_marks', { limit: 50 })).items, myIt = (await call(A, 'my_itineraries', {}));
+  const st2 = await call(A, 'catalogue_stats', {});
+  ok('C7 my_travel_marks excludes a Mark outside the corpus', !myMarks.some((x) => x.uid === fx.mark) && myMarks.some((x) => x.uid === fx.itineraryMark));
+  ok('C8 my_itineraries excludes an itinerary outside the corpus', !JSON.stringify(myIt).includes(fx.itinerary));
+  ok('C9 catalogue_stats and search exclude it too', st2.marks === stats.marks - 1
+     && !(await call(A, 'search_catalogue', { query: 'Fixture place', kind: 'mark' })).items.some((x) => x.uid === fx.mark));
+  ok('C10 a single-record tool still reaches its owner\u2019s record', !(await rpc(A, 'list_checkins', { mark_id: mkId })).isError);
+  db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'mark',?,'adopted')").run(fx.mark);
+  db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'itinerary',?,'adopted')").run(fx.itinerary);
+  ok('C11 put back, both return', (await call(A, 'my_travel_marks', { limit: 50 })).items.some((x) => x.uid === fx.mark)
+     && JSON.stringify(await call(A, 'my_itineraries', {})).includes(fx.itinerary));
+  const itNew = await call(A, 'create_itinerary', { title: 'Compat plan' });
+  ok('C12 create_itinerary still makes a Kept itinerary', kept('itinerary', itNew.uid));
+
   // ---- T: new records and transitions --------------------------------------
   console.log('\nnew records');
   const n1 = await call(A, 'note_object', { headline: 'Adoption test note', image: (await call(A, 'upload_image', { image: PNG })).ref, collections: ['Adoption shelf'] });
@@ -139,15 +180,28 @@ const A = fx.tokA, B = fx.tokB;
   ok('T6 Keep adopts it, derived from the Keep and citing the Ensemble', kept('object', t1) && kp.assertion === 'derived' && kp.source_kind === 'ensemble_kept' && kp.source_ref === e.ensemble_uid);
   ok('T7 Keep adopts the Note it materialises too', k.notes_created.length === 1 && kept('object', k.notes_created[0]));
   ok('T8 the frozen keep result is unchanged in shape', Array.isArray(k.notes_reused) && k.status === 'saved');
+  // Decision A: from now on nothing that makes a staged Note survive makes it Kept.
   const e2 = await call(A, 'create_pending_ensemble', { title: 'T discard', artifact_uid: (await call(A, 'upload_image', { image: PNG })).image_uid,
-    components: [await comp('D keep'), await comp('D drop')] });
+    components: [await comp('D owned'), await comp('D warranted'), await comp('D edited'), await comp('D drop')] });
   for (const c of e2.components) await call(A, 'resolve_ensemble_component', { component_uid: c.component_uid, label: c.label });
-  const [dk, dd] = e2.components.map((c) => one('SELECT note_uid FROM ensemble_components WHERE uid=?', c.component_uid).note_uid);
-  await call(A, 'edit_note', { id: noteId(dk), description: 'mine now' });
+  const [dOwn, dWar, dEd, dd] = e2.components.map((c) => one('SELECT note_uid FROM ensemble_components WHERE uid=?', c.component_uid).note_uid);
+  await call(A, 'record_note_ownership', { id: noteId(dOwn) });
+  await call(A, 'warrant', { subject_type: 'note', id: noteId(dWar), announce: false });
+  await call(A, 'edit_note', { id: noteId(dEd), description: 'mine now' });
   const d = await call(A, 'discard_ensemble', { id: e2.ensemble_id });
-  ok('T9 discarding: the Note the member made their own survives and is Kept, citing the discard',
-     d.notes_kept.some((x) => x.uid === dk) && kept('object', dk) && basis('object', dk).source_kind === 'ensemble_retained');
-  ok('T10 ...the untouched one is removed, and its adoption rows with it (none existed)', !noteId(dd) && !one('SELECT 1 FROM adoptions WHERE subject_uid=?', dd));
+  ok('T9 discarding: a Note the member recorded owning survives, NOT Kept (no Owned => Kept), owner-only',
+     d.notes_kept.some((x) => x.uid === dOwn) && !!noteId(dOwn) && !kept('object', dOwn)
+     && (await page(fx.sidA, '/o/' + noteId(dOwn))).status === 200 && (await page(fx.sidB, '/o/' + noteId(dOwn))).status === 404);
+  ok('T9b ...likewise a warranted one (no Warrant => Kept)', d.notes_kept.some((x) => x.uid === dWar) && !kept('object', dWar));
+  ok('T9c ...an edit alone is not a relationship: the edited, never-kept Note goes with the composition', !noteId(dEd) && d.notes_deleted.includes(dEd));
+  ok('T10 ...the untouched one is removed, and no adoption row was ever made', !noteId(dd) && !one('SELECT 1 FROM adoptions WHERE subject_uid IN (?,?,?,?)', dOwn, dWar, dEd, dd));
+  ok('T10b no orphan: each survivor is explained by the relationship the member actually recorded', orphans(db).length === 0, orphans(db).join(', '));
+  const e3 = await call(A, 'create_pending_ensemble', { title: 'T delete', artifact_uid: (await call(A, 'upload_image', { image: PNG })).image_uid,
+    components: [await comp('X plain')] });
+  await call(A, 'resolve_ensemble_component', { component_uid: e3.components[0].component_uid, label: 'X plain' });
+  const xp = one('SELECT note_uid FROM ensemble_components WHERE uid=?', e3.components[0].component_uid).note_uid;
+  await call(A, 'delete_ensemble', { id: e3.ensemble_id });
+  ok('T10c deleting a pending ensemble outright removes its never-kept, unexplained Notes as discard does (none left orphaned)', !noteId(xp) && orphans(db).length === 0);
   const auid = one("SELECT uid FROM adoptions WHERE subject_uid=?", n1.uid).uid;
   await call(A, 'delete_note', { id: n1.id });
   ok('T11 deleting a Note removes its adoption rows and records that it did',
@@ -155,20 +209,48 @@ const A = fx.tokA, B = fx.tokB;
      && !!one("SELECT 1 FROM provenance WHERE entity_type='adoption' AND entity_uid=? AND action='deleted' AND source_kind='cascade' AND source_ref=?", auid, n1.uid));
 
   // ---- I: invariants --------------------------------------------------------
+  // ---- D: commenting needs the same access as seeing -----------------------
+  console.log('\ncomment authorisation (decision D)');
+  const cnt = (id) => one('SELECT COUNT(*) n FROM comments WHERE object_id=?', id).n;
+  const privId = noteId(fx.notePrivate), pubId = noteId(fx.notePublic);
+  let c0 = cnt(privId);
+  const own = await post(fx.sidA, `/o/${privId}/comments`, { body: 'owner remark' });
+  ok('D1 the owner can comment on their own private note', own.status === 303 && cnt(privId) === c0 + 1);
+  c0 = cnt(privId);
+  const other = await post(fx.sidB, `/o/${privId}/comments`, { body: 'sneaky' });
+  const anon = await fetch(BASE + `/o/${privId}/comments`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: 'body=anon' });
+  const viaMcp = await rpc(B, 'comment', { subject_type: 'note', id: privId, body: 'sneaky' });
+  ok('D2 another member cannot comment on it by id, on the web or through MCP; nor can a signed-out visitor',
+     other.status === 404 && !/\/o\//.test(anon.headers.get('location') || '') && viaMcp.isError === true && cnt(privId) === c0, `${other.status} ${anon.status}`);
+  const pubC = cnt(pubId);
+  ok('D3 a member who can see a note can still comment on it', (await post(fx.sidB, `/o/${pubId}/comments`, { body: 'nice' })).status === 303 && cnt(pubId) === pubC + 1);
+  ok('D4 a note outside its member\u2019s corpus: its owner may comment, nobody else', (await post(fx.sidA, `/o/${pid}/comments`, { body: 'mine' })).status === 303
+     && (await post(fx.sidB, `/o/${pid}/comments`, { body: 'x' })).status === 404);
+  // ---- B: the admin's private view reaches private CORPUS content only -----------
+  console.log('\nadmin private view (decision B)');
+  const bPriv = await call(B, 'note_object', { headline: 'Bea private kept', image: (await call(B, 'upload_image', { image: PNG })).ref, private: true });
+  const be = await call(B, 'create_pending_ensemble', { title: 'Bea staged', artifact_uid: (await call(B, 'upload_image', { image: PNG })).image_uid,
+    components: [{ label: 'Bea staged piece', identity_basis: 'unidentified', image_uid: (await call(B, 'upload_image', { image: PNG })).image_uid }] });
+  await call(B, 'resolve_ensemble_component', { component_uid: be.components[0].component_uid, label: 'Bea staged piece' });
+  const bStaged = noteId(one('SELECT note_uid FROM ensemble_components WHERE uid=?', be.components[0].component_uid).note_uid);
+  db.prepare('UPDATE users SET admin_private_view=1 WHERE id=1').run();
+  ok('B1 with the admin view on, the admin sees a member\u2019s private kept note (unchanged behaviour)', (await page(fx.sidA, '/o/' + bPriv.id)).status === 200);
+  ok('B2 ...but not a member\u2019s record outside their corpus', (await page(fx.sidA, '/o/' + bStaged)).status === 404);
+  const bc = cnt(bPriv.id);
+  ok('B3 ...and may comment only where the admin view lets them see', (await post(fx.sidA, `/o/${bPriv.id}/comments`, { body: 'admin' })).status === 303
+     && cnt(bPriv.id) === bc + 1 && (await post(fx.sidA, `/o/${bStaged}/comments`, { body: 'admin' })).status === 404);
+  db.prepare('UPDATE users SET admin_private_view=0 WHERE id=1').run();
+  ok('B4 with the admin view off, neither is visible to the admin', (await page(fx.sidA, '/o/' + bPriv.id)).status === 404 && (await page(fx.sidA, '/o/' + bStaged)).status === 404);
+
   console.log('\ninvariants');
-  const orphans = [
-    ...all('SELECT o.uid, o.user_id FROM objects o WHERE NOT EXISTS (SELECT 1 FROM adopted_objects x WHERE x.id=o.id)')
-      .filter((o) => !one(`SELECT 1 FROM provenance p JOIN ensembles e ON e.uid=p.source_ref WHERE p.entity_type='object' AND p.entity_uid=?
-        AND p.action='created' AND p.source_kind='ensemble' AND e.status='pending_review' AND e.user_id=?`, o.uid, o.user_id)).map((o) => 'note ' + o.uid),
-    ...all('SELECT uid FROM marks m WHERE NOT EXISTS (SELECT 1 FROM adopted_marks x WHERE x.id=m.id)').map((m) => 'mark ' + m.uid),
-    ...all('SELECT uid FROM itineraries i WHERE NOT EXISTS (SELECT 1 FROM adopted_itineraries x WHERE x.id=i.id)').map((i) => 'itinerary ' + i.uid)];
-  ok('I1 no orphans: every Note, Mark or Itinerary outside the corpus has a relationship explaining it', orphans.length === 0, orphans.join(', '));
+  const orph = orphans(db);
+  ok('I1 no orphans: every Note, Mark or Itinerary outside the corpus has a relationship explaining it', orph.length === 0, orph.join(', '));
   ok('I1b ...and the one such Note here is explained by its pending Ensemble', !kept('object', fx.pendingNote)
      && one("SELECT status FROM ensembles WHERE uid=?", fx.pendingEnsemble).status === 'pending_review');
   ok('I2 no adoption row points at a record that no longer exists', all(`SELECT a.subject_type t, a.subject_uid u FROM adoptions a`).every((r) =>
     !!one(`SELECT 1 FROM ${{ object: 'objects', mark: 'marks', itinerary: 'itineraries' }[r.t]} WHERE uid=?`, r.u)));
   ok('I3 every adoption row has its own provenance', one(`SELECT COUNT(*) n FROM adoptions a WHERE NOT EXISTS
-    (SELECT 1 FROM provenance p WHERE p.entity_type='adoption' AND p.entity_uid=a.uid)`).n === 2   // P15's two scaffolding rows only
+    (SELECT 1 FROM provenance p WHERE p.entity_type='adoption' AND p.entity_uid=a.uid)`).n === 6   // scaffolding rows only (P15, C7-C11)
   );
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

@@ -2,7 +2,11 @@
 
 Written against `f3a69cf`. **This supersedes v1**, which proposed a proposition-first Recommendation materialised at adoption ("Path A"). The brief of 23 September 2026 chose the relationship-first model, and inspection confirms it's compatible, subject to one decision (§1).
 
-**Status: Increment 1 (Adoption) built, migration 052; see `docs/recommendations-increment1-report.md`, which has four decisions for Brian.** Increments 2 and 3 are designed, not built.
+**Status (v2.55.0):**
+- **Increments 1–3 are built:** Adoption (052), Recommendation (053), and the additive MCP tools.
+- **Increment 4 (web Recommended surface) isn't built yet.**
+- The MCP freeze in §1 and §5 is superseded by the submitted-contract compatibility rule (`docs/plugin-submission.md`).
+- Reports: `docs/recommendations-increment1-report.md`, `docs/recommendations-increments-2-3-report.md` and `docs/recommendations-decisions-report.md` (decisions A–E, and the `/mcp` and `/mcp-dev` split).
 
 ## 1. Verdict on the brief's hypothesis
 

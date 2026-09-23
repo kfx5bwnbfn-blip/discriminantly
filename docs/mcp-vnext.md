@@ -1,4 +1,4 @@
-# MCP vNext — capabilities waiting for the review freeze to lift
+# MCP vNext — capabilities waiting on the MCP surface
 
 A queue of product capabilities that **exist, or are approved, beneath the frozen MCP boundary** but that AI clients can't use yet. It isn't a roadmap: an item goes in only when implemented or approved work actually produces it.
 
@@ -10,7 +10,7 @@ When the freeze lifts:
 5. audit semantics and authorisation;
 6. implement it, test it in ChatGPT and Claude, and update the Skills.
 
-**Rule during the freeze:** freeze the submitted MCP surface, not the application. The guard is described in `docs/plugin-submission.md` under "MCP freeze".
+**Rule during review:** freeze compatibility, not capability development. Submitted tools stay compatible, and new capabilities may be added as new tools. See `docs/plugin-submission.md`, "Submitted-contract compatibility". Items below that change a *submitted* tool still wait for review to finish; additive ones don't.
 
 Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
 
@@ -43,22 +43,20 @@ Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
 - AI attachments are recorded as `ai_on_behalf`, with `existing_note` or `new_note`.
 - A vague category ("Kona coffee") never becomes a Note.
 
-**Status.** Domain done · web app done (v2.54.0) · **awaiting MCP**.
+**Status.** Domain done · web app done (v2.54.0) · **MCP done as additive tools (v2.55.0):** `set_stop_note` attaches or detaches a note, and `list_stop_notes` reads a plan's notes by stop. `my_itineraries` stays unchanged, as submitted.
 
-## Adopted projection for the frozen corpus reads (Recommendations prerequisite)
+## Recommendations orbit and Adoption — shipped as additive tools (v2.55.0)
 
-**Capability.** Adoption (members see *Keep* / *Kept*) exists beneath the boundary since migration 052 (Recommendations, Increment 1). The web reads the member's corpus through the Adopted projection (`adopted_objects`, `adopted_marks`, `adopted_itineraries`, and `ADOPTED_OBJ_SQL` / `ADOPTED_MARK_SQL`). The frozen dispatcher still reads every row, through `OBJ_SQL`, `MARK_SQL` and raw `FROM objects` / `FROM marks` / `FROM itineraries`, exactly as submitted.
+**Done.**
+- **Prerequisite:** every submitted corpus read now reads the Adopted projection behind its unchanged contract:
+  - `my_notes`, `my_travel_marks`, `my_itineraries` (the list), `search_catalogue`, `catalogue_stats`, `recent_notes` and `my_collections` counts;
+  - duplicate detection in `note_object` and `add_travel_mark`.
+- **Additive tools:** `record_recommendations`, `resolve_recommendation`, `list_recommendations`, `keep_recommendation` and `dismiss_recommendation`.
 
-**Why it must move before any recommendation exists (a prerequisite, not an option).** Today the only records outside the corpus are Notes made for an Ensemble still pending review, and the frozen tools listing them is today's behaviour. Once Recommendation can create recommendation-only Notes, Marks and Itineraries, every frozen corpus read would present a proposal as something the member kept.
-
-**What moves.**
-- `my_notes`, `my_travel_marks`, `my_itineraries`: read the projection.
-- `search_catalogue`, `catalogue_stats`: count and search the projection.
-- `recent_notes`: the public feed reads the projection (a record outside the corpus is private to its member whatever its flag).
-- Duplicate detection (`findSimilarNote`, `findSimilarMark`, used by `note_object` and `add_travel_mark`): decide whether a near-duplicate of a recommendation-only record should refuse, or offer to Keep the existing one.
-- `re_note` already refuses a source outside the corpus (enforced in the shared `renoteFrom`), and `edit_note` already refuses filing one in a collection (enforced in `setCollections`).
-
-**Then the new capabilities** (docs/recommendations-design.md §5): record deliberately selected recommendations; resolve them progressively; list what's recommended; adopt a record or a whole itinerary; dismiss one, with a reason.
+**Open follow-ups.**
+- **`note_object` on something already recommended.** It makes a separate Kept note, as its contract says. Skills should call `keep_recommendation` instead. Consider whether a future `note_object` should offer to keep the recommended record.
+- **The Recommended web surface** (Increment 4).
+- **Presentation events** ("presented"): the schema doesn't preclude them.
 
 ---
 
