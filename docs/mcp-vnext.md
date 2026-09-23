@@ -12,7 +12,7 @@ When the freeze lifts:
 
 **Rule during the freeze:** freeze the submitted MCP surface, not the application. The guard is described in `docs/plugin-submission.md` under "MCP freeze".
 
-Last updated: 23 September 2026 (v2.54.1).
+Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
 
 ---
 
@@ -44,6 +44,23 @@ Last updated: 23 September 2026 (v2.54.1).
 - A vague category ("Kona coffee") never becomes a Note.
 
 **Status.** Domain done · web app done (v2.54.0) · **awaiting MCP**.
+
+## Adopted projection for the frozen corpus reads (Recommendations prerequisite)
+
+**Capability.** Adoption (members see *Keep* / *Kept*) exists beneath the boundary since migration 052 (Recommendations, Increment 1). The web reads the member's corpus through the Adopted projection (`adopted_objects`, `adopted_marks`, `adopted_itineraries`, and `ADOPTED_OBJ_SQL` / `ADOPTED_MARK_SQL`). The frozen dispatcher still reads every row, through `OBJ_SQL`, `MARK_SQL` and raw `FROM objects` / `FROM marks` / `FROM itineraries`, exactly as submitted.
+
+**Why it must move before any recommendation exists (a prerequisite, not an option).** Today the only records outside the corpus are Notes made for an Ensemble still pending review, and the frozen tools listing them is today's behaviour. Once Recommendation can create recommendation-only Notes, Marks and Itineraries, every frozen corpus read would present a proposal as something the member kept.
+
+**What moves.**
+- `my_notes`, `my_travel_marks`, `my_itineraries`: read the projection.
+- `search_catalogue`, `catalogue_stats`: count and search the projection.
+- `recent_notes`: the public feed reads the projection (a record outside the corpus is private to its member whatever its flag).
+- Duplicate detection (`findSimilarNote`, `findSimilarMark`, used by `note_object` and `add_travel_mark`): decide whether a near-duplicate of a recommendation-only record should refuse, or offer to Keep the existing one.
+- `re_note` already refuses a source outside the corpus (enforced in the shared `renoteFrom`), and `edit_note` already refuses filing one in a collection (enforced in `setCollections`).
+
+**Then the new capabilities** (docs/recommendations-design.md §5): record deliberately selected recommendations; resolve them progressively; list what's recommended; adopt a record or a whole itinerary; dismiss one, with a reason.
+
+---
 
 ## Common-sense duplicate detection (ontology D2)
 

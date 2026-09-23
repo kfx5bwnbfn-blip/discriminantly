@@ -43,5 +43,17 @@ module.exports = function seed(db) {
   const imgs = { 'de Buyer': '/seed/debuyer.jpg', 'Blenheim': '/seed/blenheim.jpg', "Jamieson's": '/seed/jamiesons.jpg', 'Pilot': '/seed/pilot.jpg', 'Rimowa': '/seed/rimowa.jpg', 'Mauviel': '/seed/mauviel.jpg' };
   const colls = { 'de Buyer': ['Kitchen'], 'Blenheim': ['Kitchen', 'Made in Britain'], "Jamieson's": ['Sartorial Matters', 'Made in Britain'], 'Pilot': ['Study'], 'Rimowa': ['Travel'], 'Mauviel': ['Kitchen'] };
   const ic = db.prepare('INSERT OR IGNORE INTO collections(user_id,name) VALUES(1,?)'); const gc = db.prepare('SELECT id FROM collections WHERE user_id=1 AND name=?'); const oc = db.prepare('INSERT OR IGNORE INTO note_collections(note_id,collection_id) VALUES(?,?)');
-  for (const r of rows) { const img = Object.entries(imgs).find(([k]) => r[0].startsWith(k)); const id = ins.run(...r, img ? img[1] : '').lastInsertRowid; note.run(id); for (const [k, names] of Object.entries(colls)) if (r[0].startsWith(k)) for (const n of names) { ic.run(n); oc.run(id, gc.get(n).id); } }
+  // Demo entries are the admin's own Notes on the site, so they are Kept
+  // (migration 052). Seeding records its adoptions itself: it bypasses
+  // noteCreate, and a collection accepts only Kept Notes.
+  const hasAdoptions = !!db.prepare("SELECT 1 FROM sqlite_master WHERE name='adoptions'").get();
+  const keep = (id) => {
+    if (!hasAdoptions) return;
+    const uid = db.prepare('SELECT uid FROM objects WHERE id=?').get(id).uid;
+    const a = db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'object',?,'adopted')").run(uid);
+    const auid = db.prepare('SELECT uid FROM adoptions WHERE rowid=?').get(a.lastInsertRowid).uid;
+    db.prepare(`INSERT INTO provenance(entity_type,entity_uid,action,assertion,actor_type,actor_user_id,agent,auth_method,source_kind,source_ref,fields)
+      VALUES('adoption',?,'adopted','explicit','system',NULL,'system','system','seed',?,?)`).run(auid, uid, 'object:' + uid);
+  };
+  for (const r of rows) { const img = Object.entries(imgs).find(([k]) => r[0].startsWith(k)); const id = ins.run(...r, img ? img[1] : '').lastInsertRowid; note.run(id); keep(id); for (const [k, names] of Object.entries(colls)) if (r[0].startsWith(k)) for (const n of names) { ic.run(n); oc.run(id, gc.get(n).id); } }
 };

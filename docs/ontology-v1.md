@@ -111,6 +111,21 @@ AI actions are therefore canonical evidence that something happened, but always 
 | Legal transitions | active → revoked → active again. |
 | AI may infer | Nothing. It's the member's statement only. |
 
+### Adoption (members see *Keep* / *Kept*; migration 052)
+| Question | Answer |
+|---|---|
+| Asserts | "I deliberately brought this Note, Mark or Itinerary into my corpus." |
+| Does not assert | Ownership, a visit, an experience, a purchase or a Warrant. None of those implies it, and it implies none of them. |
+| Created by | The member, or AI on their explicit instruction, at the moment a record is made (note, mark, itinerary, re-note); Keep on a pending Ensemble; never by a recommendation workflow itself. |
+| Identity | An append-only row in `adoptions` with a `uid`, scoped to member, subject type (`object`, `mark`, `itinerary`) and subject uid. |
+| Evidence | Explicit. Backfilled rows (every record existing at migration 052, dated from when the corpus gained it) are `derived`, from a schema migration, with the basis in provenance `fields`. Adoptions caused by Keep, or by a Note surviving its pending Ensemble's discard, are `derived` from that act. |
+| Provenance | States `adopted` and `withdrawn`, as rows, plus provenance rows. |
+| Privacy | A record without Adoption is private to its member, whatever its own flag, and appears on no corpus or public surface (the Adopted projection). |
+| Deletion | Withdrawing appends a row. Deleting the record removes its rows (trigger) and records each removal as `deleted`, `cascade`. |
+| Retrieval | The Adopted projection: views `adopted_objects`, `adopted_marks`, `adopted_itineraries`. Frozen MCP reads still read every row until MCP vNext. |
+| Invariant | No orphans: a Note or Mark without Adoption must have another relationship explaining it (today only a pending Ensemble; Recommendation in Increment 2). Checked at boot. |
+| AI may infer | Nothing. |
+
 ### Collection
 | Question | Answer |
 |---|---|

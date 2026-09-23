@@ -549,8 +549,9 @@ console.log('\nmark and ensemble colophons');
      !/itinerary_stops/.test(mk));
   ok('M4 origin is never inferred from timestamps',
      !/created_at\s*[<>]/.test(mk));
+  // canView: canSee, plus a plan outside its member's corpus is theirs alone (052)
   ok('M5 a private plan is never named to someone who cannot see it',
-     /canSee\(it, me\)/.test(mk) && /'a trip'/.test(mk));
+     /canView\('itinerary', it, me\)/.test(mk) && /'a trip'/.test(mk));
   ok('M6 enrichment is claimed only where provenance says so',
      /rows\.filter\(\(r\) => r\.action === 'enriched'\)/.test(mk));
   ok('M7 enrichment is collapsed into one line, not one per field',
@@ -567,7 +568,7 @@ console.log('\nmark and ensemble colophons');
      !/visits|check.?in/i.test(mk));
 
   ok('E1 constituents naming a private note are withheld',
-     /canSee\(note, me\)/.test(en) && /withheld/.test(en));
+     /canView\('object', note, me\)/.test(en) && /withheld/.test(en));
   ok('E2 AI composition rests on the artifact\u2019s own generated row',
      /entity_type='ensemble_artifact'[\s\S]*source_kind='generated'/.test(en));
   ok('E3 Keep is read from the ledger, never assumed',
@@ -1168,7 +1169,7 @@ console.log('\nprofile feed');
 {
   const i = SRC.indexOf('  user(req, res, me, handle, url) {'), b = SRC.slice(i, i + 40000);
   ok('PF1 the All feed shows marks by the same rule as notes, itineraries and the Marks tab (canSee)',
-     /for \(const x of q\(MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC LIMIT 30'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
+     /for \(const x of q\(ADOPTED_MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC LIMIT 30'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
      && !/if \(!x\.private \|\| owner\) acts\.push/.test(b));
 }
 
@@ -1267,9 +1268,113 @@ console.log('\nstop notes');
   ok('SN5 attaching writes only the attachment: no note, ownership, warrant or check-in',
      !/INSERT INTO (objects|ownership_assertions|warrants|visits)/.test(a) && !/UPDATE objects/.test(a));
   ok('SN6 attached notes are shown only to viewers who can see them',
-     /function stopNotesVisible\(stopId, me\) \{[\s\S]*?\.filter\(\(o\) => canSee\(o, me\)\)/.test(SRC));
+     /function stopNotesVisible\(stopId, me\) \{[^}]*?\.filter\(\(o\) => canView\('object', o, me\)\)/.test(SRC));
   ok('SN7 attach and detach controls are the real owner\u2019s only',
      /const myNotes = ctl \? /.test(SRC) && /\$\{ctl \? `<form method="post" action="\$\{base\}\/stops\/\$\{st\.uid\}\/notes\/\$\{o\.uid\}\/delete"/.test(SRC));
+}
+
+// ---- Adoption (Recommendations, Increment 1; migration 052) ----------------
+// Source contracts. The database behaviour (backfill, projection, triggers,
+// privacy) is exercised against a real server by test/adoption.js.
+console.log('\nadoption');
+{
+  // the frozen MCP regions, by the same markers test/mcp-freeze.js uses
+  const span = (a, b, incl = false) => { const i = SRC.indexOf(a); const j = SRC.indexOf(b, i + a.length); return [i, incl ? j + b.length : j]; };
+  const schemaAt = SRC.search(/\nconst OS_[A-Z_]+ = /) + 1;
+  const frozen = [span('const OAUTH_SCOPE = ', 'function clientInfoFrom(params)'),
+    [schemaAt, SRC.indexOf('which is not a tool`);', schemaAt) + 22],
+    span('async function mcpCall(', 'const STATIC = {'),
+    span("if ((mt = p.match(/^\\/mcp\\/([A-Za-z0-9_-]+)$/)))", "if (p === '/mcp') return mcp(req, res, null);", true),
+    span('// ---- OAuth discovery', "if (p === '/settings/connections' && m === 'POST')")];
+  const inFrozen = (i) => frozen.some(([a, b]) => i >= a && i < b);
+  const body = (start, end) => SRC.slice(SRC.indexOf(start), SRC.indexOf(end, SRC.indexOf(start) + start.length));
+
+  // K1: outside the frozen dispatcher, OBJ_SQL / MARK_SQL (every row) are used
+  // only to reach ONE record by id or uid. Anything that lists, counts,
+  // searches or publishes reads the Adopted projection.
+  const raw = [...SRC.matchAll(/\b(OBJ_SQL|MARK_SQL) \+ (['`])([^'`]*)\2/g)].filter((m) => !inFrozen(m.index));
+  const lists = raw.filter((m) => !/^ WHERE (o|m)\.(id|uid)=\?$/.test(m[3]));
+  ok('K1a the guard sees the single-record reads it allows', raw.length >= 8, String(raw.length));
+  ok('K1 outside frozen MCP, every-row reads are single-record lookups only', lists.length === 0,
+     lists.map((m) => m[0].slice(0, 60)).join(' | '));
+  ok('K1b the frozen dispatcher still reads OBJ_SQL and MARK_SQL exactly as submitted (vNext moves them)',
+     /const OBJ_SQL = 'SELECT o\.\*, u\.handle, u\.name uname, u\.avatar FROM objects o JOIN users u ON u\.id=o\.user_id';/.test(SRC)
+     && /const MARK_SQL = 'SELECT m\.\*, u\.handle, u\.name uname, u\.avatar FROM marks m JOIN users u ON u\.id=m\.user_id';/.test(SRC));
+  ok('K1c the projection constants read the adopted views',
+     /const ADOPTED_OBJ_SQL = '[^']*FROM adopted_objects o /.test(SRC) && /const ADOPTED_MARK_SQL = '[^']*FROM adopted_marks m /.test(SRC));
+
+  // K2: corpus surfaces, by name
+  const home = body("rows = mineToo", 'const banner = resurfaceBanner(');
+  ok('K2a the home feed reads notes, marks and itineraries from the projection',
+     /ADOPTED_OBJ_SQL/.test(home) && /ADOPTED_MARK_SQL/.test(home) && /FROM adopted_itineraries/.test(home) && !/[^_]OBJ_SQL|[^_]MARK_SQL|FROM itineraries/.test(home));
+  const search = body('function searchGroups(', 'const people = ');
+  ok('K2b search reads the projection', /ADOPTED_OBJ_SQL/.test(search) && /ADOPTED_MARK_SQL/.test(search) && /adopted_itineraries/.test(search));
+  ok('K2c /objects.json publishes only the projection', /p === '\/objects\.json'\) return json\(res, q\(ADOPTED_OBJ_SQL/.test(SRC));
+  const resurf = body('function resurfaceCandidate(', 'function resurfaceCard(');
+  ok('K2d resurfacing reads only the projection', /adopted_marks/.test(resurf) && !/q\(OBJ_SQL|q\(MARK_SQL \+ `/.test(resurf));
+  const rail = body('function profileRail(', 'const following =');
+  ok('K2e profile counts count the projection', /ADOPTED_OBJ_SQL/.test(rail) && /FROM adopted_marks/.test(rail) && /FROM adopted_itineraries/.test(rail));
+  ok('K2f an image is public only through a public record in the corpus',
+     /function imageIsPublic\(img\) \{[\s\S]{0,400}FROM adopted_objects WHERE private=0[\s\S]{0,200}FROM adopted_marks WHERE private=0/.test(SRC));
+
+  // K3: single records reached by id are shown through canView, which keeps a
+  // record outside the corpus private to its member
+  ok('K3 canView: a record outside the corpus is its member’s alone, whatever its flag',
+     /const canView = \(subjectType, row, me\) => \(isAdopted\(subjectType, row\.uid\)\s*\? canSee\(row, me\) : !!\(me && me\.id === row\.user_id\)\);/.test(SRC));
+  ok('K3b the note, mark and itinerary pages use canView',
+     /!canView\('object', o, me\)\) return send\(res, layout\(\{ title: 'Not found', body: '<p>No such note\./.test(SRC)
+     && /!canView\('mark', m, me\)\) return send\(res, layout\(\{ title: 'Not found', body: '<p>No such mark\./.test(SRC)
+     && /!canView\('itinerary', it, me\)\) return send\(res, layout\(\{ title: 'Not found', body: '<p>No such itinerary\./.test(SRC));
+  ok('K3c a record outside the corpus is never a source for re-noting',
+     /function renoteFrom\(src, me, ctx\) \{\s*(\/\/[^\n]*\n\s*)*if \(!isAdopted\('object', src\.uid\)\) throw/.test(SRC));
+
+  // K4: every creation path records Adoption, and nothing else does
+  const nc = body('function noteCreate(', '// ---- canonical mark creation');
+  const mc = body('function markCreate(', '// ---- canonical visit recording');
+  const ic = body('function itineraryCreate(', 'function itineraryEdit(');
+  const rn = body('function renoteFrom(', '// ---- Ensemble (v1.18)');
+  ok('K4 noteCreate, markCreate, itineraryCreate and renoteFrom each record Adoption',
+     /recordAdoption\(user\.id, 'object'/.test(nc) && /recordAdoption\(user\.id, 'mark'/.test(mc)
+     && /recordAdoption\(user\.id, 'itinerary'/.test(ic) && /recordAdoption\(me\.id, 'object'/.test(rn));
+  ok('K4b a Note made for a pending Ensemble is the one exception, and only that',
+     /const forPendingEnsemble = source_kind === 'ensemble' && source_ref\s*&& !!q\("SELECT 1 FROM ensembles WHERE uid=\? AND status='pending_review'"\)/.test(nc)
+     && /if \(!forPendingEnsemble\) recordAdoption/.test(nc));
+  ok('K4c collections are applied after Adoption, so a new Kept Note can be filed at once',
+     nc.indexOf('recordAdoption(') < nc.indexOf('setCollections(') && mc.indexOf('recordAdoption(') < mc.indexOf('setMarkCollections('));
+  const calls = [...SRC.matchAll(/recordAdoption\(/g)].map((m) => m.index).filter((i) => !SRC.slice(i - 9, i).includes('function'));
+  const where = calls.map((i) => { const f = SRC.lastIndexOf('\nfunction ', i); return SRC.slice(f + 10, SRC.indexOf('(', f + 10)); });
+  ok('K4d nothing else records Adoption (no inference from other acts)',
+     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom'].includes(w)), where.join(', '));
+
+  // K5: independence
+  const own = body('function assertOwned(', '// ---- Adoption (members see "Keep"');
+  const vr = body('function visitRecord(', 'function stopAdd(');
+  ok('K5 Owned, Warrant and Check-in never write or read Adoption', !/adopt/i.test(own) && !/Adoption|adoptions/.test(vr));
+  const adoptFns = body('// ---- Adoption (members see "Keep"', '// Visibility for a single record');
+  ok('K5b Adoption never reads ownership, warrants or check-ins', !/ownership|warrant|visits/i.test(adoptFns.replace(/\/\/[^\n]*/g, '')));
+
+  // K6: collections and Stops
+  ok('K6 only a Kept record joins a collection (domain + structural trigger)',
+     /function setCollections\(userId, noteId, names\) \{\s*refuseUnkept\('object'/.test(SRC)
+     && /function setMarkCollections\(userId, markId, names\) \{\s*refuseUnkept\('mark'/.test(SRC)
+     && /trg_note_collections_kept_only BEFORE INSERT ON note_collections/.test(SRC)
+     && /trg_mark_collections_kept_only BEFORE INSERT ON mark_collections/.test(SRC));
+  ok('K6b a Stop in an adopted plan takes only a Kept Note',
+     /if \(itin && isAdopted\('itinerary', itin\.uid\) && !isAdopted\('object', note\.uid\)\) throw/.test(SRC));
+
+  // K7: the migration
+  const mig = body("['052-adoptions'", '\n];');
+  ok('K7 052 is the last migration, append-only and additive',
+     SRC.indexOf("['052-adoptions'") > SRC.indexOf("['051-itinerary-stop-notes'") && !/DROP TABLE|ALTER TABLE \w+ RENAME|DELETE FROM (objects|marks|itineraries)\b/.test(mig));
+  ok('K7b a pending Ensemble’s Notes are not backfilled as adopted',
+     /ens\.status === 'pending_review'\) \{ skip\('object', 'pending_ensemble'\)/.test(mig));
+  ok('K7c backfill provenance says derived, by a schema migration, dated now',
+     /VALUES \('adoption', \?, 'adopted', 'derived', 'system', NULL, 'migration', 'system', NULL, 'schema_migration'/.test(mig));
+  ok('K7d Keep adopts, and a pending Ensemble’s surviving Notes are retained, structurally',
+     /trg_ensemble_keep_adopts AFTER UPDATE OF status ON ensembles\s*WHEN OLD\.status = 'pending_review' AND NEW\.status = 'saved'/.test(mig)
+     && /trg_ensemble_pending_delete_retains BEFORE DELETE ON ensembles\s*WHEN OLD\.status = 'pending_review'/.test(mig));
+  ok('K7e deleting a record removes its Adoption rows and records that it did',
+     ['objects', 'marks', 'itineraries'].every((t) => new RegExp(`trg_\\$\\{table\\}_delete_adoptions BEFORE DELETE ON \\$\\{table\\}`).test(mig)));
 }
 
 // ---- MCP contract guard: generated tool definitions vs the submitted snapshot

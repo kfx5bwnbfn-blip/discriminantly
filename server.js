@@ -1077,6 +1077,182 @@ const MIGRATIONS = [
     END`);
   }],
 
+  // ---- Recommendations, Increment 1: Adoption (members see "Keep" / "Kept") --
+  // Adoption asserts that the member deliberately brought this Note, Mark or
+  // Itinerary into their corpus. Nothing more: not ownership, a visit, an
+  // experience, a purchase or a Warrant, and none of those imply it.
+  //
+  // Until now a record existing and the member adopting it were the same
+  // moment, so adoption had no evidence of its own. Recommendations add a
+  // second way in, so the evidence becomes explicit here (docs/recommendations-
+  // design.md, v2; migration 031's no-draft-state principle refined, not
+  // reversed: a record without Adoption is never a draft, and must always have
+  // another truthful relationship explaining why it exists).
+  //
+  // Append-only, like Owned and Warrant: withdrawing appends a row. The latest
+  // row per subject is the current state. subject_uid is polymorphic, so
+  // deletion is handled by triggers on the three parent tables.
+  //
+  // The SQL is held in variables rather than inline template literals on
+  // purpose: the itinerary migration-constraint test replays every inline
+  // statement from 041 onward against a skeleton schema without marks.
+  ['052-adoptions', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    const run = (sql) => db.exec(sql);
+    run(`CREATE TABLE IF NOT EXISTS adoptions (
+      id           INTEGER PRIMARY KEY,
+      uid          TEXT,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      subject_type TEXT NOT NULL CHECK (subject_type IN ('object','mark','itinerary')),
+      subject_uid  TEXT NOT NULL,
+      state        TEXT NOT NULL CHECK (state IN ('adopted','withdrawn')),
+      created_at   TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    run(`CREATE TRIGGER IF NOT EXISTS trg_adoptions_uid AFTER INSERT ON adoptions
+      WHEN NEW.uid IS NULL OR NEW.uid = ''
+      BEGIN UPDATE adoptions SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    run('CREATE UNIQUE INDEX IF NOT EXISTS idx_adoptions_uid ON adoptions(uid)');
+    run('CREATE INDEX IF NOT EXISTS idx_adoptions_subject ON adoptions(subject_type, subject_uid, id)');
+    run('CREATE INDEX IF NOT EXISTS idx_adoptions_user ON adoptions(user_id, subject_type, state)');
+
+    // The Adopted projection. active_adoptions is each member's latest row per
+    // subject, when that row says 'adopted'. The adopted_* views then require
+    // the adopting member to be the record's own member: an adoption row can
+    // never put someone else's record in your corpus, nor take yours out.
+    run(`CREATE VIEW IF NOT EXISTS active_adoptions AS
+      SELECT a.* FROM adoptions a WHERE a.state = 'adopted'
+        AND NOT EXISTS (SELECT 1 FROM adoptions b WHERE b.user_id = a.user_id AND b.subject_type = a.subject_type
+                          AND b.subject_uid = a.subject_uid AND b.id > a.id)`);
+    for (const [view, table, type] of [['adopted_objects', 'objects', 'object'],
+                                       ['adopted_marks', 'marks', 'mark'],
+                                       ['adopted_itineraries', 'itineraries', 'itinerary']]) {
+      run(`CREATE VIEW IF NOT EXISTS ${view} AS SELECT t.* FROM ${table} t
+        WHERE EXISTS (SELECT 1 FROM active_adoptions a WHERE a.subject_type = '${type}'
+                        AND a.subject_uid = t.uid AND a.user_id = t.user_id)`);
+    }
+
+    // Deleting a record removes its adoption rows, and records that it did
+    // (as migration 049 does for a record's other dependants).
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    for (const [table, type] of [['objects', 'object'], ['marks', 'mark'], ['itineraries', 'itinerary']]) {
+      run(`CREATE TRIGGER IF NOT EXISTS trg_${table}_delete_adoptions BEFORE DELETE ON ${table} BEGIN
+        INSERT INTO provenance (${cols})
+          SELECT 'adoption', a.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, NULL
+          FROM adoptions a WHERE a.subject_type = '${type}' AND a.subject_uid = OLD.uid AND a.uid IS NOT NULL;
+        DELETE FROM adoptions WHERE subject_type = '${type}' AND subject_uid = OLD.uid;
+      END`);
+    }
+
+    // Ensembles. Notes made for a composition still pending review are NOT
+    // corpus membership (migration 031): they exist because the pending
+    // Ensemble does, and discarding it removes them. Two transitions change
+    // that, and both live in the frozen MCP dispatcher, so they are observed
+    // here structurally rather than edited there:
+    //   Keep    (pending_review -> saved): the commitment boundary. Every Note
+    //           this Ensemble made is adopted, as a consequence of that act.
+    //   Discard or delete while pending: Notes the member had since made their
+    //           own (edited, filed, used elsewhere...) survive, as they always
+    //           have, and stay in the member's notes. Surviving has always meant
+    //           corpus membership, so it is recorded as such, citing the cause.
+    // Each adoption is written with a provenance row saying it was derived
+    // from that act; the act itself carries its own actor.
+    const madeBy = (ens) => `SELECT o.user_id, o.uid FROM objects o
+      WHERE o.user_id = ${ens}.user_id
+        AND o.uid IN (SELECT p.entity_uid FROM provenance p WHERE p.entity_type = 'object'
+                        AND p.action = 'created' AND p.source_kind = 'ensemble' AND p.source_ref = ${ens}.uid)
+        AND NOT EXISTS (SELECT 1 FROM active_adoptions a WHERE a.subject_type = 'object' AND a.subject_uid = o.uid AND a.user_id = o.user_id)`;
+    const adoptProv = (kind, ens) => `INSERT INTO provenance (${cols})
+      SELECT 'adoption', a.uid, 'adopted', 'derived', 'system', NULL, 'system', 'system', NULL, '${kind}', ${ens}.uid, 'object:' || a.subject_uid
+      FROM adoptions a WHERE a.subject_type = 'object' AND a.state = 'adopted'
+        AND a.subject_uid IN (SELECT p.entity_uid FROM provenance p WHERE p.entity_type = 'object'
+                                AND p.action = 'created' AND p.source_kind = 'ensemble' AND p.source_ref = ${ens}.uid)
+        AND NOT EXISTS (SELECT 1 FROM provenance x WHERE x.entity_type = 'adoption' AND x.entity_uid = a.uid)`;
+    run(`CREATE TRIGGER IF NOT EXISTS trg_ensemble_keep_adopts AFTER UPDATE OF status ON ensembles
+      WHEN OLD.status = 'pending_review' AND NEW.status = 'saved' BEGIN
+        INSERT INTO adoptions (user_id, subject_type, subject_uid, state)
+          SELECT n.user_id, 'object', n.uid, 'adopted' FROM (${madeBy('NEW')}) n;
+        ${adoptProv('ensemble_kept', 'NEW')};
+      END`);
+    run(`CREATE TRIGGER IF NOT EXISTS trg_ensemble_pending_delete_retains BEFORE DELETE ON ensembles
+      WHEN OLD.status = 'pending_review' BEGIN
+        INSERT INTO adoptions (user_id, subject_type, subject_uid, state)
+          SELECT n.user_id, 'object', n.uid, 'adopted' FROM (${madeBy('OLD')}) n;
+        ${adoptProv('ensemble_retained', 'OLD')};
+      END`);
+
+    // Only a Kept record joins a collection. setCollections refuses with a
+    // readable message; these make it structural for any other write path.
+    run(`CREATE TRIGGER IF NOT EXISTS trg_note_collections_kept_only BEFORE INSERT ON note_collections
+      WHEN NOT EXISTS (SELECT 1 FROM adopted_objects o WHERE o.id = NEW.note_id)
+      BEGIN SELECT RAISE(ABORT, 'Only a kept note can be filed in a collection.'); END`);
+    run(`CREATE TRIGGER IF NOT EXISTS trg_mark_collections_kept_only BEFORE INSERT ON mark_collections
+      WHEN NOT EXISTS (SELECT 1 FROM adopted_marks m WHERE m.id = NEW.mark_id)
+      BEGIN SELECT RAISE(ABORT, 'Only a kept travel mark can be filed in a collection.'); END`);
+
+    // ---- backfill: a truthful one --------------------------------------
+    // Each existing record is classified by what it meant under the semantics
+    // in force when it was created, not blindly treated as adopted. The
+    // adoption row is dated when the member's corpus actually gained the
+    // record; its provenance row is dated now and says it was derived by this
+    // migration, with the basis in `fields`.
+    const firstCreated = db.prepare(`SELECT source_kind, source_ref, created_at FROM provenance
+      WHERE entity_type = ? AND entity_uid = ? AND action IN ('created','renoted') ORDER BY id LIMIT 1`);
+    const ensByUid = db.prepare('SELECT uid, status FROM ensembles WHERE uid = ?');
+    const ensProv = db.prepare(`SELECT action, fields, created_at FROM provenance
+      WHERE entity_type = 'ensemble' AND entity_uid = ? ORDER BY id`);
+    const ins = db.prepare('INSERT INTO adoptions (user_id, subject_type, subject_uid, state, created_at) VALUES (?,?,?,\'adopted\',?)');
+    const prov = db.prepare(`INSERT INTO provenance (${cols}, created_at)
+      VALUES ('adoption', ?, 'adopted', 'derived', 'system', NULL, 'migration', 'system', NULL, 'schema_migration', ?, ?, ?)`);
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const tally = {};
+    const adopt = (userId, type, uid, at, basis, ref) => {
+      const r = ins.run(userId, type, uid, at);
+      const auid = db.prepare('SELECT uid FROM adoptions WHERE rowid = ?').get(r.lastInsertRowid).uid;
+      prov.run(auid, ref || uid, `${type}:${basis}`, now);
+      tally[`${type}:${basis}`] = (tally[`${type}:${basis}`] || 0) + 1;
+    };
+    const skip = (type, basis) => { tally[`${type}:${basis} (not adopted)`] = (tally[`${type}:${basis} (not adopted)`] || 0) + 1; };
+
+    for (const o of db.prepare('SELECT id, uid, user_id, created_at, renoted_from_uid FROM objects ORDER BY id').all()) {
+      const c = firstCreated.get('object', o.uid);
+      if (c && c.source_kind === 'ensemble' && c.source_ref) {
+        const ens = ensByUid.get(c.source_ref);
+        const history = ensProv.all(c.source_ref);
+        const keptAt = history.find((h) => h.action === 'edited' && String(h.fields || '').includes('status:saved')
+          && h.created_at >= c.created_at);
+        const stagedPending = history.some((h) => h.action === 'created' && h.fields === 'pending_review');
+        if (ens && ens.status === 'pending_review') { skip('object', 'pending_ensemble'); continue; }
+        if (keptAt) { adopt(o.user_id, 'object', o.uid, keptAt.created_at, 'ensemble_kept', c.source_ref); continue; }
+        if (!ens && stagedPending) {
+          // staged, never kept, now gone: the Note survived a discard or delete
+          const gone = history.find((h) => h.action === 'deleted');
+          adopt(o.user_id, 'object', o.uid, gone ? gone.created_at : o.created_at, 'ensemble_retained', c.source_ref);
+          continue;
+        }
+        // made while the Ensemble was saved (or before review existed, when
+        // saving WAS the commitment): corpus from creation
+        adopt(o.user_id, 'object', o.uid, o.created_at, 'ensemble_saved', c.source_ref);
+        continue;
+      }
+      if (o.renoted_from_uid) { adopt(o.user_id, 'object', o.uid, o.created_at, 'renote'); continue; }
+      // No creation provenance at all: seed data (seed.js) and anything written
+      // before provenance existed. Both were the member's notes on the site.
+      adopt(o.user_id, 'object', o.uid, o.created_at, c ? 'created' : 'created_without_provenance');
+    }
+    for (const m of db.prepare('SELECT uid, user_id, created_at FROM marks ORDER BY id').all()) {
+      // The Mark boundary: a place added to a plan IS marked, so an
+      // itinerary-created Mark was corpus membership from creation too.
+      const c = firstCreated.get('mark', m.uid);
+      adopt(m.user_id, 'mark', m.uid, m.created_at, c && c.source_kind === 'itinerary' ? 'itinerary' : 'created');
+    }
+    for (const it of db.prepare('SELECT uid, user_id, created_at FROM itineraries ORDER BY id').all()) {
+      adopt(it.user_id, 'itinerary', it.uid, it.created_at, 'created');
+    }
+    const summary = Object.entries(tally).map(([k, v]) => `${k} ${v}`).join(', ');
+    if (summary) console.log(`  adoption backfill: ${summary}`);
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1134,7 +1310,18 @@ const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="sta
 // Collections organise the member's OWN Notes. The delete is scoped to this
 // member's collections: the previous unscoped `DELETE ... WHERE object_id=?`
 // wiped every user's membership for a shared object.
+// Collections are organisation, not evidence of adoption, so only a Kept Note
+// can join one: otherwise filing would slip a record into the corpus through
+// the side door. Leaving collections (an empty list) is always allowed.
+function refuseUnkept(subjectType, table, id, names) {
+  if (![...names].some((x) => String(x).trim())) return;
+  const row = q(`SELECT uid FROM ${table} WHERE id=?`).get(id);
+  if (row && !isAdopted(subjectType, row.uid)) {
+    throw new Error(`Only a kept ${subjectType === 'object' ? 'note' : 'travel mark'} can be filed in a collection.`);
+  }
+}
 function setCollections(userId, noteId, names) {
+  refuseUnkept('object', 'objects', noteId, names);
   q(`DELETE FROM note_collections WHERE note_id=? AND collection_id IN
        (SELECT id FROM collections WHERE user_id=?)`).run(noteId, userId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
@@ -1159,8 +1346,10 @@ const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || adminOn(m
 // written before the uid migration may still carry /i/<integer>.
 function imageIsPublic(img) {
   const a = `/i/${img.uid}`, b = `/i/${img.id}`;
-  if (q('SELECT 1 FROM objects WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
-  if (q('SELECT 1 FROM marks WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
+  // Only a record in its member's corpus can make bytes public: one outside it
+  // is private to that member whatever its own flag says.
+  if (q('SELECT 1 FROM adopted_objects WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
+  if (q('SELECT 1 FROM adopted_marks WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
   if (hasTable('ensemble_artifacts')
     && q(`SELECT 1 FROM ensemble_artifacts f JOIN ensembles e ON e.id=f.ensemble_id
           WHERE e.private=0 AND f.image_uid=?`).get(img.uid)) return true;
@@ -1476,7 +1665,7 @@ function resurfaceCandidate(me) {
   const types = [];
 
   // 1. ON THIS DAY — a check-in on this calendar date in an earlier year.
-  const visitDay = q(`SELECT v.visited_on, m.id mark_id FROM visits v JOIN marks m ON m.id=v.mark_id
+  const visitDay = q(`SELECT v.visited_on, m.id mark_id FROM visits v JOIN adopted_marks m ON m.id=v.mark_id
     WHERE v.user_id=? AND v.visited_on IS NOT NULL AND v.visited_on <> ''
       AND strftime('%m-%d', v.visited_on)=? AND v.visited_on < date('now','-1 year')`).all(me.id, md);
   const vd = seededPick(seed('visit-day'), visitDay);
@@ -1486,7 +1675,7 @@ function resurfaceCandidate(me) {
 
   // 2. ON THIS DAY — a note recorded on this date in an earlier year. Recorded,
   //    not discovered: created_at is the day it was written down, nothing more.
-  const noteDay = q(OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m-%d', o.created_at)=?
+  const noteDay = q(ADOPTED_OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m-%d', o.created_at)=?
     AND o.created_at < date('now','-1 year')`).all(me.id, md).filter((o) => noteCooldown(cold, o));
   const nd = seededPick(seed('note-day'), noteDay);
   if (nd) types.push({ kind: 'on-this-day', label: 'On this day',
@@ -1495,7 +1684,7 @@ function resurfaceCandidate(me) {
   // 3. THIS MONTH BEFORE — the understudy, used only when no exact-day
   //    candidate exists, so the two never appear on the same day.
   if (!types.length) {
-    const monthNotes = q(OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m', o.created_at)=?
+    const monthNotes = q(ADOPTED_OBJ_SQL + ` WHERE o.user_id=? AND strftime('%m', o.created_at)=?
       AND o.created_at < date('now','-1 year')`).all(me.id, today.slice(5, 7)).filter((o) => noteCooldown(cold, o));
     const mn = seededPick(seed('month'), monthNotes);
     if (mn) types.push({ kind: 'this-month', label: 'Earlier in ' + MONTHS[+today.slice(5, 7) - 1],
@@ -1504,7 +1693,7 @@ function resurfaceCandidate(me) {
 
   // 4. RETURNED TO — explicit repeated check-ins. Repetition is reported as a
   //    count; it is never converted into a preference.
-  const returned = q(MARK_SQL + ` WHERE m.user_id=? AND
+  const returned = q(ADOPTED_MARK_SQL + ` WHERE m.user_id=? AND
     (SELECT COUNT(*) FROM visits v WHERE v.mark_id=m.id) >= 2`).all(me.id).filter((m) => markCooldown(cold, m));
   const rt = seededPick(seed('returned'), returned);
   if (rt) { const n = q('SELECT COUNT(*) c FROM visits WHERE mark_id=?').get(rt.id).c;
@@ -1516,7 +1705,7 @@ function resurfaceCandidate(me) {
   const ens = q(`SELECT * FROM ensembles WHERE user_id=? AND created_at < date('now','-90 days')
     AND (SELECT COUNT(*) FROM ensemble_components c WHERE c.ensemble_id=ensembles.id AND c.note_uid IS NOT NULL) >= 2`).all(me.id);
   const en = seededPick(seed('ens'), ens);
-  if (en) { const comp = q(OBJ_SQL + ` JOIN ensemble_components c ON c.note_uid=o.uid
+  if (en) { const comp = q(ADOPTED_OBJ_SQL + ` JOIN ensemble_components c ON c.note_uid=o.uid
       WHERE c.ensemble_id=? ORDER BY c.position LIMIT 1`).get(en.id);
     if (comp && noteCooldown(cold, comp)) types.push({ kind: 'together', label: 'You put these together',
       fact: `Composed with another note in ${monthYear(en.created_at)}`, o: comp, href: `/e/${en.id}` }); }
@@ -1750,6 +1939,65 @@ function revokeWarrant(userId, subjectType, subjectUid, ctx) {
 // vocabulary, since every other warrant transition is an append).
 const dropWarrantsFor = (subjectType, subjectUid) =>
   q('DELETE FROM warrants WHERE subject_type=? AND subject_uid=?').run(subjectType, subjectUid);
+
+// ---- Adoption (members see "Keep" / "Kept"; migration 052) -----------------
+// The member deliberately brought this Note, Mark or Itinerary into their
+// corpus. Independent evidence, like Owned and Warrant: nothing here reads
+// ownership, check-ins or warrants, and nothing there reads this. A UI may
+// perform a compound explicit act (Keep + Own), but the domain never infers
+// one from the other.
+const ADOPTABLE = new Set(['object', 'mark', 'itinerary']);
+const ADOPTED_VIEW = { object: 'adopted_objects', mark: 'adopted_marks', itinerary: 'adopted_itineraries' };
+// In the corpus of the record's own member (the projection, one record).
+const isAdopted = (subjectType, subjectUid) => !!(subjectUid && ADOPTED_VIEW[subjectType]
+  && q(`SELECT 1 FROM ${ADOPTED_VIEW[subjectType]} WHERE uid=?`).get(subjectUid));
+// Records the adoption unless it is already current; returns the new row's
+// uid, or null when nothing changed. Created only by the member, or by AI on
+// their explicit instruction — never by a recommendation workflow itself.
+const ADOPTABLE_TABLE = { object: 'objects', mark: 'marks', itinerary: 'itineraries' };
+// Only a record's own member can keep it, or withdraw it from their corpus.
+function adoptionSubject(userId, subjectType, subjectUid) {
+  if (!ADOPTABLE.has(subjectType)) throw new Error(`Cannot keep a ${subjectType}.`);
+  const row = q(`SELECT user_id FROM ${ADOPTABLE_TABLE[subjectType]} WHERE uid=?`).get(subjectUid);
+  if (!row || row.user_id !== userId) throw new Error('Only its own member can keep this.');
+}
+function recordAdoption(userId, subjectType, subjectUid, ctx, { source_kind = 'manual', source_ref = null } = {}) {
+  adoptionSubject(userId, subjectType, subjectUid);
+  if (isAdopted(subjectType, subjectUid)) return null;
+  const r = q("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(?,?,?,'adopted')")
+    .run(userId, subjectType, subjectUid);
+  const uid = uidOf('adoptions', r.lastInsertRowid);
+  recordProvenance('adoption', uid, 'adopted', ctx, { source_kind, source_ref, fields: `${subjectType}:${subjectUid}` });
+  return uid;
+}
+function withdrawAdoption(userId, subjectType, subjectUid, ctx) {
+  adoptionSubject(userId, subjectType, subjectUid);
+  if (!isAdopted(subjectType, subjectUid)) return null;
+  const r = q("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(?,?,?,'withdrawn')")
+    .run(userId, subjectType, subjectUid);
+  const uid = uidOf('adoptions', r.lastInsertRowid);
+  recordProvenance('adoption', uid, 'withdrawn', ctx, { source_kind: 'manual', fields: `${subjectType}:${subjectUid}` });
+  return uid;
+}
+// Why does a record without Adoption exist? Every such Note or Mark must have
+// an answer, or it is a neutral orphan, which the design forbids. Today the
+// only answer is a pending Ensemble that made the Note; Increment 2 adds
+// Recommendation. Returns a short reason, or null for an orphan.
+function unadoptedExplanation(subjectType, row) {
+  if (subjectType === 'object') {
+    const e = q(`SELECT e.uid FROM provenance p JOIN ensembles e ON e.uid = p.source_ref
+      WHERE p.entity_type='object' AND p.entity_uid=? AND p.action='created' AND p.source_kind='ensemble'
+        AND e.status='pending_review' AND e.user_id=?`).get(row.uid, row.user_id);
+    if (e) return `pending_ensemble:${e.uid}`;
+  }
+  return null;
+}
+// Visibility for a single record reached by id or uid. A record outside the
+// member's corpus is private to that member, always, whatever its own flag
+// says (and the admin's private view does not reach it either). Corpus lists
+// read the Adopted projection instead and need only canSee.
+const canView = (subjectType, row, me) => (isAdopted(subjectType, row.uid)
+  ? canSee(row, me) : !!(me && me.id === row.user_id));
 // Rejects strings that merely look like YYYY-MM-DD but aren't a real calendar
 // date (2026-02-30, month 13, non-leap Feb 29). Date's own constructor is too
 // forgiving for this — it silently rolls 2026-02-30 into March 2 — so validity
@@ -3151,14 +3399,14 @@ function emptyState(me, kind, subject = null) {
 
   let suggest = '';
   if (own && (kind === 'notes' || kind === 'feed')) {
-    const picks = q(OBJ_SQL + ' WHERE o.private=0' + (me ? ' AND o.user_id<>?' : '') + ' ORDER BY RANDOM() LIMIT 4').all(...(me ? [me.id] : []));
+    const picks = q(ADOPTED_OBJ_SQL + ' WHERE o.private=0' + (me ? ' AND o.user_id<>?' : '') + ' ORDER BY RANDOM() LIMIT 4').all(...(me ? [me.id] : []));
     if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
       <div class="grid">${picks.map((o) => objectCard(o, me)).join('')}</div>`;
   } else if (own && kind === 'following') {
     const picks = me ? q('SELECT * FROM users WHERE id<>? AND id NOT IN (SELECT followee_id FROM follows WHERE follower_id=?) ORDER BY RANDOM() LIMIT 5').all(me.id, me.id) : [];
     if (picks.length) suggest = `<h3 class="lbl suggest-title">You might like</h3>
       <ul class="people">${picks.map((p) => {
-        const n = q('SELECT COUNT(*) c FROM objects WHERE user_id=? AND private=0').get(p.id).c;
+        const n = q('SELECT COUNT(*) c FROM adopted_objects WHERE user_id=? AND private=0').get(p.id).c;
         return `<li><a class="person" href="/u/${esc(p.handle)}">${avatar(p)}<span class="person-name">${esc(p.handle)}<em>${n} ${n === 1 ? 'note' : 'notes'}</em></span></a>
         <form method="post" action="/u/${esc(p.handle)}/follow"><button class="btn">Follow</button></form></li>`;
       }).join('')}</ul>`;
@@ -3168,11 +3416,15 @@ function emptyState(me, kind, subject = null) {
 
 
 // ---------- travel marks ----------
+// As OBJ_SQL above: MARK_SQL is every row (frozen MCP and single-record
+// reads), ADOPTED_MARK_SQL is the member's corpus.
 const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM marks m JOIN users u ON u.id=m.user_id';
+const ADOPTED_MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM adopted_marks m JOIN users u ON u.id=m.user_id';
 const markCollections = (id) => q('SELECT c.id, c.name FROM mark_collections mc JOIN collections c ON c.id=mc.collection_id WHERE mc.mark_id=? ORDER BY c.name').all(id);
 // Undated visits have no position in time, so they follow every dated one.
 const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON u.id=v.user_id WHERE v.mark_id=? ORDER BY v.date_known DESC, v.visited_on DESC, v.id DESC').all(id);
 function setMarkCollections(userId, markId, names) {
+  refuseUnkept('mark', 'marks', markId, names);
   q('DELETE FROM mark_collections WHERE mark_id=?').run(markId);
   for (const n of [...new Set(names.map((x) => String(x).trim()).filter(Boolean))]) {
     q("INSERT OR IGNORE INTO collections(user_id,name,kind) VALUES(?,?,'mark')").run(userId, n);
@@ -3748,11 +4000,11 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 
 function profileRail(u, me, tab) {
   const owner = me && me.id === u.id;
-  const visible = q(OBJ_SQL + ' WHERE o.user_id=?').all(u.id).filter((o) => canSee(o, me));
+  const visible = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=?').all(u.id).filter((o) => canSee(o, me));
   const fc = followCounts(u.id);
-  const markCount = q('SELECT COUNT(*) c FROM marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
+  const markCount = q('SELECT COUNT(*) c FROM adopted_marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   const ensCount = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
-  const itinCount = q('SELECT COUNT(*) c FROM itineraries WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
+  const itinCount = q('SELECT COUNT(*) c FROM adopted_itineraries WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
   // A visitor's warrant count only ever reflects PUBLIC subjects: a warrant on
   // a private note or mark is not something anyone but the owner should see
   // exists, since that would leak the existence of the private record itself.
@@ -3760,9 +4012,9 @@ function profileRail(u, me, tab) {
     const objUids = warrantedSubjectUids(u.id, 'object'), markUids = warrantedSubjectUids(u.id, 'mark');
     const ownerView = me && me.id === u.id;
     const objN = ownerView ? objUids.size
-      : [...objUids].filter((uid) => { const o = q('SELECT private FROM objects WHERE uid=?').get(uid); return o && !o.private; }).length;
+      : [...objUids].filter((uid) => { const o = q('SELECT private FROM adopted_objects WHERE uid=?').get(uid); return o && !o.private; }).length;
     const markN = ownerView ? markUids.size
-      : [...markUids].filter((uid) => { const m = q('SELECT private FROM marks WHERE uid=?').get(uid); return m && !m.private; }).length;
+      : [...markUids].filter((uid) => { const m = q('SELECT private FROM adopted_marks WHERE uid=?').get(uid); return m && !m.private; }).length;
     return objN + markN;
   })();
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
@@ -3895,10 +4147,15 @@ function equivalentNotes(userId, noteUid) {
     .map((r) => ({ note_uid: r.note_uid, basis: r.basis, relation_uid: r.relation_uid }));
 }
 function renoteFrom(src, me, ctx) {
+  // A record outside its member's corpus is private to them: it is never a
+  // source for re-noting, whatever its own private flag says.
+  if (!isAdopted('object', src.uid)) throw new Error(`No note #${src.id}`);
   const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private,renoted_from_uid)
     VALUES(?,?,?,?,'',?,0,?)`).run(me.id, src.name, src.why, src.url || '', src.image || '', src.uid);
   const note = q('SELECT * FROM objects WHERE id=?').get(r.lastInsertRowid);
   recordProvenance('object', note.uid, 'renoted', ctx, { source_kind: 'renote', source_ref: src.uid });
+  // re-noting is a deliberate member act (design Q9): the new Note is Kept
+  recordAdoption(me.id, 'object', note.uid, ctx, { source_kind: 'renote', source_ref: src.uid });
   return note;
 }
 // ---------- Ensemble (v1.18) ----------
@@ -4150,6 +4407,10 @@ function stopNoteAttach(user, stopUid, noteUid, ctx, { origin = 'existing' } = {
   const { stop } = stopOwned(user, stopUid);
   const note = q('SELECT id, uid FROM objects WHERE uid=? AND user_id=?').get(String(noteUid || ''), user.id);
   if (!note) throw new Error('No such note.');
+  // Context, not adoption (design Q10): a Stop in an adopted plan takes only a
+  // Kept Note, so attaching can never slip a record into the corpus.
+  const itin = q('SELECT uid FROM itineraries WHERE id=?').get(stop.itinerary_id);
+  if (itin && isAdopted('itinerary', itin.uid) && !isAdopted('object', note.uid)) throw new Error('Only a kept note can be added to this plan.');
   const had = q('SELECT uid FROM itinerary_stop_notes WHERE stop_id=? AND note_id=?').get(stop.id, note.id);
   if (had) return { action: 'unchanged', uid: had.uid };
   const r = q('INSERT INTO itinerary_stop_notes(stop_id, note_id, user_id) VALUES(?,?,?)').run(stop.id, note.id, user.id);
@@ -4168,7 +4429,7 @@ function stopNoteDetach(user, stopUid, noteUid, ctx) {
 // The Notes under a Stop that this viewer may see, in attachment order.
 function stopNotesVisible(stopId, me) {
   return q('SELECT o.*, a.uid AS attach_uid FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? ORDER BY a.id')
-    .all(stopId).filter((o) => canSee(o, me));
+    .all(stopId).filter((o) => canView('object', o, me));
 }
 
 function stopOwned(user, uid) {
@@ -4239,6 +4500,7 @@ function itineraryCreate(user, { title = '', context = '', temporal = {}, privat
     .run(user.id, String(title).trim(), String(context).trim(), priv ? 1 : 0, ...T_COLS.map((k) => t[k]));
   const uid = uidOf('itineraries', r.lastInsertRowid);
   recordProvenance('itinerary', uid, 'created', ctx, { source_kind: 'manual' });
+  recordAdoption(user.id, 'itinerary', uid, ctx, { source_kind: 'created', source_ref: uid });
   return itinByUid(uid);
 }
 
@@ -4404,9 +4666,18 @@ function noteCreate(user, {
   // column is a smaller problem than two surfaces disagreeing about the record.
   q('INSERT OR IGNORE INTO notes(user_id,object_id,why) VALUES(?,?,?)')
     .run(user.id, id, String(why || '').trim());
-  if (collections) setCollections(user.id, id, collections);
   const uid = uidOf('objects', id);
   recordProvenance('object', uid, 'created', ctx, { source_kind, source_ref, fields });
+  // Every caller today is the member's own act, or AI on their explicit
+  // instruction, so the Note is Kept as it is made. The one exception is a
+  // Note made for an Ensemble still pending review: that is not yet the
+  // member's commitment, the pending Ensemble explains its existence, and
+  // Keep adopts it (trigger trg_ensemble_keep_adopts).
+  const forPendingEnsemble = source_kind === 'ensemble' && source_ref
+    && !!q("SELECT 1 FROM ensembles WHERE uid=? AND status='pending_review'").get(source_ref);
+  if (!forPendingEnsemble) recordAdoption(user.id, 'object', uid, ctx, { source_kind: 'created', source_ref: uid });
+  // after Adoption: only a Kept Note can join a collection
+  if (collections) setCollections(user.id, id, collections);
   return { id, uid };
 }
 
@@ -4433,8 +4704,11 @@ function markCreate(user, {
          String(why || '').trim(), tags || '', url || '', image || '', priv ? 1 : 0,
          remarked_from_uid || null);
   const uid = uidOf('marks', r.lastInsertRowid);
-  if (collections) setMarkCollections(user.id, r.lastInsertRowid, collections);
   recordProvenance('mark', uid, 'created', ctx, { source_kind, source_ref });
+  // Kept as it is made: every caller is the member's act. A place added to an
+  // adopted itinerary is Kept too (the Mark boundary, refined in Increment 1).
+  recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'created', source_ref: uid });
+  if (collections) setMarkCollections(user.id, r.lastInsertRowid, collections);
   return { id: r.lastInsertRowid, uid };
 }
 
@@ -5007,7 +5281,7 @@ function componentHistory(componentUid) {
 // no uid, no link, no metadata. Enforced here, not in a template.
 function componentView(c, ens, me) {
   const note = c.note_uid ? q('SELECT * FROM objects WHERE uid=?').get(c.note_uid) : null;
-  const noteVisible = note && canSee(note, me);
+  const noteVisible = note && canView('object', note, me);
   return {
     component_uid: c.uid,
     position: c.position,
@@ -5405,7 +5679,14 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
   }
   return out;
 }
+// OBJ_SQL reads every Note row. It is the name the frozen MCP dispatcher uses,
+// so it stays exactly as submitted until MCP vNext moves those reads to the
+// Adopted projection (docs/mcp-vnext.md). Everything else that lists, counts,
+// searches or publishes the corpus reads ADOPTED_OBJ_SQL; a single record
+// reached by id or uid may read OBJ_SQL, and is then shown only through
+// canView('object', ...).
 const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
+const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM adopted_objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
 // is social metadata about the announcement, not part of what a warrant means.
@@ -5553,7 +5834,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // Notes attached to a Stop: things worth noticing there. Rows in the
   // ensemble-component vocabulary, so they read as belonging to the Stop
   // rather than as more Stops. Each is shown only to someone who can see it.
-  const myNotes = ctl ? q('SELECT uid, name FROM objects WHERE user_id=? ORDER BY lower(name)').all(me.id) : [];
+  const myNotes = ctl ? q('SELECT uid, name FROM adopted_objects WHERE user_id=? ORDER BY lower(name)').all(me.id) : [];
   const noteKids = (st) => {
     const ns = stopNotesVisible(st.id, me);
     if (!ns.length) return '';
@@ -5834,10 +6115,10 @@ function itineraryNearbyMarks(it, me, limit = 8) {
     const lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
     const dLa = Math.max((Math.max(...lats) - Math.min(...lats)) * 2, 0.15);
     const dLn = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 2, 0.15);
-    rows = q(MARK_SQL + ' WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?')
+    rows = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?')
       .all(me.id, Math.min(...lats) - dLa, Math.max(...lats) + dLa, Math.min(...lngs) - dLn, Math.max(...lngs) + dLn);
   }
-  const byPlace = q(MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((mk) => {
+  const byPlace = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((mk) => {
     const hay = `${mk.locality || ''} ${mk.country || ''} ${mk.name || ''}`.toLowerCase();
     return [...words].some((w) => hay.includes(w));
   });
@@ -5861,17 +6142,17 @@ function itinerarySuggestions(it, me) {
   if (pts.length) {
     const lats = pts.map((p) => p.lat), lngs = pts.map((p) => p.lng);
     const dLa = Math.max((Math.max(...lats) - Math.min(...lats)) * 2, 0.15), dLn = Math.max((Math.max(...lngs) - Math.min(...lngs)) * 2, 0.15);
-    marks = q(MARK_SQL + ` WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?`)
+    marks = q(ADOPTED_MARK_SQL + ` WHERE m.user_id=? AND m.lat BETWEEN ? AND ? AND m.lng BETWEEN ? AND ?`)
       .all(me.id, Math.min(...lats) - dLa, Math.max(...lats) + dLa, Math.min(...lngs) - dLn, Math.max(...lngs) + dLn);
   }
-  const byPlace = q(MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((m) => {
+  const byPlace = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=?').all(me.id).filter((m) => {
     const hay = `${m.locality || ''} ${m.country || ''} ${m.name || ''}`.toLowerCase();
     return [...words].some((w) => hay.includes(w));
   });
   const seen = new Set();
   marks = [...marks, ...byPlace].filter((m) => !inItin.has(m.uid) && !seen.has(m.uid) && (seen.add(m.uid), true));
 
-  const notes = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id).filter((o) => {
+  const notes = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id).filter((o) => {
     const hay = `${o.tags || ''} ${o.name || ''} ${o.category || ''}`.toLowerCase();
     return [...words].some((w) => hay.includes(w));
   });
@@ -5928,7 +6209,7 @@ function markColophonEntries(m, me) {
     const it = q('SELECT * FROM itineraries WHERE uid=?').get(created.source_ref);
     // A private plan is never named to someone who could not open it; the
     // fact that the mark came from planning is still true and still shown.
-    const show = it && canSee(it, me);
+    const show = it && canView('itinerary', it, me);
     out.push(['Added while planning', show ? [it.title, temporalFormat(temporalOf(it))].filter(Boolean).join(' \u00b7 ') : 'a trip']);
   }
 
@@ -5987,7 +6268,7 @@ function ensembleColophonEntries(e, me) {
   const named = [], withheld = [];
   for (const c of comps) {
     const note = c.note_uid ? q(OBJ_SQL + ' WHERE o.uid=?').get(c.note_uid) : null;
-    if (c.note_uid && !(note && canSee(note, me))) { withheld.push(c); continue; }
+    if (c.note_uid && !(note && canView('object', note, me))) { withheld.push(c); continue; }
     if (c.label) named.push(c.label);
   }
   if (named.length) out.push(['From', named.slice(0, 4).join(' \u00b7 ') + (named.length > 4 ? ` \u00b7 and ${inWords(named.length - 4)} more` : '')]);
@@ -6051,11 +6332,11 @@ function searchGroups(term, me, url) {
   const hit = (...parts) => parts.filter(Boolean).join(' ').toLowerCase().includes(k);
   const out = [];
 
-  const notes = q(OBJ_SQL + (me ? ' WHERE o.private=0 OR o.user_id=?' : ' WHERE o.private=0') + ' ORDER BY o.id DESC LIMIT 600')
+  const notes = q(ADOPTED_OBJ_SQL + (me ? ' WHERE o.private=0 OR o.user_id=?' : ' WHERE o.private=0') + ' ORDER BY o.id DESC LIMIT 600')
     .all(...(me ? [me.id] : [])).filter((o) => canSee(o, me) && hit(o.name, o.why, o.tags));
-  const marks = q(MARK_SQL + (me ? ' WHERE m.private=0 OR m.user_id=?' : ' WHERE m.private=0') + ' ORDER BY m.id DESC LIMIT 600')
+  const marks = q(ADOPTED_MARK_SQL + (me ? ' WHERE m.private=0 OR m.user_id=?' : ' WHERE m.private=0') + ' ORDER BY m.id DESC LIMIT 600')
     .all(...(me ? [me.id] : [])).filter((m) => canSee(m, me) && hit(m.name, m.why, m.tags, m.locality, m.country));
-  const itins = q('SELECT * FROM itineraries' + (me ? ' WHERE private=0 OR user_id=?' : ' WHERE private=0') + ' ORDER BY id DESC LIMIT 300')
+  const itins = q('SELECT * FROM adopted_itineraries' + (me ? ' WHERE private=0 OR user_id=?' : ' WHERE private=0') + ' ORDER BY id DESC LIMIT 300')
     .all(...(me ? [me.id] : [])).filter((it) => canSee(it, me) && hit(it.title, it.context));
   const ens = q('SELECT * FROM ensembles' + (me ? ' WHERE private=0 OR user_id=?' : ' WHERE private=0') + ' ORDER BY id DESC LIMIT 300')
     .all(...(me ? [me.id] : [])).filter((e) => ensCanSee(e, me) && hit(e.title, e.description));
@@ -6102,7 +6383,7 @@ function relatedNotes(o, me) {
   // Same collections: the member's own filing is the strongest adjacency there
   // is, because they put these together deliberately.
   const collIds = q('SELECT collection_id FROM note_collections WHERE note_id=?').all(o.id).map((r) => r.collection_id);
-  const sameColl = collIds.length ? mine(q(OBJ_SQL + `
+  const sameColl = collIds.length ? mine(q(ADOPTED_OBJ_SQL + `
     JOIN note_collections nc ON nc.note_id = o.id
     WHERE nc.collection_id IN (${collIds.map(() => '?').join(',')}) AND o.id <> ?
     GROUP BY o.id ORDER BY o.id DESC LIMIT 60`).all(...collIds, o.id)) : [];
@@ -6114,7 +6395,7 @@ function relatedNotes(o, me) {
     .filter((w) => w.length > 3 && !['with', 'from', 'that', 'this', 'your', 'have'].includes(w)));
   let similar = [];
   if (tags.size || words.size) {
-    similar = mine(q(OBJ_SQL + ' WHERE o.id <> ? ORDER BY o.id DESC LIMIT 400').all(o.id))
+    similar = mine(q(ADOPTED_OBJ_SQL + ' WHERE o.id <> ? ORDER BY o.id DESC LIMIT 400').all(o.id))
       .map((r) => {
         const rt = new Set(tagList(r.tags));
         let score = 0;
@@ -6273,8 +6554,8 @@ const pages = {
     // entries are excluded by the query and again by canSee below.
     const mineToo = !!me;
     let rows = mineToo
-      ? q(OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id)
-      : q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
+      ? q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id)
+      : q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (tag) rows = rows.filter((o) => tagList(o.tags).includes(tag));
@@ -6282,8 +6563,8 @@ const pages = {
     rows = rows.filter((o) => canSee(o, me));   // belt and braces: never leak another member's private note
     // marks share the feed with notes — one journal, two kinds of entry
     let marks = mineToo
-      ? q(MARK_SQL + ' WHERE m.private=0 OR m.user_id=? ORDER BY m.id DESC').all(me.id)
-      : q(MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC').all();
+      ? q(ADOPTED_MARK_SQL + ' WHERE m.private=0 OR m.user_id=? ORDER BY m.id DESC').all(me.id)
+      : q(ADOPTED_MARK_SQL + ' WHERE m.private=0 ORDER BY m.id DESC').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); marks = marks.filter((x) => ids.has(x.user_id)); }
     if (tag) marks = marks.filter((x) => tagList(x.tags).includes(tag));
@@ -6292,7 +6573,7 @@ const pages = {
     // Itineraries are first-class feed objects: the same visibility rule as a
     // note or a mark (canSee), shown as the article shell truncated.
     const itins = feed === 'all'
-      ? q('SELECT * FROM itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
+      ? q('SELECT * FROM adopted_itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
       : [];
     const lazy = (at, key, draw) => ({ at, key, get html() { return this._h ?? (this._h = draw()); } });
     const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me))),
@@ -6303,18 +6584,18 @@ const pages = {
     const shown = banner.skip;
     const page = pageOf(shown ? entries.filter((e) => e.key !== shown) : entries, url);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
-    const tagCounts = {}; for (const o of q('SELECT tags FROM objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
+    const tagCounts = {}; for (const o of q('SELECT tags FROM adopted_objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
     const heading = { all: 'Activity from the entire network', following: 'From people you follow', followers: 'From your followers' }[feed]
       + (me && feed === 'all' ? '<span class="strip-sub">Your private items remain visible only to you</span>' : '');
 
     let rail;
     if (me) {
-      const notes = q('SELECT COUNT(*) c FROM objects WHERE user_id=?').get(me.id).c;
-      const markTally = q('SELECT COUNT(*) c FROM marks WHERE user_id=?').get(me.id).c;
+      const notes = q('SELECT COUNT(*) c FROM adopted_objects WHERE user_id=?').get(me.id).c;
+      const markTally = q('SELECT COUNT(*) c FROM adopted_marks WHERE user_id=?').get(me.id).c;
       const ensTally = q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?').get(me.id).c;
       const warrantTally = warrantedSubjectUids(me.id, 'object').size + warrantedSubjectUids(me.id, 'mark').size;
-      const itinTally = q('SELECT COUNT(*) c FROM itineraries WHERE user_id=?').get(me.id).c;
+      const itinTally = q('SELECT COUNT(*) c FROM adopted_itineraries WHERE user_id=?').get(me.id).c;
       const fc = followCounts(me.id);   // shown as following:followers
       const fl = (k, name) => `<li><a class="${feed === k ? 'on' : ''}" data-short="${name}" href="/${k === 'all' ? '' : `?feed=${k}`}"><span class="fl-label">${name}</span>${feed === k ? '' : ' <span>›</span>'}</a></li>`;
       rail = `<ul class="feednav">${fl('all', 'All')}${fl('following', 'Following')}${fl('followers', 'Followers')}</ul>
@@ -6366,11 +6647,11 @@ const pages = {
   },
 
   object(req, res, me, url, id) {
-    const o = q(OBJ_SQL + ' WHERE o.id=?').get(id); if (!o || !canSee(o, me)) return send(res, layout({ title: 'Not found', body: '<p>No such note.</p>', me }), 404);
+    const o = q(OBJ_SQL + ' WHERE o.id=?').get(id); if (!o || !canView('object', o, me)) return send(res, layout({ title: 'Not found', body: '<p>No such note.</p>', me }), 404);
     const tags = tagList(o.tags);
     // Who adopted this Note. Their Notes are their own; we show only that the
     // adoption happened, never their content.
-    const noters = q(`SELECT DISTINCT u.handle, u.name, u.avatar FROM objects a
+    const noters = q(`SELECT DISTINCT u.handle, u.name, u.avatar FROM adopted_objects a
       JOIN users u ON u.id=a.user_id
       WHERE a.renoted_from_uid=? AND a.user_id<>? AND a.private=0 ORDER BY a.created_at`).all(o.uid, o.user_id);
     const cmts = q('SELECT c.*, u.handle, u.name, u.avatar FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? ORDER BY c.created_at').all(id);
@@ -6419,7 +6700,7 @@ ${noters.length ? `<div class="section-rule"></div>
     const subject = who ? q('SELECT * FROM users WHERE handle=?').get(who) : me;
     if (!subject) return redirect(res, '/login');
     const own = !!(me && me.id === subject.id);
-    const rows = q('SELECT * FROM itineraries WHERE user_id=?' + (own ? '' : ' AND private=0') + ' ORDER BY id DESC').all(subject.id);
+    const rows = q('SELECT * FROM adopted_itineraries WHERE user_id=?' + (own ? '' : ' AND private=0') + ' ORDER BY id DESC').all(subject.id);
     const tf = (row) => temporalFormat(temporalOf(row));
 
     // Each itinerary is the article page's own rendering -- the day containers,
@@ -6466,7 +6747,7 @@ ${noters.length ? `<div class="section-rule"></div>
 
   itinerary(req, res, me, url, id) {
     const it = q('SELECT * FROM itineraries WHERE id=?').get(id);
-    if (!it || !canSee(it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
+    if (!it || !canView('itinerary', it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
     // Editing controls and the owner's script: the real owner only.
     const owner = !!(me && me.id === it.user_id);
     const author = q('SELECT * FROM users WHERE id=?').get(it.user_id);
@@ -6626,7 +6907,7 @@ ${noters.length ? `<div class="section-rule"></div>
         // one — the same card the feed uses — rather than a row that merely
         // points at it. Unresolved pieces have no note to show and stay rows.
         const cards = list.filter((c) => c.note_available)
-          .map((c) => { const o = q(OBJ_SQL + ' WHERE o.id=?').get(c.note_id); return o && canSee(o, me) ? objectCard(o, me) : ''; })
+          .map((c) => { const o = q(OBJ_SQL + ' WHERE o.id=?').get(c.note_id); return o && canView('object', o, me) ? objectCard(o, me) : ''; })
           .filter(Boolean);
         return cards.length ? `<div class="grid ens-note-grid">${cards.join('')}</div>` : '';
       })() : `<ul class="ens-comps">${list.map((c) => {
@@ -6656,7 +6937,7 @@ ${noters.length ? `<div class="section-rule"></div>
 
   mark(req, res, me, url, id) {
     const m = q(MARK_SQL + ' WHERE m.id=?').get(id);
-    if (!m || !canSee(m, me)) return send(res, layout({ title: 'Not found', body: '<p>No such mark.</p>', me }), 404);
+    if (!m || !canView('mark', m, me)) return send(res, layout({ title: 'Not found', body: '<p>No such mark.</p>', me }), 404);
     const owner = me && me.id === m.user_id;
     const visits = markVisits(m.id);
     const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
@@ -6667,7 +6948,7 @@ ${noters.length ? `<div class="section-rule"></div>
     const source = m.remarked_from_uid
       ? q('SELECT mk.id, mk.name, u.handle FROM marks mk JOIN users u ON u.id=mk.user_id WHERE mk.uid=?').get(m.remarked_from_uid)
       : null;
-    const remarkers = q(`SELECT mk.id, u.handle, u.name, u.avatar FROM marks mk
+    const remarkers = q(`SELECT mk.id, u.handle, u.name, u.avatar FROM adopted_marks mk
       JOIN users u ON u.id=mk.user_id WHERE mk.remarked_from_uid=? ORDER BY mk.created_at`).all(m.uid);
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'marks')}
 <section class="feed profile-feed mark-page">
@@ -6767,7 +7048,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const owner = me && me.id === u.id;
     const tab = ['activity', 'notes', 'marks', 'warrants', 'ensembles', 'followers', 'following'].includes(url.searchParams.get('tab')) ? url.searchParams.get('tab') : 'activity';
     const cid = +url.searchParams.get('c') || 0; const vis = url.searchParams.get('v') || 'all'; const s = (url.searchParams.get('q') || '').trim();
-    const visible = q(OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
+    const visible = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(u.id).filter((o) => canSee(o, me));
     const fc = followCounts(u.id);
     const colls = q("SELECT id, name FROM collections WHERE user_id=? AND kind='note' ORDER BY name").all(u.id).map((c) => {
       const ids = new Set(q('SELECT note_id FROM note_collections WHERE collection_id=?').all(c.id).map((r) => r.note_id));
@@ -6794,7 +7075,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         // chips are their own column beside it, both centred in the row.
         return `<li><a class="person" href="/u/${esc(p.handle)}">
           <span class="person-id">${avatar(p)}<span class="person-name">${esc(p.handle)}</span></span>
-          <span class="person-body">${statChips([['notes', pub('objects')], ['marks', pub('marks')],
+          <span class="person-body">${statChips([['notes', pub('adopted_objects')], ['marks', pub('adopted_marks')],
             ['ensembles', q('SELECT COUNT(*) c FROM ensembles WHERE user_id=?' + (me && me.id === p.id ? '' : ' AND private=0')).get(p.id).c],
             ['warrants', warrantedSubjectUids(p.id, 'object').size + warrantedSubjectUids(p.id, 'mark').size],
             ['followers', pc.followers], ['following', pc.following]])}</span></a></li>`;
@@ -6807,11 +7088,11 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         // name and avatar, which only come from the users join. Without it the
         // card renders an avatar-less byline even for your own notes.
         const o = q(OBJ_SQL + ' WHERE o.uid=?').get(uid);
-        if (o && canSee(o, me)) acts.push({ at: o.created_at, card: o });
+        if (o && canView('object', o, me)) acts.push({ at: o.created_at, card: o });
       }
       for (const uid of markUids) {
         const x = q(MARK_SQL + ' WHERE m.uid=?').get(uid);
-        if (x && (!x.private || owner)) acts.push({ at: x.created_at, mark: x });
+        if (x && (owner || (!x.private && isAdopted('mark', x.uid)))) acts.push({ at: x.created_at, mark: x });
       }
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const wpg = pageOf(acts, url);
@@ -6837,13 +7118,13 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             ${statChips([['pieces', st.total], ['from notes', st.fromNotes], ['sources', st.sourceImages]])}</span></a>`;
       }).join('')}</div>${rows.length ? '' : emptyState(me, tab, u)}`;
     } else if (tab === 'marks') {
-      let rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
+      let rows = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id)
         .filter((x) => canSee(x, me));
       if (owner && vis === 'public') rows = rows.filter((x) => !x.private);
       if (owner && vis === 'private') rows = rows.filter((x) => x.private);
       if (cid) { const ids = new Set(q('SELECT mark_id FROM mark_collections WHERE collection_id=?').all(cid).map((r) => r.mark_id)); rows = rows.filter((x) => ids.has(x.id)); }
       if (s) { const k = s.toLowerCase(); rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k)); }
-      const all = q(MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => canSee(x, me));
+      const all = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=?').all(u.id).filter((x) => canSee(x, me));
       const countrySel = url.searchParams.getAll('country').filter(Boolean);
       const citySel = url.searchParams.getAll('city').filter(Boolean);
       if (countrySel.length) rows = rows.filter((x) => countrySel.includes(x.country));
@@ -7066,17 +7347,17 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     } else {
       const acts = [];
       for (const o of visible) acts.push({ at: o.created_at, card: o });
-      for (const n of q(`SELECT created_at, id, name, private, user_id FROM objects
+      for (const n of q(`SELECT created_at, id, name, private, user_id FROM adopted_objects
         WHERE user_id=? AND renoted_from_uid IS NOT NULL ORDER BY created_at DESC LIMIT 30`).all(u.id))
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
       // Same visibility rule as the Marks tab and as notes and itineraries in
       // this feed (canSee), so a mark shown in one place is shown in the other.
-      for (const x of q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
+      for (const x of q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
         if (canSee(x, me)) acts.push({ at: x.created_at, card: null, html: null, mark: x });
       for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
         acts.push({ at: f.created_at, follow: f });
       // itineraries: first-class, same visibility rule as marks and notes
-      for (const it of q('SELECT * FROM itineraries WHERE user_id=? ORDER BY id DESC LIMIT 20').all(u.id))
+      for (const it of q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC LIMIT 20').all(u.id))
         if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const apg = pageOf(acts, url);
@@ -10037,7 +10318,7 @@ async function handle(req, res) {
   if (p === '/privacy' || p === '/terms' || p === '/support') return policyPage(req, res, me, p.slice(1));
   if (p === '/about') return pages.about(req, res, me);
   if (p === '/welcome') return pages.welcome(req, res, me);
-  if (p === '/objects.json') return json(res, q(OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
+  if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
   if (p === '/login') {
     if (m === 'GET') return pages.login(req, res, me);
@@ -10150,7 +10431,7 @@ async function handle(req, res) {
     const term = String(url.searchParams.get('q') || '').trim().toLowerCase();
     if (term.length < 2) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
     const inPlan = new Set(q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id).map((r) => r.mark_uid));
-    const rows = q(MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(me.id)
+    const rows = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(me.id)
       .filter((mk) => !inPlan.has(mk.uid))
       .filter((mk) => `${mk.name} ${mk.locality || ''} ${mk.country || ''}`.toLowerCase().includes(term))
       .slice(0, 8)
@@ -10294,7 +10575,7 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/m\/(\d+)\/remark$/)) && m === 'POST') {
     if (!me) return need();
     const src = q('SELECT * FROM marks WHERE id=?').get(+mt[1]);
-    if (!src) return send(res, 'No such travel mark', 404);
+    if (!src || (!isAdopted('mark', src.uid) && src.user_id !== me.id)) return send(res, 'No such travel mark', 404);
     if (src.private && src.user_id !== me.id) return send(res, 'Not yours', 403);
     // Re-marking your own Mark is duplication, not adoption of another's
     // judgment, and would contaminate the directional signal.
@@ -10320,7 +10601,8 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/m\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
-    const mk = q('SELECT id FROM marks WHERE id=?').get(+mt[1]); if (!mk) return send(res, 'Not found', 404);
+    const mk = q('SELECT id, uid, user_id FROM marks WHERE id=?').get(+mt[1]);
+    if (!mk || (!isAdopted('mark', mk.uid) && mk.user_id !== me.id)) return send(res, 'Not found', 404);
     const b = await readBody(req); const t = (b.body || '').trim();
     if (t) {
       const r = q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
@@ -10473,7 +10755,7 @@ async function handle(req, res) {
     if (!me) return need();
     const src = q('SELECT * FROM objects WHERE id=?').get(+mt[1]);
     if (!src) return send(res, 'No such note', 404);
-    if (!canSee(src, me)) return send(res, 'Not found', 404);
+    if (!canView('object', src, me)) return send(res, 'Not found', 404);
     if (src.user_id === me.id) return send(res, 'You cannot re-note your own note', 400);
     const note = renoteFrom(src, me, webActor(me));
     return redirect(res, req.headers.referer || `/o/${note.id}`);
@@ -10518,7 +10800,9 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/o\/(\d+)\/comments$/)) && m === 'POST') {
     if (!me) return need();
-    const o = q('SELECT id FROM objects WHERE id=?').get(+mt[1]); if (!o) return send(res, 'Not found', 404);
+    const o = q('SELECT id, uid, user_id FROM objects WHERE id=?').get(+mt[1]);
+    // a Note outside its member's corpus is theirs alone: nobody else can reach it to comment
+    if (!o || (!isAdopted('object', o.uid) && o.user_id !== me.id)) return send(res, 'Not found', 404);
     const b = await readBody(req); const body = (b.body || '').trim();
     if (body) {
       const r = q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
@@ -10601,6 +10885,17 @@ if (freshInstall) {
 const counts = ['users', 'objects', 'marks', 'visits', 'comments']
   .map((t) => `${t} ${q(`SELECT COUNT(*) c FROM ${t}`).get().c}`).join(', ');
 console.log(`Database: ${DB_PATH} (${(fs.statSync(DB_PATH).size / 1024).toFixed(0)} KB) — ${counts}`);
+// The no-orphan invariant (migration 052): a Note, Mark or Itinerary outside
+// its member's corpus must have a relationship explaining why it exists. A
+// write path that forgot to record Adoption shows up here, loudly, at boot.
+try {
+  const orphans = [
+    ...q('SELECT uid, user_id FROM objects o WHERE NOT EXISTS (SELECT 1 FROM adopted_objects x WHERE x.id=o.id)').all()
+      .filter((r) => !unadoptedExplanation('object', r)).map((r) => 'note ' + r.uid),
+    ...q('SELECT uid FROM marks m WHERE NOT EXISTS (SELECT 1 FROM adopted_marks x WHERE x.id=m.id)').all().map((r) => 'mark ' + r.uid),
+    ...q('SELECT uid FROM itineraries i WHERE NOT EXISTS (SELECT 1 FROM adopted_itineraries x WHERE x.id=i.id)').all().map((r) => 'itinerary ' + r.uid)];
+  if (orphans.length) console.warn(`WARNING: ${orphans.length} record(s) outside the corpus with nothing explaining them: ${orphans.slice(0, 10).join(', ')}`);
+} catch (e) { console.warn('Adoption invariant check failed:', e.message); }
 
 imageBackfill();
 http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e); send(res, 'Something went wrong.', 500); })).listen(PORT, () => {
