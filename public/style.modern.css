@@ -644,6 +644,7 @@ body[data-skin="modern"] .settings-table .btn3d { margin-top: .4rem; }
 body[data-skin="modern"] .sbox-title, body[data-skin="modern"] .settings h2 { color: var(--m-ink); font-weight: 400; }
 body[data-skin="modern"] .fine, body[data-skin="modern"] .sbox-sub, body[data-skin="modern"] .hint { color: var(--m-ink-3); }
 body[data-skin="modern"] .settings-stack { gap: 1rem; }
+body[data-skin="modern"] .settings-stack-side { gap: 1rem; }  /* Install + Admin: same rhythm as column 2 */
 body[data-skin="modern"] .qr, body[data-skin="modern"] .qr img { border-radius: var(--m-r3); background: #fff; }
 body[data-skin="modern"] .invite-code, body[data-skin="modern"] .code { background: var(--m-field); color: var(--m-ink); border-radius: 8px; padding: .2em .5em; }
 
@@ -1203,6 +1204,7 @@ html.m-light body[data-skin="modern"] .more-link, body[data-skin="modern"][data-
 /* ---- settings on phones: one rhythm between the sheets ---- */
 @media (max-width: 52rem) {
   body[data-skin="modern"] .settings-stack { gap: 0; }
+  body[data-skin="modern"] .settings-stack-side { gap: 0; }
   body[data-skin="modern"] .settings-stack > .wtable, body[data-skin="modern"] .settings-col > .wtable,
   body[data-skin="modern"] .settings-table, body[data-skin="modern"] .install-box, body[data-skin="modern"] .sbox { margin: 0 0 1rem !important; }
   body[data-skin="modern"] .settings-col { display: grid; gap: 0; }

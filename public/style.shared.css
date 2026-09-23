@@ -927,3 +927,49 @@ body[data-skin] main > p.admin-view-note { margin: .6rem auto 1rem; max-width: 4
   border-radius: 999px; font-size: .85rem; line-height: 1.4; text-align: center; color: inherit;
   background-color: rgba(214, 150, 40, .16); border: 1px solid rgba(214, 150, 40, .45); }
 body[data-skin] main > p.admin-view-note a { color: inherit; text-decoration: underline; }
+
+/* Settings: Install and Admin share one cell. Phones and the two-column
+   layout: last in column 2's flow. Three columns: column 3, Admin under
+   Install, in its own cell so it isn't pushed below column 1's tall form. */
+.settings-stack-side { display: flex; flex-direction: column; gap: 1.4rem; }
+.settings-stack-side > .settings-table { margin-bottom: 0; }
+@media (min-width: 108rem) {
+  .settings-stack-side { grid-column: 3; grid-row: 1; }
+}
+
+/* Notes under a Stop: the ensemble-component rows, indented and joined to
+   their Stop so they read as its children, never as further Stops. */
+body[data-skin] .stop-notes { margin: .5rem 0 0 1.4rem; }
+body[data-skin] .stop-notes .stop-note { display: flex; align-items: center; }
+body[data-skin] .stop-notes .ens-comp-link { min-width: 0; }
+body[data-skin] .stop-notes .ens-comp-label { overflow-wrap: anywhere; }
+body[data-skin] .stop-note-detach { margin: 0 1rem 0 .4rem; flex: none; }
+body[data-skin] .stop-note-attach { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .2rem 0 .6rem; }
+body[data-skin] .stop-note-attach select { flex: 1 1 12rem; min-width: 0; }
+/* Detach is a quiet owner action: the row label's small caps, muted. */
+body[data-skin] .stop-note-detach .link { font-size: .6rem; letter-spacing: .14em; }
+body[data-skin="modern"] .stop-note-detach .link { color: var(--m-ink-3); }
+body:not([data-skin="modern"]) .stop-note-detach .link { color: var(--ink-soft); }
+body[data-skin] .stop-notes .ens-comp-state { white-space: normal; overflow: visible; text-overflow: clip; }
+@media (max-width: 52rem) {
+  body[data-skin] .stop-notes { margin-left: .6rem; }
+  body[data-skin] .stop-note-detach { margin: 0 .7rem 0 .2rem; }
+}
+/* The modern skin pads both the row and its link (and outranks the rules
+   above by coming later), so stop-note rows take one level more specificity:
+   padding lives on the link alone, and phones get a tighter inset. */
+body[data-skin] ul.stop-notes { margin: .5rem 0 0 1.4rem; }
+body[data-skin] ul.stop-notes > li.stop-note { padding: 0; }
+@media (max-width: 52rem) {
+  body[data-skin] ul.stop-notes { margin-left: .5rem; }
+  body[data-skin] ul.stop-notes .ens-comp-link { padding: .65rem .8rem; gap: .75rem; }
+  body[data-skin] ul.stop-notes .stop-note-detach { margin: 0 .8rem 0 .2rem; }
+}
+/* Phones: Detach drops to its own line under the row, so the note's name
+   keeps the width of the row; the thumbnail steps down slightly. */
+@media (max-width: 52rem) {
+  body[data-skin] ul.stop-notes > li.stop-note { flex-wrap: wrap; }
+  body[data-skin] ul.stop-notes .ens-comp-link { flex: 1 1 100%; }
+  body[data-skin] ul.stop-notes .ens-comp-link img, body[data-skin] ul.stop-notes .ens-comp-blank { width: 2.5rem; height: 2.5rem; }
+  body[data-skin] ul.stop-notes .stop-note-detach { flex: 1 1 100%; text-align: right; margin: -.5rem .8rem .55rem; }
+}

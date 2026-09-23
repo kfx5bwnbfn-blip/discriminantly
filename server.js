@@ -1044,6 +1044,39 @@ const MIGRATIONS = [
     END`);
   }],
 
+  // Stop → Note (v2.54). "This Note is intentionally associated with this Stop
+  // in this itinerary" -- an object worth noticing, seeking or trying there.
+  // Nothing more: no ownership, purchase, warrant, check-in, reservation,
+  // availability or experience. The relationship belongs to the Stop; the
+  // Note itself is untouched and stays an ordinary member-owned Note. One row
+  // per (stop, note); the same Note may sit under many Stops and plans.
+  // Foreign keys cascade so no attachment can outlive its Stop or its Note,
+  // and neither deletion ever deletes the other. The triggers record each
+  // attachment removed with its parent, as migration 049 does for check-ins.
+  ['051-itinerary-stop-notes', () => {
+    const SQL_UUID = `lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-4'||
+      substr(hex(randomblob(2)),2)||'-'||substr('89ab',abs(random())%4+1,1)||
+      substr(hex(randomblob(2)),2)||'-'||hex(randomblob(6)))`.replace(/\s+/g, '');
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_stop_notes (
+      id INTEGER PRIMARY KEY, uid TEXT,
+      stop_id INTEGER NOT NULL REFERENCES itinerary_stops(id) ON DELETE CASCADE,
+      note_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (stop_id, note_id))`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_itinerary_stop_notes_uid AFTER INSERT ON itinerary_stop_notes WHEN NEW.uid IS NULL OR NEW.uid = '' BEGIN UPDATE itinerary_stop_notes SET uid = ${SQL_UUID} WHERE rowid = NEW.rowid; END`);
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_itinerary_stop_notes_uid ON itinerary_stop_notes(uid)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itinerary_stop_notes_note ON itinerary_stop_notes(note_id)');
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    const row = `SELECT 'itinerary_stop_note', a.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, NULL`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_delete_notes_provenance BEFORE DELETE ON itinerary_stops BEGIN
+      INSERT INTO provenance (${cols}) ${row} FROM itinerary_stop_notes a WHERE a.stop_id = OLD.id AND a.uid IS NOT NULL;
+    END`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_note_delete_stop_attachments_provenance BEFORE DELETE ON objects BEGIN
+      INSERT INTO provenance (${cols}) ${row} FROM itinerary_stop_notes a WHERE a.note_id = OLD.id AND a.uid IS NOT NULL;
+    END`);
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1974,6 +2007,7 @@ const SUPPORT_EMAIL = () => {
 };
 // The date this wording took effect. Change it whenever the text changes.
 const POLICY_DATE = '21 September 2026';
+const PRIVACY_UPDATED = '23 September 2026';   // location, server logs and assistant results disclosed
 if (!PUBLISHER() || !SUPPORT_EMAIL())
   console.warn('Policy pages are offline until PUBLISHER_NAME and SUPPORT_EMAIL are set.');
 
@@ -1987,13 +2021,16 @@ function policyPage(req, res, me, which) {
   const mcpUrl = esc(PUBLIC_ORIGIN + '/mcp');
   const P = (t) => `<p class="policy-p">${t}</p>`, H = (t) => `<h2 class="policy-h">${t}</h2>`;
   const dated = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${POLICY_DATE}</p>`;
+  const datedPrivacy = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${PRIVACY_UPDATED}</p>`;
   const pages = {
-    privacy: ['Privacy', dated, [
+    privacy: ['Privacy', datedPrivacy, [
       P(`Discriminantly is operated by ${who}. This page explains what Discriminantly keeps, who can see it, and what happens when you connect an AI assistant. Questions: ${contact}.`),
       H('What we keep'),
       P('Your account: your name, handle, email address and password. Your password is stored only as a salted scrypt hash, never in readable form. Your profile: a bio, a website and an avatar, if you add them.'),
       P('What you add: notes, travel marks, check-ins, collections, itineraries, ensembles, comments, warrants, ownership records, and the photos attached to them.'),
+      P('Places and where you have been: for a travel mark, the place\u2019s name and, when a place lookup finds them, its address and map coordinates. A check-in keeps the dates you say you were there, so together your marks and check-ins are a record of where you have been. Check-ins follow the privacy of the mark they belong to.'),
       P('A history of changes: when something is added, changed or removed, and whether you did it yourself or an assistant did it for you.'),
+      P('Server logs: when a request fails, Discriminantly logs the time, what was being attempted, your handle, the names of the details it was given (not their contents), a short reference and the error, so the problem can be diagnosed. Our hosting provider also keeps standard request logs, such as the address requested, the time and the response. Both are kept for a limited period set by the provider.'),
       P('AI connections: which assistants you have connected, when you connected them, when each was last used, and the credentials they use to connect.'),
       P('Cookies: one cookie keeps you signed in, and two remember your chosen look (the skin, and light or dark mode). Discriminantly itself runs no analytics and no advertising, and does not track you across other sites.'),
       H('Who can see it'),
@@ -2001,6 +2038,7 @@ function policyPage(req, res, me, which) {
       P('Something you mark private is not visible to other members or the public. AI assistants you connect can see it, as described below. The operator can also access stored information, including private things, when that is needed to run, secure or support Discriminantly.'),
       H('AI assistants you connect'),
       P('When you connect an assistant, such as ChatGPT or Claude, it can read everything you keep here, including private things, and can add, change and remove things on your behalf. Each change it makes is recorded as that assistant acting for you.'),
+      P('What an assistant receives: the things it asks for, with the details needed to work with them, such as their identifiers, when you added them, their places and dates, and their privacy. When it reads public notes or comments by other members, it also receives those members\u2019 handles, as anyone viewing them here would.'),
       P('What the assistant\u2019s provider keeps from your conversations, and how it uses it, is governed by that provider\u2019s own policies. You can disconnect an assistant in Settings at any time, and it loses access immediately.'),
       H('AI training'),
       P('Discriminantly does not use what you keep to train AI models, and does not itself send it to any AI provider. It reaches an AI provider only through an assistant you have connected.'),
@@ -4101,6 +4139,38 @@ function itinOwned(user, uid) {
   if (!it || it.user_id !== user.id) throw new Error('No such itinerary.');
   return it;
 }
+// ---- Stop → Note (v2.54) ----------------------------------------------------
+// Only the member's own Notes, on the member's own Stops: a Note is part of
+// their corpus, and the attachment explains why it matters in this plan. A
+// refusal never distinguishes "not yours" from "does not exist". `origin`
+// records whether the Note already existed or was created for this attachment
+// (the AI adoption workflow); the web only ever attaches existing Notes.
+function stopNoteAttach(user, stopUid, noteUid, ctx, { origin = 'existing' } = {}) {
+  if (origin !== 'existing' && origin !== 'created') throw new Error('origin must be existing or created');
+  const { stop } = stopOwned(user, stopUid);
+  const note = q('SELECT id, uid FROM objects WHERE uid=? AND user_id=?').get(String(noteUid || ''), user.id);
+  if (!note) throw new Error('No such note.');
+  const had = q('SELECT uid FROM itinerary_stop_notes WHERE stop_id=? AND note_id=?').get(stop.id, note.id);
+  if (had) return { action: 'unchanged', uid: had.uid };
+  const r = q('INSERT INTO itinerary_stop_notes(stop_id, note_id, user_id) VALUES(?,?,?)').run(stop.id, note.id, user.id);
+  const uid = uidOf('itinerary_stop_notes', r.lastInsertRowid);
+  recordProvenance('itinerary_stop_note', uid, 'created', ctx, { source_kind: origin === 'created' ? 'new_note' : 'existing_note', source_ref: note.uid });
+  return { action: 'created', uid };
+}
+function stopNoteDetach(user, stopUid, noteUid, ctx) {
+  const { stop } = stopOwned(user, stopUid);
+  const row = q('SELECT a.id, a.uid FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? AND o.uid=?').get(stop.id, String(noteUid || ''));
+  if (!row) return { action: 'unchanged' };
+  recordProvenance('itinerary_stop_note', row.uid, 'deleted', ctx, { source_ref: stop.uid });
+  q('DELETE FROM itinerary_stop_notes WHERE id=?').run(row.id);
+  return { action: 'deleted', uid: row.uid };
+}
+// The Notes under a Stop that this viewer may see, in attachment order.
+function stopNotesVisible(stopId, me) {
+  return q('SELECT o.*, a.uid AS attach_uid FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? ORDER BY a.id')
+    .all(stopId).filter((o) => canSee(o, me));
+}
+
 function stopOwned(user, uid) {
   const st = stopByUid(uid);
   if (!st) throw new Error('No such stop.');
@@ -5480,6 +5550,16 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   const ctl = interactive && isOwner;
   const groups = groupOrder(it.id);
   const base = `/t/${it.id}`;
+  // Notes attached to a Stop: things worth noticing there. Rows in the
+  // ensemble-component vocabulary, so they read as belonging to the Stop
+  // rather than as more Stops. Each is shown only to someone who can see it.
+  const myNotes = ctl ? q('SELECT uid, name FROM objects WHERE user_id=? ORDER BY lower(name)').all(me.id) : [];
+  const noteKids = (st) => {
+    const ns = stopNotesVisible(st.id, me);
+    if (!ns.length) return '';
+    return `<ul class="ens-comps stop-notes">${ns.map((o) => `<li class="ens-comp is-linked stop-note"><a class="ens-comp-link" href="/o/${o.id}">${o.image ? imgTag(o.image, o.name) : '<span class="ens-comp-blank"></span>'}<span class="ens-comp-body"><span class="ens-comp-state">\u21b3 Worth noticing here</span><span class="ens-comp-label">${esc(o.name)}</span></span></a>${ctl ? `<form method="post" action="${base}/stops/${st.uid}/notes/${o.uid}/delete" class="stop-note-detach"><button class="link caps" aria-label="Detach ${esc(o.name)} from this stop">Detach</button></form>` : ''}</li>`).join('')}</ul>`;
+  };
+  const attachForm = (st) => myNotes.length ? `<form method="post" action="${base}/stops/${st.uid}/notes" class="stop-note-attach"><select class="nf-field" name="note_uid" required aria-label="Attach one of your notes to this stop"><option value="">ATTACH ONE OF YOUR NOTES</option>${myNotes.map((n) => `<option value="${n.uid}">${esc(n.name)}</option>`).join('')}</select><button class="link caps">Attach note</button></form>` : '';
   const tf = (row) => temporalFormat(temporalOf(row));
   const numbers = itineraryNumbers(it);
   let budget = limit;
@@ -5536,6 +5616,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
             ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
             ${st.mark_uid ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="unlink" value="1"><button class="link caps">Unlink the mark</button></form>` : ''}
             <form method="post" action="${base}/stops/${st.uid}/${withheld ? 'restore' : 'suspend'}"><button class="link caps">${withheld ? 'Show publicly again' : 'Withhold from public view'}</button></form>
+            ${attachForm(st)}
             <form method="post" action="${base}/stops/${st.uid}/delete" onsubmit="return confirm('Remove this stop from the itinerary? The travel mark, if any, is untouched.')"><button class="link caps stop-del">Remove</button></form>
           </div>
         </div></details>` : '';
@@ -5556,10 +5637,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       const attrs = `id="stop-${st.uid}" class="stop ${seqd ? 'is-seq' : ''} ${st.resolution === 'linked' ? 'is-mark' : st.resolution === 'allocation' ? 'is-open' : 'is-loose'} ${withheld ? 'is-withheld' : ''}" data-stop="${st.uid}"`;
 
       if (vis.mark) {
-        return `<li ${attrs}>${handle}<div class="stop-head">${time}${flag}${menu}</div>${markCard(vis.mark, me)}</li>`;
+        return `<li ${attrs}>${handle}<div class="stop-head">${time}${flag}${menu}</div>${markCard(vis.mark, me)}${noteKids(st)}</li>`;
       }
       if (st.resolution === 'allocation') {
-        return `<li ${attrs}>${handle}<div class="stop-open"><span class="stop-label">${esc(st.label || 'Open')}</span>${time}${flag}${menu}</div></li>`;
+        return `<li ${attrs}>${handle}<div class="stop-open"><span class="stop-label">${esc(st.label || 'Open')}</span>${time}${flag}${menu}</div>${noteKids(st)}</li>`;
       }
       // particular / experiential / dangling mark: a card of the same material
       // as the mark card, with an eyebrow in the same register as "MARKED", so
@@ -5572,7 +5653,7 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
           <span class="stop-label">${esc(st.label || 'Unnamed stop')}</span>
           ${vis.dangling ? '<span class="stop-from">The travel mark this pointed at no longer exists</span>' : ''}
           ${st.resolution === 'particular' && ctl ? '<span class="stop-note">A place to identify \u2014 your AI can help find it</span>' : ''}
-        </div></li>`;
+        </div>${noteKids(st)}</li>`;
     };
 
     // The spine is drawn over the authored prefix and stops there: a stop with
@@ -7134,17 +7215,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               e.preventDefault(); var f = a.closest('form'); f.elements.mode.value = a.dataset.mode; f.submit(); }); });</script>` : ''}
           </div>
         </div>
-        ${me.is_admin ? `<div class="wtable settings-table settings-admin" id="admin">
-          <div class="wcell wcell-wide">
-            <p class="sbox-title">Admin</p>
-            <p class="sbox-sub">Only you see this section.</p>
-            <form method="post" action="/settings/admin-view" class="look-form">
-              <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
-                <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
-            </form>
-            <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
-          </div>
-        </div>` : ''}
         <div class="wtable settings-table settings-connector">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Connect to your AI</p>
@@ -7196,12 +7266,35 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           </div>
         </div>
       </div>
-      <div class="wtable settings-table install-box" id="install-box" hidden>
-        <div class="wcell wcell-wide">
-          <p class="sbox-title">Install Discriminantly</p>
-          <p class="sbox-sub">Keep it on your Home Screen and open it like an app.</p>
-          <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
+      <!-- Install and Admin share one cell: last on phones, and column 3 on
+           wide screens, Admin tucked under Install (see .settings-stack-side). -->
+      <div class="settings-stack-side">
+        <div class="wtable settings-table install-box" id="install-box" hidden>
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Install Discriminantly</p>
+            <p class="sbox-sub">Keep it on your Home Screen and open it like an app.</p>
+            <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
+          </div>
         </div>
+          ${me.is_admin ? `<div class="wtable settings-table settings-admin" id="admin">
+            <div class="wcell wcell-wide">
+              <p class="sbox-title">Admin</p>
+              <p class="sbox-sub">Only you see this section.</p>
+              <form method="post" action="/settings/admin-view" class="look-form">
+                <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
+                  <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
+              </form>
+              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
+            </div>
+            <div class="wcell wcell-wide">
+              <form method="post" action="/settings/admin-handle">
+                <label class="slabel">Username:<input name="handle" value="${esc(me.handle)}" required autocapitalize="none" autocomplete="off" spellcheck="false"></label>
+                ${url.searchParams.get('handle_error') ? `<p class="fine center">${esc(url.searchParams.get('handle_error'))}</p>` : ''}
+                <button class="btn3d block">Change username</button>
+              </form>
+              <p class="fine center">Your profile moves to /u/ followed by the new name; links to the old one stop working. Lowercase letters and numbers only.</p>
+            </div>
+          </div>` : ''}
       </div>
     </div>
   </div>
@@ -9521,7 +9614,8 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
       if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
       return reply(id, payload);
     } catch (e) {
-      // Every failure gets a short reference, is logged server-side, and comes
+      // Every failure gets a short reference that is kept in the server log only
+      // (v2.54.1: request IDs are not returned to clients). It is logged, and comes
       // back in a shape the model is told to show the member verbatim. A
       // failure the member never sees is a failure we cannot troubleshoot.
       const ref = 'DL-' + crypto.randomBytes(3).toString('hex').toUpperCase();
@@ -9540,15 +9634,15 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
       const detail = deliberate ? e.message
         : 'Something went wrong inside Discriminantly while running this, so it may not have completed. Check what exists before trying again.';
       return reply(id, {
-        content: [{ type: 'text', text: `${detail}\n\n[${params.name} failed — reference ${ref}] `
-          + `TELL THE MEMBER THIS FAILED, quote the reason and this reference, and say what you were attempting. `
+        content: [{ type: 'text', text: `${detail}\n\n[${params.name} failed] `
+          + `TELL THE MEMBER THIS FAILED, quote the reason, and say what you were attempting. `
           + `Do not describe the action as done, do not work around it silently, and do not retry the identical call `
           + `more than once.` }],
         // Protocol-native tool error: isError, message in content, and no
         // structuredContent, so an error never contradicts the tool's
         // outputSchema (which describes success). Machine-readable detail goes
         // in _meta, which is not validated against the schema.
-        _meta: { 'discriminantly/error': { reference: ref, tool: params.name,
+        _meta: { 'discriminantly/error': { tool: params.name,
           kind: deliberate ? 'refused' : 'fault', message: detail, retryable: !deliberate } },
         isError: true });
     }
@@ -9699,6 +9793,21 @@ async function handle(req, res) {
       stream.on('close', () => { try { fs.unlinkSync(tmp); } catch {} });
       return;
     } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
+  }
+  if (p === '/settings/admin-handle' && m === 'POST') {
+    // Admins may change their own username (handle). Same rule as joining:
+    // lowercase letters and digits, up to 24, unique. User ids are what every
+    // record points at, so nothing but the /u/ URL changes.
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const b = await readBody(req);
+    const raw = String(b.handle || '').trim(), handle = slug(raw);
+    const back = (err) => redirect(res, '/settings' + (err ? '?handle_error=' + encodeURIComponent(err) : '') + '#admin');
+    if (!raw.toLowerCase().replace(/[^a-z0-9]+/g, '')) return back('Use lowercase letters and numbers.');
+    if (handle === me.handle) return back();
+    if (q('SELECT 1 FROM users WHERE handle=? AND id<>?').get(handle, me.id)) return back('That username is already taken.');
+    q('UPDATE users SET handle=? WHERE id=?').run(handle, me.id);
+    recordProvenance('user', me.uid, 'edited', webActor(me), { source_kind: 'manual', fields: 'handle' });
+    return back();
   }
   if (p === '/settings/admin-view' && m === 'POST') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
@@ -10124,6 +10233,15 @@ async function handle(req, res) {
         temporal: temporalFromForm(b) }, webActor(me));
     } catch (e) { return send(res, esc(e.message), 400); }
     return redirect(res, `/t/${it.id}`);
+  }
+  // Attach / detach a Note on a Stop (owner only, via stopOwned).
+  if ((mt = p.match(/^\/t\/(\d+)\/stops\/([a-f0-9-]+)\/notes(?:\/([a-f0-9-]+)\/delete)?$/)) && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const ctx = webActor(me);
+    try { if (mt[3]) stopNoteDetach(me, mt[2], mt[3], ctx); else stopNoteAttach(me, mt[2], b.note_uid, ctx); }
+    catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${mt[1]}`);
   }
   if ((mt = p.match(/^\/t\/(\d+)\/stops\/([a-f0-9-]+)(\/suspend|\/restore|\/delete)?$/)) && m === 'POST') {
     if (!me) return need();

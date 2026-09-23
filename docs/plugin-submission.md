@@ -312,3 +312,6 @@ The plugin was submitted to OpenAI for review at v2.52.7 with the submission fil
 **Not frozen:** pages, templates, stylesheets, client scripts, settings (including the connections list), profile, welcome and policy pages.
 
 **To lift the freeze deliberately:** make the MCP change, run `node test/mcp-freeze.js --record`, and commit the new fingerprint with a message saying why. Any MCP change also needs a fresh Scan Tools run in the portal.
+
+**Freeze log.** 23 September 2026 (v2.54.1): the *Tool dispatcher and /mcp endpoint* fingerprint was re-recorded deliberately after removing request IDs from error replies. This is a live-result change that OpenAI's requirements allow without resubmission; errors carry no structured content, so no schema is involved. Contract changes waiting for the freeze to lift are in `docs/post-freeze-backlog.md`.
+

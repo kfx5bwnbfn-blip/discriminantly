@@ -141,6 +141,8 @@ db.exec('PRAGMA foreign_keys=ON');
 const mig = SRC.slice(SRC.indexOf("['041-itineraries'"), SRC.indexOf("\n];", SRC.indexOf("['041-itineraries'")));
 db.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)');
 db.exec('INSERT INTO users(id) VALUES(1)');
+// Notes exist only as a foreign-key target here (Stop → Note, migration 051).
+db.exec('CREATE TABLE objects(id INTEGER PRIMARY KEY)');
 const stmts = [...mig.matchAll(/db\.exec\(`([\s\S]*?)`\)/g)].map((m) => m[1]);
 for (const st of stmts) {
   if (st.includes('${')) continue;                      // triggers use interpolation; not needed here
@@ -202,7 +204,7 @@ console.log('\nsequencing transformations (test 2 of the corrections)');
   try { fs.unlinkSync(t2); } catch {}
   const d = new DatabaseSync(t2);
   d.exec('PRAGMA foreign_keys=ON');
-  d.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)'); d.exec('INSERT INTO users VALUES(1)');
+  d.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)'); d.exec('INSERT INTO users VALUES(1)'); d.exec('CREATE TABLE objects(id INTEGER PRIMARY KEY)');
   for (const st of stmts) { if (!st.includes('${')) d.exec(st); }
   d.exec("INSERT INTO itineraries(user_id,title) VALUES(1,'S')");
   d.exec("INSERT INTO itinerary_groups(itinerary_id,label) VALUES(1,'G1'),(1,'G2')");
@@ -1002,7 +1004,13 @@ console.log('\npolicy pages');
      /const who = esc\(PUBLISHER\(\)\), email = SUPPORT_EMAIL\(\);/.test(pp) && /mailto:\$\{esc\(email\)\}/.test(pp));
   ok('PP5 privacy and terms carry an effective and a last-updated date',
      /const POLICY_DATE = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all) && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{POLICY_DATE\}/.test(pp)
-     && /privacy: \['Privacy', dated,/.test(pp) && /terms: \['Terms', dated,/.test(pp));
+     && /terms: \['Terms', dated,/.test(pp)
+     // Privacy keeps its effective date and carries its own last-updated date (v2.54.1)
+     && /const PRIVACY_UPDATED = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all)
+     && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{PRIVACY_UPDATED\}/.test(pp) && /privacy: \['Privacy', datedPrivacy,/.test(pp));
+  ok('PP5b the privacy page discloses location, server logs, and what assistants receive',
+     /Places and where you have been: for a travel mark/.test(SRC) && /Server logs: when a request fails, Discriminantly logs/.test(SRC)
+     && /What an assistant receives:[^']*handles/.test(SRC));
   ok('PP6 every page links to the other two',
      /<a href="\/terms">Terms<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)
      && /<a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)
@@ -1103,7 +1111,9 @@ function loadToolsFromSource(SRC) {
   ok('SC4 the schemas reject malformed results (extra, missing, mistyped, off-enum, ok:false, error-shaped)', bad.every((b) => !check(b, sch)));
   const L = SRC.indexOf("method === 'tools/call'"), handler = SRC.slice(L, SRC.indexOf("return reply(id, null, { code: -32601", L));
   ok('SC5 the tool-call error reply carries no structuredContent, and keeps its detail in _meta',
-     /_meta: \{ 'discriminantly\/error': \{ reference: ref/.test(handler) && !/structuredContent: \{ ok: false/.test(SRC));
+     /_meta: \{ 'discriminantly\/error': \{ tool: params\.name,/.test(handler) && !/structuredContent: \{ ok: false/.test(SRC));
+  ok('SC7 no request ID reaches the client: the reference stays in the server log only',
+     !/reference: ref/.test(handler) && !/failed[^`]*reference \$\{ref\}/.test(handler) && /console\.log\(`\[tool-error\] ref=\$\{ref\}/.test(handler));
   ok('SC6 an engine TypeError or ReferenceError is masked as a fault, never shown verbatim',
      /const jsFault = e instanceof TypeError \|\| e instanceof ReferenceError;/.test(SRC) && /!dbFault && !jsFault/.test(SRC) && !/new TypeError|new ReferenceError/.test(SRC));
   const msg = (n, label) => { const r = (fx[n] || []).find((x) => x.label === label); return r && r.isError ? JSON.stringify(r) : ''; };
@@ -1220,6 +1230,46 @@ console.log('\nday notes and collection names');
   const u = SRC.indexOf('  user(req, res, me, handle, url) {'), ub = SRC.slice(u, u + 60000);
   ok('CL1 a collection name is shown to someone else only when they can see an item in it (notes and marks tabs)',
      (ub.match(/\}\)\.filter\(\(c\) => owner \|\| c\.count > 0\);/g) || []).length === 2);
+}
+
+// ---- admin: username, and where the Admin section sits ---------------------
+console.log('\nadmin settings');
+{
+  const r = SRC.indexOf("if (p === '/settings/admin-handle' && m === 'POST') {"), rb = SRC.slice(r, SRC.indexOf('\n  }\n', r));
+  ok('AH1 only an admin can change their username, with the same cleaning rule as joining (slug)',
+     r > 0 && /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/.test(rb) && /handle = slug\(raw\)/.test(rb));
+  ok('AH2 a taken username is refused, and only the admin\u2019s own row is changed',
+     /SELECT 1 FROM users WHERE handle=\? AND id<>\?/.test(rb) && /UPDATE users SET handle=\? WHERE id=\?'\)\.run\(handle, me\.id\)/.test(rb));
+  ok('AH3 the change is recorded in provenance as the admin editing their handle',
+     /recordProvenance\('user', me\.uid, 'edited', webActor\(me\), \{ source_kind: 'manual', fields: 'handle' \}\)/.test(rb));
+  const side = SRC.indexOf('<div class="settings-stack-side">'), inst = SRC.indexOf('id="install-box"'), adm = SRC.indexOf('settings-admin" id="admin"'), stackEnd = SRC.indexOf('<div class="settings-stack-side">');
+  ok('AS1 the Admin section comes after Install, both in the column-3 cell (last on phones)',
+     side > 0 && side < inst && inst < adm && SRC.indexOf('settings-invites') < side);
+  ok('AS2 its spacing follows each skin\u2019s own tokens for these stacks',
+     /\.settings-stack-side \{ display: flex; flex-direction: column; gap: 1\.4rem; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'style.shared.css'), 'utf8'))
+     && /\.settings-stack-side \{ gap: 1rem; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'style.modern.css'), 'utf8'))
+     && /\.settings-stack-side \{ gap: 0; \}/.test(fs.readFileSync(path.join(__dirname, '..', 'public', 'style.modern.css'), 'utf8')));
+}
+
+// ---- Stop -> Note ----------------------------------------------------------
+console.log('\nstop notes');
+{
+  const i = SRC.indexOf("['051-itinerary-stop-notes'"), mb = SRC.slice(i, SRC.indexOf('}],', i));
+  ok('SN1 one row per stop and note; cascades from both so no attachment outlives either, and neither deletes the other',
+     i > 0 && /stop_id INTEGER NOT NULL REFERENCES itinerary_stops\(id\) ON DELETE CASCADE/.test(mb) && /note_id INTEGER NOT NULL REFERENCES objects\(id\) ON DELETE CASCADE/.test(mb) && /UNIQUE \(stop_id, note_id\)/.test(mb));
+  ok('SN2 attachments removed with a stop or note are recorded (cascade, pointing at the parent)',
+     /BEFORE DELETE ON itinerary_stops BEGIN[\s\S]*FROM itinerary_stop_notes a WHERE a\.stop_id = OLD\.id/.test(mb) && /BEFORE DELETE ON objects BEGIN[\s\S]*FROM itinerary_stop_notes a WHERE a\.note_id = OLD\.id/.test(mb));
+  const a = SRC.slice(SRC.indexOf('function stopNoteAttach('), SRC.indexOf('function stopNoteDetach('));
+  ok('SN3 only your own note on your own stop; a refusal never reveals another member\u2019s note',
+     /const \{ stop \} = stopOwned\(user, stopUid\);/.test(a) && /SELECT id, uid FROM objects WHERE uid=\? AND user_id=\?/.test(a) && /throw new Error\('No such note\.'\)/.test(a));
+  ok('SN4 attaching twice is idempotent, and records whether the note already existed',
+     /if \(had\) return \{ action: 'unchanged', uid: had\.uid \};/.test(a) && /source_kind: origin === 'created' \? 'new_note' : 'existing_note', source_ref: note\.uid/.test(a));
+  ok('SN5 attaching writes only the attachment: no note, ownership, warrant or check-in',
+     !/INSERT INTO (objects|ownership_assertions|warrants|visits)/.test(a) && !/UPDATE objects/.test(a));
+  ok('SN6 attached notes are shown only to viewers who can see them',
+     /function stopNotesVisible\(stopId, me\) \{[\s\S]*?\.filter\(\(o\) => canSee\(o, me\)\)/.test(SRC));
+  ok('SN7 attach and detach controls are the real owner\u2019s only',
+     /const myNotes = ctl \? /.test(SRC) && /\$\{ctl \? `<form method="post" action="\$\{base\}\/stops\/\$\{st\.uid\}\/notes\/\$\{o\.uid\}\/delete"/.test(SRC));
 }
 
 // ---- MCP freeze: the submitted plugin surface must not change -------------
