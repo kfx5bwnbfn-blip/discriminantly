@@ -1106,3 +1106,86 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .is-proposed .noteit.prop-acts { text-align: center; }
 .review-acts .nf-post { width: auto; flex: none; margin: 0; padding: .8rem 1.6rem; }
 .review-acts .nf-link-btn { white-space: nowrap; }
+
+
+/* ---- Welcome (v2.56): the first thing in All -------------------------------
+   Built from existing components (card, sbox-title/sbox-sub, wtable/wcell,
+   btn3d, link caps, fine); this only arranges them. One step shows at a time:
+   the radios are real (keyboard: arrow keys), just visually hidden. */
+.welcome-card { padding: 1.6rem 1.8rem 1.4rem; }
+.welcome-card .wl-eyebrow { display: flex; justify-content: space-between; gap: 1rem; margin: 0 0 1rem; }
+.welcome-card .wl-radio { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.welcome-card .wl-tab { display: inline-block; margin: 0 .3rem 1.2rem 0; padding: .55rem .9rem; border-radius: 999px; cursor: pointer;
+  font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; opacity: .6; }
+#wl-s1:focus-visible ~ .wl-tabs label[for="wl-s1"], #wl-s2:focus-visible ~ .wl-tabs label[for="wl-s2"], #wl-s3:focus-visible ~ .wl-tabs label[for="wl-s3"] { outline: 2px solid currentColor; outline-offset: 2px; }
+.welcome-card .wl-panel { display: none; }
+#wl-s1:checked ~ .wl-p1, #wl-s2:checked ~ .wl-p2, #wl-s3:checked ~ .wl-p3 { display: block; }
+#wl-s1:checked ~ .wl-tabs label[for="wl-s1"], #wl-s2:checked ~ .wl-tabs label[for="wl-s2"], #wl-s3:checked ~ .wl-tabs label[for="wl-s3"] { opacity: 1; }
+.welcome-card .wl-kinds { grid-template-columns: repeat(3, 1fr); margin: .4rem 0 1rem; }
+.welcome-card .wl-kind { display: flex; flex-direction: column; align-items: center; gap: .35rem; padding: 1.4rem .8rem; }
+.welcome-card .wl-kind svg { width: 2.6rem; height: 2.85rem; }
+.welcome-card .wl-kind-name { font-size: 1.5rem; font-weight: 300; line-height: 1.1; margin-top: .3rem; }
+.welcome-card .wl-kind-for { font-size: .95rem; opacity: .75; }
+.welcome-card .wl-say { margin-top: .5rem; font-style: italic; font-size: .9rem; opacity: .8; }
+.welcome-card .wl-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 1.2rem; }
+.welcome-card .wl-next { cursor: pointer; }
+.welcome-card .wl-ais { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.welcome-card .wl-ai summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: 1.5rem 1rem; border-radius: 18px; text-align: center; }
+.welcome-card .wl-ai summary::-webkit-details-marker { display: none; }
+.welcome-card .wl-ai-name { font-size: 1.7rem; font-weight: 300; line-height: 1; }
+.welcome-card .wl-ai-state { font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: .3rem; }
+.welcome-card .wl-how { margin: .9rem .4rem .4rem; padding-left: 1.2rem; line-height: 1.6; font-size: .95rem; }
+.welcome-card .wl-how li { margin-bottom: .35rem; }
+.welcome-card .wl-url { font-size: .82rem; overflow-wrap: anywhere; }
+.welcome-card .wl-prompts { display: flex; flex-direction: column; gap: .6rem; }
+.welcome-card .wl-prompt { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.1rem; border-radius: 16px; }
+.welcome-card .wl-q { margin: 0; font-style: italic; font-size: 1.05rem; line-height: 1.4; }
+.welcome-card .wl-prompt .fine { margin: .3rem 0 0; }
+.welcome-card .wl-quick-label { margin: 1.3rem 0 .5rem; }
+.welcome-card .wl-quick .wl-prompt { padding: .7rem .4rem; border-radius: 0; background: none; }
+.welcome-card .wl-quick .wl-q { font-size: .98rem; }
+.welcome-card .wl-copy { flex: none; cursor: pointer; }
+@media (max-width: 52rem) {
+  .welcome-card { padding: 1.2rem 1rem 1rem; }
+  .welcome-card .wl-eyebrow { flex-direction: column; gap: .4rem; }
+  .welcome-card .wl-tab { padding: .5rem .6rem; letter-spacing: .1em; }
+  .welcome-card .wl-kinds, .welcome-card .wl-ais { grid-template-columns: 1fr; }
+  .welcome-card .wl-prompt { flex-direction: column; align-items: flex-start; gap: .5rem; }
+}
+/* classic skin: quiet surfaces from its own palette */
+body:not([data-skin="modern"]) .welcome-card .wl-ai summary, body:not([data-skin="modern"]) .welcome-card .wl-prompt:not(.wl-quick .wl-prompt) { background: rgba(0,0,0,.04); }
+body:not([data-skin="modern"]) .welcome-card .wl-quick .wl-prompt { border-top: 1px solid rgba(0,0,0,.08); }
+body:not([data-skin="modern"]) .welcome-card .wl-ai-state.is-on { color: #3d7a52; }
+/* The card is a column in the modern skin and a padded block in classic, and
+   wcell carries the welcome table's capitals: settle all three for Welcome. */
+body[data-skin] article.welcome-card { display: block; padding: 1.7rem 1.9rem 1.4rem; }
+body[data-skin] article.welcome-card .wl-tab { display: inline-block; width: auto; }
+body[data-skin] .welcome-card .wl-kind, body[data-skin] .welcome-card .wl-kind * { text-transform: none; letter-spacing: normal; }
+body[data-skin] .welcome-card .wl-kind-name { font-size: 1.55rem; font-weight: 300; }
+body[data-skin] .welcome-card .wl-kind-for { font-style: italic; font-size: 1rem; font-weight: 400; }
+body[data-skin] .welcome-card .wl-say { font-size: .95rem; font-weight: 400; }
+@media (max-width: 52rem) { body[data-skin] article.welcome-card { padding: 1.2rem 1rem 1rem; } }
+/* Tabs: full names on wide screens, one short word each on phones (one row). */
+.welcome-card .wl-short { display: none; }
+@media (max-width: 52rem) { .welcome-card .wl-long { display: none; } .welcome-card .wl-short { display: inline; }
+  body[data-skin] article.welcome-card .wl-tab { margin-right: .15rem; } }
+/* Welcome, step 1 refinements: centred tab strip, one icon weight, the
+   Warrant row below the three cells, and a primary Next. */
+body[data-skin] article.welcome-card .wl-tabs-anchor { display: none; }
+body[data-skin] article.welcome-card { text-align: center; }
+body[data-skin] article.welcome-card .wl-panel, body[data-skin] article.welcome-card .wl-eyebrow { text-align: left; }
+body[data-skin] article.welcome-card .wl-tab { margin: 0 .15rem 1.2rem; }
+.welcome-card .wl-warrant svg, .welcome-card .wl-kind svg { display: block; }
+.welcome-card .wl-warrant { display: flex; align-items: center; justify-content: center; gap: .9rem; margin: .2rem auto 0; padding: .8rem 1.4rem; max-width: 52ch; }
+.welcome-card .wl-warrant svg { width: 2.4rem; height: 2.6rem; flex: none; }
+.welcome-card .wl-warrant-name { font-size: 1.15rem; font-weight: 400; }
+.welcome-card .wl-warrant-for { font-style: italic; font-size: .95rem; opacity: .8; }
+.welcome-card .wl-next-primary { display: inline-block; cursor: pointer; }
+@media (max-width: 52rem) { .welcome-card .wl-warrant { flex-wrap: wrap; text-align: center; } }
+
+/* Welcome tabs live in the vis-tabs track (All / Public / Private). The track
+   styles anchors, so its label equivalents are restated here. */
+.welcome-card .wl-tabs { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 auto 1.2rem; max-width: 40rem; }
+.welcome-card .wl-tabs .wl-tab, body[data-skin] article.welcome-card .wl-tab { display: flex; align-items: center; justify-content: center; margin: 0; opacity: 1; text-align: center; }
+@media (max-width: 52rem) { .welcome-card .wl-tabs { max-width: none; } }
+.welcome-card .wl-num { margin-right: .4em; }

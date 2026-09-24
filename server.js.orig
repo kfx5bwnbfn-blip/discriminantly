@@ -7554,103 +7554,6 @@ function itineraryPreview(it, me) {
   </div></article>`;
 }
 
-// ---- Welcome (v2.56): the first thing in All, overtaken by use ------------
-// A real feed entry, dated by the member's join time: everything that happens
-// after they join (their own records, the network's) flows in above it. Never
-// pinned, dismissed or "completed"; it simply recedes. Three steps as tabs:
-// what you keep, connecting an AI, and starting with something real. It reads
-// the member's actual state: which AIs are connected, and whether the account
-// was made through ChatGPT (the plugin's sign-in).
-// One family, built from the lens (the monocle and chain on the rail): the
-// same 44x48 frame, 3-unit stroke, glass glare and chain of shrinking dots.
-const wlGlare = (id) => `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>`;
-const WL_ICON = {
-  note: ICONS.lens,
-  // the monocle dropped as a pin: stem and chain straight down, a dot for the place
-  mark: `<svg viewBox="0 0 44 48" aria-hidden="true">${wlGlare('wl-g-mark')}<circle cx="22" cy="15" r="11.4" fill="url(#wl-g-mark)"/><circle cx="22" cy="15" r="11.4" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="22" cy="15" r="2.6" fill="currentColor"/><path d="M22 26.4 22 30.6" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="22" cy="34.6" r="2.3" fill="currentColor"/><circle cx="22" cy="40" r="1.7" fill="currentColor"/><circle cx="22" cy="45" r="1.3" fill="currentColor"/></svg>`,
-  // a timeline: the spine, three stop dots, a card to the right of each
-  plan: `<svg viewBox="0 0 44 48" aria-hidden="true"><path d="M11 5v38" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="11" cy="11" r="3.2" fill="currentColor"/><circle cx="11" cy="24" r="3.2" fill="currentColor"/><circle cx="11" cy="37" r="3.2" fill="currentColor"/><g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"><rect x="20" y="6.5" width="17" height="9" rx="2.5"/><rect x="20" y="19.5" width="17" height="9" rx="2.5"/><rect x="20" y="32.5" width="17" height="9" rx="2.5"/></g></svg>`,
-  // the Warrant crest, traced from the seal's own paths (the crown of feathers
-  // and the base bars), scaled into the lens frame; no ring, no ribbon
-  warrant: `<svg viewBox="0 0 44 48" aria-hidden="true"><g transform="translate(0.4 -2) scale(0.34)" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"><path d="M64 20 C57 20 52 25 52 31 C52 37 57 41 60 45 C55 42 50 38 48 33 C46 38 47 44 52 48 C48 47 44 45 41 42 C42 50 47 55 53 59 C57 62 60 67 61 73 L64 86 L67 73 C68 67 71 62 75 59 C81 55 86 50 87 42 C84 45 80 47 76 48 C81 44 82 38 80 33 C78 38 73 42 68 45 C71 41 76 37 76 31 C76 25 71 20 64 20 Z"/><path d="M34 41 C26 41 21 46 21 53 C21 59 25 63 31 66 C27 66 23 65 20 62 C21 68 25 73 31 76 C36 79 42 83 46 89 L52 96 L55 91 C52 80 47 69 42 61 C39 56 37 49 34 41 Z"/><path d="M94 41 C102 41 107 46 107 53 C107 59 103 63 97 66 C101 66 105 65 108 62 C107 68 103 73 97 76 C92 79 86 83 82 89 L76 96 L73 91 C76 80 81 69 86 61 C89 56 91 49 94 41 Z"/><rect x="49" y="102" width="30" height="6.5" rx="3.25"/><rect x="49" y="111" width="30" height="6.5" rx="3.25"/></g></svg>`,
-};
-function welcomeState(me) {
-  const conns = q('SELECT client_name, client_label, created_at, revoked_at FROM connections WHERE user_id=?').all(me.id);
-  const is = (c, re) => re.test(`${c.client_name || ''} ${c.client_label || ''}`);
-  const live = conns.filter((c) => !c.revoked_at);
-  const chatgpt = live.some((c) => is(c, /chatgpt|openai/i));
-  const claude = live.some((c) => is(c, /claude|anthropic/i));
-  // Made through ChatGPT: the account's first ChatGPT connection came within
-  // half an hour of the account itself (the plugin signs you up, then asks).
-  const joined = Date.parse(String(me.created_at).replace(' ', 'T') + 'Z');
-  const viaChatGPT = conns.some((c) => is(c, /chatgpt|openai/i)
-    && Math.abs(Date.parse(String(c.created_at).replace(' ', 'T') + 'Z') - joined) < 30 * 60 * 1000);
-  const kept = q('SELECT (SELECT COUNT(*) FROM adopted_objects WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_marks WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_itineraries WHERE user_id=?) n').get(me.id, me.id, me.id).n;
-  return { chatgpt, claude, viaChatGPT, kept, joined };
-}
-function welcomeCard(me) {
-  const st = welcomeState(me);
-  const any = st.chatgpt || st.claude;
-  const open = any || st.viaChatGPT ? 3 : 1;
-  const since = new Date(st.joined).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  const right = st.viaChatGPT ? 'You arrived from ChatGPT' : `Since ${since}`;
-  const pluginUrl = (process.env.CHATGPT_PLUGIN_URL || '').trim();
-  const mcpUrl = BASE_URL() + '/mcp';
-  const next = (n, label) => `<label for="wl-s${n}" class="link caps wl-next">${label}</label>`;
-  const nextBtn = (n, label) => `<label for="wl-s${n}" class="btn3d btn-solid wl-next wl-next-primary">${label} \u2192</label>`;
-  const copy = (text, label = 'Copy') => `<button type="button" class="link caps wl-copy" data-wl-copy="${esc(text)}">${label}</button>`;
-  const kinds = [['note', 'Notes', 'for things', '\u201cKeep this watch in my Notes.\u201d'],
-                 ['mark', 'Marks', 'for places', '\u201cKeep that shop for my next trip to London.\u201d'],
-                 ['plan', 'Itineraries', 'for plans', '\u201cPlan a day in Prince Edward County.\u201d']];
-  const step1 = `<div class="wl-panel wl-p1">
-    <p class="sbox-title">Three kinds of things to keep.</p>
-    <p class="sbox-sub">Everything you keep is one of these.</p>
-    <div class="wtable wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wcell wl-kind">${WL_ICON[k]}<span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
-    <div class="wl-warrant">${WL_ICON.warrant}<span class="wl-warrant-name">Warrant</span><span class="wl-warrant-for">things and places you stand behind</span></div>
-    <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
-  </div>`;
-  const aiState = (on, since) => on ? `<span class="wl-ai-state is-on">${since ? 'Connected since your first conversation' : 'Connected'}</span>` : '<span class="wl-ai-state">Connect</span>';
-  const chatgptSteps = pluginUrl
-    ? `<ol class="wl-how"><li>In ChatGPT, open <b>Plugins</b> (in the sidebar, or at chatgpt.com/plugins).</li><li>Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.</li><li>Choose <b>Connect</b> when asked, and sign in to Discriminantly.</li><li>In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.</li></ol><p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
-    : `<p class="fine center">Discriminantly is coming to ChatGPT\u2019s plugin directory. Once it\u2019s listed: open <b>Plugins</b>, search for <b>Discriminantly</b>, choose <b>Install plugin</b>, then <b>Connect</b> and sign in.</p>`;
-  const claudeSteps = `<ol class="wl-how"><li>In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.</li><li>Name it <b>Discriminantly</b> and paste this address: <code class="wl-url">${esc(mcpUrl)}</code> ${copy(mcpUrl, 'Copy address')}</li><li>Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.</li><li>In a chat, turn it on under <b>+ \u203a Connectors</b>.</li></ol><p class="fine center">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
-  const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
-    : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
-  const step2 = `<div class="wl-panel wl-p2">
-    <p class="sbox-title">Connect your AI.</p>
-    <p class="sbox-sub">${lede}</p>
-    <div class="wl-ais">
-      <details class="wl-ai${st.chatgpt ? ' is-on' : ''}"><summary><span class="wl-ai-name">ChatGPT</span><span class="caps">Discriminantly plugin</span>${aiState(st.chatgpt, st.viaChatGPT)}</summary>${st.chatgpt ? '<p class="fine center">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps}</details>
-      <details class="wl-ai${st.claude ? ' is-on' : ''}"><summary><span class="wl-ai-name">Claude</span><span class="caps">MCP connector</span>${aiState(st.claude)}</summary>${st.claude ? '<p class="fine center">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps}</details>
-    </div>
-    <div class="wl-nav">${next(1, '\u2190 Things, places, plans')}${nextBtn(3, 'Next: getting started')}</div>
-  </div>`;
-  const top = [
-    st.viaChatGPT && st.kept ? ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.']
-      : ['I\u2019m planning a trip to [destination]. Help me build an itinerary based on what I like.', 'A plan for you, and your first places, in one conversation.'],
-    ['Help me remember some places that matter to me in [city]. Show me before you add anything.', 'You choose what becomes yours.'],
-  ];
-  const quick = ['There\u2019s something I want to remember. Help me add it to Discriminantly.',
-                 'What things we\u2019ve talked about before might be worth keeping here? Let me choose.',
-                 'Show me what I\u2019ve kept so far.'];
-  const step3 = `<div class="wl-panel wl-p3">
-    <p class="sbox-title">${st.viaChatGPT && st.kept ? 'Pick up where you left off.' : 'Start with something real.'}</p>
-    <p class="sbox-sub">${any ? 'Copy one into ' + (st.chatgpt && st.claude ? 'either AI' : st.chatgpt ? 'ChatGPT' : 'Claude') + ' and make it yours.' : 'Copy one into your AI once it\u2019s connected.'}</p>
-    <div class="wl-prompts">${top.map(([t, why]) => `<div class="wl-prompt"><div><p class="wl-q">\u201c${t}\u201d</p><p class="fine">${why}</p></div>${copy(t)}</div>`).join('')}</div>
-    <p class="caps wl-quick-label">Quick ones</p>
-    <div class="wl-prompts wl-quick">${quick.map((t) => `<div class="wl-prompt"><p class="wl-q">\u201c${t}\u201d</p>${copy(t)}</div>`).join('')}</div>
-    <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
-  </div>`;
-  return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
-  <p class="wl-eyebrow"><span class="caps">Welcome \u00b7 Discriminantly, for ${esc(me.handle)}</span><span class="caps">${esc(right)}</span></p>
-  ${[1,2,3].map((n) => `<input type="radio" name="wl-step" id="wl-s${n}" class="wl-radio"${n === open ? ' checked' : ''}>`).join('')}
-  <div class="vis-tabs wl-tabs">${[[1, 'Things, places, plans', 'Keep'], [2, 'Connect your AI', 'Connect'], [3, 'Getting started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
-  ${step1}${step2}${step3}
-  <script>document.querySelectorAll('.welcome-card [data-wl-copy]').forEach(function (b) { b.addEventListener('click', function () {
-    var t = b.textContent; navigator.clipboard.writeText(b.getAttribute('data-wl-copy')).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1600); }); }); });</script>
-</article>`;
-}
-
 const pages = {
   home(req, res, me, url) {
     const s = (url.searchParams.get('q') || '').trim();
@@ -7687,10 +7590,7 @@ const pages = {
     const lazy = (at, key, draw) => ({ at, key, get html() { return this._h ?? (this._h = draw()); } });
     const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me))),
                      ...marks.map((x) => lazy(x.created_at, 'mark:' + x.id, () => markCard(x, me))),
-                     ...itins.filter((it) => canSee(it, me)).map((it) => lazy(it.created_at, 'itin:' + it.id, () => itineraryPreview(it, me))),
-      // Welcome: dated by the member's join time, so it starts at the top and
-      // is overtaken by everything that happens after (never pinned).
-      ...(me && feed === 'all' && !s && !tag ? [lazy(me.created_at, 'welcome', () => welcomeCard(me))] : [])]
+                     ...itins.filter((it) => canSee(it, me)).map((it) => lazy(it.created_at, 'itin:' + it.id, () => itineraryPreview(it, me)))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
     const banner = resurfaceBanner(me, feed, !!(s || tag));
     const shown = banner.skip;

@@ -2484,3 +2484,36 @@ body[data-skin="modern"] .review-kind, body[data-skin="modern"] .review-rel, bod
 @media (prefers-reduced-motion: reduce) { body[data-skin="modern"] .rec-plan.is-kept, body[data-skin="modern"] .rec-stop.is-kept { transition: none; } }
 body[data-skin="modern"] .rec-title a, body[data-skin="modern"] .rec-stop-name a, body[data-skin="modern"] .rec-kid a { color: var(--m-ink); text-decoration: none; }
 body[data-skin="modern"] .rec-title a:hover, body[data-skin="modern"] .rec-stop-name a:hover, body[data-skin="modern"] .rec-kid a:hover { text-decoration: underline; text-decoration-color: var(--m-ink-3); }
+
+
+/* Welcome card: second-level glass inside the card, the skin's inks and accent */
+body[data-skin="modern"] .welcome-card .wl-tab { color: var(--m-ink-2); }
+body[data-skin="modern"] .welcome-card .wl-radio:checked + .wl-tab { background: var(--m-glass-3); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line-2); }
+body[data-skin="modern"] .welcome-card .wl-kind { background: var(--m-glass-2); border-radius: 18px; box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .welcome-card .wl-kinds { gap: .8rem; background: none; }
+body[data-skin="modern"] .welcome-card .wl-ai summary { background: var(--m-glass-3); box-shadow: inset 0 1px 0 var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
+body[data-skin="modern"] .welcome-card .wl-ai.is-on summary { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .welcome-card .wl-ai-state { color: var(--m-accent); }
+body[data-skin="modern"] .welcome-card .wl-ai-state.is-on { color: var(--m-ink-2); }
+body[data-skin="modern"] .welcome-card .wl-prompt { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .welcome-card .wl-quick .wl-prompt { background: none; box-shadow: inset 0 1px 0 var(--m-rule, rgba(255,255,255,.1)); }
+body[data-skin="modern"] .welcome-card .wl-how, body[data-skin="modern"] .welcome-card .wl-say, body[data-skin="modern"] .welcome-card .wl-kind-for { color: var(--m-ink-2); }
+body[data-skin="modern"] .welcome-card .wl-url { color: var(--m-ink); }
+body[data-skin="modern"] .welcome-card .wl-warrant { background: var(--m-glass); border-radius: 14px; box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .welcome-card .wl-warrant-for { color: var(--m-ink-2); }
+
+/* Welcome tabs: the vis-tabs recipe, for labels */
+body[data-skin="modern"] .wl-tabs { padding: 4px; border-radius: 999px; background: var(--m-glass-2); -webkit-backdrop-filter: blur(34px) saturate(150%); backdrop-filter: blur(34px) saturate(150%); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .wl-tabs .wl-tab { color: var(--m-ink-2); background: transparent; box-shadow: none; border-radius: 999px; padding: .6rem .8rem; }
+body[data-skin="modern"] .wl-tabs .wl-tab:hover { color: var(--m-ink); background: var(--m-glass); }
+body[data-skin="modern"] #wl-s1:checked ~ .wl-tabs label[for="wl-s1"], body[data-skin="modern"] #wl-s2:checked ~ .wl-tabs label[for="wl-s2"], body[data-skin="modern"] #wl-s3:checked ~ .wl-tabs label[for="wl-s3"] {
+  background: var(--m-glass-3); color: var(--m-ink); font-weight: 700; box-shadow: inset 0 1px 0 var(--m-line-2), 0 2px 10px -4px rgba(0,0,0,.35); }
+/* A solid variant of the button token: the selected pill's density */
+body[data-skin="modern"] .btn3d.btn-solid, body[data-skin="modern"] button.btn3d.btn-solid { background: var(--m-glass-3); font-weight: 700; box-shadow: inset 0 1px 0 var(--m-line-2), 0 2px 10px -4px rgba(0,0,0,.35); }
+body[data-skin="modern"] .btn3d.btn-solid:hover { background: var(--m-glass-3); filter: brightness(1.08); }
+/* Ensembles: "What's in it" takes the quiet container the itinerary shell and
+   the resurfacing banner use (tint only: no blur, shadow or light edge), and
+   room to breathe. */
+body[data-skin="modern"] .ens-parts { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; padding: 1.2rem 1rem 1.3rem; }
+body[data-skin="modern"] .ens-parts .ens-parts-h { margin: 0 0 .9rem; }
+body[data-skin="modern"] .ens-parts .ens-comps, body[data-skin="modern"] .ens-parts .ens-comps .ens-comp { padding-left: 0; padding-right: 0; }

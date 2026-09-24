@@ -1540,22 +1540,5 @@ console.log('\nMCP compatibility-critical regions');
     ok('MF frozen: ' + k, want[k] && have[k] === want[k]);
 }
 
-// ---- Welcome in All (v2.56) ------------------------------------------------
-console.log('\nwelcome');
-{
-  ok('WL1 Welcome is a feed entry dated by the member\u2019s join time: never pinned, only on All, signed in, unfiltered',
-     /\.\.\.\(me && feed === 'all' && !s && !tag \? \[lazy\(me\.created_at, 'welcome', \(\) => welcomeCard\(me\)\)\] : \[\]\)/.test(SRC));
-  const f = SRC.slice(SRC.indexOf('function welcomeCard('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeCard(')));
-  ok('WL2 no dismiss or completion mechanics', !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '')));
-  ok('WL3 connection state comes from the member\u2019s live connections, per AI',
-     /const live = conns\.filter\(\(c\) => !c\.revoked_at\);/.test(SRC) && /chatgpt\|openai/.test(SRC) && /claude\|anthropic/.test(SRC));
-  ok('WL4 the ChatGPT steps appear only once the listing exists (CHATGPT_PLUGIN_URL); until then, a truthful "coming" note',
-     /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(f) && /coming to ChatGPT\\u2019s plugin directory/.test(f));
-  ok('WL5 current Claude wording: Customize \u203a Connectors, Add custom connector, + \u203a Connectors',
-     /Customize \\u203a Connectors/.test(f) && /Add custom connector/.test(f) && /\+ \\u203a Connectors/.test(f));
-  ok('WL6 built from the skin\u2019s own components (sbox-title, sbox-sub, wcell, btn3d, link caps)',
-     ['sbox-title', 'sbox-sub', 'wcell', 'btn3d', 'link caps'].every((c) => f.includes(c)));
-}
-
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

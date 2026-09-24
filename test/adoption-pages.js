@@ -21,7 +21,10 @@ if (process.argv[2] === 'compare') {
   // confirmation can take its own copy, and a kept plan's or composition's
   // Delete says what stays. Both are folded back here, and nothing else is.
   const inc4 = (s) => s.split("'</b>? ' + (t.dataset.copy || 'This cannot be undone.') });").join("'</b>? This cannot be undone.' });")
-    .replace(/ data-copy="[^"]*"/g, '');
+    .replace(/ data-copy="[^"]*"/g, '')
+    // v2.56 Welcome: a new card in All for signed-in members, and its styles.
+    // Folded back as a whole article; everything else on the page still compares.
+    .replace(/<article class="card welcome-card"[\s\S]*?<\/article>/g, '');
   for (const set of [full, without, after]) for (const k of Object.keys(set)) set[k].body = inc4(set[k].body);
   const pendingNote = `owner /o/${process.argv[6]}`, pendingEns = `owner /e/${process.argv[7]}`;
   const digits = (x) => x.replace(/\d+/g, '#');
