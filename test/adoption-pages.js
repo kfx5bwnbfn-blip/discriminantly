@@ -17,6 +17,12 @@ const BASE = (process.env.BASE || 'http://localhost:3000').replace(/\/$/, '');
 // exactly the corpus the Adopted projection should present.
 if (process.argv[2] === 'compare') {
   const [full, without, after] = process.argv.slice(3, 6).map((f) => JSON.parse(require('fs').readFileSync(f, 'utf8')));
+  // Increment 4 changes two things on every page on purpose: the delete
+  // confirmation can take its own copy, and a kept plan's or composition's
+  // Delete says what stays. Both are folded back here, and nothing else is.
+  const inc4 = (s) => s.split("'</b>? ' + (t.dataset.copy || 'This cannot be undone.') });").join("'</b>? This cannot be undone.' });")
+    .replace(/ data-copy="[^"]*"/g, '');
+  for (const set of [full, without, after]) for (const k of Object.keys(set)) set[k].body = inc4(set[k].body);
   const pendingNote = `owner /o/${process.argv[6]}`, pendingEns = `owner /e/${process.argv[7]}`;
   const digits = (x) => x.replace(/\d+/g, '#');
   let pass = 0, fail = 0;
@@ -28,7 +34,9 @@ if (process.argv[2] === 'compare') {
     } else if (k === pendingNote || k === pendingEns) {
       // the pending Note's own page and its Ensemble's: still the owner's,
       // only the corpus count beside it changes
-      ok(`${k}: the owner still reaches it`, a.status === 200 && digits(a.body) === digits(full[k].body));
+      // Increment 4: the staged Note, on its own page and in its pending
+      // composition, now shows as staged ("Kept with its composition").
+      ok(`${k}: the owner still reaches it`, a.status === 200 && /Kept with its composition/.test(a.body));
     } else {
       ok(`${k}: identical to the old code without the pending Note`, a.status === without[k].status && a.body === without[k].body);
     }

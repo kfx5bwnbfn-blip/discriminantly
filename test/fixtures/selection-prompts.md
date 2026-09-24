@@ -32,3 +32,25 @@ Output ONLY a JSON object: {"P1": {"calls": ["tool_a", "tool_b"], "why": "one sh
 Additional prompts (same context and output format):
 P23. "Skip the manta snorkel — I just don't like being in the water at night."
 P24. "Not the rooftop bar this time, we're travelling with the kids." (a recommendation "rooftop bar" exists, uid rc-bar, context London)
+
+Workflow scenarios (same context and output format; for these, also put in "why" the workflow value and how many items you would record, if any):
+W1. The member: "I'm new here — help me get my catalogue started. I care about Japanese kitchen knives and good coffee." You research and present five specific suggestions to the member.
+W2. The member has a kept itinerary "Kyoto in March" (uid it-kyoto). The member: "What specific things should I look for in Kyoto?" You research about twelve candidates and present four of them.
+W3. While doing W2 you found an excellent knife shop in Osaka that doesn't fit this Kyoto trip, and you tell the member: "Not for this trip, but worth remembering for another time: Jikko in Sakai."
+W4. The member: "Recommend a good restaurant in Toronto." (No trip or plan of theirs is involved.)
+W5. The member: "Keep Daunt Books in Marylebone for me."
+W6. The member: "Add that Sakai knife shop you suggested to my marks." (the recommendation from W3 exists, uid rc-jikko, resolved to a place)
+W7. The member: "Save the Aesop Resurrection hand balm to my notes, here's the photo URL https://example.com/aesop.jpg"
+W8. The member: "What did you suggest for Kyoto that I haven't answered yet?"
+W9. The member: "What should I pack for a weekend in London in November?"
+W10. You considered recommending a café in Kyoto but decided against it and never mentioned it to the member.
+
+Adoption-boundary prompts (final semantic pass; same context and output format). Also in the context: a recommendation "Jikko" (uid rc-jikko, resolved, target travel mark uid mk-jikko, mark id 55, not kept).
+E1. "I went to that Sakai knife shop you suggested — Jikko — last spring."
+E2. "That Kaʻu coffee you recommended — I stand behind it, best I've had."
+E3. "The manta night snorkel sounds fun."
+E4. "If I delete my Hatchards mark, what happens to the stop in my London plan?"
+E5. "Delete my Hatchards mark." (the member has already confirmed)
+
+Expected under the adoption boundary (for the scorer, not shown to the model): P4 and P21 -> keep_recommendation then record_note_ownership; E1 -> keep_recommendation then log_visit (add_travel_mark with visited_on is also correct: it keeps the recommended mark and records the visit); E2 -> keep_recommendation then warrant; E3 -> none; E4 -> none (answer from delete_travel_mark's description: the stop stays, as a place still to identify); E5 -> delete_travel_mark.
+

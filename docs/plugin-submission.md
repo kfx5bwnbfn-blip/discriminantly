@@ -297,58 +297,34 @@ Verify identity → set `SUPPORT_EMAIL` and `PUBLISHER_NAME` → deploy → quic
 - A UserInfo endpoint, if workspace domain restrictions are ever needed.
 - Rename `serverInfo.name` from `discriminant.ly` to `Discriminantly` for consistency.
 
-## Submitted-contract compatibility (replaces the blanket MCP freeze)
+## The v2.55 surface (supersedes the review-time compatibility rule)
 
-The plugin was submitted to OpenAI for review at v2.52.7 with the submission file from commit fd09297. Until 23 September 2026 the whole MCP surface was frozen while it's under review. **From v2.55.0 the rule is narrower: freeze compatibility, not capability development.**
+The plugin was submitted to OpenAI at v2.52.7 (submission file from commit fd09297). **That review was cancelled on 23 September 2026.** The temporary strategy that followed it — a frozen submitted surface on `/mcp`, additive tools on an admin-only `/mcp-dev`, and the `MCP_ADDITIVE_TOOLS` switch before that — is retired.
 
-**The submitted contract is the compatibility floor.** For every tool in the submission, preserve:
-- its name, description, input and output schemas, required parameters, annotations and security declaration;
-- its observable meaning;
-- OAuth and discovery behaviour;
-- the server instructions' submitted text.
+**One surface.** `/mcp` (and the legacy `/mcp/<token>`) serves every connection the same **61 tools** and the same server instructions. There is no developer endpoint, no per-member exposure, and no reviewer detection. The next submission is prepared from this surface: `docs/submission/chatgpt-app-submission-v2.55.draft.json` (annotations, justifications, test cases) and `docs/mcp-v2.55-review-readiness.md` (the audit and the report for Brian). **Neither Scan Tools nor submission has been run.**
 
-The implementation behind a submitted tool may change when its observable meaning doesn't. For example, `my_notes` now reads the Adopted projection, which is what *the member's notes* has always meant.
-
-**Additive development is allowed.** New tools may be added with their own names, descriptions, schemas and annotations, and iterated during founder dogfood. Don't overload a submitted tool with a new meaning to avoid adding a capability. Don't make gratuitous descriptor changes to submitted tools while review is pending; record desirable cleanups in `docs/mcp-vnext.md` instead.
-
-**Two endpoints, one domain (decision E, v2.55.0).**
-- **`/mcp`** (and the legacy `/mcp/<token>`) is the **submitted surface for every connection**, the founder's included: exactly the 54 submitted tools and the submitted server instructions. No account, the reviewer's included, is special-cased.
-- **`/mcp-dev`** (and `/mcp-dev/<token>`) is the **developer surface**: the same 54 tools, plus the additive tools and their instructions paragraph. It's open to the developer account (the admin) only; any other account gets 403. The founder's connector URL for it is shown in Settings, in the Admin section.
-- **Both** use the same database, domain, Adoption, Recommendation, privacy and provenance. Only which tools exist differs.
-- **OAuth:** the authorization server and discovery serve `/mcp` only. On `/mcp-dev`, use the personal connector URL, or a bearer token already issued for `/mcp`.
-
-**Still fingerprinted** (`test/fixtures/mcp-freeze.json`, the `MF` tests), because additive work has no reason to touch them:
-- OAuth core;
-- the two MCP routes;
-- discovery and the OAuth routes;
-- everything in `plugin/`.
-
-Changing one of them is a deliberate act: run `node test/mcp-freeze.js --record` and commit with a reason. The tool table and dispatcher are no longer fingerprinted. Their compatibility is held by the tests below.
+**Still fingerprinted** (`test/fixtures/mcp-freeze.json`, the `MF` tests): OAuth core, the two MCP routes, discovery and the OAuth routes, and everything in `plugin/`. Changing one is a deliberate act: `node test/mcp-freeze.js --record`, committed with a reason.
 
 **Log.**
-- 23 September 2026 (v2.54.1): the dispatcher fingerprint was re-recorded after removing request IDs from error replies.
-- 23 September 2026 (v2.55.0): the blanket freeze was replaced by this rule. The tool-table and dispatcher regions were dropped from the fingerprint; the remaining fingerprints are unchanged.
+- 23 September 2026 (v2.54.1): dispatcher fingerprint re-recorded after removing request IDs from error replies.
+- 23 September 2026 (v2.55.0): blanket freeze replaced by "freeze compatibility, not capability development"; tool-table and dispatcher regions dropped from the fingerprint.
+- 23 September 2026 (v2.55.0): review cancelled. One 61-tool surface; `/mcp-dev` and `MCP_ADDITIVE_TOOLS` removed; audit findings applied to submitted descriptors; new contract snapshot.
 
 ### The guard
-All of it compares against one snapshot: `test/fixtures/submitted-mcp-contract.json`, the submitted surface. **It is never rewritten by a test run.**
-- **Every test run (no server): the `MC` tests** generate every tool definition from `server.js`.
-  - MC2: every submitted tool still exists.
-  - MC3: its definition is byte-identical.
-  - MC4: additive tools are complete (title, schemas, annotations, OAuth security).
-- **The `SW` tests:** annotation counts over the submitted tools are unchanged, and SW4 covers the additive tools separately.
-- **Against a running server: `test/mcp-contract.js`.**
-  - **`/mcp` (default):** must match the submitted snapshot **exactly**: no added tool, identical instructions, the same OAuth and discovery, and the same result shapes.
-  - **`SURFACE=developer`, `/mcp-dev`:** the submitted tools unchanged, plus exactly the additive tools and instructions paragraph recorded in `test/fixtures/developer-mcp-surface.json`. That's the evolving surface: re-record it with `--record-developer` when an additive tool is deliberately changed. `--record` refuses to touch the submitted baseline except against `/mcp`.
-  - **Static checks:** MC5–MC7 hold the same split without a server.
+- **Current snapshot:** `test/fixtures/mcp-contract-v2.55.json`, the surface prepared for the next submission. It changes only deliberately: `node test/mcp-contract.js --record`, reviewed and committed with a reason.
+- **Historical snapshot:** `test/fixtures/submitted-mcp-contract.json`, the cancelled v2.52.7 submission. A regression reference only; **never rewritten**.
+- **Every test run (no server), the `MC` tests:**
+  - MC1–MC3: the generated definitions equal the v2.55 snapshot exactly; every tool is complete (title, schemas, three hints, OAuth security).
+  - MC4: against the historical snapshot, nothing was removed or renamed, and only an approved list of tools changed (10) or was added (7). An unlisted change fails.
+  - MC5: one surface; no exposure switch or second endpoint remains.
+  - MC6–MC8: the draft submission file declares exactly the generated annotations, three justifications per tool, and test cases that name real tools.
+  - SW: annotation counts (16 read-only, 16 destructive, 38 open-world).
+- **Against a running server, `test/mcp-contract.js`:** tools, initialize (server info, capabilities, instructions), OAuth and discovery, the unauthenticated challenge, and result shapes of representative tools must match the v2.55 snapshot. `--historical` prints what changed since the cancelled submission, failing only if a historical tool disappeared or OAuth/discovery or a shared result shape changed.
 
-  Run it with `BASE=http://localhost:3000 TOKEN=<api token> SID=<session> node test/mcp-contract.js`.
-- **Behaviour:**
-  - `test/adoption.js` (C tests) checks submitted tools against records outside the corpus.
-  - `test/recommendations.js` checks isolation and the loop.
-  - `test/plugin-audit.js` is the adversarial privacy suite.
-  - `test/adoption-e2e.sh` runs the lot on a database built by the pre-052 code.
+  `BASE=http://localhost:3000 TOKEN=<api token> SID=<session> node test/mcp-contract.js [--historical]`
+- **Behaviour:** `test/adoption.js`, `test/recommendations.js`, `test/tool-audit.js`, `test/plugin-audit.js` (adversarial privacy, through OAuth), all but the last run by `test/adoption-e2e.sh` on a database built by the pre-052 code.
 
-### Migrations during review
+### Migrations since the historical submission
 
 | Migration | Submitted MCP reads | Submitted MCP writes | Serialization | Verdict |
 |---|---|---|---|---|
@@ -357,15 +333,13 @@ All of it compares against one snapshot: `test/fixtures/submitted-mcp-contract.j
 | 050 day-note deletion history | unchanged | same as 049 | unchanged | Additive trigger. |
 | 051 Stop → Note | unchanged | deleting a stop, itinerary or note now also removes its attachments, and never deletes a Note | unchanged (checked by the live guard) | Additive table. |
 | 052 Adoption | corpus reads read the Adopted projection: the member's notes, marks and plans, as the tools have always meant | creation tools still Keep what they create | unchanged | Additive. A pending Ensemble's Note, which was never corpus, leaves `my_notes`, search and counts. |
-| 053 Recommendation | unchanged: recommendation-only records are outside the projection | unchanged | unchanged | Additive table. Only the additive tools create recommendations. |
+| 053 Recommendation | unchanged: recommendation-only records are outside the projection | unchanged | unchanged | Additive table. Only the recommendation tools create recommendations. |
 
-### Before deploying an MCP change during review
-Report a **Submitted Contract Compatibility** assessment, as in `docs/recommendations-increments-2-3-report.md`:
-- whether existing tools, schemas, descriptors, annotations, response contracts, OAuth or discovery changed;
-- the additive delta, and why each piece is needed;
-- the results of the guard, the old-client regression, Recommendation isolation and the adopted-projection regression.
-
-Don't deploy if a submitted contract broke unintentionally. If a breaking change is genuinely necessary, stop and raise it for a product decision.
+### Before resubmitting
+1. Brian approves the surface in `docs/mcp-v2.55-review-readiness.md`.
+2. Deploy, then run OpenAI Scan Tools against production and compare what it reads with `test/fixtures/mcp-contract-v2.55.json`.
+3. Copy `docs/submission/chatgpt-app-submission-v2.55.draft.json` into the submission form (or `plugin/`, deliberately re-recording the `MF` fingerprint).
+4. Run the positive and negative test cases in ChatGPT (and Codex, if included) as the reviewer would.
 
 ### Before or after review, not code
 If the submission includes Codex, OpenAI requires the test cases to pass there too. Run the five positive and three negative prompts on Codex as the reviewer.

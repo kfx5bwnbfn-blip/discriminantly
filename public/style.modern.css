@@ -2436,3 +2436,51 @@ body[data-skin="modern"] .pgrp-nav .pgrp-solo { min-height: 5.1rem; }
   .pgrp-all-full { display: none; }
   .pgrp-all-short { display: inline; }
 }
+
+/* =====================================================================
+   Increment 4: the proposed material. The same glass at about half its
+   opacity with no light edge: it rests slightly behind the plane. Keep
+   gives it the edge and the weight. Dark is the reference.
+   ===================================================================== */
+body[data-skin="modern"] { --m-prop: rgba(255,255,255,.035); --m-prop-line: rgba(255,255,255,.075); }
+body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern"][data-mode="system"] { --m-prop: rgba(255,255,255,.2); --m-prop-line: rgba(255,255,255,.55); }
+/* light: a place already theirs, inside a proposal, reads as solid glass */
+body[data-skin="modern"][data-mode="light"] .rec-plan .rec-stop.is-kept, html.m-light body[data-skin="modern"][data-mode="system"] .rec-plan .rec-stop.is-kept { background: var(--m-glass-3); box-shadow: inset 0 1px 0 var(--m-line-2), var(--m-shadow-2); }
+body[data-skin="modern"] .rec-plan, body[data-skin="modern"] .rec-stop,
+body[data-skin="modern"] .is-proposed > .card, body[data-skin="modern"] .itin-note.is-proposed .itin-shell,
+body[data-skin="modern"] ul.stop-notes > li.is-proposed {
+  background: var(--m-prop); box-shadow: inset 0 0 0 1px var(--m-prop-line);
+  -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%);
+}
+body[data-skin="modern"] .rec-plan.is-kept, body[data-skin="modern"] .rec-stop.is-kept {
+  background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow);
+  transition: background .32s var(--m-ease), box-shadow .32s var(--m-ease);
+}
+body[data-skin="modern"] .rec-plan .rec-stop { background: var(--m-prop); }
+body[data-skin="modern"] .rec-plan .rec-stop.is-kept { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .itin-recs { --rec-dot: var(--m-accent); color: var(--m-ink); }
+body[data-skin="modern"] .rec-kind, body[data-skin="modern"] .rec-why { color: var(--m-ink-2); }
+body[data-skin="modern"] .rec-kind b { color: var(--m-ink); }
+body[data-skin="modern"] .rec-meta, body[data-skin="modern"] .rec-count, body[data-skin="modern"] .rec-stop-loc,
+body[data-skin="modern"] .rec-day, body[data-skin="modern"] .rec-kid-st, body[data-skin="modern"] .rec-note { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .rec-kid-st i, body[data-skin="modern"] .stop-note .ens-comp-state i { color: var(--m-accent); }
+body[data-skin="modern"] .rec-stops::before { background: var(--m-rule); opacity: 1; }
+body[data-skin="modern"] .rec-kids, body[data-skin="modern"] .rec-kid::before { border-color: var(--m-rule); background-color: var(--m-rule); }
+body[data-skin="modern"] .rec-kids { background: none; }
+body[data-skin="modern"] .rec-tag { color: var(--m-accent); box-shadow: inset 0 0 0 1px var(--m-accent); }
+body[data-skin="modern"] .rec-explore > summary { background: transparent; box-shadow: inset 0 0 0 1px var(--m-line-2); color: var(--m-ink); }
+body[data-skin="modern"] .react-btn { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .btn-keep.btn, body[data-skin="modern"] .rec-acts .btn-keep { background: var(--m-accent); color: #0d0f14; font-weight: 600; box-shadow: none; border-radius: 999px; padding: .55rem 1.1rem; font-size: .62rem; letter-spacing: .16em; text-transform: uppercase; border: 0; cursor: pointer; font-family: inherit; }
+body[data-skin="modern"][data-mode="light"] .rec-acts .btn-keep, html.m-light body[data-skin="modern"][data-mode="system"] .rec-acts .btn-keep { color: #fff; }
+body[data-skin="modern"] .rec-acts a.btn { background: var(--m-glass-2); color: var(--m-ink); border-radius: 999px; padding: .55rem 1.1rem; font-size: .62rem; letter-spacing: .16em; text-transform: uppercase; text-decoration: none; box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .prop-line, body[data-skin="modern"] .stop-note .ens-comp-why { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] ul.stop-notes > li.is-unresolved { background: transparent; box-shadow: inset 0 0 0 1px var(--m-rule); }
+body[data-skin="modern"] .itin-map .pin-ring { stroke: var(--m-accent); }
+body[data-skin="modern"] .itin-map .pin-rn { fill: var(--m-accent); }
+body[data-skin="modern"] .map-legend .lg-dot { background: var(--m-accent); }
+body[data-skin="modern"] .map-legend .lg-ring { box-shadow: inset 0 0 0 1.5px var(--m-accent); }
+body[data-skin="modern"] .review-row { border-color: var(--m-rule); }
+body[data-skin="modern"] .review-kind, body[data-skin="modern"] .review-rel, body[data-skin="modern"] .review-sub, body[data-skin="modern"] .review-note { color: var(--m-ink-3); opacity: 1; }
+@media (prefers-reduced-motion: reduce) { body[data-skin="modern"] .rec-plan.is-kept, body[data-skin="modern"] .rec-stop.is-kept { transition: none; } }
+body[data-skin="modern"] .rec-title a, body[data-skin="modern"] .rec-stop-name a, body[data-skin="modern"] .rec-kid a { color: var(--m-ink); text-decoration: none; }
+body[data-skin="modern"] .rec-title a:hover, body[data-skin="modern"] .rec-stop-name a:hover, body[data-skin="modern"] .rec-kid a:hover { text-decoration: underline; text-decoration-color: var(--m-ink-3); }

@@ -1,49 +1,35 @@
 // MCP contract guard (live part).
 //
-// Freeze compatibility, not capability development. While the submitted
-// ChatGPT Plugin is under review, its contract and observable behaviour are
-// preserved; new tools may be added around it. This compares what a running
-// server actually generates with the checked-in snapshot of the SUBMITTED
-// surface, test/fixtures/submitted-mcp-contract.json, which stays the
-// baseline:
-//   - allowed: new tools; server instructions that keep the submitted text
-//     verbatim and add to it;
-//   - failure: any submitted tool missing, renamed or changed; changed server
-//     info or capabilities; changed OAuth or discovery; a changed result shape
-//     from a submitted tool.
+// Compares what a running server actually generates with the current contract
+// snapshot, test/fixtures/mcp-contract-v2.56.json (61 tools: v2.55 plus the
+// additive Increment 4 fields; the v2.55 snapshot stays as the release baseline):
 //   - tools/list: every tool definition (also checked from source by the suite)
 //   - initialize: server info, capabilities, server instructions
 //   - OAuth discovery and protected-resource metadata, and the unauthenticated
 //     challenge header
-//   - the key/type shape of real results from representative tools, including
-//     my_itineraries on a Stop that has a Note attached (Stop -> Note must not
-//     leak into the frozen response)
+//   - the key/type shape of real results from representative tools
+// Any difference fails. The historical surface submitted at v2.52.7 (review
+// cancelled), test/fixtures/submitted-mcp-contract.json, is kept as a
+// regression reference: --historical prints what changed since then, and fails
+// only if a historical tool disappeared or OAuth/discovery changed.
 //
-// Normalised on purpose: the site origin (it differs between local and
-// production) becomes {ORIGIN}; the signed-in member's name and handle at the
-// start of the server instructions become {MEMBER_NAME} and {MEMBER_HANDLE};
-// protocolVersion is always requested as
-// 2025-06-18 because initialize echoes the client's value; result shapes keep
-// key names and value types, never values (ids, uids and text vary per run).
+// Normalised on purpose: the site origin becomes {ORIGIN}; the signed-in
+// member's name and handle at the start of the server instructions become
+// {MEMBER_NAME} and {MEMBER_HANDLE}; protocolVersion is requested at a fixed
+// value; result shapes keep key names and value types, never values.
 //
-// Usage (server running; see docs/plugin-submission.md, "MCP freeze"):
+// Usage (server running):
 //   BASE=http://localhost:3000 TOKEN=<member api token> SID=<that member's session cookie> [DB_PATH=...] node test/mcp-contract.js
-//   ... --record   rewrites the snapshot. Only do this as a deliberate decision
-//                  when the freeze is lifted or a contract change is approved.
+//   ... --record      rewrites the CURRENT snapshot, as a deliberate decision
+//                     when a contract change is approved. The historical
+//                     snapshot is never rewritten.
+//   ... --historical  compare with the historical submission instead
 const fs = require('fs'), path = require('path');
-const FILE = path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json');
+const FILE = path.join(__dirname, 'fixtures', 'mcp-contract-v2.56.json');
+const HIST = path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json');
 const BASE = (process.env.BASE || 'http://localhost:3000').replace(/\/$/, ''), TOKEN = process.env.TOKEN, SID = process.env.SID;
-const RECORD = process.argv.includes('--record');
-// Two surfaces (decision E). SURFACE=submitted (default) checks /mcp against
-// the submitted snapshot EXACTLY: same 54 tools, nothing added, the same
-// instructions. SURFACE=developer checks /mcp-dev: the submitted tools
-// unchanged, plus the additive tools and instructions paragraph recorded in
-// test/fixtures/developer-mcp-surface.json (the evolving surface; re-record it
-// with --record-developer when an additive tool is deliberately changed).
-const SURFACE = process.env.SURFACE === 'developer' ? 'developer' : 'submitted';
-const MCP_PATH = SURFACE === 'developer' ? '/mcp-dev/' : '/mcp/';
-const DEV_FILE = path.join(__dirname, 'fixtures', 'developer-mcp-surface.json');
-const RECORD_DEV = process.argv.includes('--record-developer');
+const RECORD = process.argv.includes('--record'), HISTORICAL = process.argv.includes('--historical');
+const MCP_PATH = '/mcp/';
 if (!TOKEN || !SID) { console.error('TOKEN and SID are required (a member api token and that member\u2019s session cookie).'); process.exit(2); }
 
 const norm = (v) => JSON.parse(JSON.stringify(v).split(BASE).join('{ORIGIN}').split('https://www.discriminantly.com').join('{ORIGIN}'));
@@ -91,6 +77,20 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
     my_itineraries_one: shape(one),
     my_itineraries_one_after_stop_note: shape(oneAfter),
   };
+  if (!HISTORICAL) {
+    // v2.55 tools, recorded only in the current snapshot
+    // a public note of the caller's own, queried by its unique headline, so the
+    // shape never depends on whatever other members noted most recently
+    // (another member's item carries provenance null: test/tool-audit.js M3)
+    const probe = 'Recent notes probe ' + Date.now().toString(36);   // unique: never another member's probe
+    await call('note_object', { headline: probe, image: img, private: false });
+    results.recent_notes = shape(await call('recent_notes', { query: probe, limit: 1 }));
+    const rec = await call('record_recommendations', { items: [{ kind: 'object', label: 'Contract guard proposition', workflow: 'for_another_time' }] });
+    results.record_recommendations = shape(rec);
+    results.list_recommendations = shape(await call('list_recommendations', {}));
+    results.dismiss_recommendation = shape(await call('dismiss_recommendation', { recommendation_uid: rec.items[0].recommendation.uid, reason: 'not_for_me' }));
+    results.list_stop_notes = shape(await call('list_stop_notes', { itinerary_uid: it.uid }));
+  }
 
   const now = norm({
     tools,
@@ -101,38 +101,38 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
     result_shapes: results,
   });
 
-  if (RECORD && SURFACE === 'submitted') { fs.writeFileSync(FILE, JSON.stringify(now, null, 2) + '\n'); console.log('recorded', FILE, '-', tools.length, 'tools'); return; }
-  if (RECORD) { console.error('--record rewrites the SUBMITTED baseline and only runs against /mcp. For /mcp-dev use --record-developer.'); process.exit(2); }
-  const want = JSON.parse(fs.readFileSync(FILE, 'utf8'));
+  if (RECORD) { fs.writeFileSync(FILE, JSON.stringify(now, null, 2) + '\n'); console.log('recorded', FILE, '-', tools.length, 'tools'); return; }
+  const want = JSON.parse(fs.readFileSync(HISTORICAL ? HIST : FILE, 'utf8'));
   let fail = 0;
   const cmp = (label, a, b) => { const same = JSON.stringify(a) === JSON.stringify(b); if (!same) fail++; console.log((same ? '  ok   ' : '  FAIL ') + label); };
-  const submitted = now.tools.filter((t) => want.tools.find((x) => x.name === t.name));
-  cmp('submitted tool definitions (' + want.tools.length + ' tools, each present and unchanged)', submitted, want.tools);
-  for (const t of want.tools) { const live = now.tools.find((x) => x.name === t.name); if (!live) console.log('       missing: ' + t.name); else if (JSON.stringify(live) !== JSON.stringify(t)) console.log('       changed: ' + t.name); }
-  const addedTools = now.tools.filter((t) => !want.tools.find((x) => x.name === t.name));
-  const added = addedTools.map((t) => t.name);
-  const appendix = now.initialize.instructions.startsWith(want.initialize.instructions) ? now.initialize.instructions.slice(want.initialize.instructions.length) : null;
-  if (SURFACE === 'developer' && RECORD_DEV) {
-    fs.writeFileSync(DEV_FILE, JSON.stringify({ additive_tools: addedTools, instructions_appendix: appendix }, null, 2) + '\n');
-    console.log('recorded', DEV_FILE, '-', added.length, 'additive tools'); return;
-  }
-  if (SURFACE === 'submitted') {
-    cmp('/mcp: no tool beyond the submitted 54', added, []);
-    cmp('/mcp: server instructions exactly as submitted', now.initialize.instructions, want.initialize.instructions);
+  const info = (label) => console.log('  info ' + label);
+  const removed = want.tools.filter((t) => !now.tools.find((x) => x.name === t.name)).map((t) => t.name);
+  const changed = want.tools.filter((t) => { const l = now.tools.find((x) => x.name === t.name); return l && JSON.stringify(l) !== JSON.stringify(t); }).map((t) => t.name);
+  const added = now.tools.filter((t) => !want.tools.find((x) => x.name === t.name)).map((t) => t.name);
+  if (HISTORICAL) {
+    // the shared write result gained the 'kept' action; tools whose only
+    // difference is that are listed separately
+    const sansKept = (t) => JSON.parse(JSON.stringify(t, (k, v) => (k === 'enum' && Array.isArray(v) && v.includes('kept') && v.includes('created')) ? v.filter((x) => x !== 'kept') : v));
+    const meaning = changed.filter((n) => JSON.stringify(sansKept(now.tools.find((x) => x.name === n))) !== JSON.stringify(want.tools.find((x) => x.name === n)));
+    cmp(`no historical tool removed or renamed (${want.tools.length})`, removed, []);
+    info('changed since the historical submission: ' + (meaning.join(', ') || 'none'));
+    info(`${changed.length - meaning.length} more differ only by the write result's new 'kept' action`);
+    info('added since the historical submission: ' + (added.join(', ') || 'none'));
+    info('server instructions ' + (now.initialize.instructions === want.initialize.instructions ? 'unchanged' : 'changed'));
   } else {
-    const dev = JSON.parse(fs.readFileSync(DEV_FILE, 'utf8'));
-    cmp('/mcp-dev: additive tools exactly as recorded (' + dev.additive_tools.length + ')', addedTools, dev.additive_tools);
-    cmp('/mcp-dev: instructions are the submitted text plus the recorded additive paragraph', appendix, dev.instructions_appendix);
+    cmp(`tool definitions (${now.tools.length} tools, all exactly as the v2.56 snapshot)`, now.tools, want.tools);
+    for (const n of removed) console.log('       missing: ' + n);
+    for (const n of changed) console.log('       changed: ' + n);
+    for (const n of added) console.log('       added: ' + n);
+    cmp('server info and capabilities', [now.initialize.serverInfo, now.initialize.capabilities], [want.initialize.serverInfo, want.initialize.capabilities]);
+    cmp('server instructions', now.initialize.instructions, want.initialize.instructions);
   }
-  console.log('  info surface ' + SURFACE + ' (' + MCP_PATH + '): additive tools: ' + (added.join(', ') || 'none'));
-  cmp('server info and capabilities', [now.initialize.serverInfo, now.initialize.capabilities], [want.initialize.serverInfo, want.initialize.capabilities]);
-  cmp('server instructions keep the submitted text verbatim', now.initialize.instructions.startsWith(want.initialize.instructions), true);
-  if (now.initialize.instructions !== want.initialize.instructions) console.log('  info server instructions extended by ' + (now.initialize.instructions.length - want.initialize.instructions.length) + ' characters (allowed: additive)');
   cmp('OAuth authorization-server metadata', now.discovery.authorization_server, want.discovery.authorization_server);
   cmp('protected-resource metadata', now.discovery.protected_resource, want.discovery.protected_resource);
   cmp('unauthenticated challenge', now.discovery.unauthenticated, want.discovery.unauthenticated);
   for (const k of Object.keys(want.result_shapes)) cmp('result shape: ' + k, now.result_shapes[k], want.result_shapes[k]);
-  cmp('Stop -> Note does not change the frozen my_itineraries result', now.result_shapes.my_itineraries_one_after_stop_note, now.result_shapes.my_itineraries_one);
-  console.log(fail ? `\n${fail} contract difference(s): the submitted MCP contract has drifted.` : '\nSubmitted MCP contract preserved' + (added.length ? `; ${added.length} additive tool(s).` : '.'));
+  cmp('Stop -> Note does not change the my_itineraries result', now.result_shapes.my_itineraries_one_after_stop_note, now.result_shapes.my_itineraries_one);
+  console.log(fail ? `\n${fail} contract difference(s) from the ${HISTORICAL ? 'historical submission' : 'v2.56 snapshot'}.`
+    : (HISTORICAL ? '\nHistorical comparison: nothing removed; OAuth, discovery and shared result shapes unchanged.' : '\nMCP contract matches the v2.56 snapshot.'));
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('contract guard error:', e.message); process.exit(2); });

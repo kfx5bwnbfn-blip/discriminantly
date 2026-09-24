@@ -62,7 +62,7 @@ Written 23 September 2026 for v2.55.0. It checks all 61 tools against OpenAI's c
 | `record_recommendations` | false | false | **true** | Writes private rows. Can fetch a picture from an https URL on the public internet. Nothing is overwritten or deleted. A retry returns the existing row. |
 | `resolve_recommendation` | false | false | **true** | Adds attributes and raises the resolution level; it never lowers them or removes history. Can fetch a picture by URL. |
 | `list_recommendations` | true | false | false | Reads the member's own private rows. |
-| `keep_recommendation` | false | false | false | Adds Adoption to the member's own private records. Changes no privacy, and publishes nothing. Idempotent. |
+| `keep_recommendation` | false | false | ~~false~~ **true (v2.55)** | Adds Adoption. Changes no privacy flag, but a pre-existing record the member never marked private becomes visible once kept (see the v2.55 addendum). Idempotent. |
 | `dismiss_recommendation` | false | false | false | Records a reaction on a private row. Idempotent, and deletes nothing. |
 | `set_stop_note` | false | false | **true** | A note under a stop of a **public** plan becomes visible to others. Detaching removes only the attachment, which can be made again. |
 | `list_stop_notes` | true | false | false | Reads the member's own plan. |
@@ -115,7 +115,7 @@ Independent models chose tools for 22 prompts using only the catalogue. The prom
 
 ## Addendum: decisions A–E (same day)
 
-- **Surfaces.** The seven additive tools now exist only on `/mcp-dev`, the developer surface. `/mcp` serves exactly the submitted 54 tools and instructions to every connection. The earlier per-member switch is gone (decision E).
+- **Surfaces (superseded, see the v2.55 addendum below).** The seven additive tools now exist only on `/mcp-dev`, the developer surface. `/mcp` serves exactly the submitted 54 tools and instructions to every connection. The earlier per-member switch is gone (decision E).
 - **`dismiss_recommendation`.** The three reactions are distinct assertions, each recorded exactly as given and each its own provenance action:
   - `not_this_trip`: wrong for this plan, and says nothing about taste;
   - `not_for_me`;
@@ -126,3 +126,26 @@ Independent models chose tools for 22 prompts using only the catalogue. The prom
   - P23, "I just don't like being in the water at night" → `not_for_me`.
   - P24, "not this time, we're travelling with the kids" → `not_this_trip`.
 - **Additive descriptors are now pinned** in `test/fixtures/developer-mcp-surface.json` (MC7 and the `/mcp-dev` guard), so any change to them is deliberate.
+
+## Addendum: the v2.55 surface (review cancelled, same day)
+
+The OpenAI review was cancelled, so the Material findings held back for it were applied. One surface, `/mcp`, now serves all 61 tools; `/mcp-dev` is gone.
+
+**Applied to submitted tools:**
+- `keep_ensemble` and `create_pending_ensemble`: `openWorldHint: true` (keeping publishes the composition; a staged composition's images can be fetched from public URLs).
+- `arrange_itinerary`: `destructiveHint: true` (it rewrites the order and placement of every stop, with no previous version kept).
+- `recent_notes`: another member's note no longer carries its provenance (agent, timestamps). The field `already_adopted` is now `already_renoted`; "adopt" was the wrong word under Adoption.
+- `add_travel_mark`: says plainly that a mark is not a visit, and a check-in is `log_visit` only when the member says they went.
+- `re_note`: "adopt"/"owned" wording replaced with Re-note; it respects `canView`.
+- `note_object` and `add_travel_mark`: when the member asks to note or mark a thing that is already a recommended record of theirs, the existing record is Kept (result action `kept`) rather than duplicated.
+- `discard_ensemble`, `delete_ensemble`, `resolve_ensemble_component`: wording aligned with Adoption (what survives, and why). No stylistic rewrites elsewhere.
+- `keep_recommendation`: `openWorldHint: true` (found while checking the draft justifications). A resolved recommendation can point at a record the member already had, found by name or URL. If that record was never kept (for example a note that survived a pending composition because they own it) and never marked private, keeping it makes it visible to other members, which is publishing. Records created for a recommendation are private, so this is the edge, not the rule; the flag follows the edge, as `keep_ensemble` does.
+- Preserved: the ownership, check-in, comment, date-validation and retry fixes.
+
+**`record_recommendations` boundary.** Use only when a Discriminantly workflow (`cold_start`, `destination_objects`, `for_another_time`) deliberately selects and presents something to the member; never for candidates merely researched; never when the member is themselves asking to Keep, Note or Mark. `keep_recommendation` says that buying, owning, visiting or praising a recommended thing is not a request to keep it.
+
+**Selection re-run on the full 61-tool catalogue** (`test/fixtures/selection-catalogue-v2.55.md`, prompts P1–P24 and workflow prompts W1–W10):
+- Sonnet: **34 of 34.** W1 Cold Start recorded 5 items; W2 Destination Objects recorded 4 of 12 researched candidates; W3 For Another Time recorded the one set-aside item; W4, W9, W10 (general questions, member's own saves) recorded nothing; W6 → `keep_recommendation`.
+- Haiku: residual noise, all safe: a conservative "none" on P2 and P12; once, keep plus own on P4; P13 went straight to `set_stop_note`, which the server refuses for an unkept note on a kept plan.
+
+**Pinned:** `test/fixtures/mcp-contract-v2.55.json` (MC1–MC8 and the live guard).

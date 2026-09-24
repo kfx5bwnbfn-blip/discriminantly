@@ -7,8 +7,10 @@
 #      pages, except that a Note made for a pending Ensemble leaves its
 #      owner's corpus (compared with the old code on the fixture minus it)
 #   2. test/adoption.js: backfill, projection, privacy, transitions, invariants
+#      test/lifecycle.js: editability, parent/child lifecycle, de-resolution (and the 054 backfill)
+#      test/increment4.js: the Recommended experience on the web
 #      test/recommendations.js: Recommendation and the additive MCP tools
-#   3. test/mcp-contract.js: /mcp (submitted, for every connection) and /mcp-dev (developer), live
+#   3. test/mcp-contract.js: /mcp against the v2.56 snapshot, and against the historical submission
 #
 #   test/adoption-e2e.sh [pre-052 commit, default 01f2b2c] [work dir]
 set -euo pipefail
@@ -51,13 +53,21 @@ boot "$W/live" "$ROOT" 3205
 BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/adoption.js"
 BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/recommendations.js"
 BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/tool-audit.js"
+BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/lifecycle.js"
+BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/increment4.js"
 echo
 TA=$(q "console.log(require('$W/live/d.db.fixture.json').tokA)"); SA=$(q "console.log(require('$W/live/d.db.fixture.json').sidA)")
 TB=$(q "console.log(require('$W/live/d.db.fixture.json').tokB)"); SB=$(q "console.log(require('$W/live/d.db.fixture.json').sidB)")
-echo; echo "/mcp, the founder's connection: exactly the submitted surface"
+echo; echo "/mcp, the founder's connection: exactly the v2.56 contract"
 TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
-echo; echo "/mcp, any other member's connection (e.g. the reviewer account): exactly the submitted surface"
+echo; echo "/mcp, any other member's connection: exactly the same contract"
 TOKEN=$TB SID=$SB BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
-echo; echo "/mcp-dev, the founder: the submitted tools unchanged, plus the recorded additive surface"
-SURFACE=developer TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
+echo; echo "historical regression reference: the surface submitted at v2.52.7"
+TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js" --historical
+echo; echo "migration 054 backfill: re-run on this database, where test/lifecycle.js planted pre-054 dangling references"
+kill "${PIDS[-1]}"; sleep 1
+q "new (require('node:sqlite').DatabaseSync)('$W/live/d.db').prepare(\"DELETE FROM schema_migrations WHERE id='054-deletion-deresolves'\").run()"
+boot "$W/live" "$ROOT" 3206
+grep '054 de-resolution backfill' "$W/live/log.txt"
+BASE=http://localhost:3206 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/lifecycle.js" --backfill
 echo; echo "Adoption and Recommendation end-to-end: all passed. Work files in $W"

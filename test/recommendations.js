@@ -19,10 +19,9 @@ const one = (sql, ...a) => db.prepare(sql).get(...a), all = (sql, ...a) => db.pr
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? pass++ : fail++; console.log((c ? '  ok   ' : '  FAIL ') + n + (x && !c ? '  (' + x + ')' : '')); };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-// Everything here runs on the developer surface (decision E); /mcp is checked in R0.
-const DEV = '/mcp-dev/', SUB = '/mcp/';
-let bOnDev = false;   // B reaches /mcp-dev only while made an admin for the cross-member checks
-const rpc = async (T, name, args, path = (T === fx.tokB && !bOnDev) ? SUB : DEV) => (await (await fetch(BASE + path + T, { method: 'POST', headers: { 'content-type': 'application/json' },
+// One MCP surface, /mcp, for every connection (v2.55).
+const MCP = '/mcp/';
+const rpc = async (T, name, args, path = MCP) => (await (await fetch(BASE + path + T, { method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })).json()).result;
 const call = async (T, name, args) => { const r = await rpc(T, name, args); if (r.isError) throw new Error(name + ': ' + r.content[0].text); return r.structuredContent; };
 const errOf = async (T, name, args) => { const r = await rpc(T, name, args); return r.isError ? r.content[0].text : null; };
@@ -35,27 +34,20 @@ const counts = () => ({ own: one('SELECT COUNT(*) n FROM ownership_assertions').
 
 (async () => {
   const post = (T, path, body) => fetch(BASE + path + T, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, ...body }) });
-  const list = async (T, path = DEV) => (await (await post(T, path, { method: 'tools/list' })).json()).result.tools.map((t) => t.name);
-  const instr = async (T, path = DEV) => (await (await post(T, path, { method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })).json()).result.instructions;
+  const list = async (T, path = MCP) => (await (await post(T, path, { method: 'tools/list' })).json()).result.tools.map((t) => t.name);
+  const instr = async (T, path = MCP) => (await (await post(T, path, { method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })).json()).result.instructions;
   const tools = await list(A);
-  // B stands in for any other member, e.g. OpenAI's reviewer account. For the
-  // cross-member checks it is made an admin briefly, so the additive tools
-  // reach it and the DOMAIN's own refusals are what is tested.
-  const bId = one("SELECT id FROM users WHERE handle='bea'").id;
-  const asAdmin = (on) => { bOnDev = on; db.prepare('UPDATE users SET is_admin=? WHERE id=?').run(on ? 1 : 0, bId); };
+  // B stands in for any other member. Every tool reaches every member, so the
+  // cross-member checks test the DOMAIN's own refusals.
+  const asAdmin = () => {};
   console.log('\nadditive tools');
-  ok('R0 on /mcp-dev the founder gets the seven additive tools beside the submitted 54',
+  const bTools = await list(B);
+  ok('R0 /mcp lists all 61 tools, the recommendation and stop-note tools among them, for every connection alike',
      ['record_recommendations', 'resolve_recommendation', 'list_recommendations', 'keep_recommendation', 'dismiss_recommendation', 'set_stop_note', 'list_stop_notes'].every((n) => tools.includes(n))
-     && tools.includes('my_notes') && tools.length === 61, String(tools.length));
-  const subA = await list(A, SUB), subB = await list(B, SUB);
-  ok('R0b /mcp is the submitted surface for EVERY connection, the founder\u2019s included: 54 tools, no additive tool, submitted instructions',
-     subA.length === 54 && JSON.stringify(subA) === JSON.stringify(subB) && !subA.includes('record_recommendations')
-     && /Unknown tool/.test((await rpc(A, 'record_recommendations', { items: [] }, SUB)).content[0].text)
-     && !/RECOMMENDATIONS\./.test(await instr(A, SUB)) && (await instr(A, SUB)).split('\n').slice(1).join('\n') === (await instr(B, SUB)).split('\n').slice(1).join('\n')
-     && /RECOMMENDATIONS\./.test(await instr(A)));
-  const devB = await post(B, DEV, { method: 'tools/list' });
-  ok('R0c /mcp-dev refuses any account but the developer\u2019s (403), and an unknown token (401)', devB.status === 403
-     && (await post('not-a-token', DEV, { method: 'tools/list' })).status === 401);
+     && tools.length === 61 && JSON.stringify(tools) === JSON.stringify(bTools), String(tools.length));
+  ok('R0b the server instructions carry the RECOMMENDATIONS paragraph for every connection',
+     /RECOMMENDATIONS\./.test(await instr(A)) && (await instr(A)).split('\n').slice(1).join('\n') === (await instr(B)).split('\n').slice(1).join('\n'));
+  ok('R0c there is no second, developer-only endpoint', (await post(A, '/mcp-dev/', { method: 'tools/list' })).status === 404);
   const c0 = counts();
   const notesBefore = (await call(A, 'catalogue_stats', {})).notes;
 
@@ -166,9 +158,9 @@ const counts = () => ({ own: one('SELECT COUNT(*) n FROM ownership_assertions').
   await call(A, 'add_itinerary_stops', { itinerary_uid: planUid, stops: [{ label: 'Hatchards again', new_place: { name: 'Fixture place', locality: 'L', country: 'C' } }] });
   ok('R11b a place the member already has a Mark for is reused in a recommended plan, not duplicated (decision C)',
      one('SELECT COUNT(*) n FROM marks').n === marksNow && !!one("SELECT 1 FROM itinerary_stops s JOIN itineraries i ON i.id=s.itinerary_id WHERE i.uid=? AND s.mark_uid=?", planUid, fx.mark));
-  await call(A, 'log_visit', { id: one('SELECT id FROM marks WHERE uid=?', farm).id, visited_on: '2026-09-01' });
-  ok('R11c checking in at a recommended place records the visit and does not keep it', !kept('mark', farm)
-     && one('SELECT COUNT(*) n FROM visits v JOIN marks m ON m.id=v.mark_id WHERE m.uid=?', farm).n === 1);
+  const lv = await rpc(A, 'log_visit', { id: one('SELECT id FROM marks WHERE uid=?', farm).id, visited_on: '2026-09-01' });
+  ok('R11c checking in at a place in a recommended plan is refused before Keep: no visit, not kept', lv.isError === true && !kept('mark', farm)
+     && one('SELECT COUNT(*) n FROM visits v JOIN marks m ON m.id=v.mark_id WHERE m.uid=?', farm).n === 0);
   const [bag] = (await call(A, 'record_recommendations', { items: [{ kind: 'object', label: 'a bag of their peaberry', resolution: 'resolved', maker: 'Big Island Farm', product: 'Peaberry',
     image_uid: await img(), workflow: 'destination_objects', context_itinerary_uid: planUid, context_stop_uid: farmStop }] })).items;
   const sn = await call(A, 'set_stop_note', { stop_uid: farmStop, note_uid: bag.recommendation.target.uid });
@@ -207,8 +199,8 @@ const counts = () => ({ own: one('SELECT COUNT(*) n FROM ownership_assertions').
   ok('I2 every recommendation belongs to one member and has its creation in provenance', one(`SELECT COUNT(*) n FROM recommendations r WHERE NOT EXISTS
      (SELECT 1 FROM provenance p WHERE p.entity_type='recommendation' AND p.entity_uid=r.uid AND p.action='created')`).n === 0);
   await call(A, 'delete_note', { id: coffee.id });
-  ok('I3 deleting a target leaves the recommendation as history', (await call(A, 'list_recommendations', { status: 'all' })).groups.flatMap((g) => g.items)
-     .some((v) => v.uid === r1.recommendation.uid && v.target && v.target.exists === false));
+  ok('I3 deleting a target leaves the recommendation as history: its dead target reference is cleared (migration 054), resolution and known details kept', (await call(A, 'list_recommendations', { status: 'all' })).groups.flatMap((g) => g.items)
+     .some((v) => v.uid === r1.recommendation.uid && v.target === null && v.resolution === 'resolved' && Object.keys(v.known).length > 0));
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

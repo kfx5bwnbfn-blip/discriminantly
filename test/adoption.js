@@ -73,7 +73,11 @@ const A = fx.tokA, B = fx.tokB;
      && !(await page(fx.sidA, '/')).body.includes('Pending piece') && !(await page(fx.sidA, '/?q=piece')).body.includes('>Pending piece<'));
   ok('P3 its owner still reaches it by id', (await page(fx.sidA, '/o/' + pid)).status === 200);
   // now make it public: its own flag must not publish something outside the corpus
-  await call(A, 'edit_note', { id: pid, private: false });
+  // It is prospective, so it is not edited as theirs (item 6); its flag is
+  // flipped directly here to prove the flag alone publishes nothing.
+  ok('P4a it cannot be edited before it is kept (edit_note refuses, pointing to keep_ensemble)',
+     /keep_ensemble/.test(((await rpc(A, 'edit_note', { id: pid, private: false })).content || [{}])[0].text || ''));
+  db.prepare('UPDATE objects SET private=0 WHERE id=?').run(pid);
   ok('P4 made public, it is still nobody else’s to see: page', (await page(null, '/o/' + pid)).status === 404 && (await page(fx.sidB, '/o/' + pid)).status === 404);
   const oj = await (await fetch(BASE + '/objects.json')).json();
   ok('P5 made public, it is not in /objects.json', !oj.some((o) => o.id === pid) && oj.some((o) => o.id === noteId(fx.notePublic)));
@@ -96,11 +100,12 @@ const A = fx.tokA, B = fx.tokB;
   ok('P13 it cannot be attached to a Stop in an adopted plan', att.status === 400 && !one('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?', pid));
   const att2 = await post(fx.sidA, `/t/${itin.id}/stops/${stop.uid}/notes`, { note_uid: fx.notePublic });
   ok('P13b a Kept Note still can', att2.status === 303 && !!one('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?', noteId(fx.notePublic)));
-  // independence: owning or warranting it does not Keep it
-  await call(A, 'record_note_ownership', { id: pid });
-  await call(A, 'warrant', { subject_type: 'note', id: pid });
-  ok('P14 owning and warranting it records those, and does not Keep it (no inference)', !kept('object', fx.pendingNote)
-     && !!one('SELECT 1 FROM ownership_assertions WHERE note_uid=?', fx.pendingNote) && !!one("SELECT 1 FROM warrants WHERE subject_uid=? AND state='active'", fx.pendingNote));
+  // independence, final form: owning or warranting needs a kept record, so on
+  // this one both are refused -- and refusing records nothing and keeps nothing
+  const o14 = await rpc(A, 'record_note_ownership', { id: pid }), w14 = await rpc(A, 'warrant', { subject_type: 'note', id: pid });
+  ok('P14 owning or warranting it is refused before Keep, and neither records anything nor Keeps it (no inference either way)',
+     o14.isError === true && w14.isError === true && !kept('object', fx.pendingNote)
+     && !one('SELECT 1 FROM ownership_assertions WHERE note_uid=?', fx.pendingNote) && !one("SELECT 1 FROM warrants WHERE subject_uid=?", fx.pendingNote));
   // the projection honours withdrawal
   const w = fx.notePrivate;
   db.prepare("INSERT INTO adoptions(user_id,subject_type,subject_uid,state) VALUES(1,'object',?,'withdrawn')").run(w);
@@ -185,15 +190,23 @@ const A = fx.tokA, B = fx.tokB;
     components: [await comp('D owned'), await comp('D warranted'), await comp('D edited'), await comp('D drop')] });
   for (const c of e2.components) await call(A, 'resolve_ensemble_component', { component_uid: c.component_uid, label: c.label });
   const [dOwn, dWar, dEd, dd] = e2.components.map((c) => one('SELECT note_uid FROM ensemble_components WHERE uid=?', c.component_uid).note_uid);
-  await call(A, 'record_note_ownership', { id: noteId(dOwn) });
-  await call(A, 'warrant', { subject_type: 'note', id: noteId(dWar), announce: false });
-  await call(A, 'edit_note', { id: noteId(dEd), description: 'mine now' });
+  // Final semantic pass: ownership and warrants need a kept record, so neither
+  // can be recorded on a staged Note any more (refused, nothing written) ...
+  const ownRefused = /keep_ensemble/.test(((await rpc(A, 'record_note_ownership', { id: noteId(dOwn) })).content || [{}])[0].text || '');
+  const warRefused = /keep_ensemble/.test(((await rpc(A, 'warrant', { subject_type: 'note', id: noteId(dWar), announce: false })).content || [{}])[0].text || '');
+  ok('T8b ownership or a warrant on a staged Note is refused and writes nothing', ownRefused && warRefused
+     && !one('SELECT 1 FROM ownership_assertions WHERE note_uid=?', dOwn) && !one('SELECT 1 FROM warrants WHERE subject_uid=?', dWar));
+  // ... but such rows may exist from before (legacy data): planted directly,
+  // decision A's survival rule is still exercised for them.
+  db.prepare("INSERT INTO ownership_assertions(user_id,object_id,note_uid,state) VALUES(1,?,?,'owned')").run(noteId(dOwn), dOwn);
+  db.prepare("INSERT INTO warrants(user_id,subject_type,subject_uid,state,published) VALUES(1,'object',?,'active',0)").run(dWar);
+  const edRefused = (await rpc(A, 'edit_note', { id: noteId(dEd), description: 'mine now' })).isError === true;
   const d = await call(A, 'discard_ensemble', { id: e2.ensemble_id });
-  ok('T9 discarding: a Note the member recorded owning survives, NOT Kept (no Owned => Kept), owner-only',
+  ok('T9 discarding: a (legacy) owned staged Note survives, NOT Kept (no Owned => Kept), owner-only',
      d.notes_kept.some((x) => x.uid === dOwn) && !!noteId(dOwn) && !kept('object', dOwn)
      && (await page(fx.sidA, '/o/' + noteId(dOwn))).status === 200 && (await page(fx.sidB, '/o/' + noteId(dOwn))).status === 404);
-  ok('T9b ...likewise a warranted one (no Warrant => Kept)', d.notes_kept.some((x) => x.uid === dWar) && !kept('object', dWar));
-  ok('T9c ...an edit alone is not a relationship: the edited, never-kept Note goes with the composition', !noteId(dEd) && d.notes_deleted.includes(dEd));
+  ok('T9b ...likewise a (legacy) warranted one (no Warrant => Kept)', d.notes_kept.some((x) => x.uid === dWar) && !kept('object', dWar));
+  ok('T9c ...a staged Note cannot be edited before Keep (item 6), so editing never keeps it: it goes with the composition', edRefused && !noteId(dEd) && d.notes_deleted.includes(dEd));
   ok('T10 ...the untouched one is removed, and no adoption row was ever made', !noteId(dd) && !one('SELECT 1 FROM adoptions WHERE subject_uid IN (?,?,?,?)', dOwn, dWar, dEd, dd));
   ok('T10b no orphan: each survivor is explained by the relationship the member actually recorded', orphans(db).length === 0, orphans(db).join(', '));
   const e3 = await call(A, 'create_pending_ensemble', { title: 'T delete', artifact_uid: (await call(A, 'upload_image', { image: PNG })).image_uid,
@@ -224,8 +237,10 @@ const A = fx.tokA, B = fx.tokB;
      other.status === 404 && !/\/o\//.test(anon.headers.get('location') || '') && viaMcp.isError === true && cnt(privId) === c0, `${other.status} ${anon.status}`);
   const pubC = cnt(pubId);
   ok('D3 a member who can see a note can still comment on it', (await post(fx.sidB, `/o/${pubId}/comments`, { body: 'nice' })).status === 303 && cnt(pubId) === pubC + 1);
-  ok('D4 a note outside its member\u2019s corpus: its owner may comment, nobody else', (await post(fx.sidA, `/o/${pid}/comments`, { body: 'mine' })).status === 303
-     && (await post(fx.sidB, `/o/${pid}/comments`, { body: 'x' })).status === 404);
+  const pc0 = cnt(pid);
+  ok('D4 a note outside its member\u2019s corpus takes no comment (final pass: a comment needs a kept record): its owner is told to keep it first (409), anyone else gets 404, nothing is written',
+     (await post(fx.sidA, `/o/${pid}/comments`, { body: 'mine' })).status === 409
+     && (await post(fx.sidB, `/o/${pid}/comments`, { body: 'x' })).status === 404 && cnt(pid) === pc0);
   // ---- B: the admin's private view reaches private CORPUS content only -----------
   console.log('\nadmin private view (decision B)');
   const bPriv = await call(B, 'note_object', { headline: 'Bea private kept', image: (await call(B, 'upload_image', { image: PNG })).ref, private: true });

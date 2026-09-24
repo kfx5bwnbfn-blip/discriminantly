@@ -962,8 +962,10 @@ console.log('\nplugin submission');
      ['verify_place', 'add_travel_mark', 'upload_image', 'edit_note'].every((n) => ann[n].ow));
   ok('PS9 tools that publish to other people are open-world',
      ['note_object', 'comment', 'warrant', 're_note', 'log_visit'].every((n) => ann[n].ow));
-  ok('PS10 keeping, ownership and staging stay closed-world',
-     ['keep_ensemble', 'record_note_ownership', 'create_pending_ensemble', 'begin_image_upload'].every((n) => !ann[n].ow));
+  // v2.55 audit: staging fetches https URLs and keeping can publish, so both are open-world
+  ok('PS10 ownership and chunked uploads stay closed-world; staging and keeping an ensemble are open-world',
+     ['record_note_ownership', 'begin_image_upload', 'upload_image_chunk'].every((n) => !ann[n].ow)
+     && ['keep_ensemble', 'create_pending_ensemble'].every((n) => ann[n].ow));
   ok('PS11 withdrawing a warrant is reversible, so not destructive',
      !ann.revoke_warrant.de && !ann.revoke_warrant.ro);
 }
@@ -1044,8 +1046,9 @@ console.log('\nscan remediation');
   for (const m of annBlk.matchAll(/^\s+([a-z_]+):\s+\['([^']*)', (true|false), (true|false), (true|false)\]/gm))
     ann[m[1]] = { ro: m[3] === 'true', de: m[4] === 'true', ow: m[5] === 'true' };
   ok('SR1 log_visit is open-world: check-ins show publicly on a public mark', ann.log_visit.ow);
-  ok('SR2 keep_ensemble is closed-world: staged ensembles are private and keeping keeps them so',
-     !ann.keep_ensemble.ow && /INSERT INTO ensembles\(user_id,title,description,private,status\) VALUES\(\?,\?,\?,1,'pending_review'\)/.test(SRC));
+  ok('SR2 keep_ensemble is open-world: staged private, but private:false publishes it on keep',
+     ann.keep_ensemble.ow && /INSERT INTO ensembles\(user_id,title,description,private,status\) VALUES\(\?,\?,\?,1,'pending_review'\)/.test(SRC)
+     && /const priv = a\.private === undefined \? 1 : \(a\.private \? 1 : 0\);/.test(SRC));
   ok('SR3 correcting an ownership record appends a superseding row, so is not destructive',
      !ann.correct_note_ownership_mistake.de && /INSERT INTO ownership_assertions\(user_id,object_id,note_uid,state,supersedes\)/.test(SRC)
      && !/DELETE FROM ownership_assertions/.test(SRC));
@@ -1129,23 +1132,28 @@ function loadToolsFromSource(SRC) {
   // contract under review. Additive tools are checked separately (SW4).
   const SUBMITTED = new Set(JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json'), 'utf8')).tools.map((t) => t.name));
   const SUB = TOOLS_SRC.filter((t) => SUBMITTED.has(t.name));
+  // The v2.55 surface (all 61 tools). Closed-world = reads of the member's
+  // bounded account, plus writes confined to data that is never public and
+  // reach no outside service.
   const closed = ['my_notes', 'my_travel_marks', 'my_collections', 'my_itineraries', 'search_catalogue', 'catalogue_stats', 'recent_notes',
     'list_ensembles', 'get_ensemble', 'list_unresolved_components', 'list_checkins', 'read_comments', 'view_images',
-    'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake', 'create_pending_ensemble', 'keep_ensemble',
-    'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload'];
+    'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake',
+    'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload',
+    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes'];
   ok('SW1 closed-world is exactly the reads plus the writes confined to never-public data',
-     JSON.stringify(SUB.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()));
+     JSON.stringify(TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()),
+     TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).filter((n) => !closed.includes(n)).join(', '));
   ok('SW2 changing or removing content on a possibly-public record is open-world',
      ['add_itinerary_stops', 'arrange_itinerary', 'resolve_itinerary_stop', 'update_itinerary_temporal', 'delete_itinerary_entity',
       'edit_checkin', 'delete_checkin', 'revoke_warrant', 'set_primary_artifact', 'add_ensemble_artifact', 'add_ensemble_component',
       'resolve_ensemble_component', 'remove_ensemble_artifact', 'remove_ensemble_component', 'delete_ensemble', 'discard_ensemble',
       'delete_note', 'delete_travel_mark'].every((n) => ann[n].openWorldHint));
-  const cnt = (k) => SUB.filter((t) => t.annotations[k]).length;
-  ok('SW3 final counts (submitted tools): 14 read-only, 15 destructive, 32 open-world', cnt('readOnlyHint') === 14 && cnt('destructiveHint') === 15 && cnt('openWorldHint') === 32);
-  const addClosed = TOOLS_SRC.filter((t) => !SUBMITTED.has(t.name) && !t.annotations.openWorldHint).map((t) => t.name).sort();
-  ok('SW4 additive tools: closed-world only where the data is the member\u2019s alone; nothing additive is destructive',
-     JSON.stringify(addClosed) === JSON.stringify(['dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes'])
-     && TOOLS_SRC.filter((t) => !SUBMITTED.has(t.name)).every((t) => !t.annotations.destructiveHint), addClosed.join(', '));
+  const cnt = (k) => TOOLS_SRC.filter((t) => t.annotations[k]).length;
+  ok('SW3 final counts (v2.55, 61 tools): 16 read-only, 16 destructive, 38 open-world',
+     TOOLS_SRC.length === 61 && cnt('readOnlyHint') === 16 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 38,
+     `${TOOLS_SRC.length} tools: ${cnt('readOnlyHint')} ro, ${cnt('destructiveHint')} de, ${cnt('openWorldHint')} ow`);
+  ok('SW4 v2.55 audit corrections: staging and keeping an ensemble, and keeping a recommendation, are open-world; arranging an itinerary is destructive',
+     ann.create_pending_ensemble.openWorldHint && ann.keep_ensemble.openWorldHint && ann.keep_recommendation.openWorldHint && ann.arrange_itinerary.destructiveHint);
 }
 
 // ---- repeat creation: duplicate results are structured and conform ----------
@@ -1189,8 +1197,7 @@ console.log('\nadmin private view');
   const allowed = [/is_admin INTEGER DEFAULT 0/, /^const adminOn = \(me\) => !!\(me && me\.is_admin && me\.adminPrivateView === true\);$/,
     /if \(u && u\.is_admin && u\.admin_private_view\) u\.adminPrivateView = true;/, /\$\{me\.is_admin \? `<div class="wtable settings-table settings-admin" id="admin">/,
     /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/, /INSERT INTO users\(handle,name,email,pass,is_admin,avatar,ui_skin\)/,
-    // not a visibility check: who may use the developer MCP endpoint (decision E)
-    /^const developerSurfaceAllowed = \(user\) => !!\(user && user\.is_admin\);$/];
+];
   ok('AV1 no visibility or ownership check uses is_admin directly; the one exception is adminOn',
      adminLines.every(([, l]) => allowed.some((r) => r.test(l))));
   ok('AV2 one rule for first-class records: canSee, images, ensembles and stops all use adminOn',
@@ -1367,12 +1374,18 @@ console.log('\nadoption');
   const calls = [...SRC.matchAll(/recordAdoption\(/g)].map((m) => m.index).filter((i) => !SRC.slice(i - 9, i).includes('function'));
   const where = calls.map((i) => { const f = SRC.lastIndexOf('\nfunction ', i); return SRC.slice(f + 10, SRC.indexOf('(', f + 10)); });
   ok('K4d nothing else records Adoption (no inference from other acts)',
-     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep'].includes(w)), where.join(', '));
+     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep', 'keepRecommendedRecord', 'ensembleKeepAdoptsLinked', 'keepFromRecommendedPlan'].includes(w)), where.join(', '));
 
   // K5: independence
   const own = body('function assertOwned(', '// ---- Adoption (members see "Keep"');
   const vr = body('function visitRecord(', 'function stopAdd(');
-  ok('K5 Owned, Warrant and Check-in never write or read Adoption', !/adopt/i.test(own) && !/Adoption|adoptions/.test(vr));
+  // Final semantic pass: they REQUIRE Adoption (assertAdoptedFor) and never
+  // WRITE it -- a relationship is never read as an implicit Keep.
+  const strip = (t) => t.replace(/assertAdoptedFor\([^;]*\);/g, '');
+  ok('K5 Owned, Warrant and Check-in require Adoption and never write it (no implicit Keep)',
+     /assertAdoptedFor\('object', [^;]*'ownership'\)/.test(own) && /assertAdoptedFor\(subjectType, [^;]*'warrant'\)/.test(own)
+     && /assertAdoptedFor\('mark', mk, 'check-in'\)/.test(vr)
+     && !/adopt/i.test(strip(own)) && !/Adoption|adoptions|recordAdoption/.test(strip(vr)));
   const adoptFns = body('const ADOPTABLE = ', 'function unadoptedExplanation(');
   ok('K5b recording, withdrawing or testing Adoption never reads ownership, warrants or check-ins', !/ownership|warrant|visits/i.test(adoptFns.replace(/\/\/[^\n]*/g, '')));
   const expl = body('function independentRelationship(', '// Visibility for a single record');
@@ -1401,7 +1414,9 @@ console.log('\nadoption');
      && !/trg_ensemble_pending_delete_retains/.test(SRC) && !/adoptProv\('ensemble_retained'/.test(SRC)
      && /adopt\(o\.user_id, 'object', o\.uid, gone \? gone\.created_at : o\.created_at, 'ensemble_retained'/.test(mig));
   ok('K7e deleting a record removes its Adoption rows and records that it did',
-     ['objects', 'marks', 'itineraries'].every((t) => new RegExp(`trg_\\$\\{table\\}_delete_adoptions BEFORE DELETE ON \\$\\{table\\}`).test(mig)));
+     ['objects', 'marks', 'itineraries'].every((t) => new RegExp(`trg_\\$\\{table\\}_delete_adoptions BEFORE DELETE ON \\$\\{table\\}`).test(mig))
+     // 054 replaces the objects trigger with one that de-resolves first, then removes Adoption
+     && /trg_objects_delete_deresolves_and_adoptions BEFORE DELETE ON objects[\s\S]*?DELETE FROM adoptions WHERE subject_type = 'object' AND subject_uid = OLD\.uid;\s*END/.test(SRC));
 }
 
 // ---- Recommendation (Increment 2; migration 053) -----------------------------
@@ -1409,7 +1424,7 @@ console.log('\nrecommendation');
 {
   const body = (a, b) => SRC.slice(SRC.indexOf(a), SRC.indexOf(b, SRC.indexOf(a) + a.length));
   const dom = body('// ---- Recommendation (Increment 2; migration 053)', '// ---- canonical note creation');
-  const mig = body("['053-recommendations'", '\n];');
+  const mig = body("['053-recommendations'", "['054-deletion-deresolves'");
   ok('RC1 053 follows 052, additive only', SRC.indexOf("['053-recommendations'") > SRC.indexOf("['052-adoptions'") && !/DROP TABLE|RENAME|DELETE FROM/.test(mig));
   ok('RC2 the label is never updated; resolution only rises',
      !/SET[^`']*\blabel=/.test(dom) && /resolution only ever gains precision/.test(dom));
@@ -1421,59 +1436,99 @@ console.log('\nrecommendation');
      (dom.match(/private: true \},\s*ctx, \{ source_kind: 'recommendation', source_ref: r\.uid, adopt: false \}\)/g) || []).length === 2
      && /itineraryCreate\(user, \{ title: r\.label, private: 1 \}, ctx, \{ adopt: false \}\)/.test(dom));
   ok('RC6 reuse before creation: existing records gain the recommendation', /findExistingNote\(user\.id/.test(dom) && /findExistingMark\(user\.id/.test(dom));
-  ok('RC7 only keep_recommendation records Adoption, and it cites the recommendation',
-     (dom.match(/recordAdoption\(/g) || []).length === 1 && /source_kind: 'recommendation', source_ref: r\.uid \}\)\) kept\.push/.test(dom));
+  ok('RC7 Adoption is recorded only when the member keeps: keep_recommendation, asking to note/mark the very thing recommended, or (web, Increment 4) keeping one place of a recommended plan; all cite the recommendation',
+     (dom.match(/recordAdoption\(/g) || []).length === 3 && /source_kind: 'recommendation', source_ref: r\.uid \}\)\) kept\.push/.test(dom)
+     && /function keepFromRecommendedPlan\(user, subjectType, row, p, ctx\) \{\s*return recordAdoption\(user\.id, subjectType, row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: p\.rec \? p\.rec\.uid : p\.plan_uid \}\);/.test(dom)
+     && /function keepRecommendedRecord\(user, type, found, ctx\) \{\s*return recordAdoption\(user\.id, type, found\.row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: found\.rec \}\);/.test(dom));
   ok('RC8 a new place in a recommended plan is not kept; in a kept plan it is',
      /adopt: isAdopted\('itinerary', it\.uid\) \}\)\.uid;/.test(SRC));
   ok('RC9 records outside the corpus are explained by a pending ensemble, a recommendation or a recommended plan',
      /return `recommendation:\$\{rec\.uid\}`/.test(SRC) && /return `pending_ensemble:/.test(SRC) && /return `recommended_itinerary:/.test(SRC));
 }
 
-// ---- MCP contract guard: generated tool definitions vs the submitted snapshot
-// test/fixtures/submitted-mcp-contract.json is the submitted surface. It is only
-// rewritten deliberately (node test/mcp-contract.js --record). This part needs
-// no server: it generates every tool definition from server.js itself, so a
-// change anywhere that feeds a definition (IMAGE_FIELD_DESC, a schema constant,
-// an annotation) is caught, not just edits inside the fingerprinted regions.
-console.log('\nMCP contract (definitions)');
+// ---- Lifecycle invariants (items 6-8): behaviour in test/lifecycle.js --------
+console.log('\nlifecycle invariants (source)');
 {
-  const snap = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json'), 'utf8'));
-  const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
-  const gen = norm(loadToolsFromSource(SRC));
-  ok('MC1 the snapshot holds the submitted 54 tools', Array.isArray(snap.tools) && snap.tools.length === 54);
-  // Freeze compatibility, not capability development: every submitted tool
-  // must be present and byte-identical (name, description, schemas, required
-  // parameters, annotations, security). New tools are allowed and listed.
-  const missing = snap.tools.filter((t) => !gen.find((x) => x.name === t.name)).map((t) => t.name);
-  const changed = snap.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return g && JSON.stringify(g) !== JSON.stringify(t); }).map((t) => t.name);
-  const added = gen.filter((g) => !snap.tools.find((t) => t.name === g.name));
-  ok('MC2 every submitted tool still exists, under the same name', !missing.length, 'missing: ' + missing.join(', '));
-  ok('MC3 every submitted tool definition is unchanged (description, schemas, annotations, security)',
-     !changed.length, 'changed: ' + changed.join(', '));
-  ok('MC4 additive tools are complete: title, description, input and output schemas, annotations, OAuth security',
-     added.every((t) => t.title && t.description && t.inputSchema && t.outputSchema && t.annotations
-       && JSON.stringify(t.securitySchemes) === JSON.stringify(snap.tools[0].securitySchemes)),
-     added.filter((t) => !(t.title && t.outputSchema && t.annotations)).map((t) => t.name).join(', '));
-  const gated = (/const ADDITIVE_TOOLS = new Set\(\[([^\]]*)\]\)/.exec(SRC) || [, ''])[1].match(/'([a-z_]+)'/g) || [];
-  ok('MC5 /mcp serves exactly the submitted tools to every connection; additive tools exist only on /mcp-dev (decision E)',
-     JSON.stringify(gated.map((x) => x.slice(1, -1)).sort()) === JSON.stringify(added.map((t) => t.name).sort())
-     && /tools: surface === 'developer' \? TOOLS : SUBMITTED_TOOLS/.test(SRC)
-     && /if \(ADDITIVE_TOOLS\.has\(name\) && surface !== 'developer'\) throw/.test(SRC)
-     && /with the id you already have\.\$\{surface === 'developer' \? `/.test(SRC)
-     && !/additiveFor|MCP_ADDITIVE_TOOLS/.test(SRC));
-  ok('MC6 the developer surface is chosen by route and gated by authorization, never by member on /mcp',
-     /req\.mcpSurface = 'developer'; return mcp\(req, res, mt\[1\]\);/.test(SRC)
-     && /const surface = req\.mcpSurface === 'developer' \? 'developer' : 'submitted';/.test(SRC)
-     && /if \(surface === 'developer' && !developerSurfaceAllowed\(user\)\)/.test(SRC)
-     && SRC.indexOf("req.mcpSurface = 'developer'") < SRC.indexOf("if ((mt = p.match(/^\\/mcp\\/([A-Za-z0-9_-]+)$/)))"));
-  const devFx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'developer-mcp-surface.json'), 'utf8'));
-  ok('MC7 the developer surface\u2019s additive tools match their recorded definitions (re-record deliberately: SURFACE=developer node test/mcp-contract.js --record-developer)',
-     JSON.stringify(added) === JSON.stringify(devFx.additive_tools),
-     added.filter((t) => JSON.stringify(t) !== JSON.stringify(devFx.additive_tools.find((x) => x.name === t.name))).map((t) => t.name).join(', '));
-  console.log(`     ${snap.tools.length} submitted tools unchanged; ${added.length} additive: ${added.map((t) => t.name).join(', ') || 'none'}`);
+  const mig = SRC.slice(SRC.indexOf("['054-deletion-deresolves'"), SRC.indexOf('\n];', SRC.indexOf("['054-deletion-deresolves'")));
+  ok('LC1 054 de-resolves, never deletes: stops and components are UPDATEd in place, and nothing in it deletes an element or a parent',
+     /BEFORE DELETE ON marks[\s\S]*UPDATE itinerary_stops SET[\s\S]*mark_uid\s*= NULL, resolution = 'particular'/.test(mig)
+     && /BEFORE DELETE ON objects[\s\S]*UPDATE ensemble_components SET[\s\S]*note_uid\s*= NULL, state = 'unresolved'/.test(mig)
+     && !/DELETE FROM (itinerary_stops|ensemble_components|itineraries|ensembles)/.test(mig));
+  ok('LC2 each de-resolution is recorded on the element as a consequence (de_resolved, system, cascade or backfill): stops, components, and recommendations of notes, marks and plans',
+     (mig.match(/'de_resolved', 'derived', 'system'/g) || []).length === 8
+     && ['object', 'mark', 'itinerary'].every((t) => new RegExp(`'target:${t}'`).test(mig)) && !/DELETE FROM recommendations/.test(mig));
+  ok('LC3 edits of a note, mark or plan go through assertEditable (MCP and web)',
+     (SRC.match(/assertEditable\('object', o\)/g) || []).length === 2 && (SRC.match(/assertEditable\('mark', mk\)/g) || []).length === 2
+     && /function itineraryEdit[^]*?assertEditable\('itinerary', it\)/.test(SRC) && /function itineraryPublish[^]*?assertEditable\('itinerary', it\)/.test(SRC));
+  const nsd = SRC.slice(SRC.indexOf('function notesSafeToDiscard('), SRC.indexOf('function dropPendingEnsembleNotes('));
+  ok('LC4 discarding an Ensemble drops only never-kept notes of a PENDING composition; an adopted note is always kept back',
+     /if \(ens\.status === 'pending_review' && !isAdopted\('object', n\.uid\)\)/.test(nsd) && /keep\.push\(\{ \.\.\.n, reasons: \['in their notes'\] \}\);\s*\}\s*return/.test(nsd));
+  ok('LC5 a kept parent takes only kept children at every explicit link site', (SRC.match(/assertKeptChild\(/g) || []).length === 5 && /if \(e\.status === 'saved'\) \{\s*const n = findExistingNote\(/.test(SRC));
 }
 
-// ---- Submitted-contract compatibility: regions that must not move ----------
+// ---- MCP contract guard: generated tool definitions vs the v2.55 snapshot ------
+// test/fixtures/mcp-contract-v2.55.json is the current surface (61 tools), the
+// baseline for the next submission. test/fixtures/submitted-mcp-contract.json
+// is the HISTORICAL surface submitted at v2.52.7 (review cancelled): kept for
+// comparison and never rewritten. Neither is rewritten by a test run; the
+// current one only deliberately (node test/mcp-contract.js --record). No server
+// needed: every definition is generated from server.js itself.
+console.log('\nMCP contract (definitions)');
+{
+  const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
+  const cur = read('mcp-contract-v2.56.json'), rel = read('mcp-contract-v2.55.json'), hist = read('submitted-mcp-contract.json');
+  const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
+  const gen = norm(loadToolsFromSource(SRC));
+  const names = (l) => l.map((t) => t.name);
+  ok('MC1 the v2.56 snapshot holds 61 tools, as does the v2.55 release; the historical one still holds the submitted 54', cur.tools.length === 61 && rel.tools.length === 61 && hist.tools.length === 54);
+  // Increment 4 against the v2.55 release: the same tools, names and annotations;
+  // only the recommendation tools changed (origin fields; Keep attaches to its stop).
+  const INC4_CHANGED = ['dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'record_recommendations', 'resolve_recommendation'];
+  const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
+  ok('MC9 against the v2.55 release, only the recommendation tools changed, annotations untouched, instructions unchanged',
+     JSON.stringify(incChanged) === JSON.stringify(INC4_CHANGED) && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
+     && rel.initialize.instructions === cur.initialize.instructions, incChanged.join(', '));
+  const drift = gen.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name);
+  ok('MC2 every tool definition generated from source matches the v2.56 snapshot (names, descriptions, schemas, annotations, security)',
+     !drift.length && gen.length === cur.tools.length, 'differs: ' + drift.join(', '));
+  ok('MC3 every tool is complete: title, description, input and output schemas, all three hints, OAuth security',
+     gen.every((t) => t.title && t.description && t.inputSchema && t.outputSchema && t.annotations
+       && ['readOnlyHint', 'destructiveHint', 'openWorldHint'].every((k) => typeof t.annotations[k] === 'boolean')
+       && JSON.stringify(t.securitySchemes) === JSON.stringify(hist.tools[0].securitySchemes)));
+  // Historical regression reference: what changed since the cancelled
+  // submission, and only that. A change outside these lists is a finding.
+  // delete_note / delete_travel_mark: descriptions state de-resolution (final semantic pass)
+  const APPROVED_CHANGED = ['add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark',
+    'discard_ensemble', 'keep_ensemble', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component'];
+  // The shared write result gained one action, 'kept' (note_object /
+  // add_travel_mark keeping an already-recommended record). That alone is
+  // not a change to a tool's meaning, so it is compared without it.
+  const sansKept = (t) => JSON.parse(JSON.stringify(t, (k, v) => (k === 'enum' && Array.isArray(v) && v.includes('kept') && v.includes('created')) ? v.filter((x) => x !== 'kept') : v));
+  const APPROVED_ADDED = ['dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes',
+    'record_recommendations', 'resolve_recommendation', 'set_stop_note'];
+  const removed = names(hist.tools).filter((n) => !gen.find((t) => t.name === n));
+  const changed = hist.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return g && JSON.stringify(sansKept(g)) !== JSON.stringify(t); }).map((t) => t.name).sort();
+  const added = names(gen).filter((n) => !hist.tools.find((t) => t.name === n)).sort();
+  ok('MC4 against the historical submission: nothing removed or renamed; only the approved tools changed or were added',
+     !removed.length && JSON.stringify(changed) === JSON.stringify(APPROVED_CHANGED) && JSON.stringify(added) === JSON.stringify(APPROVED_ADDED),
+     `removed: ${removed.join(', ')} | changed: ${changed.join(', ')} | added: ${added.join(', ')}`);
+  ok('MC5 one surface: /mcp serves every tool to every connection; no per-member or per-endpoint exposure remains',
+     /if \(method === 'tools\/list'\) return reply\(id, \{ tools: TOOLS \}\);/.test(SRC)
+     && !/ADDITIVE_TOOLS|SUBMITTED_TOOLS|additiveFor|MCP_ADDITIVE_TOOLS|mcp-dev|mcpSurface|developerSurfaceAllowed/.test(SRC));
+  console.log(`     ${gen.length} tools; since the historical submission: ${changed.length} changed, ${added.length} added, ${removed.length} removed`);
+  // The draft submission file for the next review must declare exactly the
+  // annotations the server generates, with all three justifications per tool.
+  const sub = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'submission', 'chatgpt-app-submission-v2.55.draft.json'), 'utf8'));
+  const subNames = Object.keys(sub.tools).sort();
+  const annDiff = gen.filter((t) => !sub.tools[t.name] || ['readOnlyHint', 'destructiveHint', 'openWorldHint'].some((k) => sub.tools[t.name].annotations[k] !== t.annotations[k])).map((t) => t.name);
+  ok('MC6 the v2.55 draft submission lists every tool once, with the generated annotations',
+     JSON.stringify(subNames) === JSON.stringify(names(gen).sort()) && !annDiff.length, 'differs: ' + annDiff.join(', '));
+  ok('MC7 every tool in the draft submission has read-only, open-world and destructive justifications',
+     Object.values(sub.tools).every((t) => ['read_only_justification', 'open_world_justification', 'destructive_justification'].every((k) => typeof t.justifications[k] === 'string' && t.justifications[k].length > 10)));
+  ok('MC8 every draft test case uses only tools that exist', sub.test_cases.every((c) => String(c.tools_triggered).split(/,\s*/).every((n) => names(gen).includes(n))));
+}
+
+// ---- Regions that must not move: OAuth, MCP routes, discovery, plugin/ ------
 console.log('\nMCP compatibility-critical regions');
 {
   const { fingerprint, FILE } = require('./mcp-freeze');

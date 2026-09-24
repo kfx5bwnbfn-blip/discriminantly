@@ -1305,6 +1305,161 @@ const MIGRATIONS = [
     run('CREATE INDEX IF NOT EXISTS idx_recommendations_context ON recommendations(user_id, context_itinerary_uid)');
   }],
 
+  // ---- Child deletion de-resolves surviving parent references ---------------
+  // Resolution enriches a parent's own structural element (an itinerary Stop,
+  // an Ensemble component) by connecting it to a first-class record (a Travel
+  // Mark, a Note). Deleting that record is the inverse: the resolution goes,
+  // the element stays. The SAME row, with its uid, membership, day, position,
+  // times, visibility, label and attached notes, moves resolved -> unresolved:
+  //   Stop:      mark_uid -> NULL, resolution 'linked' -> 'particular'
+  //              (a particular place, no longer identified)
+  //   Component: note_uid -> NULL, state 'linked' -> 'unresolved'
+  // Nothing is re-resolved automatically, no replacement record is made, and
+  // no parent or element is ever deleted by this. Every parent that pointed at
+  // the record is de-resolved independently.
+  //
+  // Done by triggers so every deletion path (web, MCP, admin, discard) is
+  // covered once, as 049 does for a record's dependants. Each de-resolution
+  // appends a 'de_resolved' provenance row to the element, marked as a
+  // consequence (actor 'system', source_kind 'cascade', source_ref the deleted
+  // record's uid, whose own 'deleted' row names who acted). History is never
+  // rewritten: the element's earlier 'created' / 'resolved' rows still say it
+  // was resolved, and a later resolution appends after this one.
+  //
+  // Identity snapshot. The element keeps what it already owns. Where it owns
+  // no label (or no picture) of its own and was showing the record's, the
+  // record's name (and picture) is copied onto it, but only when doing so
+  // discloses nothing: for a component, only when the Note was a public, Kept
+  // record that any viewer of the Ensemble could already see. A Stop's label
+  // is shown only where the plan is visible, and a Stop whose private Mark was
+  // failing closed on a public plan is suspended rather than suddenly shown.
+  //
+  // The note trigger replaces 052's adoption-deletion trigger on objects so
+  // that the "was it Kept" check reads the adoption rows BEFORE they are
+  // removed, in one trigger with a defined statement order.
+  //
+  // Existing dangling references (records deleted before this migration left
+  // the element 'linked' to nothing) are de-resolved here, with provenance
+  // source_kind 'backfill'; the deleted record's own 'deleted' row carries
+  // when that actually happened.
+  ['054-deletion-deresolves', () => {
+    const run = (sql) => db.exec(sql);
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    const failClosed = `OLD.private = 1 AND s.visibility = 'visible' AND i.private = 0`;
+    run(`CREATE TRIGGER IF NOT EXISTS trg_mark_delete_deresolves_stops BEFORE DELETE ON marks BEGIN
+      INSERT INTO provenance (${cols})
+        SELECT 'itinerary_stop', s.uid, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid,
+               'mark_uid,resolution' || CASE WHEN trim(s.label) = '' THEN ',label' ELSE '' END
+                                     || CASE WHEN ${failClosed} THEN ',visibility' ELSE '' END
+        FROM itinerary_stops s JOIN itineraries i ON i.id = s.itinerary_id
+        WHERE s.mark_uid = OLD.uid AND s.uid IS NOT NULL;
+      UPDATE itinerary_stops SET
+        visibility = CASE WHEN OLD.private = 1 AND visibility = 'visible'
+                           AND (SELECT i.private FROM itineraries i WHERE i.id = itinerary_stops.itinerary_id) = 0
+                          THEN 'suspended' ELSE visibility END,
+        label      = CASE WHEN trim(label) = '' THEN OLD.name ELSE label END,
+        mark_uid   = NULL, resolution = 'particular', updated_at = CURRENT_TIMESTAMP
+        WHERE mark_uid = OLD.uid;
+    END`);
+    // A Recommendation whose target is deleted survives: its target reference
+    // is cleared (resolution stays; it WAS resolved), and what it knew about the
+    // target is kept, filling only fields it had left empty from the record
+    // being deleted (a note's link and picture; a place's name, locality,
+    // country, address and position). Owner-only, like the Recommendation. A
+    // 'de_resolved' row names the deleted target, so the history stays
+    // intelligible and Keep can later find or make the record again.
+    const recNote = `INSERT INTO provenance (${cols})
+        SELECT 'recommendation', r.uid, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid,
+               'target:object' || CASE WHEN r.url = '' AND OLD.url <> '' THEN ',url' ELSE '' END
+                          || CASE WHEN coalesce(r.image_uid, '') = '' AND OLD.image LIKE '/i/%' THEN ',image_uid' ELSE '' END
+        FROM recommendations r WHERE r.target_type = 'object' AND r.target_uid = OLD.uid AND r.uid IS NOT NULL;
+      UPDATE recommendations SET
+        url       = CASE WHEN url = '' THEN OLD.url ELSE url END,
+        image_uid = CASE WHEN coalesce(image_uid, '') = '' AND OLD.image LIKE '/i/%' THEN substr(OLD.image, 4) ELSE image_uid END,
+        target_type = NULL, target_uid = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE target_type = 'object' AND target_uid = OLD.uid;`;
+    run(`CREATE TRIGGER IF NOT EXISTS trg_mark_delete_deresolves_recommendations BEFORE DELETE ON marks BEGIN
+      INSERT INTO provenance (${cols})
+        SELECT 'recommendation', r.uid, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid,
+               'target:mark' || CASE WHEN r.place_name = '' THEN ',place_name' ELSE '' END
+                          || CASE WHEN r.locality = '' AND OLD.locality <> '' THEN ',locality' ELSE '' END
+                          || CASE WHEN r.country = '' AND OLD.country <> '' THEN ',country' ELSE '' END
+        FROM recommendations r WHERE r.target_type = 'mark' AND r.target_uid = OLD.uid AND r.uid IS NOT NULL;
+      UPDATE recommendations SET
+        place_name = CASE WHEN place_name = '' THEN OLD.name ELSE place_name END,
+        locality   = CASE WHEN locality = '' THEN OLD.locality ELSE locality END,
+        country    = CASE WHEN country = '' THEN OLD.country ELSE country END,
+        address    = CASE WHEN address = '' THEN OLD.address ELSE address END,
+        lat        = coalesce(lat, OLD.lat), lng = coalesce(lng, OLD.lng),
+        target_type = NULL, target_uid = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE target_type = 'mark' AND target_uid = OLD.uid;
+    END`);
+    run(`CREATE TRIGGER IF NOT EXISTS trg_itinerary_delete_deresolves_recommendations BEFORE DELETE ON itineraries BEGIN
+      INSERT INTO provenance (${cols})
+        SELECT 'recommendation', r.uid, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid,
+               'target:itinerary'
+        FROM recommendations r WHERE r.target_type = 'itinerary' AND r.target_uid = OLD.uid AND r.uid IS NOT NULL;
+      UPDATE recommendations SET target_type = NULL, target_uid = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE target_type = 'itinerary' AND target_uid = OLD.uid;
+    END`);
+    const pub = `(OLD.private = 0 AND EXISTS (SELECT 1 FROM active_adoptions a WHERE a.subject_type = 'object'
+                    AND a.subject_uid = OLD.uid AND a.user_id = OLD.user_id))`;
+    run('DROP TRIGGER IF EXISTS trg_objects_delete_adoptions');
+    run(`CREATE TRIGGER IF NOT EXISTS trg_objects_delete_deresolves_and_adoptions BEFORE DELETE ON objects BEGIN
+      INSERT INTO provenance (${cols})
+        SELECT 'ensemble_component', c.uid, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid,
+               'note_uid,state' || CASE WHEN trim(c.label) = '' AND ${pub} THEN ',label' ELSE '' END
+                                || CASE WHEN coalesce(c.image_uid, '') = '' AND ${pub} AND OLD.image LIKE '/i/%' THEN ',image_uid' ELSE '' END
+        FROM ensemble_components c WHERE c.note_uid = OLD.uid AND c.uid IS NOT NULL;
+      ${recNote}
+      UPDATE ensemble_components SET
+        label     = CASE WHEN trim(label) = '' AND ${pub} THEN OLD.name ELSE label END,
+        image_uid = CASE WHEN coalesce(image_uid, '') = '' AND ${pub} AND OLD.image LIKE '/i/%' THEN substr(OLD.image, 4) ELSE image_uid END,
+        note_uid  = NULL, state = 'unresolved', updated_at = CURRENT_TIMESTAMP
+        WHERE note_uid = OLD.uid;
+      INSERT INTO provenance (${cols})
+        SELECT 'adoption', a.uid, 'deleted', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, NULL
+        FROM adoptions a WHERE a.subject_type = 'object' AND a.subject_uid = OLD.uid AND a.uid IS NOT NULL;
+      DELETE FROM adoptions WHERE subject_type = 'object' AND subject_uid = OLD.uid;
+    END`);
+
+    // backfill: references already left dangling by earlier deletions
+    const stops = db.prepare(`SELECT s.uid, s.mark_uid FROM itinerary_stops s
+      WHERE s.mark_uid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM marks m WHERE m.uid = s.mark_uid)`).all();
+    for (const s of stops) {
+      db.prepare(`INSERT INTO provenance (${cols}) VALUES ('itinerary_stop', ?, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'backfill', ?, 'mark_uid,resolution')`).run(s.uid, s.mark_uid);
+      db.prepare(`UPDATE itinerary_stops SET mark_uid = NULL, resolution = 'particular', updated_at = CURRENT_TIMESTAMP WHERE uid = ?`).run(s.uid);
+    }
+    const comps = db.prepare(`SELECT c.uid, c.note_uid FROM ensemble_components c
+      WHERE c.note_uid IS NOT NULL AND NOT EXISTS (SELECT 1 FROM objects o WHERE o.uid = c.note_uid)`).all();
+    for (const c of comps) {
+      db.prepare(`INSERT INTO provenance (${cols}) VALUES ('ensemble_component', ?, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'backfill', ?, 'note_uid,state')`).run(c.uid, c.note_uid);
+      db.prepare(`UPDATE ensemble_components SET note_uid = NULL, state = 'unresolved', updated_at = CURRENT_TIMESTAMP WHERE uid = ?`).run(c.uid);
+    }
+    const recs = db.prepare(`SELECT r.uid, r.target_type, r.target_uid FROM recommendations r WHERE r.target_uid IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM objects o WHERE r.target_type = 'object' AND o.uid = r.target_uid)
+      AND NOT EXISTS (SELECT 1 FROM marks m WHERE r.target_type = 'mark' AND m.uid = r.target_uid)
+      AND NOT EXISTS (SELECT 1 FROM itineraries i WHERE r.target_type = 'itinerary' AND i.uid = r.target_uid)`).all();
+    for (const r of recs) {
+      db.prepare(`INSERT INTO provenance (${cols}) VALUES ('recommendation', ?, 'de_resolved', 'derived', 'system', NULL, 'system', 'system', NULL, 'backfill', ?, ?)`).run(r.uid, r.target_uid, 'target:' + r.target_type);
+      db.prepare('UPDATE recommendations SET target_type = NULL, target_uid = NULL, updated_at = CURRENT_TIMESTAMP WHERE uid = ?').run(r.uid);
+    }
+    console.log(`054 de-resolution backfill: ${stops.length} stop(s), ${comps.length} ensemble component(s), ${recs.length} recommendation(s) pointed at deleted records`);
+  }],
+
+  // ---- Increment 4: where a "for another time" proposal came from ----------
+  // A plan proposed after completing another carries the plan it grew from and
+  // how it relates to it -- the same city another time, a city with similar
+  // dimensions, or a different direction -- so the member is told why this
+  // alternative exists in relation to what they were just planning. Plain
+  // references (no foreign key): deleting the origin leaves the proposal.
+  ['055-recommendation-origin', () => {
+    const run = (sql) => db.exec(sql);
+    if (!hasColumn('recommendations', 'origin_itinerary_uid')) run('ALTER TABLE recommendations ADD COLUMN origin_itinerary_uid TEXT');
+    if (!hasColumn('recommendations', 'relation')) run("ALTER TABLE recommendations ADD COLUMN relation TEXT CHECK (relation IS NULL OR relation IN ('same_city','similar','different'))");
+    run('CREATE INDEX IF NOT EXISTS idx_recommendations_origin ON recommendations(user_id, origin_itinerary_uid)');
+  }],
+
 ];
 
 function backupTo(file) {
@@ -1950,6 +2105,7 @@ const publicWarrant = (userId, subjectType, subjectUid) =>
 // patina), and a later correction would retract only the newer row, leaving
 // the first live -- so a retry must not append one. Returns null when unchanged.
 function assertOwned(userId, objectId, ctx) {
+  assertAdoptedFor('object', q('SELECT uid, user_id FROM objects WHERE id=?').get(objectId), 'ownership');
   if (ownedState(userId, objectId).state === 'owned') return null;
   const r = q('INSERT INTO ownership_assertions(user_id,object_id,note_uid,state) VALUES(?,?,?,\'owned\')').run(userId, objectId, uidOf('objects', objectId));
   recordProvenance('ownership', uidOf('ownership_assertions', r.lastInsertRowid), 'asserted', ctx, { source_kind: 'manual' });
@@ -1977,6 +2133,7 @@ function correctOwned(userId, objectId, ctx) {
   return uidOf('ownership_assertions', r.lastInsertRowid);
 }
 function assertWarrant(userId, subjectType, subjectUid, publish, ctx) {
+  assertAdoptedFor(subjectType, q(`SELECT uid, user_id FROM ${{ object: 'objects', mark: 'marks', itinerary: 'itineraries' }[subjectType]} WHERE uid=?`).get(subjectUid), 'warrant');
   const r = q('INSERT INTO warrants(user_id,subject_type,subject_uid,state,published) VALUES(?,?,?,\'active\',?)')
     .run(userId, subjectType, subjectUid, publish ? 1 : 0);
   recordProvenance('warrant', uidOf('warrants', r.lastInsertRowid), 'asserted', ctx,
@@ -2062,10 +2219,53 @@ function unadoptedExplanation(subjectType, row) {
       if (recommendedPlan(it.uid)) return `recommended_itinerary:${it.uid}`;
     const c = q(`SELECT source_ref FROM provenance WHERE entity_type='mark' AND entity_uid=? AND action='created' AND source_kind='itinerary'`).get(row.uid);
     if (c && recommendedPlan(c.source_ref)) return `recommended_itinerary:${c.source_ref}`;
+    // ...or for a recommended plan deleted before it was kept: the place stays,
+    // prospective, explained by that Recommendation's history (cleanup of such
+    // places is deliberate post-submission work, never automatic).
+    const gone = c && q(`SELECT p.entity_uid FROM provenance p JOIN recommendations r ON r.uid=p.entity_uid
+      WHERE p.entity_type='recommendation' AND p.action='de_resolved' AND p.source_ref=? AND p.fields LIKE 'target:itinerary%' AND r.user_id=?`).get(c.source_ref, row.user_id);
+    if (gone) return `recommendation:${gone.entity_uid}`;
   }
   // Other explicit relationships the member recorded. Each explains why the
   // record exists; none of them makes it Kept (decision A).
   return independentRelationship(subjectType, row);
+}
+// The adoption boundary (items 6 and final pass): Recommended -> Adopted ->
+// Editable / Commentable / Experience-bearing / Ownable / Warrantable. A
+// record with no active Adoption -- a Recommendation's target, a place or
+// note in a recommended plan, a note made for a composition still pending
+// review, or anything else outside the member's corpus -- takes no ordinary
+// edit and no durable personal evidence (check-in, ownership, warrant,
+// comment). Nothing here keeps anything: the refusal names the Keep that
+// comes first. When the member's own words already carry that intent ("I
+// went there last year", "I own that watch"), the calling AI keeps it and
+// then records the relationship; the server never reads the relationship as
+// an implicit Keep. Composition of a recommended plan or a pending
+// composition (stops, days, times, stop notes, pieces) is how the proposition
+// is built, not a member edit, and stays open.
+const ADOPTION_NOUN = { object: 'note', mark: 'travel mark', itinerary: 'itinerary' };
+function assertAdoptedFor(subjectType, row, what) {
+  if (isAdopted(subjectType, row.uid)) return;
+  const why = unadoptedExplanation(subjectType, row) || '';
+  const noun = ADOPTION_NOUN[subjectType];
+  const thing = { ownership: 'ownership', warrant: 'a warrant', 'check-in': 'a check-in', comment: 'a comment' }[what] || what;
+  const act = what === 'edit' ? 'It can be edited' : `${thing[0].toUpperCase()}${thing.slice(1)} can be recorded on it`;
+  if (/^(recommendation|recommended_itinerary):/.test(why))
+    throw new Error(`This ${noun} is a recommendation, not yet one of the member\u2019s own. ${act} once it is kept: if the member\u2019s words already say so (they went, own it, stand behind it, want it as theirs), keep it first with keep_recommendation, then do this; otherwise ask them.`);
+  if (/^pending_ensemble:/.test(why))
+    throw new Error(`This ${noun} was made for a composition still pending review. ${act} once they keep the composition (keep_ensemble).`);
+  throw new Error(`This ${noun} is not in the member\u2019s catalogue (it was never kept), so ${what === 'edit' ? 'it cannot be edited' : `${thing} cannot be recorded on it`}.`);
+}
+const assertEditable = (subjectType, row) => assertAdoptedFor(subjectType, row, 'edit');
+// A Kept parent takes only Kept children (the rule set_stop_note already
+// follows). Putting a recommended or otherwise un-kept record into a plan or
+// composition the member has kept would bring it into their corpus without
+// their saying so; they keep it first. A parent still pending or recommended
+// takes anything of theirs: that is how a proposition is composed.
+function assertKeptChild(parentKept, subjectType, uid) {
+  if (!parentKept || isAdopted(subjectType, uid)) return;
+  const noun = subjectType === 'mark' ? 'travel mark' : 'note';
+  throw new Error(`Only a kept ${noun} can be added to something the member has kept. This one is not theirs yet: if it is a recommendation, keep it first (keep_recommendation).`);
 }
 // The member's own explicit relationships to a Note or Mark, other than
 // Adoption and Recommendation: Owned (asserted, not merely a retracted
@@ -2310,7 +2510,7 @@ function readBody(req) {
   return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => res(Object.fromEntries(new URLSearchParams(b)))); });
 }
 function readBodyMulti(req) {
-  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => { const p = new URLSearchParams(b); const o = Object.fromEntries(p); o.coll = p.getAll('coll'); res(o); }); });
+  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 8e6) req.destroy(); }); req.on('end', () => { const p = new URLSearchParams(b); const o = Object.fromEntries(p); o.coll = p.getAll('coll'); o.picks = p.getAll('pick'); res(o); }); });
 }
 function send(res, html, status = 200, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', ...headers }); res.end(html);
@@ -2775,7 +2975,7 @@ function readImage(file, cb) {
     if (!t) return;
     window.askConfirm({ title: 'Delete ' + t.dataset.kind, cta: 'Delete ' + t.dataset.kind,
       action: t.dataset.del,
-      copy: 'Delete <b>' + t.dataset.title + '</b>? This cannot be undone.' });
+      copy: 'Delete <b>' + t.dataset.title + '</b>? ' + (t.dataset.copy || 'This cannot be undone.') });
   });
 
   // ---- check-in dialog: single day by default, "+ Add end date" makes it a
@@ -3960,6 +4160,11 @@ const prettyDay = (d) => {
 // A mark card. Single column and centred, on paper rather than the note card's
 // cool grey — a place should not read like an object.
 function markCard(m, me, full = false) {
+  // A proposed place (Increment 4) is the same card in the proposed material:
+  // its title set straight (the arc is earned by keeping), "Proposed for" in the
+  // byline, and only what a proposal allows -- Directions and Keep.
+  const prop = me && me.id === m.user_id ? prospectiveOf('mark', m) : null;
+  if (prop) return proposedMarkCard(m, me, prop, full);
   const visits = markVisits(m.id);
   const tags = tagList(m.tags);
   const cs = markCollections(m.id);
@@ -4223,12 +4428,12 @@ function applyFormIntents(b, subjectType, row, me) {
 // collections, Owned and Warrant are theirs to set, never inherited.
 // Canonical duplicate awareness. Two kinds of evidence only, both canonical,
 // both scoped to the asking member:
-//   already_adopted  — I hold Note(s) whose lineage points at this one
+//   already_renoted  — I hold Note(s) whose lineage points at this one
 //   equivalent_notes — an explicit/external same_thing_as relation I recorded
 // derived_relations is NEVER consulted here: inferred similarity is not
 // canonical identity and must not be presented as "you've noted this before".
 // These are informational. Nothing in the write path reads them.
-function alreadyAdopted(userId, sourceUid) {
+function alreadyRenoted(userId, sourceUid) {
   const rows = q('SELECT uid FROM objects WHERE user_id=? AND renoted_from_uid=? ORDER BY id').all(userId, sourceUid);
   return { count: rows.length, note_uids: rows.map((r) => r.uid) };
 }
@@ -4605,6 +4810,7 @@ function itineraryCreate(user, { title = '', context = '', temporal = {}, privat
 
 function itineraryEdit(user, uid, { title, context }, ctx) {
   const it = itinOwned(user, uid);
+  assertEditable('itinerary', it);
   const fields = [];
   if (title !== undefined && title !== it.title) fields.push('title');
   if (context !== undefined && context !== it.context) fields.push('context');
@@ -4641,6 +4847,7 @@ function itineraryPublishConflicts(itineraryId) {
 }
 function itineraryPublish(user, uid, ctx) {
   const it = itinOwned(user, uid);
+  assertEditable('itinerary', it);
   const conflicts = itineraryPublishConflicts(it.id);
   if (conflicts.length) {
     const err = new Error('This itinerary references private travel marks: ' +
@@ -4663,13 +4870,18 @@ function itineraryUnpublish(user, uid, ctx) {
 }
 function itineraryDelete(user, uid, ctx) {
   const it = itinOwned(user, uid);
+  // The records at its stops, named in the deletion's own history so the
+  // member can review them afterwards. Nothing here deletes any of them.
+  const kids = isAdopted('itinerary', it.uid) ? [
+    ...q('SELECT DISTINCT s.mark_uid u FROM itinerary_stops s JOIN marks m ON m.uid=s.mark_uid WHERE s.itinerary_id=? AND m.user_id=?').all(it.id, user.id).map((r) => `mark:${r.u}`),
+    ...q('SELECT DISTINCT o.uid u FROM itinerary_stop_notes a JOIN itinerary_stops s ON s.id=a.stop_id JOIN objects o ON o.id=a.note_id WHERE s.itinerary_id=? AND o.user_id=?').all(it.id, user.id).map((r) => `object:${r.u}`)] : [];
   // RESTRICT guards groups against stops, so stops go first, then groups, then
   // the itinerary. The cascade would handle stops, but not the group order.
   q('DELETE FROM itinerary_stops WHERE itinerary_id=?').run(it.id);
   q('DELETE FROM itinerary_groups WHERE itinerary_id=?').run(it.id);
   q('DELETE FROM itineraries WHERE id=?').run(it.id);
-  recordProvenance('itinerary', it.uid, 'deleted', ctx, {});
-  return true;
+  recordProvenance('itinerary', it.uid, 'deleted', ctx, { fields: childrenField(kids) });
+  return kids.length ? it.uid : true;
 }
 
 // ---- groups -----------------------------------------------------------------
@@ -4808,6 +5020,24 @@ function findExistingMark(userId, { place_name, locality }) {
   return q('SELECT * FROM marks WHERE user_id=? ORDER BY id').all(userId)
     .find((m) => normTitle(m.name) === n && (!loc || !m.locality || m.locality.toLowerCase() === loc)) || null;
 }
+// The member asks to note or mark something that was already recommended to
+// them and exists only as that recommendation's record: keeping THAT record is
+// what they asked for, and a second record would duplicate it (design Q18).
+// Matches by title, like duplicate detection; returns { row, rec } or null.
+function recommendedRecordFor(userId, type, name, locality = '') {
+  const n = normTitle(name);
+  if (!n) return null;
+  const table = type === 'object' ? 'objects' : 'marks';
+  const loc = String(locality || '').trim().toLowerCase();
+  const rows = q(`SELECT t.*, r.uid AS rec_uid FROM ${table} t JOIN recommendations r ON r.target_type=? AND r.target_uid=t.uid AND r.user_id=t.user_id
+    WHERE t.user_id=? ORDER BY r.id DESC`).all(type, userId);
+  const hit = rows.find((t) => !isAdopted(type, t.uid) && normTitle(t.name) === n
+    && (type === 'object' || !loc || !t.locality || t.locality.toLowerCase() === loc));
+  return hit ? { row: hit, rec: hit.rec_uid } : null;
+}
+function keepRecommendedRecord(user, type, found, ctx) {
+  return recordAdoption(user.id, type, found.row.uid, ctx, { source_kind: 'recommendation', source_ref: found.rec });
+}
 const recNoteName = (r) => r.product ? [r.maker, r.product].filter(Boolean).join(' ') + (r.variant ? `, ${r.variant}` : '') : r.label;
 // Resolved: find the member's record, or make one outside the corpus that
 // this Recommendation explains. Returns { type, uid, origin } or null (an
@@ -4858,6 +5088,7 @@ function recommendationCreate(user, input, ctx) {
   const image_uid = input.image_uid ? resolveOwnedImageUid(user.id, input.image_uid, 'The recommendation image') : null;
   const evidence = recEvidence(user, input.evidence_uids);
   const cx = recContext(user, input.context_itinerary_uid, input.context_stop_uid);
+  const og = recOrigin(user, input.origin_itinerary_uid, input.relation);
   let target = null;
   if (input.target_uid) {
     if (resolution !== 'resolved') throw new Error('target_uid names the member’s record for this proposition, so resolution must be "resolved".');
@@ -4879,9 +5110,9 @@ function recommendationCreate(user, input, ctx) {
   const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
   try {
     const cols = ['user_id', 'kind', 'label', 'resolution', 'workflow', 'rationale', 'evidence_uids', 'image_uid',
-      'context_itinerary_uid', 'context_stop_uid', ...Object.keys(attrs)];
+      'context_itinerary_uid', 'context_stop_uid', 'origin_itinerary_uid', 'relation', ...Object.keys(attrs)];
     const vals = [user.id, kind, label, resolution, workflow, rationale, JSON.stringify(evidence), image_uid,
-      cx.itinerary_uid, cx.stop_uid, ...Object.values(attrs)];
+      cx.itinerary_uid, cx.stop_uid, og.itinerary_uid, og.relation, ...Object.values(attrs)];
     const ins = q(`INSERT INTO recommendations(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`).run(...vals);
     let rec = q('SELECT * FROM recommendations WHERE id=?').get(ins.lastInsertRowid);
     recordProvenance('recommendation', rec.uid, 'created', ctx, { source_kind: workflow, source_ref: cx.itinerary_uid,
@@ -4894,6 +5125,57 @@ function recommendationCreate(user, input, ctx) {
     if (tx) db.exec('COMMIT');
     return { rec, created: true, target };
   } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+}
+// ---- Increment 4: the member keeping prospective material on the web -------
+// What makes a record prospective, and therefore what keeping it means:
+//   recommendation  -- a Recommendation targets it: keep the Recommendation
+//   plan            -- it is a place (or note) in a recommended plan with no
+//                      recommendation of its own: keep that one record, citing
+//                      the plan's Recommendation as the context
+//   pending         -- made for a composition still pending review: kept only
+//                      by keeping the composition
+// null: it is Kept already, or outside the corpus for another reason.
+function prospectiveOf(subjectType, row) {
+  if (!row || !row.uid || isAdopted(subjectType, row.uid)) return null;
+  const why = unadoptedExplanation(subjectType, row) || '';
+  let m;
+  if ((m = /^recommendation:(.+)$/.exec(why))) return { kind: 'recommendation', rec: recByUid(m[1]) };
+  if ((m = /^recommended_itinerary:(.+)$/.exec(why)))
+    return { kind: 'plan', plan_uid: m[1], rec: q("SELECT * FROM recommendations WHERE target_type='itinerary' AND target_uid=? AND user_id=? ORDER BY id LIMIT 1").get(m[1], row.user_id) };
+  if ((m = /^pending_ensemble:(.+)$/.exec(why))) return { kind: 'pending', ensemble_uid: m[1] };
+  return null;
+}
+// One place from a recommended plan, kept on its own: the plan stays proposed.
+function keepFromRecommendedPlan(user, subjectType, row, p, ctx) {
+  return recordAdoption(user.id, subjectType, row.uid, ctx, { source_kind: 'recommendation', source_ref: p.rec ? p.rec.uid : p.plan_uid });
+}
+function keepProspective(user, subjectType, row, ctx) {
+  if (!row || row.user_id !== user.id) throw new Error('Not yours.');
+  if (isAdopted(subjectType, row.uid)) return { already: true };
+  const p = prospectiveOf(subjectType, row);
+  if (!p) throw new Error('This is not something waiting to be kept.');
+  if (p.kind === 'pending') throw new Error('This was made for a composition still pending review: keep the composition to keep it.');
+  if (p.kind === 'recommendation') return { kept: recommendationKeep(user, p.rec.uid, ctx) };
+  keepFromRecommendedPlan(user, subjectType, row, p, ctx);
+  return { kept: true };
+}
+
+// Where a proposal came from (Increment 4): one of the member's own plans,
+// and how it relates to it. Both optional; a relation needs its origin.
+const REC_RELATIONS = ['same_city', 'similar', 'different'];
+function recOrigin(user, originUid, relation) {
+  const out = { itinerary_uid: null, relation: null };
+  if (relation !== undefined && relation !== null && relation !== '') {
+    if (!REC_RELATIONS.includes(String(relation))) throw new Error(`relation must be one of ${REC_RELATIONS.join(', ')}.`);
+    if (!originUid) throw new Error('relation needs origin_itinerary_uid: the plan this one relates to.');
+    out.relation = String(relation);
+  }
+  if (originUid) {
+    const it = itinByUid(String(originUid));
+    if (!it || it.user_id !== user.id) throw new Error('origin_itinerary_uid: no such itinerary of this member.');
+    out.itinerary_uid = it.uid;
+  }
+  return out;
 }
 // Resolution adds knowledge; it never rewrites history. The label is never
 // touched, the level only rises, and each step is its own 'enriched' row.
@@ -4942,7 +5224,27 @@ function recommendationResolve(user, uid, input, ctx) {
 // resolved places and Notes in it are kept together, in one transaction, with
 // the same Stops (nothing is copied); unresolved Stops stay unresolved.
 function recommendationKeep(user, uid, ctx) {
-  const r = recOwned(user, uid);
+  let r = recOwned(user, uid);
+  // Its target was deleted since (migration 054 cleared the reference and kept
+  // what it knew). Keep is the member's explicit act, so the normal identity
+  // resolution runs again now: an existing record of theirs is found, or one is
+  // made from what the recommendation knows. Nothing binds it before this. A
+  // deleted plan is not remade: an empty plan is not the plan they deleted.
+  const lost = !r.target_uid && r.resolution === 'resolved'
+    && q("SELECT fields FROM provenance WHERE entity_type='recommendation' AND entity_uid=? AND action='de_resolved' ORDER BY id DESC LIMIT 1").get(r.uid);
+  if (lost) {
+    if (r.kind === 'itinerary') throw new Error('The plan this recommended has been deleted, so there is nothing to keep.');
+    const tx0 = !db.isTransaction; if (tx0) db.exec('BEGIN');
+    try {
+      const t = recMaterialise(user, r, ctx);
+      if (t) {
+        q('UPDATE recommendations SET target_type=?, target_uid=?, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(t.type, t.uid, r.id);
+        recordProvenance('recommendation', r.uid, 'enriched', ctx, { source_kind: 'resolution', fields: ['target', `origin:${t.origin}`] });
+      }
+      if (tx0) db.exec('COMMIT');
+    } catch (e) { if (tx0) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+    r = recOwned(user, uid);
+  }
   if (!r.target_uid) throw new Error(r.resolution === 'resolved'
     ? 'This recommendation has no record of its own to keep.'
     : `This recommendation is ${r.resolution}: resolve it to a specific thing or place first (resolve_recommendation).`);
@@ -4959,7 +5261,15 @@ function recommendationKeep(user, uid, ctx) {
       for (const n of q(`SELECT DISTINCT o.uid FROM itinerary_stop_notes a JOIN itinerary_stops s ON s.id=a.stop_id
           JOIN objects o ON o.id=a.note_id WHERE s.itinerary_id=? AND o.user_id=?`).all(row.id, user.id)) keep('object', n.uid);
     }
-    recordProvenance('recommendation', r.uid, 'kept', ctx, { source_kind: 'manual', fields: kept.map((k) => `${k.type}:${k.uid}`) });
+    // A note proposed for a particular stop of one of their plans joins that
+    // stop when it is kept (Increment 4 decision): it stays where it was
+    // proposed, now as theirs. Only the member's own stop; idempotent.
+    let attached = null;
+    if (r.target_type === 'object' && r.context_stop_uid) {
+      const st = q('SELECT s.uid FROM itinerary_stops s JOIN itineraries i ON i.id=s.itinerary_id WHERE s.uid=? AND i.user_id=?').get(r.context_stop_uid, user.id);
+      if (st) { stopNoteAttach(user, st.uid, r.target_uid, ctx); attached = st.uid; }
+    }
+    recordProvenance('recommendation', r.uid, 'kept', ctx, { source_kind: 'manual', fields: [...kept.map((k) => `${k.type}:${k.uid}`), attached ? `attached:${attached}` : null].filter(Boolean) });
     if (tx) db.exec('COMMIT');
   } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
   return { rec: recByUid(r.uid), kept };
@@ -4995,6 +5305,10 @@ function recommendationView(r) {
     if (out.target.kept) out.status = 'kept';
   }
   if (out.status !== 'kept' && r.reaction) out.status = r.reaction;   // the reaction itself, not a flattened 'dismissed'
+  if (r.origin_itinerary_uid) {
+    const og = itinByUid(r.origin_itinerary_uid);
+    out.origin = { itinerary_uid: r.origin_itinerary_uid, itinerary_title: og ? og.title : null, relation: r.relation || null };
+  } else out.origin = null;
   if (r.context_itinerary_uid) {
     const it = itinByUid(r.context_itinerary_uid), st = r.context_stop_uid ? stopByUid(r.context_stop_uid) : null;
     out.context = { itinerary_uid: r.context_itinerary_uid, itinerary_title: it ? it.title : null,
@@ -5114,6 +5428,7 @@ function visitRecord(user, markId, { visited_on = null, ended_on = null,
   const mk = q('SELECT * FROM marks WHERE id=?').get(markId);
   if (!mk) throw new Error(`No travel mark #${markId}`);
   if (mk.user_id !== user.id) throw new Error(`Travel mark #${markId} does not belong to this member`);
+  assertAdoptedFor('mark', mk, 'check-in');
   // A retried request (a client resending after a timeout, a double submit)
   // must not become a second visit. The same check-in -- same mark, dates and
   // words, no day notes -- recorded by this member within RETRY_WINDOW_S is
@@ -5196,6 +5511,7 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
   if (mark_uid) {
     const mk = q('SELECT * FROM marks WHERE uid=?').get(mark_uid);
     if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
+    if (!new_place) assertKeptChild(isAdopted('itinerary', it.uid), 'mark', mk.uid);
     mUid = mk.uid; res = 'linked';
   } else if (!res || res === 'linked') {
     res = 'experiential';        // no mark means it cannot be linked
@@ -5234,6 +5550,7 @@ function stopResolveToMark(user, uid, markUid, intent, ctx) {
   const { stop, itin } = stopOwned(user, uid);
   const mk = q('SELECT * FROM marks WHERE uid=?').get(markUid);
   if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
+  assertKeptChild(isAdopted('itinerary', itin.uid), 'mark', mk.uid);
   const action = intent === 'refine' ? 'enriched' : intent === 'correct' ? 'corrected' : 'edited';
   q(`UPDATE itinerary_stops SET mark_uid=?, resolution='linked', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .run(mk.uid, stop.id);
@@ -5406,15 +5723,23 @@ function markPrivacyChanged(markUid, nowPrivate, ctx) {
 function canSeeStop(stop, itin, me) {
   if (me && (me.id === itin.user_id || adminOn(me))) {
     const mk = stop.mark_uid ? q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid) : null;
-    return { see: true, owner: true, mark: mk || null, dangling: !!(stop.mark_uid && !mk) };
+    return { see: true, owner: true, mark: mk || null, dangling: !!(stop.mark_uid && !mk) || stopDeresolved(stop) };
   }
   if (itin.private) return { see: false };
   if (stop.visibility !== 'visible') return { see: false };
-  if (stop.resolution !== 'linked' || !stop.mark_uid) return { see: true, owner: false, mark: null };
+  if (stop.resolution !== 'linked' || !stop.mark_uid) return { see: true, owner: false, mark: null, dangling: stopDeresolved(stop) };
   const mk = q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid);
   if (!mk) return { see: true, owner: false, mark: null, dangling: true };   // deleted: label only
   if (mk.private) return { see: false };                                      // private: nothing
   return { see: true, owner: false, mark: mk };
+}
+// A Stop de-resolved because its Mark was deleted (migration 054) is an
+// ordinary unresolved Stop; this only lets the page keep saying it was once
+// marked, from the Stop's own history. The latest change to its mark decides.
+function stopDeresolved(stop) {
+  if (!stop.uid || stop.mark_uid) return false;
+  const r = q(`SELECT action FROM provenance WHERE entity_type='itinerary_stop' AND entity_uid=? AND fields LIKE '%mark_uid%' ORDER BY id DESC LIMIT 1`).get(stop.uid);
+  return !!r && r.action === 'de_resolved';
 }
 
 // Form fields arrive as strings; empty means "not asserted", never zero.
@@ -5707,15 +6032,26 @@ function componentView(c, ens, me) {
     note_id: noteVisible ? note.id : null,
     note_origin: noteVisible ? noteOriginFor(c.note_uid, ens.uid) : null,
     note_available: !!noteVisible,
-    history: componentHistory(c.uid),
+    history: componentHistory(c.uid).map((h) => ({ ...h, note_uid: noteUidFor(h.note_uid, ens, me) })),
   };
+}
+// A Note's uid is shown in an Ensemble's history or lineage only to a viewer
+// who may see that Note (canView, which carries the admin's reach), or to the
+// Ensemble's owner, whose own records they are, deleted ones included. Anyone else gets null: a private or deleted
+// record leaves no trace in someone else's view, not even its uid.
+function noteUidFor(uid, ens, me) {
+  if (!uid) return null;
+  if (me && me.id === ens.user_id) return uid;
+  const n = q('SELECT * FROM objects WHERE uid=?').get(uid);
+  return n && canView('object', n, me) ? uid : null;
 }
 
 function ensembleView(e, me) {
   const arts = ensArtifacts(e.id).map((a) => ({
     artifact_uid: a.uid, image: `/i/${a.image_uid}`,
     is_primary: a.uid === e.primary_artifact_uid,
-    lineage: JSON.parse(a.lineage || '[]'), created_at: a.created_at }));
+    lineage: JSON.parse(a.lineage || '[]').map((l) => ({ ...l, note_uid_at_generation: noteUidFor(l.note_uid_at_generation, e, me) })),
+    created_at: a.created_at }));
   return {
     type: 'ensemble', uid: e.uid, id: e.id, title: e.title, description: e.description,
     private: !!e.private, status: e.status || 'saved', created_at: e.created_at, updated_at: e.updated_at || null,
@@ -5989,11 +6325,20 @@ function verifyEnsembleAssets(ens, saved) {
   if (bad.length) throw new Error('The ensemble was not saved because some images did not persist: ' + bad.join('; '));
 }
 
-// Discard: the member looked at the saved composition and did not want it.
-// This unwinds the save, including the Notes it created — but ONLY those, and
-// only while they are still nothing more than a by-product of this Ensemble.
-// A Note that has since taken on a life of its own is kept, because destroying
-// it would delete something the member did, not something we did for them.
+// Keep of a composition is an explicit Keep: it adopts the member's linked
+// Notes not yet Kept, with the Ensemble as the context (source_ref). Called
+// only from Keep; a Note already Kept is untouched (recordAdoption is a no-op).
+function ensembleKeepAdoptsLinked(user, ens, noteUids, ctx) {
+  for (const uid of noteUids)
+    if (q('SELECT 1 FROM objects WHERE uid=? AND user_id=?').get(uid, user.id))
+      recordAdoption(user.id, 'object', uid, ctx, { source_kind: 'ensemble_kept', source_ref: ens.uid });
+}
+// Discard: the member did not want the composition. Before Keep, the Notes it
+// made are prospective material bound to it, and go with it unless another
+// explicit relationship explains them (decision A). After Keep, every Note it
+// brought in is the member's own adopted record with an independent
+// lifecycle: discarding (or deleting) the Ensemble removes the composition
+// only, never those Notes (global parent/child rule).
 function notesSafeToDiscard(ens) {
   const created = q(`SELECT o.id, o.uid, o.name, o.user_id FROM objects o
     JOIN provenance p ON p.entity_uid = o.uid
@@ -6018,14 +6363,10 @@ function notesSafeToDiscard(ens) {
       if (reasons.length) keep.push({ ...n, reasons }); else drop.push(n);
       continue;
     }
-    if (q('SELECT 1 FROM ownership_assertions WHERE note_uid=?').get(n.uid)) reasons.push('marked owned');
-    if (q('SELECT 1 FROM warrants WHERE subject_uid=?').get(n.uid)) reasons.push('warranted');
-    if (q('SELECT 1 FROM note_collections WHERE note_id=?').get(n.id)) reasons.push('filed in a collection');
-    if (q('SELECT 1 FROM objects WHERE renoted_from_uid=?').get(n.uid)) reasons.push('adopted by someone else');
-    if (q('SELECT 1 FROM ensemble_components WHERE note_uid=? AND ensemble_id<>?').get(n.uid, ens.id)) reasons.push('used in another ensemble');
-    if (q(`SELECT 1 FROM provenance WHERE entity_type='object' AND entity_uid=? AND action='edited'`).get(n.uid)) reasons.push('edited since');
-    if (q('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?').get(n.id)) reasons.push('on an itinerary stop');
-    if (reasons.length) keep.push({ ...n, reasons }); else drop.push(n);
+    // Adopted: the member's own record now, with a lifecycle independent of
+    // the composition that introduced it (global parent/child rule). Removing
+    // the parent never removes it; deleting it is the member's separate act.
+    keep.push({ ...n, reasons: ['in their notes'] });
   }
   return { keep, drop };
 }
@@ -6165,6 +6506,8 @@ function warrantSeal(row, subjectType, me) {
 }
 
 function objectCard(o, me, full = false) {
+  const prop = me && me.id === o.user_id ? prospectiveOf('object', o) : null;
+  if (prop) return proposedNoteCard(o, me, prop, full);
   // Canonical duplicate awareness: do I already hold an active Note adopted
   // from this one? Read from my own Notes — never by dereferencing the source.
   const adopted = me ? q('SELECT id, uid FROM objects WHERE user_id=? AND renoted_from_uid=? ORDER BY id').all(me.id, o.uid) : [];
@@ -6265,6 +6608,210 @@ function itineraryNumbers(it) {
   return n;
 }
 
+// ---- Increment 4: prospective material, rendered --------------------------
+// One grammar across the web: a proposal is the same object in a thinner,
+// edge-less material, bylined "Proposed for", with only the acts a proposal
+// allows (Keep, and the member's reactions). It becomes the member's in place.
+const REC_REL_ORDER = { same_city: 0, similar: 1, different: 2 };
+const monYear = (t) => { const d = new Date(String(t).replace(' ', 'T') + 'Z'); return isNaN(d) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+const keepForm = (action, label = 'Keep', cls = 'btn-note btn-keep') => `<form method="post" action="${action}" class="keep-form"><button class="${cls}">${label}</button></form>`;
+const reactForm = (recUid, reason, label) => `<form method="post" action="/r/${esc(recUid)}/react" class="react-form"><input type="hidden" name="reason" value="${reason}"><button class="react-btn">${label}</button></form>`;
+
+function proposedByline(row, me) {
+  return `<div class="byline"><span class="byline-who"><a href="/u/${esc(me.handle)}">${avatar({ handle: me.handle, avatar: me.avatar })}</a>${stackDate(row.created_at)}</span></div>`;
+}
+function proposedFootline(prop) {
+  if (prop.kind === 'pending') return '<p class="prop-line">Kept with its composition, when you keep that.</p>';
+  return '<p class="prop-line">Keep it to edit, own, comment on or warrant it.</p>';
+}
+function proposedActs(prop, keepAction) {
+  if (prop.kind === 'pending') return '';
+  const react = prop.kind === 'recommendation' && prop.rec ? reactForm(prop.rec.uid, 'not_for_me', 'Not for me') : '';
+  return `<div class="noteit prop-acts">${keepForm(keepAction)}${react}</div>`;
+}
+function proposedMarkCard(m, me, prop, full = false) {
+  // its own recommendation's reason; a place inside a proposed plan speaks for itself
+  const why = prop.kind === 'recommendation' && prop.rec && prop.rec.rationale ? prop.rec.rationale : m.why;
+  return `<article class="note travelmark is-proposed${full ? ' note-full' : ''}" data-private="1">
+  ${proposedByline(m, me)}
+  <div class="card">
+    <div class="text">
+      <p class="who">Proposed for <a href="/u/${esc(me.handle)}">${esc(me.handle)}</a></p>
+      <h2 class="mark-title mark-title-straight"><a href="/m/${m.id}">${esc(m.name)}</a></h2>
+      ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
+      ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
+      ${why ? `<p class="body prop-why">${esc(why)}</p>` : ''}
+      <div class="noteit mark-visits"><div class="mark-buttons">
+        <a class="btn-note" href="${mapLink(m)}" data-apple-maps="${esc(appleMapLink(m))}" rel="noopener">Directions</a>
+        ${keepForm(`/m/${m.id}/keep`)}
+      </div></div>
+      ${prop.kind === 'recommendation' && prop.rec ? `<div class="prop-reacts">${reactForm(prop.rec.uid, 'not_this_trip', 'Not this trip')}${reactForm(prop.rec.uid, 'not_for_me', 'Not for me')}</div>` : ''}
+      ${proposedFootline(prop)}
+    </div>
+  </div></article>`;
+}
+function proposedNoteCard(o, me, prop, full) {
+  const why = prop.kind === 'recommendation' && prop.rec && prop.rec.rationale ? prop.rec.rationale : o.why;
+  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''} is-proposed" data-private="1">
+  ${proposedByline(o, me)}
+  <div class="card">
+    <div class="card-head"><p class="who">Proposed for <a href="/u/${esc(me.handle)}">${esc(me.handle)}</a></p></div>
+    <div class="text">
+      <h2><a href="/o/${o.id}">${esc(o.name)}</a></h2>
+      ${why ? `<p class="body prop-why">${esc(why)}</p>` : ''}
+      ${o.url ? `<p class="link"><span class="lbl">Link:</span> <a href="${esc(o.url)}" rel="noopener">${esc(o.url.length > 34 ? o.url.slice(0, 34) + '…' : o.url)}</a></p>` : ''}
+      ${proposedActs(prop, `/o/${o.id}/keep`)}
+      ${proposedFootline(prop)}
+    </div>
+    ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
+  </div></article>`;
+}
+
+// A row nested under a stop: "↳ what" hanging off the stop, never on the spine.
+// state: proposed | kept | unresolved.
+function stopKidRow({ state, eyebrow, href, image, name, keep = null, react = null, why = '' }) {
+  const lead = state === 'proposed' ? `↳ <i>Proposed</i> · ${esc(eyebrow.toLowerCase())}` : `↳ ${esc(eyebrow)}`;
+  const pic = image ? imgTag(image, name) : `<span class="ens-comp-blank${state === 'unresolved' ? ' is-hatched' : ''}"></span>`;
+  const body = `${pic}<span class="ens-comp-body"><span class="ens-comp-state">${lead}</span><span class="ens-comp-label">${esc(name)}</span>${why ? `<span class="ens-comp-why">${esc(why)}</span>` : ''}</span>`;
+  return `<li class="ens-comp stop-note is-${state}">${href ? `<a class="ens-comp-link" href="${href}">${body}</a>` : `<span class="ens-comp-link">${body}</span>`}${keep || react ? `<span class="stop-kid-acts">${keep ? keepForm(keep, 'Keep', 'react-btn kid-keep') : ''}${react || ''}</span>` : ''}</li>`;
+}
+function stopRecRow(r) {
+  const t = r.target_uid ? q(`SELECT id, name, ${r.target_type === 'itinerary' ? "'' AS image" : 'image'} FROM ${REC_TABLE[r.target_type]} WHERE uid=?`).get(r.target_uid) : null;
+  const tp = r.target_type === 'mark' ? 'm' : r.target_type === 'itinerary' ? 't' : 'o';
+  if (t && isAdopted(r.target_type, r.target_uid))
+    return stopKidRow({ state: 'kept', eyebrow: `Kept · proposed ${monYear(r.created_at)}`, href: `/${tp}/${t.id}`, image: t.image, name: t.name });
+  if (t) return stopKidRow({ state: 'proposed', eyebrow: 'Worth seeking here', href: `/${tp}/${t.id}`, image: t.image, name: t.name || r.label,
+    keep: `/r/${r.uid}/keep`, react: reactForm(r.uid, 'not_for_me', 'Not for me'), why: r.rationale });
+  return stopKidRow({ state: 'unresolved', eyebrow: 'Still to identify', image: r.image_uid ? `/i/${r.image_uid}` : '', name: r.label, why: r.rationale });
+}
+
+// The plans proposed "for another time" beside this one, in their bounded
+// order: the same city, somewhere similar, a different direction.
+function itineraryProposals(it, me) {
+  if (!me || me.id !== it.user_id) return [];
+  return q(`SELECT * FROM recommendations WHERE user_id=? AND kind='itinerary' AND origin_itinerary_uid=? AND target_uid IS NOT NULL AND target_uid<>? ORDER BY id`)
+    .all(me.id, it.uid, it.uid)
+    .map((r) => ({ r, plan: itinByUid(r.target_uid) })).filter((x) => x.plan)
+    .sort((a, b) => ((REC_REL_ORDER[a.r.relation] ?? 3) - (REC_REL_ORDER[b.r.relation] ?? 3)) || (a.r.id - b.r.id));
+}
+// Why this alternative exists, in relation to what they were planning. Words,
+// not a taxonomy: the city is the bold word.
+function proposalKind(r, origin) {
+  const city = r.locality || r.place_name || '';
+  const b = city ? `<b>${esc(city)}</b>` : '';
+  if (r.relation === 'same_city') return `Next time in ${b || `<b>${esc(origin.title)}</b>`}`;
+  if (r.relation === 'similar') return city ? `Like ${esc(origin.title)}, in ${b}` : `Somewhere like ${esc(origin.title)}`;
+  if (r.relation === 'different') return `Another direction${b ? ` · ${b}` : ''}`;
+  return `For another time${b ? ` · ${b}` : ''}`;
+}
+// Compact stops: one small tile per stop on the proposal's own spine, with the
+// things proposed at that stop hanging inside its tile.
+function proposalStops(plan, me, planKept) {
+  const recs = q(`SELECT * FROM recommendations WHERE user_id=? AND context_itinerary_uid=? AND context_stop_uid IS NOT NULL AND reaction IS NULL ORDER BY id`).all(me.id, plan.uid);
+  const tf = (row) => temporalFormat(temporalOf(row));
+  const tile = (st) => {
+    const mk = st.mark_uid ? q('SELECT * FROM marks WHERE uid=?').get(st.mark_uid) : null;
+    const mine = mk && isAdopted('mark', mk.uid);
+    const name = mk ? mk.name : (st.label || 'Unnamed stop');
+    const loc = [mk ? placeLine(mk) : (st.resolution === 'particular' ? 'Somewhere particular' : st.resolution === 'allocation' ? 'Open time' : 'An intention'), tf(st)].filter(Boolean).join(' · ');
+    const tag = mine ? '<span class="rec-tag">In your marks</span>'
+      : mk && !planKept ? keepForm(`/m/${mk.id}/keep`, 'Keep', 'react-btn rec-stop-keep') : '';
+    const kids = [];
+    for (const o of q('SELECT o.* FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? ORDER BY a.id').all(st.id)) {
+      const k = isAdopted('object', o.uid);
+      kids.push(`<li class="rec-kid${k ? ' is-kept' : ''}"><span class="rec-kid-st">↳ ${k ? 'In your notes' : '<i>Proposed</i> · worth noticing here'}</span><a href="/o/${o.id}">${esc(o.name)}</a>${k ? '' : keepForm(`/o/${o.id}/keep`, 'Keep', 'react-btn rec-kid-keep')}</li>`);
+    }
+    for (const r of recs.filter((x) => x.context_stop_uid === st.uid)) {
+      const t = r.target_uid && r.target_type === 'object' ? q('SELECT id, name FROM objects WHERE uid=?').get(r.target_uid) : null;
+      if (t && isAdopted('object', r.target_uid)) kids.push(`<li class="rec-kid is-kept"><span class="rec-kid-st">↳ In your notes</span><a href="/o/${t.id}">${esc(t.name)}</a></li>`);
+      else if (t) kids.push(`<li class="rec-kid"><span class="rec-kid-st">↳ <i>Proposed</i> · worth seeking here</span><a href="/o/${t.id}">${esc(t.name)}</a>${keepForm(`/r/${r.uid}/keep`, 'Keep', 'react-btn rec-kid-keep')}</li>`);
+      else kids.push(`<li class="rec-kid is-unres"><span class="rec-kid-st">↳ Still to identify</span><span>${esc(r.label)}</span></li>`);
+    }
+    return `<li class="rec-stop${mine ? ' is-kept' : ''}${mk ? '' : ' is-loose'}">
+      <div class="rec-stop-row"><span class="rec-stop-name">${mk ? `<a href="/m/${mk.id}">${esc(name)}</a>` : esc(name)}</span>${tag}</div>
+      <span class="rec-stop-loc">${esc(loc)}</span>${mk && mk.why ? `<span class="rec-stop-why">${esc(mk.why)}</span>` : ''}
+      ${kids.length ? `<ul class="rec-kids">${kids.join('')}</ul>` : ''}</li>`;
+  };
+  const out = [];
+  for (const g of groupOrder(plan.id)) {
+    const stops = itineraryStops(plan.id, g.id);
+    if (!stops.length) continue;
+    out.push(`<li class="rec-day">${esc([g.label, tf(g)].filter(Boolean).join(' — ') || 'A day')}</li>`, ...stops.map(tile));
+  }
+  const loose = itineraryStops(plan.id, null);
+  if (loose.length) out.push(...(out.length ? ['<li class="rec-day">Not yet on a day</li>'] : []), ...loose.map(tile));
+  return out.length ? `<ol class="rec-stops">${out.join('')}</ol>` : '';
+}
+function proposalCard(x, origin, me) {
+  const { r, plan } = x;
+  const kept = isAdopted('itinerary', plan.uid);
+  const days = groupOrder(plan.id).length, nStops = q('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=?').get(plan.id).n;
+  const shape = [days ? `${days} ${days === 1 ? 'day' : 'days'}` : '', `${nStops} ${nStops === 1 ? 'stop' : 'stops'}`].filter(Boolean).join(' · ');
+  const kind = kept ? `<b>${esc(me.handle)}</b> <span class="who-private">privately planned</span>` : proposalKind(r, origin);
+  const meta = kept ? `${shape} · kept · proposed ${monYear(r.created_at)}, from “${esc(origin.title)}”` : `${shape} · proposed ${monYear(r.created_at)}`;
+  const acts = kept
+    ? `<div class="rec-acts"><a class="btn" href="/t/${plan.id}">Open the itinerary</a><span class="rec-note">No visits, ownership or warrants were recorded</span></div>`
+    : r.reaction ? `<div class="rec-acts"><span class="rec-note">${r.reaction === 'not_this_trip' ? 'Not this trip' : r.reaction === 'not_for_me' ? 'Not for me' : 'Set aside'}</span></div>`
+    : `<div class="rec-acts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}${reactForm(r.uid, 'not_for_me', 'Not for me')}<span class="rec-sp"></span>${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'btn btn-keep')}</div>`;
+  return `<article class="rec-plan${kept ? ' is-kept' : ''}${r.reaction && !kept ? ' is-reacted' : ''}" data-rec="${esc(r.uid)}">
+    <p class="rec-kind">${kind}</p>
+    <h3 class="rec-title"><a href="/t/${plan.id}">${esc(r.label)}</a></h3>
+    ${r.rationale ? `<p class="rec-why">${esc(r.rationale)}</p>` : ''}
+    <p class="rec-meta">${meta}</p>
+    <details class="rec-explore" data-rec="${esc(r.uid)}"><summary class="rec-explore-btn"><span class="is-closed">Explore</span><span class="is-open">Close</span></summary>
+      ${proposalStops(plan, me, kept)}
+    </details>
+    ${acts}
+  </article>`;
+}
+function proposalsColumn(it, proposals, me) {
+  return `<div class="rec-head"><h3 class="lbl rec-h">For another time</h3><span class="rec-count">proposed after this plan · ${proposals.length}</span></div>
+    ${proposals.map((x) => proposalCard(x, it, me)).join('')}
+    <script>(function(){var ds=document.querySelectorAll('.rec-explore');function sync(){var any=false;ds.forEach(function(d){var g=document.querySelector('.itin-map g.rec-pins[data-rec="'+d.dataset.rec+'"]');if(g){g.classList.toggle('on',d.open);if(d.open)any=true;}});var f=document.querySelector('.itin-map');if(f)f.classList.toggle('is-previewing',any);}ds.forEach(function(d){d.addEventListener('toggle',sync);});})();</script>`;
+}
+
+// After a plan or composition is deleted: the records kept with it, each with
+// the relationships that make removing it consequential. Nothing is selected
+// for the member; each removal is its own act.
+function reviewChildRow(type, row, parentUid, me) {
+  const rel = [];
+  const c = q(`SELECT source_kind, source_ref FROM provenance WHERE entity_type=? AND entity_uid=? AND action='created' ORDER BY id LIMIT 1`).get(type, row.uid);
+  const ad = q(`SELECT p.source_ref FROM provenance p JOIN adoptions a ON a.uid=p.entity_uid WHERE p.entity_type='adoption' AND a.subject_uid=? ORDER BY p.id DESC LIMIT 1`).get(row.uid);
+  const recOfParent = q("SELECT uid FROM recommendations WHERE target_uid=? LIMIT 1").get(parentUid);
+  const withParent = (c && c.source_ref === parentUid) || (ad && (ad.source_ref === parentUid || (recOfParent && ad.source_ref === recOfParent.uid)));
+  const origin = withParent ? `${type === 'mark' ? 'Travel mark' : 'Note'} · kept with this ${type === 'mark' ? 'plan' : 'composition'}`
+    : `${type === 'mark' ? 'Travel mark' : 'Note'} · yours since ${new Date(row.created_at + 'Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`;
+  if (type === 'mark') {
+    const v = q('SELECT COUNT(*) n FROM visits WHERE mark_id=?').get(row.id).n; if (v) rel.push(v === 1 ? 'Checked in once' : `Checked in ${v} times`);
+    if (warrantState(me.id, 'mark', row.uid).state === 'active') rel.push('Warranted');
+    const cm = q('SELECT COUNT(*) n FROM mark_comments WHERE mark_id=?').get(row.id).n; if (cm) rel.push(`${cm} comment${cm === 1 ? '' : 's'}`);
+    for (const t of q('SELECT DISTINCT i.title FROM itinerary_stops s JOIN itineraries i ON i.id=s.itinerary_id WHERE s.mark_uid=?').all(row.uid)) rel.push(`In “${t.title}”`);
+    if (q('SELECT 1 FROM mark_collections WHERE mark_id=?').get(row.id)) rel.push('In a collection');
+  } else {
+    if (ownedState(me.id, row.id).state === 'owned') rel.push('Owned');
+    if (warrantState(me.id, 'object', row.uid).state === 'active') rel.push('Warranted');
+    const cm = q('SELECT COUNT(*) n FROM comments WHERE object_id=?').get(row.id).n; if (cm) rel.push(`${cm} comment${cm === 1 ? '' : 's'}`);
+    if (q('SELECT 1 FROM ensemble_components WHERE note_uid=?').get(row.uid)) rel.push('In a composition');
+    if (q('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?').get(row.id)) rel.push('On a stop');
+    if (q('SELECT 1 FROM note_collections WHERE note_id=?').get(row.id)) rel.push('In a collection');
+  }
+  if (q(`SELECT 1 FROM provenance WHERE entity_type=? AND entity_uid=? AND action='edited'`).get(type, row.uid)) rel.push('Edited since');
+  return `<li class="review-row"><label><input type="checkbox" name="pick" value="${type}:${esc(row.uid)}"><span class="review-name">${esc(row.name)}</span><span class="review-kind">${esc(origin)}</span></label><span class="review-rel">${esc(rel.join(' · ') || 'No other use')}</span></li>`;
+}
+// Removing one child the member chose: the same act as deleting it from its
+// own page, with its own history naming the review it came from.
+function memberDeleteRecord(me, type, uid, ctx, parentUid) {
+  const table = type === 'mark' ? 'marks' : 'objects';
+  const row = q(`SELECT * FROM ${table} WHERE uid=? AND user_id=?`).get(uid, me.id);
+  if (!row) return false;
+  recordProvenance(type, row.uid, 'deleted', ctx, { source_kind: 'review_cleanup', source_ref: parentUid });
+  dropWarrantsFor(type, row.uid);
+  q(`DELETE FROM ${table} WHERE id=?`).run(row.id);
+  return true;
+}
+const childrenField = (kids) => kids.length ? 'children:' + kids.join('|') : null;
+
+
 function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // `owner` governs what is VISIBLE (canSeeStop); `ctl` governs whether the
   // owner's controls render. A preview is the owner's own view minus controls.
@@ -6278,10 +6825,25 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // ensemble-component vocabulary, so they read as belonging to the Stop
   // rather than as more Stops. Each is shown only to someone who can see it.
   const myNotes = ctl ? q('SELECT uid, name FROM adopted_objects WHERE user_id=? ORDER BY lower(name)').all(me.id) : [];
+  // Things proposed for a particular stop (Increment 4): the owner's own
+  // recommendations with this plan and stop as their context, not yet answered.
+  const stopRecs = isOwner ? q(`SELECT * FROM recommendations WHERE user_id=? AND context_itinerary_uid=? AND context_stop_uid IS NOT NULL
+      AND reaction IS NULL ORDER BY id`).all(me.id, it.uid) : [];
   const noteKids = (st) => {
     const ns = stopNotesVisible(st.id, me);
-    if (!ns.length) return '';
-    return `<ul class="ens-comps stop-notes">${ns.map((o) => `<li class="ens-comp is-linked stop-note"><a class="ens-comp-link" href="/o/${o.id}">${o.image ? imgTag(o.image, o.name) : '<span class="ens-comp-blank"></span>'}<span class="ens-comp-body"><span class="ens-comp-state">\u21b3 Worth noticing here</span><span class="ens-comp-label">${esc(o.name)}</span></span></a>${ctl ? `<form method="post" action="${base}/stops/${st.uid}/notes/${o.uid}/delete" class="stop-note-detach"><button class="link caps" aria-label="Detach ${esc(o.name)} from this stop">Detach</button></form>` : ''}</li>`).join('')}</ul>`;
+    const attached = new Set(ns.map((o) => o.uid));
+    const rows = ns.map((o) => {
+      const prop = isOwner ? prospectiveOf('object', o) : null;
+      if (prop) return stopKidRow({ state: 'proposed', eyebrow: 'Worth noticing here', href: `/o/${o.id}`, image: o.image, name: o.name,
+        keep: prop.kind === 'pending' ? null : `/o/${o.id}/keep`, why: prop.kind === 'recommendation' && prop.rec ? prop.rec.rationale : '' });
+      return `<li class="ens-comp is-linked stop-note"><a class="ens-comp-link" href="/o/${o.id}">${o.image ? imgTag(o.image, o.name) : '<span class="ens-comp-blank"></span>'}<span class="ens-comp-body"><span class="ens-comp-state">\u21b3 Worth noticing here</span><span class="ens-comp-label">${esc(o.name)}</span></span></a>${ctl ? `<form method="post" action="${base}/stops/${st.uid}/notes/${o.uid}/delete" class="stop-note-detach"><button class="link caps" aria-label="Detach ${esc(o.name)} from this stop">Detach</button></form>` : ''}</li>`;
+    });
+    for (const r of stopRecs.filter((x) => x.context_stop_uid === st.uid)) {
+      if (r.target_type === 'object' && attached.has(r.target_uid)) continue;
+      rows.push(stopRecRow(r));
+    }
+    if (!rows.length) return '';
+    return `<ul class="ens-comps stop-notes">${rows.join('')}</ul>`;
   };
   const attachForm = (st) => myNotes.length ? `<form method="post" action="${base}/stops/${st.uid}/notes" class="stop-note-attach"><select class="nf-field" name="note_uid" required aria-label="Attach one of your notes to this stop"><option value="">ATTACH ONE OF YOUR NOTES</option>${myNotes.map((n) => `<option value="${n.uid}">${esc(n.name)}</option>`).join('')}</select><button class="link caps">Attach note</button></form>` : '';
   const tf = (row) => temporalFormat(temporalOf(row));
@@ -6487,7 +7049,7 @@ function itineraryGeo(it, me) {
 // the same bbox in Mercator space -- the bbox is what the embed displays, and
 // it is made square in that space to match the square iframe, so the mapping
 // is faithful. Shown only when at least one stop has coordinates.
-function itineraryMap(it, me) {
+function itineraryMap(it, me, previews = []) {
   const pts = itineraryGeo(it, me);
   if (!pts.length) return '';
   const merc = (la) => Math.log(Math.tan(Math.PI / 4 + (la * Math.PI / 180) / 2));
@@ -6512,6 +7074,13 @@ function itineraryMap(it, me) {
     const n = order.get(p.stop_uid);
     return `<a data-pin="${esc(p.stop_uid)}" href="#stop-${esc(p.stop_uid)}" transform="translate(${x.toFixed(2)},${y.toFixed(2)})"><circle r="2.4" class="pin"/><text y="0.9" text-anchor="middle" class="pin-n">${n || ''}</text><title>${esc(p.name)}</title></a>`;
   }).join('');
+  // A proposal being explored previews its places as hollow rings, in its own
+  // numbering, only where they fall on this map. Hidden until explored.
+  const rings = previews.map((pv) => {
+    const inside = pv.pts.map((p) => ({ p, x: ((p.lng - minLn) / (maxLn - minLn)) * 100, y: (1 - (merc(p.lat) - y0) / (y1 - y0)) * 100 }))
+      .filter((v) => v.x >= 0 && v.x <= 100 && v.y >= 0 && v.y <= 100);
+    return inside.length ? `<g class="rec-pins" data-rec="${esc(pv.uid)}">${inside.map((v) => `<g transform="translate(${v.x.toFixed(2)},${v.y.toFixed(2)})"><circle r="2" class="pin-ring"/><text y="0.8" text-anchor="middle" class="pin-rn">${pv.order.get(v.p.stop_uid) || ''}</text><title>${esc(v.p.name)} (proposed)</title></g>`).join('')}</g>` : '';
+  }).join('');
   // mark-map carries the existing per-skin, per-mode tile filters, so the map
   // is tinted for classic and modern, light and dark, by the same rules the
   // mark page already uses. Nothing map-specific is invented here.
@@ -6524,9 +7093,9 @@ function itineraryMap(it, me) {
   return `<figure class="itin-map mark-map">
     <span class="itin-map-inner">
       <iframe src="${src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade" tabindex="-1" title="Map of ${esc(it.title)}"></iframe>
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}</svg>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${pins}${rings}</svg>
     </span>
-    <figcaption><a href="${big}" target="_blank" rel="noopener">${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops`} \u00b7 open the map</a></figcaption>
+    <figcaption><a href="${big}" target="_blank" rel="noopener">${pts.length === 1 ? esc(pts[0].name) : `${pts.length} stops`} \u00b7 open the map</a>${rings ? '<span class="map-legend"><span class="lg-dot"></span>This plan <span class="lg-ring"></span>Proposed, previewing</span>' : ''}</figcaption>
   </figure>`;
 }
 
@@ -7111,12 +7680,12 @@ ${noters.length ? `<div class="section-rule"></div>
     <ul class="noter-list ${noters.length === 1 ? 'is-one' : ''}">${noters.map((n) => `<li><a href="/u/${esc(n.handle)}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('')}</ul>
   </details>
 </section>` : ''}
-<div class="section-rule"></div>
+${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/o/${o.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>` : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-o-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === o.user_id || adminOn(me)) ? `<input type="checkbox" id="cmt-o-${c.id}" class="cmt-toggle" hidden><form method="post" action="/o/${o.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/o/${o.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
-</section>
+</section>`}
 <div class="note-side">${relatedNotes(o, me)}${skinOf(me, req) === 'modern' ? colophon(o) : ''}</div>
 <script>
 (function () {
@@ -7198,20 +7767,32 @@ ${noters.length ? `<div class="section-rule"></div>
     const base = `/t/${it.id}`;
     const tf = (row) => temporalFormat(temporalOf(row));
 
-    const conflicts = owner ? groupConflicts(it.id) : [];
-    const rendered = itineraryBody(it, me);
+    // A plan proposed to the member and not yet kept (Increment 4): shown in the
+    // proposed material, with Keep and the reactions in place of Edit, and no
+    // member editing controls; its places carry their own Keep.
+    const proposed = owner ? prospectiveOf('itinerary', it) : null;
+    const conflicts = owner && !proposed ? groupConflicts(it.id) : [];
+    const rendered = itineraryBody(it, me, proposed ? { interactive: false } : {});
     const dayBlocks = rendered.html, looseBlock = '';
 
     const addDay = '';   // the day form is a tab inside the add card now
 
     const when = tf(it);
     // the byline and edit affordance every first-class object carries
-    const bylineRow = `<div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(it.created_at)}</span>${owner ? `<label class="card-edit" for="itin-edit-${it.id}">Edit</label>` : ''}</div>`;
-    const titleBlock = `<div class="ens-head itin-head">
+    const bylineRow = `<div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(it.created_at)}</span>${owner && !proposed ? `<label class="card-edit" for="itin-edit-${it.id}">Edit</label>` : ''}</div>`;
+    const propRec = proposed && proposed.kind === 'recommendation' ? proposed.rec : null;
+    const propOrigin = propRec && propRec.origin_itinerary_uid ? itinByUid(propRec.origin_itinerary_uid) : null;
+    const titleBlock = proposed ? `<div class="ens-head itin-head">
+        <p class="who">${propRec && propOrigin ? proposalKind(propRec, propOrigin) : `Proposed for <a href="/u/${esc(author.handle)}">${esc(author.handle)}</a>`}</p>
+        <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
+        ${propRec && propRec.rationale ? `<p class="itin-ctx prop-why">${esc(propRec.rationale)}</p>` : ''}
+        ${propRec ? `<div class="rec-acts itin-prop-acts">${reactForm(propRec.uid, 'not_this_trip', 'Not this trip')}${reactForm(propRec.uid, 'not_for_me', 'Not for me')}<span class="rec-sp"></span>${keepForm(`/r/${propRec.uid}/keep`, 'Keep this plan', 'btn btn-keep')}</div>` : ''}
+        <p class="prop-line">Proposed ${propRec ? monYear(propRec.created_at) : ''}${propOrigin ? `, from \u201c<a href="/t/${propOrigin.id}">${esc(propOrigin.title)}</a>\u201d` : ''}. Keep it to make it one of your plans; nothing here is yours until then.</p></div>`
+      : `<div class="ens-head itin-head">
         <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
         <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
         ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
-    const head = owner ? `<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-read">${titleBlock}</div><div class="itin-head-edit">
+    const head = owner && !proposed ? `<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-read">${titleBlock}</div><div class="itin-head-edit">
       <form method="post" action="${base}" class="nf nf-compact itin-new itin-edit-form"><div class="nf-box">
         <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${it.private ? 'checked' : ''}><span></span></label></div>
         <div class="nf-stack">
@@ -7225,7 +7806,7 @@ ${noters.length ? `<div class="section-rule"></div>
         </div>
         <button class="nf-post itin-start">Save</button>
         <div class="nf-foot nf-foot-3">
-          <button type="button" class="nf-link-btn nf-del" data-del="${base}/delete" data-kind="itinerary" data-title="${esc(it.title || 'Untitled')}">Delete</button>
+          <button type="button" class="nf-link-btn nf-del" data-del="${base}/delete" data-kind="itinerary" data-title="${esc(it.title || 'Untitled')}" data-copy="The plan, its days and its stops go. The places and things you kept with it stay in your catalogue; you can review them next.">Delete</button>
           <span></span>
           <button type="button" class="nf-link-btn" data-itin-cancel>Cancel</button>
         </div></div></form></div>`
@@ -7239,17 +7820,20 @@ ${noters.length ? `<div class="section-rule"></div>
     // One container holds the whole itinerary -- title, overview, days -- so
     // the article page is the fully expanded card and the listing shows the
     // same card truncated.
-    const sideMap = itineraryMap(it, me);
-    const sideSugg = itinerarySuggestions(it, me);
+    const proposals = proposed ? [] : itineraryProposals(it, me);
+    const sideMap = itineraryMap(it, me, proposals.map((x) => ({ uid: x.r.uid, pts: itineraryGeo(x.plan, me), order: itineraryNumbers(x.plan) })));
+    const sideSugg = proposed ? '' : itinerarySuggestions(it, me);
     const colo = skinOf(me, req) === 'modern' ? itineraryColophon(it, me) : '';
+    const recsCol = proposals.length ? proposalsColumn(it, proposals, me) : '';
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
-    <div class="itin-cols">
-      <div class="itin-main"><article class="note itin-note">${bylineRow}<div class="itin-shell">${head}
+    <div class="itin-cols${recsCol ? ' has-recs' : ''}">
+      <div class="itin-main"><article class="note itin-note${proposed ? ' is-proposed' : ''}">${bylineRow}<div class="itin-shell">${head}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
       ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
-      ${sideMap || sideSugg || colo ? `<aside class="itin-side">${sideMap}${sideSugg}${colo}</aside>` : ''}
+      ${sideMap || sideSugg || colo ? `<aside class="itin-side">${sideMap}${sideSugg}${colo}</aside>` : ''}${recsCol ? `
+      <aside class="itin-recs" aria-label="For another time">${recsCol}</aside>` : ''}
     </div>
-    ${owner ? `<script>${ITIN_JS}</script>` : ''}`;
+    ${owner && !proposed ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>
 </div>`;
@@ -7320,7 +7904,7 @@ ${noters.length ? `<div class="section-rule"></div>
     </div>
     <button class="nf-post itin-start">Save</button>
     <div class="nf-foot nf-foot-3">
-      <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}">Delete</button>
+      <button type="button" class="nf-link-btn nf-del" data-del="/e/${e.id}/delete" data-kind="ensemble" data-title="${esc(v.title)}"${v.status === 'saved' ? ' data-copy="The composition goes. The notes kept with it stay in your catalogue; you can review them next."' : ''}>Delete</button>
       <span></span>
       <button type="button" class="nf-link-btn" data-ens-cancel>Cancel</button>
     </div>
@@ -7338,9 +7922,15 @@ ${noters.length ? `<div class="section-rule"></div>
       // Grouped by where each piece came from, because "already mine" and
       // "this composition put it in my notes" are different facts about the
       // member's catalogue and reading them interleaved hides that.
+      // Increment 4: a piece is "from your notes" only when it is Kept; a
+      // recommended note in a composition is proposed, and a note made for a
+      // composition still pending review is kept with it, not yet "added".
+      const keptNote = (c) => !!c.note_uid && isAdopted('object', c.note_uid);
+      const pendingComp = (v.status || 'saved') === 'pending_review';
       const groups = [
-        ['From your notes', v.components.filter((c) => c.note_available && c.note_origin === 'pre_existing')],
-        ['Added to your notes by this ensemble', v.components.filter((c) => c.note_available && c.note_origin === 'created_by_ensemble')],
+        ['From your notes', v.components.filter((c) => c.note_available && c.note_origin === 'pre_existing' && keptNote(c))],
+        ['Proposed', v.components.filter((c) => c.note_available && c.note_origin === 'pre_existing' && !keptNote(c))],
+        [pendingComp ? 'Identified for this composition, kept with it' : 'Added to your notes by this ensemble', v.components.filter((c) => c.note_available && c.note_origin === 'created_by_ensemble')],
         ['Not identified', v.components.filter((c) => !c.note_available)],
       ].filter(([, list]) => list.length);
       if (!groups.length) return '<ul class="ens-comps"><li class="ens-comp"><span class="ens-comp-body">No components.</span></li></ul>';
@@ -7384,7 +7974,7 @@ ${noters.length ? `<div class="section-rule"></div>
     const owner = me && me.id === m.user_id;
     const visits = markVisits(m.id);
     const cmts = q('SELECT c.*, u.handle, u.avatar FROM mark_comments c JOIN users u ON u.id=c.user_id WHERE c.mark_id=? ORDER BY c.created_at').all(m.id);
-    const ask = url.searchParams.get('ask') && owner && !visits.length;
+    const ask = url.searchParams.get('ask') && owner && !visits.length && !prospectiveOf('mark', m);
     const author = q('SELECT * FROM users WHERE id=?').get(m.user_id);
     // Lineage. Both directions are explicit evidence, not inference: who this
     // Mark was adopted from, and who has since adopted it.
@@ -7410,13 +8000,13 @@ ${remarkers.length ? `<div class="section-rule"></div>
     <ul class="noter-list ${remarkers.length === 1 ? 'is-one' : ''}">${remarkers.map((n) => `<li><a href="/m/${n.id}">${avatar(n)}<span>${esc(n.handle)}</span></a></li>`).join('')}</ul>
   </details>
 </section>` : ''}
-<div class="section-rule"></div>
+${owner && prospectiveOf('mark', m) ? '' : `<div class="section-rule"></div>
 <section class="comments">
   <h3 class="lbl">Comments</h3>
   ${me ? `<form method="post" action="/m/${m.id}/comments" class="comment-form"><textarea class="nf-field" name="body" rows="3" maxlength="600" placeholder="ADD A COMMENT" required></textarea><button class="nf-post">Post comment</button></form><div class="section-rule comment-rule"></div>`
        : `<a class="nf-post comment-signin" href="/login">Post a comment</a><div class="section-rule comment-rule"></div>`}
   <ul class="comment-list">${cmts.map((c) => `<li><a href="/u/${esc(c.handle)}">${avatar(c)}</a><div class="comment-body"><p class="comment-meta"><a href="/u/${esc(c.handle)}">${esc(c.handle)}</a> \u00b7 <span class="stamp">${timeAgo(c.created_at)}</span>${me && me.id === c.user_id ? `<label class="card-edit comment-edit" for="cmt-m-${c.id}">Edit</label>` : ''}</p><p class="comment-text">${esc(c.body)}</p>${me && (me.id === c.user_id || me.id === m.user_id || adminOn(me)) ? `<input type="checkbox" id="cmt-m-${c.id}" class="cmt-toggle" hidden><form method="post" action="/m/${m.id}/comments/${c.id}" class="nf nf-compact cmt-edit"><div class="nf-box"><div class="nf-stack"><textarea class="nf-field" name="body" rows="3" maxlength="600">${esc(c.body)}</textarea></div><button class="nf-post">Save</button><div class="nf-foot nf-foot-3"><button type="button" class="nf-link-btn nf-del" data-del="/m/${m.id}/comments/${c.id}/delete" data-kind="comment" data-title="${esc(c.body.slice(0, 48))}">Delete</button><span></span><button type="button" class="nf-link-btn" data-cmt-cancel>Cancel</button></div></div></form>` : ''}</div></li>`).join('')}</ul>
-</section>
+</section>`}
 </div>
 <aside class="mark-side">
   ${visits.length ? `<aside class="visit-log">
@@ -8008,8 +8598,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
                 <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
                   <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
               </form>
-              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments.
-              <p class="sbox-sub">Developer connector (recommendation tools, for your own testing): ${me.api_token ? `<code>${esc(baseUrl(req))}/mcp-dev/${esc(me.api_token)}</code>` : 'create a connector URL above first.'} Everyone else, and the plugin under review, uses /mcp.</p> It never applies to your connected AI. Leave it off otherwise.</p>
+              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
             </div>
             <div class="wcell wcell-wide">
               <form method="post" action="/settings/admin-handle">
@@ -8215,7 +8804,7 @@ const IMAGE_FIELD_DESC = 'An image reference: either a real https:// URL to an e
 // has verified+visit_count, search_catalogue has neither) — that difference
 // is documented per-tool on purpose. Unifying those shapes is a runtime
 // change, out of scope here; this only describes what already exists.
-const OS_ADOPTED = { type: 'object', additionalProperties: false, required: ['count', 'note_uids'],
+const OS_RENOTED = { type: 'object', additionalProperties: false, required: ['count', 'note_uids'],
   properties: { count: { type: 'integer' }, note_uids: { type: 'array', items: { type: 'string' } } } };
 // basis is required: flattening it would erase the difference between a member
 // saying "these are the same thing" and an external identifier implying it.
@@ -8306,7 +8895,7 @@ const OS_WRITE = { type: 'object', additionalProperties: false,
   required: ['ok', 'action', 'subject', 'id', 'uid', 'name'],
   properties: {
     ok: { type: 'boolean' },
-    action: { type: 'string', enum: ['created', 'edited', 'deleted', 'asserted', 'released', 'revoked', 'corrected', 'resolved', 'unchanged'] },
+    action: { type: 'string', enum: ['created', 'kept', 'edited', 'deleted', 'asserted', 'released', 'revoked', 'corrected', 'resolved', 'unchanged'] },
     subject: { type: 'string', enum: ['note', 'mark', 'visit', 'ownership', 'warrant', 'image', 'comment', 'ensemble', 'ensemble_artifact', 'ensemble_component'] },
     id: { type: ['integer', 'null'], description: 'Integer id of the affected note, mark or check-in, where one applies.' },
     uid: { type: ['string', 'null'] },
@@ -8372,14 +8961,14 @@ const OS_ITEMS = (itemSchema) => ({ type: 'object', additionalProperties: false,
   properties: { items: { type: 'array', items: itemSchema } } });
 
 const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
-  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'has_image', 'image_uid', 'image_url', 'already_adopted', 'provenance'],
+  required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'url', 'handle', 'private', 'has_image', 'image_uid', 'image_url', 'already_renoted', 'provenance'],
   properties: { type: { const: 'object' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, why: { type: 'string' }, tags: { type: 'string' }, url: { type: 'string' },
     handle: { type: 'string' }, private: { type: 'boolean' },
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
     image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
-    already_adopted: OS_ADOPTED, provenance: OS_PROVENANCE } };
+    already_renoted: OS_RENOTED, provenance: OS_PROVENANCE } };
 // Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
 // disapproval. Consumers must not collapse null with 'released'/'revoked'.
 const OS_OWNED = { type: 'object', additionalProperties: false,
@@ -8506,10 +9095,7 @@ const OS_STATS = { type: 'object', additionalProperties: false,
 // tool could change later without moving everything.
 const SEC_OAUTH = [{ type: 'oauth2', scopes: [OAUTH_SCOPE] }];
 
-// ---- additive tools (Recommendations orbit, Stop -> Note) ------------------
-// Not part of the submitted contract: added around it under the compatibility
-// rule (docs/plugin-submission.md). Their descriptors may still change during
-// founder dogfood; the submitted tools' may not.
+// ---- Recommendations orbit and Stop -> Note (added in v2.55) ---------------
 const OS_REC_KNOWN = { type: 'object', additionalProperties: false, properties: {
   maker: { type: 'string' }, product: { type: 'string' }, variant: { type: 'string' }, url: { type: 'string' },
   place_name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, address: { type: 'string' },
@@ -8531,7 +9117,11 @@ const OS_REC = { type: 'object', additionalProperties: false,
     workflow: { type: 'string' }, rationale: { type: 'string' },
     evidence_uids: { type: 'array', items: { type: 'string' } },
     status: { type: 'string', enum: ['open', 'kept', 'not_this_trip', 'not_for_me', 'dismissed'], description: 'open: no answer yet. kept: in their catalogue. Otherwise the reaction they gave, exactly.' },
-    reaction: { type: ['string', 'null'], enum: ['dismissed', 'not_this_trip', 'not_for_me', null] } } };
+    reaction: { type: ['string', 'null'], enum: ['dismissed', 'not_this_trip', 'not_for_me', null] },
+    origin: { type: ['object', 'null'], additionalProperties: false, required: ['itinerary_uid', 'itinerary_title', 'relation'],
+      description: 'For a plan proposed after completing another: the plan it grew from, and how it relates to it.',
+      properties: { itinerary_uid: { type: 'string' }, itinerary_title: { type: ['string', 'null'] },
+        relation: { type: ['string', 'null'], enum: ['same_city', 'similar', 'different', null] } } } } };
 const OS_REC_WRITE = { type: 'object', additionalProperties: false, required: ['ok', 'items'], properties: {
   ok: { type: 'boolean' },
   items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['recommendation', 'created', 'target_origin'],
@@ -8570,13 +9160,15 @@ const REC_ITEM_PROPS = {
   target_type: { type: 'string', enum: ['object', 'mark', 'itinerary'], description: 'Only needed when an experience points at a note rather than a travel mark.' },
   context_itinerary_uid: { type: 'string', description: 'The trip this is for, from my_itineraries or from an itinerary recommendation’s target. Omit for "for another time".' },
   context_stop_uid: { type: 'string', description: 'The stop within that trip it belongs to, from my_itineraries.' },
-  workflow: { type: 'string', enum: ['cold_start', 'destination_objects', 'for_another_time'], description: 'Which request this answers: cold_start (starting a new member\u2019s catalogue), destination_objects (things or places for a particular trip), for_another_time (things to keep in mind with no trip).' },
+  origin_itinerary_uid: { type: 'string', description: 'For a whole plan proposed "for another time" after completing one of their plans: that plan\u2019s uid. It is what the member sees this alternative beside.' },
+  relation: { type: 'string', enum: ['same_city', 'similar', 'different'], description: 'With origin_itinerary_uid: same_city (another time in the same city, around interests that were relevant but not central), similar (another city with similar dimensions), different (another city, a different direction of their interests).' },
+  workflow: { type: 'string', enum: ['cold_start', 'destination_objects', 'for_another_time'], description: 'The workflow that selected it: cold_start (starting the member\u2019s catalogue), destination_objects (things or places for one of their trips or plans), for_another_time (worth keeping in mind with no particular trip, including something set aside while doing either of the others).' },
   rationale: { type: 'string', description: 'Why it suits this member, in a sentence or two. Private to them.' },
   evidence_uids: { type: 'array', items: { type: 'string' }, description: 'uids of the member’s own kept records that the rationale rests on (notes, marks, check-ins, warrants...). Never another recommendation.' },
 };
 
 const TOOLS = [
-  { name: 'note_object', securitySchemes: SEC_OAUTH, description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object.',
+  { name: 'note_object', securitySchemes: SEC_OAUTH, description: 'Post a new note to discriminant.ly as the connected member. Use when the user wants to note, log, bookmark or post a fine object. If that thing was already recommended to them, its existing record is kept instead of a duplicate being made.',
     inputSchema: { type: 'object', required: ['headline', 'image'], properties: {
       headline: { type: 'string', description: 'Short headline: the object and maker, e.g. "Mauviel M\'250 copper saucepan"' },
       description: { type: 'string', description: 'One to three sentences: what it is and why it is worth noting, in the member\'s voice' },
@@ -8589,7 +9181,7 @@ const TOOLS = [
     outputSchema: OS_WRITE },
   { name: 'my_collections', securitySchemes: SEC_OAUTH, description: 'List the member\'s collections with a count of what is in each. Collections are how the member groups their own notes and travel marks — names they chose, not categories the system assigns. Read this BEFORE filing anything, so you reuse the exact existing name instead of creating a near-duplicate, and whenever the member asks what they have grouped. Note collections and mark collections are separate; `kind` says which.', inputSchema: { type: 'object', properties: {} },
     outputSchema: OS_ITEMS(OS_COLLECTION) },
-  { name: 'recent_notes', securitySchemes: SEC_OAUTH, description: 'List the most recent notes on discriminant.ly (all members). Each entry carries `already_adopted`: Notes this member has ALREADY created by adopting that one. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeat adoptions are valid and each becomes its own Note. Optional search query.',
+  { name: 'recent_notes', securitySchemes: SEC_OAUTH, description: 'List the most recent public notes on discriminant.ly (all members). Each entry carries `already_renoted`: the notes this member has ALREADY made from that one with re_note. It is informational only — never a reason to refuse, to ask for confirmation, or to treat the action as blocked. If the member wants another, re-note again; repeated re-notes are valid and each becomes its own note. Optional search query.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', description: 'Optional keyword filter across headline, description and tags.' }, limit: { type: 'integer', default: 10, description: 'How many to return. Defaults to 10.' } } },
     outputSchema: OS_ITEMS(OS_RECENT_NOTE) },
   { name: 'my_notes', securitySchemes: SEC_OAUTH, description: 'List the connected member\'s own notes. `equivalent_notes` lists Notes this member has explicitly said are the same thing, each with its `basis`: \'user\' means they said so themselves, \'external\' means an outside identifier supports it. Both are canonical; neither is a guess. Inferred similarity is never included here. Each note carries the member\'s private `owned` state and their `warrant` state. state:null on either means they have never said anything either way — that is NOT a negative judgement and must not be read as one. \'released\' means they owned it before; \'revoked\' means they warranted it before and withdrew.', inputSchema: { type: 'object', properties: { limit: { type: 'integer', default: 20, description: 'How many to return, newest first. Defaults to 20.' } } },
@@ -8666,7 +9258,7 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['component_uid'], properties: {
       component_uid: { type: 'string', description: 'From get_ensemble.' } } },
     outputSchema: OS_WRITE },
-  { name: 'resolve_ensemble_component', securitySchemes: SEC_OAUTH, description: 'Say what an unidentified constituent actually is — "that chair is a Finn Juhl Chieftain". Links it to an existing note or creates one, keeping the SAME component: the piece did not change, only what is known about it. Use again to correct a wrong identification; the earlier one stays in the record rather than being erased. Only call this when the member has told you the identity or confirmed yours — your own guess is not enough.',
+  { name: 'resolve_ensemble_component', securitySchemes: SEC_OAUTH, description: 'Say what an unidentified constituent actually is — "that chair is a Finn Juhl Chieftain". Links it to an existing note or creates one (a note created for a composition still pending review joins their notes only if they keep the composition), keeping the SAME component: the piece did not change, only what is known about it. Use again to correct a wrong identification; the earlier one stays in the record rather than being erased. Only call this when the member has told you the identity or confirmed yours — your own guess is not enough.',
     inputSchema: { type: 'object', required: ['component_uid'], properties: {
       component_uid: { type: 'string', description: 'From get_ensemble or list_unresolved_components.' },
       note_uid: { type: 'string', description: "uid of the member's existing note for this thing, if it exists." },
@@ -8686,19 +9278,19 @@ const TOOLS = [
       description: { type: 'string', description: 'Replaces the description of the arrangement.' },
       private: { type: 'boolean', description: 'True hides the whole Ensemble from everyone but the member.' } } },
     outputSchema: OS_WRITE },
-  { name: 'discard_ensemble', securitySchemes: SEC_OAUTH, description: 'Call this when the member says no to a composition — \'discard\', \'bin it\', \'no thanks\', \'start over\'. Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it, and do not ask for extra confirmation of something they have just declined. Usually this is a still-pending composition, in which case nothing had reached their catalogue yet and NO notes exist to remove — the Ensemble and its images simply go. If they are discarding one they had already kept, it also removes the notes that this Ensemble put in their catalogue, but never notes they already had, and never one that has since been marked owned, warranted, filed, edited, or used in another Ensemble; the result names anything kept back and why. To remove an Ensemble they have lived with while leaving every note alone, use delete_ensemble instead.',
+  { name: 'discard_ensemble', securitySchemes: SEC_OAUTH, description: 'Call this when the member says no to a composition — \'discard\', \'bin it\', \'no thanks\', \'start over\'. Use the ensemble id from the create_pending_ensemble result you already have; do not ask them for it, and do not ask for extra confirmation of something they have just declined. Usually this is a still-pending composition, in which case nothing had reached their notes yet: the Ensemble, its images and any notes made for its pieces go, except a note the member has since recorded something about (owned, warranted, placed on a stop or in another Ensemble), which stays but is not added to their notes. If they discard one they had already kept, only the composition goes: every note it brought into their catalogue is now theirs and stays, as with delete_ensemble; the result names what was kept back and why. To remove such notes too, delete each one they name (delete_note), as a separate act.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id — the one returned by create_pending_ensemble, or from list_ensembles / get_ensemble for one that already exists." } } },
     outputSchema: OS_DISCARD },
-  { name: 'delete_ensemble', securitySchemes: SEC_OAUTH, description: 'Permanently delete an Ensemble, its components and its generated images. Notes linked to it are NOT deleted — they are the member\'s own records.',
+  { name: 'delete_ensemble', securitySchemes: SEC_OAUTH, description: 'Permanently delete an Ensemble, its components and its generated images. Notes in the member\u2019s catalogue that it linked to are NOT deleted. If the Ensemble was still pending review, notes made only for its pieces (never kept, and with nothing else recorded about them) go with it, as on discard.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The Ensemble's id." } } },
     outputSchema: OS_WRITE },
-  { name: 're_note', securitySchemes: SEC_OAUTH, description: 'Adopt another member\'s note into this member\'s own catalogue — they saw it and want to record that thing themselves. This creates a NEW independent note owned by this member, copying the current description and image, with lineage back to the source. The source member can never afterwards change or remove it. Adopting the same note more than once is allowed and creates another independent note each time — if the member asks to do it again, just do it.',
+  { name: 're_note', securitySchemes: SEC_OAUTH, description: 'Re-note another member\u2019s public note: the member saw it and wants that thing in their own notes. This creates a NEW, independent note in this member\u2019s catalogue, copying the current description and image, with lineage back to the source; the source member can never afterwards change or remove it. It records nothing about possessing the thing (that is record_note_ownership). Re-noting the same note more than once is allowed and makes another independent note each time — if the member asks to do it again, just do it.',
     inputSchema: { type: 'object', required: ['id'], properties: {
       id: { type: 'integer', description: "The source note's id, from recent_notes." } } },
     outputSchema: OS_WRITE },
-  { name: 'delete_note', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone.',
+  { name: 'delete_note', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own notes. Cannot be undone. Ensembles that included it are not deleted: each piece that was this note stays, as an unidentified piece, and a recommendation of it stays as history.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The note's id, from recent_notes/my_notes or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
 
@@ -8740,7 +9332,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the mark\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one.' },
       private: { type: 'boolean', description: 'True hides the mark from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
-  { name: 'delete_travel_mark', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone.',
+  { name: 'delete_travel_mark', securitySchemes: SEC_OAUTH, description: 'Permanently delete one of the connected member\'s own travel marks, including its visit history. Cannot be undone. Itineraries that included it are not changed otherwise: each stop that was this place stays, with its day, time and notes, as a place still to identify, and a recommendation of it stays as history.',
     inputSchema: { type: 'object', required: ['id'], properties: { id: { type: 'integer', description: "The mark's id, from my_travel_marks or search_catalogue." } } } ,
     outputSchema: OS_WRITE },
   { name: 'begin_image_upload', securitySchemes: SEC_OAUTH, description: "Send an image you hold as a local file — an attachment the user gave you, a file under /mnt/data or /workspace, or a picture you generated — into Discriminantly, and get back a stable image_uid. THIS IS THE FIRST AND OFTEN THE ONLY CALL: it carries the first slice of bytes with it, so no call is wasted on setup. Read the file's bytes in your code environment, note its exact byte count, split the bytes into slices of at most 32768 bytes, and send slice 0 here as base64. WHAT COMES BACK TELLS YOU WHAT TO DO NEXT, and there are only two answers. status \"stored\" means the image is saved and image_uid is ready — you are done with this image, call nothing else for it. status \"receiving\" means keep going: call upload_image_chunk with the index given in next_index, and keep going without pausing or asking the user anything until you get \"stored\". An image of 32 KB or less finishes in this single call. Never send a file id or a path — those name something inside YOUR sandbox that this server cannot open. For an image already at a public https:// URL, skip all of this and use upload_image.",
@@ -8795,7 +9387,7 @@ const TOOLS = [
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
       limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } ,
     outputSchema: OS_PLACE_CANDIDATES },
-  { name: 'add_travel_mark', securitySchemes: SEC_OAUTH, description: 'Add or create a new travel mark: record a place worth returning to — a restaurant, hotel, shop, view. Use this rather than note_object when the subject is somewhere the member went, not something they might own. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
+  { name: 'add_travel_mark', securitySchemes: SEC_OAUTH, description: 'Add a travel mark: a place the member wants to remember — a restaurant, hotel, shop, view — whether or not they have been. A mark is not a visit: record a visit only when they say they went, with visited_on here or log_visit later. If the place was already recommended to them, its existing record is kept instead of a duplicate being made. Use this rather than note_object when the subject is a place, not a thing. Call verify_place first unless the member has given a precise address or you already know the place well; pass its coordinates through as lat/lng so the mark is grounded rather than guessed.',
     inputSchema: { type: 'object', required: ['place'], properties: {
       place: { type: 'string', description: 'Name of the place' },
       locality: { type: 'string', description: 'City or region. Fill this in yourself if you know the place — do not make the member supply it.' },
@@ -8946,8 +9538,8 @@ const TOOLS = [
       uid: { type: 'string', description: 'Omit to list them all. This is where the uids for every other itinerary tool come from.' },
       limit: { type: 'integer' } } } },
 
-  // ---- additive: Recommendations orbit ---------------------------------------
-  { name: 'record_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_WRITE, description: 'Save, as recommendations, the suggestions you have just presented when the member asked you for recommendations in Discriminantly (things or places for a trip, for another time, or to start their catalogue). Record only what you actually put in front of them, never candidates you considered and dropped, and not suggestions made in passing in unrelated conversation. Not for something the member asked to note or mark themselves: that is note_object or add_travel_mark. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation). Record the resolution you actually reached: a category ("medium-roast Ka\u02bbu coffee") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind "itinerary" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one.',
+  // ---- Recommendations orbit ---------------------------------------------------
+  { name: 'record_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_WRITE, description: 'Record what a Discriminantly recommendation workflow has deliberately selected and presented to the member as a recommendation: things, places or whole itineraries, for cold_start (starting their catalogue), destination_objects (for one of their trips or plans) or for_another_time (worth keeping in mind with no particular trip, including something you set aside for later while doing either of the others). Record only what you actually present, never the candidates you researched or considered and dropped. Not for general recommendation questions that do not involve their Discriminantly catalogue or plans, and not when the member asks to keep, note or mark something themselves: that is note_object, add_travel_mark, create_itinerary or keep_recommendation. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, it is never evidence of their taste, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation). Record the resolution you actually reached: a category ("medium-roast Ka\u02bbu coffee") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind "itinerary" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one.',
     inputSchema: { type: 'object', required: ['items'], properties: {
       items: { type: 'array', minItems: 1, maxItems: 10, description: 'One entry per recommendation presented.',
         items: { type: 'object', required: ['kind', 'label', 'workflow'], properties: REC_ITEM_PROPS } } } } },
@@ -8961,14 +9553,14 @@ const TOOLS = [
       workflow: { type: 'string', description: 'Only those from this workflow, e.g. for_another_time.' },
       status: { type: 'string', enum: ['open', 'kept', 'not_this_trip', 'not_for_me', 'dismissed', 'reacted', 'all'], description: 'Default open. reacted: any of the three reactions.' },
       limit: { type: 'integer', description: 'Default 30, at most 100.' } } } },
-  { name: 'keep_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Call ONLY when the member says to keep a recommendation ("keep it", "add that to my notes", "yes, that plan"). Keeping brings the recommended note, travel mark or itinerary into their own catalogue; the recommendation stays as history. Keeping a recommended itinerary keeps the plan with the places and notes in its stops, as they are; unresolved stops stay unresolved. Buying, owning, visiting or praising it is NOT a request to keep it: record those with record_note_ownership, log_visit or warrant, which work on a recommended note or mark without keeping it, and keep only if they also say to. An unresolved or partial recommendation must be resolved to a specific thing first.',
+  { name: 'keep_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Call when the member says to keep a recommendation ("keep it", "add that to my notes", "yes, that plan"), and also when they state a personal relationship with a recommended note or travel mark ("I went there last year", "I bought that coffee", "I own that one", "I stand behind it"): a check-in, ownership, warrant, comment or edit attaches only to a kept record, so their words already say to keep it. Keep it first, then record exactly what they said (log_visit, record_note_ownership, warrant, comment), without asking again. Praise alone is not such a statement, and wanting it under a stop in one of their kept plans needs their say-so first. Keeping brings the recommended note, travel mark or itinerary into their own catalogue; the recommendation stays as history. Keeping a recommended itinerary keeps the plan with the places and notes in its stops, as they are; unresolved stops stay unresolved. An unresolved or partial recommendation must be resolved to a specific thing first. If the record it pointed at was deleted since, keeping it finds or makes the record again from what the recommendation knows. A note recommended for a stop of one of their plans is attached to that stop as it is kept.',
     inputSchema: { type: 'object', required: ['recommendation_uid'], properties: {
       recommendation_uid: { type: 'string', description: 'From record_recommendations or list_recommendations.' } } } },
   { name: 'dismiss_recommendation', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_ONE, description: 'Record the member\u2019s answer when they turn a recommendation down, only when they say so; silence is no answer. Use the reason they actually gave: "not_this_trip" (wrong for this trip or plan, which says nothing about whether they like it), "not_for_me" (they say it does not suit them), or "dismissed" (no reason given). Each is recorded exactly as said and is never treated as evidence of their taste. It leaves the open list; nothing is deleted. Recording the same reason again changes nothing.',
     inputSchema: { type: 'object', required: ['recommendation_uid'], properties: {
       recommendation_uid: { type: 'string', description: 'From record_recommendations or list_recommendations.' },
       reason: { type: 'string', enum: ['not_this_trip', 'not_for_me', 'dismissed'], description: 'The reason they gave; dismissed (the default) when they gave none.' } } } },
-  // ---- additive: Stop -> Note --------------------------------------------------
+  // ---- Stop -> Note ---------------------------------------------------------------
   { name: 'set_stop_note', securitySchemes: SEC_OAUTH, outputSchema: OS_STOP_NOTES, description: 'Attach one of the member\u2019s notes to a stop in one of their plans, or detach it (attached: false). It means only "this is worth noticing, seeking or trying at this stop": not a purchase, ownership, reservation, check-in or warrant. In a plan they have kept, only a kept note can be attached: if the note is only recommended, ask whether they want to keep it rather than keeping it for them. In a recommended plan, a recommended note can be attached. Never make a note from a vague category: record it as a recommendation instead (record_recommendations). Attaching a note that is already there changes nothing. Returns the plan\u2019s notes by stop.',
     inputSchema: { type: 'object', required: ['stop_uid', 'note_uid'], properties: {
       stop_uid: { type: 'string', description: 'From my_itineraries (a stop\u2019s uid).' },
@@ -8979,17 +9571,6 @@ const TOOLS = [
       itinerary_uid: { type: 'string', description: 'From my_itineraries, or a recommended itinerary\u2019s target.' } } } },
 
 ];
-// Two MCP surfaces, one domain (decision E). The SUBMITTED surface at /mcp is
-// exactly what the plugin under review declared -- 54 tools, their
-// definitions and the submitted server instructions -- for every connection,
-// whoever it belongs to. The DEVELOPER surface at /mcp-dev adds the tools
-// below and their instructions paragraph, for founder dogfood; it is gated
-// by ordinary authorization (the admin account), not by which tools a given
-// member is shown. Same database, domain, privacy and provenance behind both.
-const ADDITIVE_TOOLS = new Set(['record_recommendations', 'resolve_recommendation', 'list_recommendations', 'keep_recommendation',
-  'dismiss_recommendation', 'set_stop_note', 'list_stop_notes']);
-const SUBMITTED_TOOLS = TOOLS.filter((t) => !ADDITIVE_TOOLS.has(t.name));
-const developerSurfaceAllowed = (user) => !!(user && user.is_admin);
 // ---- tool annotations -------------------------------------------------------
 // Every tool declares how it behaves, in the MCP-standard annotations that
 // ChatGPT (and any other client) uses to decide how much caution a call needs.
@@ -9035,7 +9616,7 @@ const TOOL_ANNOTATIONS = {
   release_note_ownership:     ['Record that I no longer own this', false, false, false],
   create_itinerary:           ['Start an itinerary', false, false, true],
   add_itinerary_stops:        ['Add stops to an itinerary', false, false, true],
-  arrange_itinerary:          ['Arrange an itinerary\u2019s days', false, false, true],
+  arrange_itinerary:          ['Arrange an itinerary\u2019s days', false, true, true],   // replaces the previous day assignment and order, which is not kept
   resolve_itinerary_stop:     ['Link a stop to a travel mark', false, false, true],
   // edits: overwrite what was there, with no copy kept
   edit_note:                  ['Edit a note', false, true, true],
@@ -9059,8 +9640,8 @@ const TOOL_ANNOTATIONS = {
   remove_ensemble_component:  ['Remove an ensemble piece', false, true, true],
   correct_note_ownership_mistake: ['Withdraw a mistaken ownership record', false, false, false],  // appends a superseding record; nothing deleted
   // ensembles: staged privately until kept
-  create_pending_ensemble:    ['Stage an ensemble', false, false, false],
-  keep_ensemble:              ['Keep a staged ensemble', false, false, false],  // staged private, and keeping does not change that
+  create_pending_ensemble:    ['Stage an ensemble', false, false, true],   // fetches https image URLs from the public internet
+  keep_ensemble:              ['Keep a staged ensemble', false, false, true],   // private:false publishes the ensemble
   add_ensemble_artifact:      ['Add an image to an ensemble', false, false, true],
   add_ensemble_component:     ['Add a piece to an ensemble', false, false, true],
   resolve_ensemble_component: ['Identify an ensemble piece', false, false, true],
@@ -9070,11 +9651,11 @@ const TOOL_ANNOTATIONS = {
   upload_image_chunk:         ['Send part of an image', false, false, false],
   start_image_upload:         ['Start sending an image (compatibility)', false, false, false],
   finish_image_upload:        ['Finish sending an image (compatibility)', false, false, false],
-  // additive: Recommendations orbit and Stop -> Note (all private to the member)
+  // Recommendations orbit and Stop -> Note (v2.55)
   record_recommendations:     ['Record recommendations', false, false, true],
   resolve_recommendation:     ['Resolve a recommendation', false, false, true],
   list_recommendations:       ['List recommendations', true, false, false],
-  keep_recommendation:        ['Keep a recommendation', false, false, false],
+  keep_recommendation:        ['Keep a recommendation', false, false, true],
   dismiss_recommendation:     ['Dismiss a recommendation', false, false, false],
   set_stop_note:              ['Attach or detach a stop note', false, false, true],   // a note on a public plan's stop can be seen by others
   list_stop_notes:            ['List a plan\u2019s stop notes', true, false, false],
@@ -9118,13 +9699,13 @@ function findSimilarMark(userId, place) {
   return null;
 }
 
-async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface = 'submitted') {
+async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor = null) {
   // Every AI-originated write in this dispatcher attributes itself through the
   // connection that made the call. Shadowing the module-level helper keeps the
-  // 42 existing call sites correct without editing each one.
-  const mcpActor = (u) => aiActor(u, conn, authMethod);
-  // an additive tool does not exist on the submitted surface
-  if (ADDITIVE_TOOLS.has(name) && surface !== 'developer') throw new Error(`Unknown tool ${name}`);
+  // 42 existing call sites correct without editing each one. The web's own
+  // Keep / Discard of a composition passes the member's web actor instead, so
+  // those acts are recorded as the member's, not an AI connection's.
+  const mcpActor = (u) => actor || aiActor(u, conn, authMethod);
   const fmt = (o) => `#${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}${o.url ? ` ${o.url}` : ''} (by ${o.handle}, ${o.created_at})`;
   if (name === 'note_object') {
     if (!a.headline) throw new Error('headline is required');
@@ -9134,6 +9715,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
       // As for marks: nothing is created, so report the existing note as unchanged.
       if (dup) return wr(`This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`,
         'unchanged', 'note', dup.id, uidOf('objects', dup.id), dup.name, 'already_exists');
+      const rec = recommendedRecordFor(user.id, 'object', a.headline);
+      if (rec) {
+        keepRecommendedRecord(user, 'object', rec, mcpActor(user));
+        return wr(`#${rec.row.id} "${rec.row.name}" was already recommended to the member; it is now in their notes (kept), not duplicated. Change its details with edit_note if needed.`,
+          'kept', 'note', rec.row.id, rec.row.uid, rec.row.name, 'kept_recommended_record');
+      }
     }
     // Bring the picture INTO discriminant.ly rather than storing a link to
     // someone else's server. A note pointing at a retailer's URL loses its
@@ -9181,8 +9768,10 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
         has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
-        already_adopted: alreadyAdopted(user.id, o.uid),
-        provenance: provenanceOf('object', o.uid) })) } };
+        already_renoted: alreadyRenoted(user.id, o.uid),
+        // another member's note: who or what made it, and when, is not the
+        // caller's business; their own notes keep their provenance
+        provenance: o.user_id === user.id ? provenanceOf('object', o.uid) : null })) } };
   }
   if (name === 'my_collections') {
     const rows = q(`SELECT c.uid, c.name, c.kind,
@@ -9208,6 +9797,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     const o = q('SELECT * FROM objects WHERE id=?').get(a.id);
     if (!o) throw new Error(`No note #${a.id}`);
     if (o.user_id !== user.id) throw new Error(`Note #${a.id} does not belong to this member`);
+    assertEditable('object', o);
     const name_ = a.headline !== undefined ? String(a.headline).trim() : o.name;
     const why = a.description !== undefined ? String(a.description).trim() : o.why;
     const tags = a.tags !== undefined ? tagList(Array.isArray(a.tags) ? a.tags.join(',') : a.tags).join(', ') : o.tags;
@@ -9446,6 +10036,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     if (name === 'comment') {
       const body = String(a.body || '').trim();
       if (!body) throw new Error('body is required — a comment with nothing in it is not worth posting.');
+      assertAdoptedFor(isNote ? 'object' : 'mark', subj, 'comment');
       // a retried request must not post the same remark twice
       const again = q(`SELECT id, uid FROM ${table} WHERE ${fk}=? AND user_id=? AND body=? AND created_at >= datetime('now', ?) ORDER BY id DESC LIMIT 1`)
         .get(subj.id, user.id, body, `-${RETRY_WINDOW_S} seconds`);
@@ -9536,6 +10127,15 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
       // written: no record changed.
       if (dup) return wr(`This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`,
         'unchanged', 'mark', dup.id, uidOf('marks', dup.id), dup.name, 'already_exists');
+      const rec = recommendedRecordFor(user.id, 'mark', a.place, a.locality);
+      if (rec) {
+        const ctx = mcpActor(user);
+        keepRecommendedRecord(user, 'mark', rec, ctx);
+        // a visit is recorded only when they said they went, exactly as for a new mark
+        if (a.visited_on) visitRecord(user, rec.row.id, { visited_on: a.visited_on, body: '' }, ctx);
+        return wr(`#${rec.row.id} "${rec.row.name}" was already recommended to the member; it is now in their marks (kept), not duplicated${a.visited_on ? ', with the visit recorded' : ''}. Change its details with edit_travel_mark if needed.`,
+          'kept', 'mark', rec.row.id, rec.row.uid, rec.row.name, 'kept_recommended_record');
+      }
     }
     // Coordinates being supplied is not the same claim as "this was checked
     // against mapping data" — verified defaults to 0 here exactly as it does
@@ -9579,6 +10179,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     const mk = q('SELECT * FROM marks WHERE id=?').get(a.id);
     if (!mk) throw new Error(`No travel mark #${a.id}`);
     if (mk.user_id !== user.id) throw new Error(`Travel mark #${a.id} does not belong to this member`);
+    assertEditable('mark', mk);
     const name_ = a.place !== undefined ? String(a.place).trim() : mk.name;
     const locality = a.locality !== undefined ? a.locality : mk.locality;
     const country = a.country !== undefined ? a.country : mk.country;
@@ -9965,6 +10566,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
       const priv = a.private === undefined ? 1 : (a.private ? 1 : 0);
       q("UPDATE ensembles SET status='saved', private=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").run(priv, e.id);
       recordProvenance('ensemble', e.uid, 'edited', ctx, { fields: 'status:saved' });
+      // Keeping the composition establishes the member's relationship with each
+      // identified piece (parent adoption, global rule): Notes it made are
+      // adopted by trg_ensemble_keep_adopts; a linked Note of theirs not yet
+      // Kept (a recommended one, say) is adopted here, with this Ensemble as
+      // the context. A Note already Kept is reused untouched.
+      ensembleKeepAdoptsLinked(user, e, out.notes_reused, ctx);
       verifyEnsembleAssets(e, out);
       const nc = out.notes_created.length, nr2 = out.notes_reused.length, un = out.unresolved.length;
       const parts = [`Kept: ${e.title}.`];
@@ -10093,6 +10700,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
       // not run inside its write path), so resolve here first — without this the
       // advertised `image` argument was silently ignored and the call refused
       // itself for having no image.
+      // A kept composition takes only kept Notes, named explicitly or matched
+      // by duplicate detection (the same match saveEnsembleComponents makes).
+      if (e.status === 'saved') {
+        const n = findExistingNote(user.id, { note_uid: (a.note_uid || '').trim() || null, source_url: a.source_url, label: a.label });
+        if (n) assertKeptChild(true, 'object', n.uid);
+      }
       const one = { label: a.label, note_uid: a.note_uid, source_url: a.source_url,
         image: a.image, image_uid: a.image_uid, identity_basis: a.identity_basis };
       one.__uid = await resolveAssetRef(user.id, one, ctx, 'upload', `The image for "${a.label || 'a component'}"`);
@@ -10142,6 +10755,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     if (a.note_uid) {
       const n = q('SELECT * FROM objects WHERE uid=? AND user_id=?').get(a.note_uid, user.id);
       if (!n) throw new Error('No such note belonging to this member');
+      assertKeptChild(q('SELECT status FROM ensembles WHERE uid=?').get(c.euid).status === 'saved', 'object', n.uid);
       noteUid = n.uid;
     } else {
       const basis = a.identity_basis || 'user_identity';
@@ -10173,12 +10787,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     if (!a.id) throw new Error('id is required');
     const src = q('SELECT * FROM objects WHERE id=?').get(a.id);
     if (!src) throw new Error(`No note #${a.id}`);
-    if (!canSee(src, user)) throw new Error(`No note #${a.id}`);
-    if (src.user_id === user.id) throw new Error('That note already belongs to this member — there is nothing to adopt.');
+    if (!canView('object', src, user)) throw new Error(`No note #${a.id}`);
+    if (src.user_id === user.id) throw new Error('That note already belongs to this member — there is nothing to re-note.');
     const note = renoteFrom(src, user, mcpActor(user));
-    const prior = alreadyAdopted(user.id, src.uid).count;
-    return wr(`Adopted as #${note.id}: ${note.name}`, 'created', 'note', note.id, note.uid, note.name,
-      prior > 1 ? `${prior} adoptions of this source` : undefined);
+    const prior = alreadyRenoted(user.id, src.uid).count;
+    return wr(`Re-noted as #${note.id}: ${note.name}`, 'created', 'note', note.id, note.uid, note.name,
+      prior > 1 ? `${prior} re-notes of this source` : undefined);
   }
   if (name === 'delete_note') {
     if (!a.id) throw new Error('id is required');
@@ -10379,7 +10993,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     }
   }
 
-  // ---- additive: Recommendations orbit (thin wrappers over the domain) --------
+  // ---- Recommendations orbit (thin wrappers over the domain) -------------------
   if (name === 'record_recommendations' || name === 'resolve_recommendation') {
     const ctx = mcpActor(user);
     // an image named by URL is ingested before any write, as note_object does
@@ -10433,7 +11047,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, surface
     return { text: out.changed ? `Noted: ${v.label} — ${String(v.reaction).replace(/_/g, ' ')}.` : `${v.label} already has that answer recorded.`,
       structured: { ok: true, recommendation: v, changed: out.changed ? [`reaction:${v.reaction}`] : [], kept: [] } };
   }
-  // ---- additive: Stop -> Note -------------------------------------------------
+  // ---- Stop -> Note ---------------------------------------------------------------
   if (name === 'set_stop_note' || name === 'list_stop_notes') {
     let it;
     if (name === 'set_stop_note') {
@@ -10467,8 +11081,6 @@ function mcpAuthChallenge(res, error = 'invalid_token') {
 }
 
 async function mcp(req, res, tok) {
-  // which MCP surface this request is for; only the /mcp-dev routes set it
-  const surface = req.mcpSurface === 'developer' ? 'developer' : 'submitted';
   // Three ways to arrive, one place to resolve them. Whatever the credential,
   // what comes out is the same pair -- a user and, where one exists, the
   // connection that acted -- so no tool implementation is forked by how the
@@ -10493,10 +11105,6 @@ async function mcp(req, res, tok) {
     if (!conn && user) authMethod = 'mcp_token_legacy';
   }
   if (!user) return mcpAuthChallenge(res, 'invalid_token');
-  if (surface === 'developer' && !developerSurfaceAllowed(user)) {
-    res.writeHead(403, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ error: 'forbidden', error_description: 'This MCP endpoint is for the developer account only. Use /mcp.' }));
-  }
   if (conn) q('UPDATE connections SET last_used_at=CURRENT_TIMESTAMP WHERE id=?').run(conn.id);
   if (req.method === 'GET') { res.writeHead(405); return res.end(); }
   if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
@@ -10526,20 +11134,20 @@ WHAT LIVES HERE. Notes are things the member recorded. Travel marks are places w
 
 BEFORE ANSWERING ABOUT THEIR CATALOGUE. For anything like \"have I noted…\", \"what's in my…\", \"how many…\", call search_catalogue or catalogue_stats. Do not answer from memory of this conversation, and do not settle for recent_notes.
 
-WRITING. Write only when the member asks you to keep, note, mark, check in or plan something. Recommending or discussing a place is not saving it, and mentioning somewhere is not checking in. When what they want is clear, just do it; ask only when it is genuinely ambiguous. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
+WRITING. Write to their notes, marks, check-ins or plans only when the member asks you to keep, note, mark, check in or plan something. Recommending or discussing a place is not saving it, and mentioning somewhere is not checking in (recording a recommendation a Discriminantly workflow presents is its own act; see RECOMMENDATIONS). When what they want is clear, just do it; ask only when it is genuinely ambiguous. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
 
 IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again.
 
 ${ingestDirective(user).line}\n\nIMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
 
-ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.${surface === 'developer' ? `
+ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.
 
-RECOMMENDATIONS. When the member asks you for recommendations in Discriminantly (for a trip, for another time, or to start their catalogue), save the ones you actually present, and only those, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). Earlier ones: list_recommendations.` : ''}` });
+RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their catalogue, things for one of their trips, or something to keep in mind for another time) presents a thing, place or itinerary to the member as a recommendation, record what you actually present, and only that, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. Candidates you only researched are not recommendations, and an ordinary recommendation question outside their catalogue and plans records nothing. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). A check-in, ownership, warrant, comment or edit attaches only to a kept record: when the member says they went, own it or stand behind it, that already says to keep it, so keep it first and then record it, without asking again. Earlier ones: list_recommendations.` });
   if (method === 'ping') return reply(id, {});
-  if (method === 'tools/list') return reply(id, { tools: surface === 'developer' ? TOOLS : SUBMITTED_TOOLS });
+  if (method === 'tools/list') return reply(id, { tools: TOOLS });
   if (method === 'tools/call') {
     try {
-      const out = await mcpCall(user, conn, params.name, params.arguments, authMethod, surface);
+      const out = await mcpCall(user, conn, params.name, params.arguments, authMethod);
       // Text stays exactly as it was, so existing clients are unaffected.
       // structuredContent is additive and carries provenance, so the six
       // questions in the MCP Policy remain answerable inside the AI's context
@@ -10658,9 +11266,6 @@ async function handle(req, res) {
   }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
-  // developer surface (decision E): the member's connector token, or a bearer token
-  if ((mt = p.match(/^\/mcp-dev\/([A-Za-z0-9_-]+)$/))) { req.mcpSurface = 'developer'; return mcp(req, res, mt[1]); }
-  if (p === '/mcp-dev') { req.mcpSurface = 'developer'; return mcp(req, res, null); }
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
   // The modern entry point: same dispatcher, same domain functions, same
   // privacy rules. Only how the caller proved its authority differs.
@@ -11045,15 +11650,19 @@ async function handle(req, res) {
     // tools — the member must never need an AI to commit or reject their own
     // composition.
     if (act === 'keep' || act === 'discard') {
-      const out = await mcpCall(me, act === 'keep' ? 'keep_ensemble' : 'discard_ensemble', { id: e.id })
+      await mcpCall(me, null, act === 'keep' ? 'keep_ensemble' : 'discard_ensemble', { id: e.id }, undefined, webActor(me))
         .catch((err) => ({ text: err.message }));
       return redirect(res, act === 'keep' ? `/e/${e.id}` : '/e');
     }
     if (act === 'delete') {
       dropPendingEnsembleNotes(e, ctx);   // a pending one's never-kept Notes go with it, as on Discard
-      recordProvenance('ensemble', e.uid, 'deleted', ctx, {});
+      // a kept composition's Notes stay the member's; they are named in the
+      // deletion's history so the member can review them next (Increment 4)
+      const kids = e.status === 'saved' ? q(`SELECT DISTINCT o.uid u FROM ensemble_components c JOIN objects o ON o.uid=c.note_uid
+        WHERE c.ensemble_id=? AND o.user_id=?`).all(e.id, me.id).map((r) => `object:${r.u}`) : [];
+      recordProvenance('ensemble', e.uid, 'deleted', ctx, { fields: childrenField(kids) });
       q('DELETE FROM ensembles WHERE id=?').run(e.id);   // components + artifacts cascade; kept Notes are untouched
-      return redirect(res, '/e');
+      return redirect(res, kids.length ? `/review/ensemble/${e.uid}` : '/e');
     }
     if (act === 'primary') {
       const art = q('SELECT * FROM ensemble_artifacts WHERE uid=? AND ensemble_id=?').get(b.artifact_uid, e.id);
@@ -11136,12 +11745,65 @@ async function handle(req, res) {
     }
     return redirect(res, `/t/${it.id}`);
   }
+
+  // ---- Increment 4: keeping and answering proposals on the web ----------------
+  // Keep is one tap and records the member's own act; the page they were on
+  // shows the change in place. Reactions are recorded exactly as given.
+  const back = (fallback) => { const r = String(req.headers.referer || ''); try { const u = new URL(r); return u.pathname + u.search; } catch { return fallback; } };
+  if ((mt = p.match(/^\/r\/([0-9a-f-]{36})\/keep$/)) && m === 'POST') {
+    if (!me) return need();
+    try { recommendationKeep(me, mt[1], webActor(me)); } catch (e) { return send(res, esc(e.message), 409); }
+    return redirect(res, back('/'));
+  }
+  if ((mt = p.match(/^\/r\/([0-9a-f-]{36})\/react$/)) && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    try { recommendationDismiss(me, mt[1], String(b.reason || 'dismissed'), webActor(me)); } catch (e) { return send(res, esc(e.message), 409); }
+    return redirect(res, back('/'));
+  }
+  if ((mt = p.match(/^\/(o|m)\/(\d+)\/keep$/)) && m === 'POST') {
+    if (!me) return need();
+    const type = mt[1] === 'o' ? 'object' : 'mark';
+    const row = q(`SELECT * FROM ${type === 'object' ? 'objects' : 'marks'} WHERE id=?`).get(+mt[2]);
+    if (!row || row.user_id !== me.id) return send(res, 'Not found', 404);
+    try { keepProspective(me, type, row, webActor(me)); } catch (e) { return send(res, esc(e.message), 409); }
+    return redirect(res, back(`/${mt[1]}/${row.id}`));
+  }
+  // After deleting a kept plan or composition: review what was kept with it.
+  if ((mt = p.match(/^\/review\/(itinerary|ensemble)\/([0-9a-f-]{36})$/)) && m === 'GET') {
+    if (!me) return need();
+    const pv = q(`SELECT * FROM provenance WHERE entity_type=? AND entity_uid=? AND action='deleted' AND actor_user_id=? ORDER BY id DESC LIMIT 1`).get(mt[1], mt[2], me.id);
+    if (!pv) return send(res, 'Not found', 404);
+    const kids = String(pv.fields || '').replace(/^children:/, '').split('|').filter(Boolean).map((k) => k.split(':'));
+    const rows = kids.map(([t, u]) => { const r = q(`SELECT * FROM ${t === 'mark' ? 'marks' : 'objects'} WHERE uid=? AND user_id=?`).get(u, me.id); return r ? reviewChildRow(t, r, mt[2], me) : ''; }).filter(Boolean);
+    const what = mt[1] === 'itinerary' ? 'this itinerary' : 'this composition';
+    const body = `<div class="cols profile-cols">${profileRail(me, me, mt[1] === 'itinerary' ? 'itineraries' : 'ensembles')}
+<section class="feed profile-feed review-page"><h3 class="strip"><span>Deleted</span></h3>
+<div class="nf-box review-box">
+  <h2 class="review-title">Places and things kept with ${what}</h2>
+  <p class="review-sub">${rows.length ? 'Each stays unless you choose it. Anything used elsewhere says so.' : 'Nothing kept with it is left to review.'}</p>
+  ${rows.length ? `<form method="post" action="/review/delete"><input type="hidden" name="from" value="${mt[1]}:${mt[2]}"><ul class="review-list">${rows.join('')}</ul>
+  <div class="review-acts"><a class="nf-link-btn" href="${mt[1] === 'itinerary' ? '/t' : '/e'}">Keep them all</a><button class="nf-post">Delete selected</button></div>
+  <p class="review-note">Deleting cannot be undone. Each record you choose is deleted on its own, as if from its own page.</p></form>` : `<p><a class="nf-link-btn" href="${mt[1] === 'itinerary' ? '/t' : '/e'}">Done</a></p>`}
+</div></section></div>`;
+    return send(res, layout({ title: 'Review', body, me, req }));
+  }
+  if (p === '/review/delete' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBodyMulti(req);
+    const [ptype, puid] = String(b.from || '').split(':');
+    const picks = await Promise.resolve(b.picks || []);
+    for (const pk of picks) { const [t, u] = pk.split(':'); if (t === 'mark' || t === 'object') memberDeleteRecord(me, t, u, webActor(me), puid || null); }
+    return redirect(res, ptype === 'ensemble' ? '/e' : '/t');
+  }
+
   if ((mt = p.match(/^\/t\/(\d+)\/delete$/)) && m === 'POST') {
     if (!me) return need();
     const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
     if (!it) return send(res, 'Not found', 404);
-    try { itineraryDelete(me, it.uid, webActor(me)); } catch (e) { return send(res, esc(e.message), 400); }
-    return redirect(res, '/t');
+    let gone;
+    try { gone = itineraryDelete(me, it.uid, webActor(me)); } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, typeof gone === 'string' ? `/review/itinerary/${gone}` : '/t');
   }
 
   if ((mt = p.match(/^\/t\/(\d+)\/groups$/)) && m === 'POST') {
@@ -11218,6 +11880,7 @@ async function handle(req, res) {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0);
     if (!mk) return send(res, 'Not yours', 403);
+    try { assertEditable('mark', mk); } catch (e) { return send(res, esc(e.message), 409); }
     if (m === 'GET') return pages.markForm(req, res, me, mk);
     const b = await readBodyMulti(req);
     const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
@@ -11267,6 +11930,7 @@ async function handle(req, res) {
     if (!me) return need();
     const mk = q('SELECT * FROM marks WHERE id=?').get(+mt[1]);
     if (!mk || !canView('mark', mk, me)) return send(res, 'Not found', 404);   // same rule as the note route
+    try { assertAdoptedFor('mark', mk, 'comment'); } catch (e) { return send(res, esc(e.message), 409); }
     const b = await readBody(req); const t = (b.body || '').trim();
     if (t) {
       const r = q('INSERT INTO mark_comments(mark_id,user_id,body) VALUES(?,?,?)').run(mk.id, me.id, t);
@@ -11383,7 +12047,7 @@ async function handle(req, res) {
     // The web UI resolves release-vs-correction BEFORE posting, so the server
     // only ever receives an unambiguous intent. No confirmation state machine.
     const intent = b.intent;
-    if (intent === 'own') assertOwned(me.id, o.id, webActor(me));
+    if (intent === 'own') { try { assertOwned(me.id, o.id, webActor(me)); } catch (e) { return send(res, esc(e.message), 409); } }
     else if (intent === 'release') { if (ownedState(me.id, o.id).state === 'owned') releaseOwned(me.id, o.id, webActor(me)); }
     else if (intent === 'correct') correctOwned(me.id, o.id, webActor(me));
     // Toggling from a card is a background request: answer 204 so the page
@@ -11405,7 +12069,7 @@ async function handle(req, res) {
       // A private subject can never publish: the flag is never set, rather
       // than being set and filtered out downstream.
       const publish = row.private ? false : b.quiet ? false : true;
-      assertWarrant(me.id, stype, row.uid, publish, webActor(me));
+      try { assertWarrant(me.id, stype, row.uid, publish, webActor(me)); } catch (e) { return send(res, esc(e.message), 409); }
     }
     return redirect(res, req.headers.referer || `/${mt[1]}/${row.id}`);
   }
@@ -11468,6 +12132,7 @@ async function handle(req, res) {
     // Commenting needs the same access as seeing the note: a private note, or
     // one outside its member's corpus, cannot be reached by id (decision D).
     if (!o || !canView('object', o, me)) return send(res, 'Not found', 404);
+    try { assertAdoptedFor('object', o, 'comment'); } catch (e) { return send(res, esc(e.message), 409); }
     const b = await readBody(req); const body = (b.body || '').trim();
     if (body) {
       const r = q('INSERT INTO comments(object_id,user_id,body) VALUES(?,?,?)').run(o.id, me.id, body);
@@ -11478,6 +12143,7 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/o\/(\d+)\/edit$/))) {
     if (!me) return need();
     const o = q('SELECT * FROM objects WHERE id=? AND (user_id=? OR ?=1)').get(+mt[1], me.id, adminOn(me) ? 1 : 0); if (!o) return send(res, 'Not yours', 403);
+    try { assertEditable('object', o); } catch (e) { return send(res, esc(e.message), 409); }
     if (m === 'GET') return pages.form(req, res, me, o);
     const b = await readBodyMulti(req);
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')

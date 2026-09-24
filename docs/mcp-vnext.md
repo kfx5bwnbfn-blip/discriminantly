@@ -10,9 +10,9 @@ When the freeze lifts:
 5. audit semantics and authorisation;
 6. implement it, test it in ChatGPT and Claude, and update the Skills.
 
-**Rule during review:** freeze compatibility, not capability development. Submitted tools stay compatible, and new capabilities may be added as new tools. See `docs/plugin-submission.md`, "Submitted-contract compatibility". Items below that change a *submitted* tool still wait for review to finish; additive ones don't.
+**The review was cancelled (23 September 2026).** The surface is no longer frozen; v2.55 is prepared as the next submission (`docs/mcp-v2.55-review-readiness.md`). Items below are candidates for after that submission, not blocked by review.
 
-Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
+Last updated: 23 September 2026 (v2.55.0: single 61-tool surface).
 
 ---
 
@@ -94,7 +94,7 @@ Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
 - Keep attribution where it's the point, such as who wrote a public comment.
 - Keep dates where the member asks about time.
 
-**Status.** Identified · **awaiting MCP** (or a post-publication update). The Privacy page already discloses what assistants receive (v2.54.1).
+**Status.** Partly done in v2.55: `recent_notes` no longer returns other members' provenance (agent, timestamps). Handles on `recent_notes`/`read_comments` and timestamps elsewhere remain; they are required output fields, so trimming them is a separate contract change. The Privacy page already discloses what assistants receive (v2.54.1).
 
 ## `openWorldHint` scope — decision needed
 
@@ -104,7 +104,7 @@ Last updated: 23 September 2026 (v2.55.0: Adoption, migration 052).
 
 **Likely MCP implication.** Keep open-world only for tools that reach the internet or publish, and update the justifications. It reverses v2.52.6.
 
-**Status.** **Brian's decision** · act only if review flags it, or at the next version.
+**Status.** **Brian's decision**, raised again in `docs/mcp-v2.55-review-readiness.md` before resubmission. v2.55 keeps the v2.52.6 reading.
 
 ---
 

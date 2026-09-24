@@ -47,7 +47,7 @@ I didn't add a tool per domain function: attaching and detaching share one tool,
 
 **Server instructions** gain one appended paragraph, RECOMMENDATIONS. The submitted text is kept verbatim.
 
-**Exposure (superseded by decision E, `docs/recommendations-decisions-report.md`).** The two surfaces are now two endpoints:
+**Exposure (superseded twice: by decision E, then by the v2.55 single surface in `docs/mcp-v2.55-review-readiness.md`).** The two surfaces are now two endpoints:
 - `/mcp` is the submitted surface for every connection.
 - `/mcp-dev` is the developer surface, open to the developer account only.
 
@@ -92,7 +92,7 @@ No corpus read remains on every row. K1 enforces this for anything built from `O
 ## 5. Deployment notes
 
 - **Two migrations run at boot: 052 and 053.** 052 prints its backfill tally, and the boot log should show no *record(s) outside the corpus* warning.
-- **Two endpoints (decision E):** `/mcp` lists the submitted 54 tools for everyone; `/mcp-dev` lists 61 tools for the developer account.
+- **One endpoint (v2.55):** `/mcp` lists all 61 tools for every connection; `/mcp-dev` no longer exists.
 - **No Scan Tools run.**
 
 ## 6. Decisions for Brian

@@ -27,6 +27,8 @@ module.exports = function orphans(db) {
       if (db.prepare('SELECT DISTINCT i.uid FROM itinerary_stops s JOIN itineraries i ON i.id=s.itinerary_id WHERE s.mark_uid=?').all(r.uid).some((i) => recPlan(i.uid, r.user_id))) return true;
       const c = one("SELECT source_ref FROM provenance WHERE entity_type='mark' AND entity_uid=? AND action='created' AND source_kind='itinerary'", r.uid);
       if (c && recPlan(c.source_ref, r.user_id)) return true;
+      if (c && one(`SELECT 1 FROM provenance p JOIN recommendations x ON x.uid=p.entity_uid WHERE p.entity_type='recommendation'
+               AND p.action='de_resolved' AND p.source_ref=? AND p.fields LIKE 'target:itinerary%' AND x.user_id=?`, c.source_ref, r.user_id)) return true;
       return !!(one("SELECT 1 FROM warrants WHERE subject_type='mark' AND subject_uid=? AND user_id=?", r.uid, r.user_id)
         || one('SELECT 1 FROM visits v JOIN marks m ON m.id=v.mark_id WHERE m.uid=? AND v.user_id=?', r.uid, r.user_id)
         || one('SELECT 1 FROM itinerary_stops WHERE mark_uid=?', r.uid));

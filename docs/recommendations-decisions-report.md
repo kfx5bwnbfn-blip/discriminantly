@@ -37,7 +37,7 @@ Written for v2.55.0, on top of `01f2b2c`. It applies Brian's decisions of 23 Sep
   - the admin's view.
 - **Also fixed:** the same gap on the web's comment route for travel marks. MCP already enforced visibility.
 
-**E. Two endpoints: done.**
+**E. Two endpoints: done, then superseded the same day.** The review was cancelled; `/mcp` now serves all 61 tools to every connection and `/mcp-dev` is removed. See `docs/mcp-v2.55-review-readiness.md`. As built at the time:
 - **`/mcp`** (and `/mcp/<token>`) is the submitted surface for every connection, the founder's included: the 54 submitted tools and the submitted instructions.
 - **`/mcp-dev`** (and `/mcp-dev/<token>`) is the developer surface: 61 tools and the RECOMMENDATIONS instructions paragraph.
 - **Authorization:** `/mcp-dev` is open to the developer account (the admin) only. Any other account gets 403, and an unknown token gets 401.
@@ -68,7 +68,7 @@ Nothing derives from them (R9b, R9c, and `derived_relations` stays empty). The t
   - A Note made on an Ensemble with no record of pending review is treated as made when saving was the commitment (`ensemble_saved`).
   - A Keep in the same second as a Note's creation counts as Keep time.
 
-## 3. Submitted MCP (`/mcp`)
+## 3. Submitted MCP (`/mcp`), as at decision E (superseded)
 
 | Check | Result |
 |---|---|
@@ -79,7 +79,7 @@ Nothing derives from them (R9b, R9c, and `derived_relations` stays empty). The t
 | Old-client regression | Adoption C1–C12 pass; `test/plugin-audit.js` 20/20 through OAuth |
 | Adopted projection | The submitted reads exclude recommendation-only records (R4, C1–C11) |
 
-## 4. Developer MCP (`/mcp-dev`)
+## 4. Developer MCP (`/mcp-dev`), removed in v2.55
 
 | Check | Result |
 |---|---|
@@ -107,14 +107,14 @@ Everything except the plugin audit runs with `test/adoption-e2e.sh`.
 
 ## 6. Needs Brian's judgement before commit
 
-1. **An edit alone no longer keeps a staged Note (decision A, applied).** When a never-kept Note from a *pending* composition was only edited, discarding the composition now removes it, as it removes an untouched one. Before, editing kept it in the corpus. Editing a staged record is not a relationship, and keeping it Kept would be the edit ⇒ Kept inference A rules out; keeping it unkept would leave an orphan. The alternative is to treat "edited by the member" as an explaining relationship. (T9c)
+1. **(Moot since item 6: a staged Note can no longer be edited at all.) An edit alone no longer keeps a staged Note (decision A, applied).** When a never-kept Note from a *pending* composition was only edited, discarding the composition now removes it, as it removes an untouched one. Before, editing kept it in the corpus. Editing a staged record is not a relationship, and keeping it Kept would be the edit ⇒ Kept inference A rules out; keeping it unkept would leave an orphan. The alternative is to treat "edited by the member" as an explaining relationship. (T9c)
 2. **Deleting a pending Ensemble outright now removes its never-kept, unexplained Notes, as Discard does.** This covers `delete_ensemble` and Delete on the web. Otherwise they'd be orphans. `delete_ensemble`'s submitted description says *"Notes linked to it are NOT deleted — they are the member's own records."* These Notes weren't the member's records (not Kept), so the wording still holds in substance. But it's a behaviour change behind a submitted tool, though only for a pending composition whose pieces were identified and then deleted without keeping. (T10c)
 3. **One Keep reason added for kept compositions.** Discarding a kept composition now also spares a Note that sits under an itinerary stop. That's protective only.
 4. **Pre-existing bug, not fixed: Keep and Discard on the web don't work.** The ensemble page's Keep and Discard buttons call the MCP dispatcher with its arguments out of order (`mcpCall(me, 'keep_ensemble', …)` is missing the connection argument), so nothing happens and the page just redirects. Confirmed: posting Keep leaves the ensemble `pending_review`. It predates this work, but it matters now because Keep is the Adoption boundary. The fix is small, but it needs one decision: web Keep should be attributed to the member acting on the web, not to an AI connection, which means lifting the Keep and Discard logic out of the dispatcher into domain functions.
-5. **No OAuth sign-in on `/mcp-dev`.** The endpoint accepts the personal connector URL, or a bearer token issued for `/mcp`. Offering OAuth discovery for `/mcp-dev` would touch the fingerprinted OAuth core, so it wasn't done. Is the connector URL enough for dogfood in Claude?
-6. **Carried over from the tool audit, still open:**
+5. **(Moot: `/mcp-dev` removed.) No OAuth sign-in on `/mcp-dev`.** The endpoint accepts the personal connector URL, or a bearer token issued for `/mcp`. Offering OAuth discovery for `/mcp-dev` would touch the fingerprinted OAuth core, so it wasn't done. Is the connector URL enough for dogfood in Claude?
+6. **Carried over from the tool audit (applied in v2.55):**
    - `keep_ensemble` and `create_pending_ensemble` should arguably be `openWorldHint:true`;
    - `arrange_itinerary` should arguably be `destructiveHint:true`;
    - `recent_notes` returns other members' provenance.
 
-   Fix these only if review raises them, or when it ends.
+   All three were applied when the review was cancelled.

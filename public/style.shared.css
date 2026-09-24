@@ -973,3 +973,136 @@ body[data-skin] ul.stop-notes > li.stop-note { padding: 0; }
   body[data-skin] ul.stop-notes .ens-comp-link img, body[data-skin] ul.stop-notes .ens-comp-blank { width: 2.5rem; height: 2.5rem; }
   body[data-skin] ul.stop-notes .stop-note-detach { flex: 1 1 100%; text-align: right; margin: -.5rem .8rem .55rem; }
 }
+
+/* =====================================================================
+   Increment 4: Recommended. Layout and structure for every skin; the
+   modern sheet adds the proposed material. A proposal is the same object
+   in a thinner material, bylined "Proposed for", never a new component.
+   ===================================================================== */
+/* Placement. With proposals, the page becomes a grid of three areas that
+   keeps the plan first and the member's own catalogue next:
+     one column   plan, map + nearby, proposals
+     two columns  plan | map + nearby, then proposals under them
+     three        plan | map + nearby | proposals
+   Without proposals nothing here applies and the page is unchanged. */
+.itin-page:has(.itin-cols.has-recs) { max-width: 104rem; container-type: inline-size; }
+.itin-cols.has-recs { display: grid; grid-template-columns: minmax(0, 41.5rem); grid-template-areas: "main" "side" "recs"; gap: 1.6rem; align-items: start; }
+.itin-cols.has-recs > .itin-main { grid-area: main; max-width: none; }
+.itin-cols.has-recs > .itin-side { grid-area: side; max-width: none; }
+.itin-cols.has-recs > .itin-recs { grid-area: recs; min-width: 0; }
+/* Two columns as soon as the plan can keep its width with a narrower map
+   and proposals beside it; the side column shrinks, the plan never does. */
+@container (min-width: 66rem) {
+  .itin-cols.has-recs { grid-template-columns: 41.5rem minmax(22rem, 41.5rem); grid-template-areas: "main side" "main recs"; grid-template-rows: auto 1fr; }
+}
+/* Three columns once the page can hold the plan at full width beside two
+   equal tiles: the map column narrows, the plan never does. */
+@container (min-width: 88rem) {
+  .itin-cols.has-recs { grid-template-columns: 41.5rem minmax(0, 1fr) minmax(22rem, 1fr); grid-template-areas: "main side recs"; grid-template-rows: auto; }
+}
+.itin-recs { display: flex; flex-direction: column; gap: 1rem; }
+.rec-head { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; padding: 0 .3rem; }
+.rec-head .rec-h { margin: 0; }
+.rec-count { font-style: italic; font-size: .8rem; opacity: .7; }
+
+/* One proposed plan: kind, title, why, shape; stops on explore; acts. */
+.rec-plan { display: flex; flex-direction: column; gap: .55rem; padding: 1.2rem 1.3rem 1.1rem; border-radius: 22px; }
+.rec-kind { margin: 0; font-size: .62rem; letter-spacing: .18em; text-transform: uppercase; }
+.rec-kind b { font-weight: 600; }
+.rec-title { margin: 0; font-size: 1.35rem; line-height: 1.15; font-weight: 400; }
+.rec-title a { color: inherit; text-decoration: none; }
+.rec-why { margin: 0; font-size: .92rem; line-height: 1.45; }
+.rec-meta { margin: 0; font-size: .75rem; font-style: italic; opacity: .75; }
+.rec-acts { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; margin-top: .2rem; }
+.rec-acts .rec-sp { flex: 1; }
+.rec-acts form, .rec-stop-row form, .rec-kid form, .stop-kid-acts form, .prop-acts form, .prop-reacts form { margin: 0; display: inline; }
+.react-btn { font-size: .6rem; letter-spacing: .14em; text-transform: uppercase; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; font-family: inherit; color: inherit; opacity: .8; white-space: nowrap; line-height: 1.2; }
+.react-btn:hover { opacity: 1; text-decoration: underline; }
+.rec-note { font-size: .62rem; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+.rec-plan.is-reacted { opacity: .62; }
+.rec-explore > summary { list-style: none; cursor: pointer; display: inline-flex; font-size: .62rem; letter-spacing: .16em; text-transform: uppercase; padding: .45rem 1rem; border-radius: 999px; }
+.rec-explore > summary::-webkit-details-marker { display: none; }
+.rec-explore .is-open, .rec-explore[open] .is-closed { display: none; }
+.rec-explore[open] .is-open { display: inline; }
+
+/* Compact stops: a tile each, on the proposal's own spine, hollow dot for a
+   proposed place and a filled one for a place already theirs. Days are
+   labels on the spine between tiles. */
+.rec-stops { list-style: none; margin: .8rem 0 .2rem; padding: 0 0 0 1.25rem; position: relative; display: flex; flex-direction: column; gap: .5rem; }
+.rec-stops::before { content: ""; position: absolute; left: .3rem; top: .7rem; bottom: .7rem; width: 1px; background: currentColor; opacity: .15; }
+.rec-day { font-size: .6rem; letter-spacing: .18em; text-transform: uppercase; opacity: .7; margin: .35rem 0 -.1rem; }
+.rec-stop { position: relative; display: flex; flex-direction: column; gap: .12rem; padding: .7rem .85rem; border-radius: 14px; }
+.rec-stop::before { content: ""; position: absolute; left: -1.23rem; top: 1rem; width: .42rem; height: .42rem; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--rec-dot, #6a58d6); }
+.rec-stop.is-kept::before { background: var(--rec-dot, #6a58d6); }
+.rec-stop-row { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; }
+.rec-stop-name { font-size: 1rem; line-height: 1.2; }
+.rec-stop-name a { color: inherit; text-decoration: none; }
+.rec-stop-loc { font-size: .58rem; letter-spacing: .15em; text-transform: uppercase; opacity: .65; }
+.rec-stop-why { font-size: .8rem; font-style: italic; opacity: .8; }
+.rec-tag { font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; padding: .3rem .55rem; border-radius: 999px; white-space: nowrap; }
+.rec-stop .rec-stop-keep, .rec-kid .rec-kid-keep { font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+/* things at a stop hang inside its tile, on a short branch */
+.rec-kids { list-style: none; margin: .45rem 0 0 .45rem; padding: .1rem 0 0 .75rem; border-left: 1px solid rgba(127,127,127,.3); display: flex; flex-direction: column; gap: .3rem; }
+.rec-kid { position: relative; font-size: .82rem; display: flex; flex-wrap: wrap; gap: 0 .5rem; align-items: baseline; }
+.rec-kid::before { content: ""; position: absolute; left: -.75rem; top: .75rem; width: .5rem; height: 1px; background: rgba(127,127,127,.3); }
+.rec-kid-st { flex: 1 1 100%; font-size: .52rem; letter-spacing: .15em; text-transform: uppercase; opacity: .7; }
+.rec-kid a { color: inherit; }
+.rec-kid.is-unres span:last-child { font-style: italic; opacity: .8; }
+
+/* Rows under a stop in the full timeline: proposed, kept, still to identify. */
+body[data-skin] ul.stop-notes > li.stop-note.is-proposed, body[data-skin] ul.stop-notes > li.stop-note.is-unresolved { flex-wrap: wrap; }
+.stop-note .ens-comp-why { font-size: .8rem; font-style: italic; opacity: .75; }
+.stop-note .ens-comp-state i { font-style: normal; }
+.stop-kid-acts { display: inline-flex; gap: .9rem; align-items: center; margin: 0 1rem 0 .4rem; flex: none; }
+.ens-comp-blank.is-hatched { background: repeating-linear-gradient(45deg, transparent 0 5px, rgba(127,127,127,.25) 5px 6px) !important; }
+@media (max-width: 52rem) {
+  body[data-skin] ul.stop-notes .stop-kid-acts { flex: 1 1 100%; justify-content: flex-end; margin: -.4rem .8rem .55rem; }
+  .stop-note .ens-comp-why { display: none; }
+}
+
+/* A proposed card: title set straight, Keep and the reactions, one line. */
+.mark-title-straight { font-weight: 400; }
+.prop-acts { display: flex; gap: .8rem; align-items: center; }
+.prop-reacts { display: flex; gap: 1.1rem; justify-content: center; margin: .6rem 0 0; }
+.prop-line { font-size: .78rem; font-style: italic; opacity: .7; margin: .7rem 0 0; text-align: center; }
+.prop-why { font-style: italic; }
+.itin-prop-acts { justify-content: center; margin: .8rem 0 .2rem; }
+.itin-prop-acts .rec-sp { flex: 0 0 .6rem; }
+
+/* Map: a proposal being explored previews its places as rings. */
+.itin-map .rec-pins { display: none; }
+.itin-map .rec-pins.on { display: inline; }
+.itin-map .pin-ring { fill: none; stroke: #6a58d6; stroke-width: .55; }
+.itin-map .pin-rn { font-size: 2.1px; font-weight: 700; fill: #6a58d6; font-family: inherit; }
+.itin-map .map-legend { display: none; margin-left: 1rem; gap: .35rem; align-items: center; }
+.itin-map.is-previewing .map-legend { display: inline-flex; }
+.map-legend .lg-dot, .map-legend .lg-ring { display: inline-block; width: .55rem; height: .55rem; border-radius: 50%; margin-left: .5rem; }
+.map-legend .lg-dot { background: #6a58d6; }
+.map-legend .lg-ring { box-shadow: inset 0 0 0 1.5px #6a58d6; }
+
+/* Review after deleting a kept plan or composition. */
+.review-box { padding: 1.6rem 1.8rem; max-width: 41.5rem; }
+.review-title { font-size: 1.4rem; font-weight: 400; margin: 0 0 .3rem; }
+.review-sub, .review-note { font-size: .9rem; opacity: .75; margin: 0 0 1rem; }
+.review-note { font-size: .75rem; font-style: italic; margin: .9rem 0 0; }
+.review-list { list-style: none; margin: 0; padding: 0; }
+.review-row { display: grid; grid-template-columns: 1fr auto; gap: .2rem 1rem; align-items: center; padding: .8rem .2rem; border-bottom: 1px solid rgba(127,127,127,.2); }
+.review-row label { display: grid; grid-template-columns: auto 1fr; gap: .1rem .8rem; align-items: center; cursor: pointer; }
+.review-row input { grid-row: span 2; width: 1.1rem; height: 1.1rem; }
+.review-name { font-size: 1rem; }
+.review-kind, .review-rel { font-size: .58rem; letter-spacing: .14em; text-transform: uppercase; opacity: .7; }
+.review-rel { text-align: right; max-width: 16rem; }
+.review-acts { display: flex; justify-content: flex-end; align-items: center; gap: 1.2rem; margin-top: 1rem; }
+@media (max-width: 52rem) { .review-row { grid-template-columns: 1fr; } .review-rel { text-align: left; } }
+
+/* Classic: the proposed state is a dashed edge on the same paper. */
+body:not([data-skin="modern"]) .rec-plan, body:not([data-skin="modern"]) .rec-stop { border: 1px dashed rgba(0,0,0,.25); background: rgba(255,255,255,.5); }
+body:not([data-skin="modern"]) .rec-plan.is-kept, body:not([data-skin="modern"]) .rec-stop.is-kept { border-style: solid; }
+body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
+/* the quiet text buttons above reuse .link, which carries a paragraph margin */
+.rec-stop-keep, .rec-kid-keep { margin: 0; line-height: 1.2; }
+.rec-stop-row form { line-height: 1; }
+.prop-acts { flex-wrap: wrap; justify-content: center; }
+.is-proposed .noteit.prop-acts { text-align: center; }
+.review-acts .nf-post { width: auto; flex: none; margin: 0; padding: .8rem 1.6rem; }
+.review-acts .nf-link-btn { white-space: nowrap; }

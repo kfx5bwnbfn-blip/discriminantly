@@ -19,9 +19,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? pass++ : fail++; console.log((c ? '  ok   ' : '  FAIL ') + n + (x && !c ? '  (' + x + ')' : '')); };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 const outputs = [];
-// A (the founder) works on the developer surface /mcp-dev; B (any other member,
-// e.g. the reviewer account) on the submitted surface /mcp (decision E).
-const rpc = async (T, method, params) => (await (await fetch(BASE + (T === fx.tokA ? '/mcp-dev/' : '/mcp/') + T, { method: 'POST', headers: { 'content-type': 'application/json' },
+const rpc = async (T, method, params) => (await (await fetch(BASE + '/mcp/' + T, { method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json()).result;
 const raw = async (T, name, args) => { const r = await rpc(T, 'tools/call', { name, arguments: args }); outputs.push([name, r]); return r; };
 const call = async (T, name, args) => { const r = await raw(T, name, args); if (r.isError) throw new Error(name + ': ' + r.content[0].text); return r.structuredContent; };
@@ -36,7 +34,8 @@ const tally = () => ({ notes: n('SELECT COUNT(*) n FROM objects'), marks: n('SEL
   recs: n('SELECT COUNT(*) n FROM recommendations'), comments: n('SELECT COUNT(*) n FROM comments'), itins: n('SELECT COUNT(*) n FROM itineraries'),
   stopnotes: n('SELECT COUNT(*) n FROM itinerary_stop_notes'), colls: n('SELECT COUNT(*) n FROM note_collections') });
 const diff = (a, b) => Object.fromEntries(Object.keys(a).filter((k) => a[k] !== b[k]).map((k) => [k, b[k] - a[k]]));
-const only = (d, want) => JSON.stringify(d) === JSON.stringify(want);
+const sortKeys = (o) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => (a < b ? -1 : 1)));
+const only = (d, want) => JSON.stringify(sortKeys(d)) === JSON.stringify(sortKeys(want));
 
 (async () => {
   // ---- reads change nothing ------------------------------------------------
@@ -75,20 +74,24 @@ const only = (d, want) => JSON.stringify(d) === JSON.stringify(want);
     image_uid: (await call(A, 'upload_image', { image: PNG })).image_uid, workflow: 'for_another_time' }] })).items;
   const cid = rc.recommendation.target.id;
   t = tally();
+  const o0 = await err(A, 'record_note_ownership', { id: cid });
+  ok('S6 "I bought that coffee" (a recommended one): ownership alone is refused before Keep, naming keep_recommendation, and writes nothing',
+     /keep_recommendation/.test(o0 || '') && only(diff(t, tally()), {}) && !kept('object', rc.recommendation.target.uid));
+  t = tally();
+  const k = await call(A, 'keep_recommendation', { recommendation_uid: rc.recommendation.uid });
+  ok('S9 "keep it": adoption only; no ownership, warrant or check-in', k.kept.length === 1 && only(diff(t, tally()), { adopt: 1 }));
+  t = tally();
   const o1 = await call(A, 'record_note_ownership', { id: cid });
-  ok('S6 "I bought that coffee" (a recommended one): ownership only; it is not thereby kept or warranted',
-     o1.action === 'asserted' && only(diff(t, tally()), { own: 1 }) && !kept('object', rc.recommendation.target.uid));
+  ok('S6b ...their words already say to keep it: Keep, then ownership -- ownership only, no warrant, no second Keep',
+     o1.action === 'asserted' && only(diff(t, tally()), { own: 1 }) && kept('object', rc.recommendation.target.uid));
   const since = one("SELECT created_at FROM ownership_assertions WHERE note_uid=? ORDER BY id DESC LIMIT 1", rc.recommendation.target.uid).created_at;
   t = tally();
   const o2 = await call(A, 'record_note_ownership', { id: cid });
   ok('S7 saying it again records nothing and keeps the original start of ownership', o2.action === 'unchanged' && only(diff(t, tally()), {})
      && one("SELECT created_at FROM ownership_assertions WHERE note_uid=? AND state='owned' ORDER BY id DESC LIMIT 1", rc.recommendation.target.uid).created_at === since);
   await call(A, 'correct_note_ownership_mistake', { id: cid });
-  ok('S8 ...so one correction really clears it', (await call(A, 'my_notes', { limit: 50 })).items.every((x) => x.uid !== rc.recommendation.target.uid)
+  ok('S8 ...so one correction really clears it, and the note stays Kept', kept('object', rc.recommendation.target.uid)
      && !one(`SELECT 1 FROM ownership_assertions a WHERE a.note_uid=? AND a.state='owned' AND NOT EXISTS (SELECT 1 FROM ownership_assertions b WHERE b.supersedes=a.uid)`, rc.recommendation.target.uid));
-  t = tally();
-  const k = await call(A, 'keep_recommendation', { recommendation_uid: rc.recommendation.uid });
-  ok('S9 "keep it": adoption only; no ownership, warrant or check-in', k.kept.length === 1 && only(diff(t, tally()), { adopt: 1 }));
   t = tally();
   await call(A, 'warrant', { subject_type: 'note', id: cid, announce: false });
   const w2 = await call(A, 'warrant', { subject_type: 'note', id: cid, announce: false });
@@ -111,6 +114,21 @@ const only = (d, want) => JSON.stringify(d) === JSON.stringify(want);
   const [far] = (await call(A, 'record_recommendations', { items: [{ kind: 'place', label: 'Hatchards (Piccadilly)', resolution: 'resolved', place_name: 'Hatchards', locality: 'Bath',
     workflow: 'for_another_time' }] })).items;
   ok('S15 same name in another city is a different place: not merged into the London mark', far.target_origin === 'created_for_recommendation' && far.recommendation.target.uid !== hm.uid);
+
+  // ---- asking to note/mark something already recommended keeps THAT record --
+  console.log('\nnote or mark something already recommended');
+  const [rn] = (await call(A, 'record_recommendations', { items: [{ kind: 'object', label: 'Audit Fountain Pen', resolution: 'resolved', product: 'Audit Fountain Pen',
+    image_uid: (await call(A, 'upload_image', { image: PNG })).image_uid, workflow: 'for_another_time' }] })).items;
+  t = tally();
+  const kn = await call(A, 'note_object', { headline: 'Audit Fountain Pen', image: (await call(A, 'upload_image', { image: PNG })).ref });
+  ok('S20 note_object on a recommended thing keeps the recommended record: no second note', kn.action === 'kept' && kn.uid === rn.recommendation.target.uid
+     && kept('object', kn.uid) && only(diff(t, tally()), { adopt: 1 }));
+  const [rm] = (await call(A, 'record_recommendations', { items: [{ kind: 'place', label: 'Jikko', resolution: 'resolved', place_name: 'Jikko', locality: 'Sakai', country: 'JP',
+    workflow: 'for_another_time' }] })).items;
+  t = tally();
+  const km = await call(A, 'add_travel_mark', { place: 'Jikko', locality: 'Sakai', country: 'JP', visited_on: '2026-09-10' });
+  ok('S21 add_travel_mark on a recommended place keeps that mark (and records the visit they stated): no second mark', km.action === 'kept'
+     && km.uid === rm.recommendation.target.uid && only(diff(t, tally()), { adopt: 1, visits: 1 }), JSON.stringify([km, diff(t, tally())]));
 
   // ---- invalid input writes nothing ------------------------------------------------
   console.log('\ninvalid input');
@@ -137,7 +155,7 @@ const only = (d, want) => JSON.stringify(d) === JSON.stringify(want);
     await err(B, 'log_visit', { id: hm.id, visited_on: '2026-09-01' }), await err(B, 'edit_travel_mark', { id: hm.id, why: 'x' }),
     await err(B, 'list_checkins', { mark_id: hm.id }),
     await err(B, 'read_comments', { subject_type: 'note', id: cid }),        // private, and outside B's reach
-    await err(B, 'record_recommendations', { items: [{ kind: 'object', label: 'x', workflow: 'cold_start' }] }),   // not exposed to B
+    await err(B, 'keep_recommendation', { recommendation_uid: rc.recommendation.uid }), await err(B, 'resolve_recommendation', { recommendation_uid: rb.items[0].recommendation.uid, maker: 'x' }),
     await err(B, 'list_stop_notes', { itinerary_uid: fx.itinerary })];
   ok('S17 every write or private read on A’s records is refused for B, and nothing changes', denied.every(Boolean) && only(diff(t, tally()), {}), denied.map((d) => !!d).join(','));
   ok('S17b refusals never confirm that a private record exists', !denied.some((d) => /Audit coffee|Audit Blend/.test(d)));
@@ -166,6 +184,11 @@ const only = (d, want) => JSON.stringify(d) === JSON.stringify(want);
   const recOut = JSON.stringify(outputs.filter(([name]) => /recommend/.test(name)));
   ok('M2 recommendation results carry no timestamps or internal user ids', !/created_at|updated_at|user_id/.test(recOut));
 
+  const rn2 = (await call(B, 'recent_notes', { limit: 50 })).items;
+  ok('M3 recent_notes: another member\u2019s note carries no provenance (agent, timestamp); the caller\u2019s own keep theirs; field is already_renoted',
+     rn2.some((x) => x.handle !== 'bea') && rn2.filter((x) => x.handle !== 'bea').every((x) => x.provenance === null)
+     && rn2.filter((x) => x.handle === 'bea').every((x) => x.provenance && x.provenance.action)
+     && rn2.every((x) => 'already_renoted' in x && !('already_adopted' in x)));
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
