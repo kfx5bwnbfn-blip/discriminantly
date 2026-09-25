@@ -388,7 +388,7 @@ console.log('\nMCP tool descriptions');
   const blocks = marks.map((o, k) => ({ name: o.n, txt: seg.slice(o.i, k + 1 < marks.length ? marks[k + 1].i : seg.length) }));
   const mine = blocks.filter((b3) => /itinerar/.test(b3.name));
 
-  ok('   ten itinerary tools present (v2.58 adds audit_itinerary)', mine.length === 10, String(mine.length));
+  ok('   eleven itinerary tools present (v2.58 audit_itinerary, v2.59 build_itinerary)', mine.length === 11, String(mine.length));
   ok('   no duplicate tool names', names.length === new Set(names).size);
 
   const bare = [];
@@ -1139,7 +1139,7 @@ function loadToolsFromSource(SRC) {
     'list_ensembles', 'get_ensemble', 'list_unresolved_components', 'list_checkins', 'read_comments', 'view_images',
     'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake',
     'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload',
-    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes', 'audit_itinerary'];
+    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes', 'audit_itinerary', 'audit_recommendation_expansion'];
   ok('SW1 closed-world is exactly the reads plus the writes confined to never-public data',
      JSON.stringify(TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()),
      TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).filter((n) => !closed.includes(n)).join(', '));
@@ -1149,8 +1149,8 @@ function loadToolsFromSource(SRC) {
       'resolve_ensemble_component', 'remove_ensemble_artifact', 'remove_ensemble_component', 'delete_ensemble', 'discard_ensemble',
       'delete_note', 'delete_travel_mark'].every((n) => ann[n].openWorldHint));
   const cnt = (k) => TOOLS_SRC.filter((t) => t.annotations[k]).length;
-  ok('SW3 final counts (v2.58, 63 tools): 17 read-only, 16 destructive, 39 open-world',
-     TOOLS_SRC.length === 63 && cnt('readOnlyHint') === 17 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 39,
+  ok('SW3 final counts (v2.59, 65 tools): 18 read-only, 16 destructive, 40 open-world',
+     TOOLS_SRC.length === 65 && cnt('readOnlyHint') === 18 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 40,
      `${TOOLS_SRC.length} tools: ${cnt('readOnlyHint')} ro, ${cnt('destructiveHint')} de, ${cnt('openWorldHint')} ow`);
   ok('SW4 v2.55 audit corrections: staging and keeping an ensemble, and keeping a recommendation, are open-world; arranging an itinerary is destructive',
      ann.create_pending_ensemble.openWorldHint && ann.keep_ensemble.openWorldHint && ann.keep_recommendation.openWorldHint && ann.arrange_itinerary.destructiveHint);
@@ -1478,19 +1478,20 @@ console.log('\nlifecycle invariants (source)');
 console.log('\nMCP contract (definitions)');
 {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
-  const cur = read('mcp-contract-v2.58.json'), rel = read('mcp-contract-v2.56.json'), hist = read('submitted-mcp-contract.json');
+  const cur = read('mcp-contract-v2.59.json'), rel = read('mcp-contract-v2.58.json'), hist = read('submitted-mcp-contract.json');
   const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
   const gen = norm(loadToolsFromSource(SRC));
   const names = (l) => l.map((t) => t.name);
-  ok('MC1 the v2.58 snapshot holds 63 tools and v2.56 held 61; the historical one still holds the submitted 54', cur.tools.length === 63 && rel.tools.length === 61 && hist.tools.length === 54);
+  ok('MC1 the v2.59 snapshot holds 65 tools and v2.58 held 63; the historical one still holds the submitted 54', cur.tools.length === 65 && rel.tools.length === 63 && hist.tools.length === 54);
   // v2.58 against v2.56: delegated itinerary authoring and place identity.
   // Only these descriptions and my_travel_marks' result changed; two tools added;
   // every existing annotation and the server instructions are unchanged.
-  const V258_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'my_travel_marks', 'record_recommendations', 'resolve_itinerary_stop', 'verify_place'];
-  const V258_ADDED = ['audit_itinerary', 'resolve_travel_mark'];
+  // v2.59 against v2.58: the deferred items (field status, images, expansion audit, build_itinerary).
+  const V258_CHANGED = ['audit_itinerary', 'resolve_travel_mark'];
+  const V258_ADDED = ['audit_recommendation_expansion', 'build_itinerary'];
   const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const incAdded = cur.tools.filter((t) => !rel.tools.find((x) => x.name === t.name)).map((t) => t.name).sort();
-  ok('MC9 against v2.56, only the approved v2.58 tools changed or were added; existing annotations and the instructions unchanged',
+  ok('MC9 against v2.58, only the approved v2.59 tools changed or were added; existing annotations and the instructions unchanged',
      JSON.stringify(incChanged) === JSON.stringify(V258_CHANGED) && JSON.stringify(incAdded) === JSON.stringify(V258_ADDED)
      && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
      && rel.initialize.instructions === cur.initialize.instructions, `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
@@ -1509,7 +1510,7 @@ console.log('\nMCP contract (definitions)');
   // add_travel_mark keeping an already-recommended record). That alone is
   // not a change to a tool's meaning, so it is compared without it.
   const sansKept = (t) => JSON.parse(JSON.stringify(t, (k, v) => (k === 'enum' && Array.isArray(v) && v.includes('kept') && v.includes('created')) ? v.filter((x) => x !== 'kept') : v));
-  const APPROVED_ADDED = ['audit_itinerary', 'dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes', 'record_recommendations', 'resolve_recommendation', 'resolve_travel_mark', 'set_stop_note'];
+  const APPROVED_ADDED = ['audit_itinerary', 'audit_recommendation_expansion', 'build_itinerary', 'dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes', 'record_recommendations', 'resolve_recommendation', 'resolve_travel_mark', 'set_stop_note'];
   const removed = names(hist.tools).filter((n) => !gen.find((t) => t.name === n));
   const changed = hist.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return g && JSON.stringify(sansKept(g)) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const added = names(gen).filter((n) => !hist.tools.find((t) => t.name === n)).sort();

@@ -1468,6 +1468,10 @@ const MIGRATIONS = [
     if (!hasColumn('marks', 'location_source')) db.exec("ALTER TABLE marks ADD COLUMN location_source TEXT DEFAULT ''");
     if (!hasColumn('marks', 'external_id')) db.exec("ALTER TABLE marks ADD COLUMN external_id TEXT DEFAULT ''");
   }],
+  // Per-field status (v2.59): fields established as unavailable, JSON.
+  ['057-mark-field-status', () => {
+    if (!hasColumn('marks', 'field_status')) db.exec("ALTER TABLE marks ADD COLUMN field_status TEXT DEFAULT ''");
+  }],
 ];
 
 function backupTo(file) {
@@ -5150,6 +5154,7 @@ function resolveTravelMark(user, a, ctx) {
     for (const [k, v] of Object.entries(fill)) if (String(v || '').trim() && !String(row[k] || '').trim()) { sets.push(`${k}=?`); vals.push(String(v).trim()); changed.push(k === 'url' ? 'link' : k); }
     if (coords && !placeHasCoords(row)) { sets.push('lat=?', 'lng=?'); vals.push(+a.lat, +a.lng); changed.push('coordinates'); }
     if (ext && !String(row.external_id || '').trim()) { sets.push('external_id=?'); vals.push(ext); changed.push('external_id'); }
+    if (a._image_uid && !String(row.image || '').trim()) { sets.push('image=?'); vals.push(`/i/${a._image_uid}`); changed.push('image'); }
     const merged = [...new Set([...String(row.identity_basis || '').split(',').filter(Boolean), ...basis])].join(',');
     if (merged !== String(row.identity_basis || '')) { sets.push('identity_basis=?'); vals.push(merged); }
     if ((changed.includes('coordinates') || changed.includes('address')) && locSource) { sets.push('location_source=?'); vals.push(locSource); }
@@ -5158,11 +5163,12 @@ function resolveTravelMark(user, a, ctx) {
     if (target === 'canonical' && !isAdopted('mark', uid)) { recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'resolution', source_ref: uid }); changed.push('kept'); }
   } else {
     const r = markCreate(user, { name: place, locality: a.locality || '', country: a.country || '', address: a.address || '',
-      lat: coords ? +a.lat : null, lng: coords ? +a.lng : null, why: a.why || '', tags, url: a.link || '',
+      lat: coords ? +a.lat : null, lng: coords ? +a.lng : null, why: a.why || '', tags, url: a.link || '', image: a._image_uid ? `/i/${a._image_uid}` : '',
       private: target === 'recommendation' ? true : !!a.private }, ctx, { source_kind: 'resolution', adopt: target === 'canonical' });
     q('UPDATE marks SET identity_basis=?, location_source=?, external_id=? WHERE id=?').run(basis.join(','), locSource, ext, r.id);
     uid = r.uid; action = 'created';
   }
+  saveFieldStatus(uid, Array.isArray(a.unavailable) ? a.unavailable : []);
   const row = q('SELECT * FROM marks WHERE uid=?').get(uid);
   let recommendation_uid = null;
   const rc = a.recommendation_context;
@@ -5173,7 +5179,7 @@ function resolveTravelMark(user, a, ctx) {
     recommendation_uid = (made && made.rec && made.rec.uid) || null;
   }
   return { ok: true, action, mark: { uid, id: row.id, name: row.name, kept: isAdopted('mark', uid) },
-    match, place_identity: placeIdentityOf(row), changed, ...(recommendation_uid ? { recommendation_uid } : {}) };
+    match, place_identity: placeIdentityOf(row), fields: fieldStatusOf(row), changed, ...(recommendation_uid ? { recommendation_uid } : {}) };
 }
 // A read-only integrity view of one of the member's plans. Returns the exact
 // stop and mark uids that need attention; never changes anything.
@@ -5189,14 +5195,12 @@ function auditItinerary(user, uid, expect = {}) {
     if (!mk) { conflicts.push(`stop ${st.uid} ("${st.label}") points at a travel mark that no longer exists`); continue; }
     const key = `${st.group_id || 0}:${mk.uid}`;
     if (seen.has(key)) conflicts.push(`travel mark ${mk.uid} ("${mk.name}") appears twice on the same day (stops ${seen.get(key)} and ${st.uid})`); else seen.set(key, st.uid);
-    const gaps = [];
+    // missing: absent and never looked into. unavailable: established not to exist.
+    const gaps = [], unav = [], fs = fieldStatusOf(mk);
     if (!String(mk.locality || '').trim()) gaps.push('locality');
     if (!String(mk.country || '').trim()) gaps.push('country');
-    if (!String(mk.address || '').trim()) gaps.push('address');
-    if (!placeHasCoords(mk)) gaps.push('coordinates');
-    if (!String(mk.url || '').trim()) gaps.push('link');
-    if (!String(mk.why || '').trim()) gaps.push('why');
-    if (gaps.length) missing.push({ mark_uid: mk.uid, stop_uid: st.uid, missing: gaps });
+    for (const k of ['address', 'coordinates', 'link', 'why']) if (fs[k] === 'not_attempted') gaps.push(k); else if (fs[k] === 'unavailable') unav.push(k);
+    if (gaps.length || unav.length) missing.push({ mark_uid: mk.uid, stop_uid: st.uid, missing: gaps, unavailable: unav });
   }
   const placed = groups ? stops.filter((st) => st.group_id) : [];
   const ordered = placed.filter((st) => st.position !== null && st.position !== undefined).length;
@@ -5210,9 +5214,107 @@ function auditItinerary(user, uid, expect = {}) {
   // "Enhanced" asks for a grounded identity (locality, country, and an address
   // or coordinates). A missing website or note never fails it: many real
   // places have none, and a resolver can legitimately find no coordinates.
-  if (e.enhanced_marks && missing.some((x) => x.missing.includes('locality') || x.missing.includes('country') || (x.missing.includes('address') && x.missing.includes('coordinates')))) failed.push('enhanced_marks');
+  // Grounded means locality, country, and an address or coordinates, unless
+  // both were established as unavailable (a public street, say).
+  if (e.enhanced_marks && missing.some((x) => x.missing.includes('locality') || x.missing.includes('country')
+    || (!x.unavailable.includes('address') || !x.unavailable.includes('coordinates')) && [...x.missing, ...x.unavailable].includes('address') && [...x.missing, ...x.unavailable].includes('coordinates'))) failed.push('enhanced_marks');
   return { ok: true, itinerary_uid: it.uid, checks: { unresolved_particular_stops: unresolved, unplaced_stops: unplaced,
     linked_marks_missing_core_fields: missing, sequencing, conflicts }, satisfied: !failed.length, failed };
+}
+// Per-field status (v2.59): a field is present, unavailable (researched and
+// established not to exist, e.g. a public street with no website), or
+// not_attempted (simply absent). Only 'unavailable' is stored.
+const FIELD_STATUS_KEYS = ['address', 'coordinates', 'link', 'why', 'image'];
+const fieldStored = (m) => { try { return JSON.parse(m.field_status || '{}') || {}; } catch { return {}; } };
+const fieldPresent = (m, k) => k === 'coordinates' ? placeHasCoords(m) : k === 'link' ? !!String(m.url || '').trim() : !!String(m[k] || '').trim();
+function fieldStatusOf(m) {
+  const st = fieldStored(m);
+  return Object.fromEntries(FIELD_STATUS_KEYS.map((k) => [k, fieldPresent(m, k) ? 'present' : st[k] === 'unavailable' ? 'unavailable' : 'not_attempted']));
+}
+function saveFieldStatus(uid, unavailable = []) {
+  const m = q('SELECT * FROM marks WHERE uid=?').get(uid);
+  const st = fieldStored(m);
+  for (const k of unavailable) if (FIELD_STATUS_KEYS.includes(k) && !fieldPresent(m, k)) st[k] = 'unavailable';
+  for (const k of Object.keys(st)) if (fieldPresent(m, k)) delete st[k];      // a value supersedes "unavailable"
+  q('UPDATE marks SET field_status=? WHERE uid=?').run(Object.keys(st).length ? JSON.stringify(st) : '', uid);
+}
+// For another time, checked: one origin plan's three proposals (same city,
+// similar, different). Read-only; never creates a missing one.
+function auditRecommendationExpansion(user, originUid) {
+  const origin = itinOwned(user, originUid);
+  const recs = q('SELECT * FROM recommendations WHERE user_id=? AND origin_itinerary_uid=? ORDER BY id').all(user.id, origin.uid);
+  const rel = { same_city: [], similar: [], different: [] }, malformed = [];
+  for (const r of recs) {
+    if (r.kind !== 'itinerary') { malformed.push({ recommendation_uid: r.uid, reason: 'not an itinerary recommendation' }); continue; }
+    if (!r.relation || !rel[r.relation]) { malformed.push({ recommendation_uid: r.uid, reason: 'no relation (same_city, similar or different)' }); continue; }
+    const plan = r.target_uid && r.target_type === 'itinerary' ? q('SELECT id FROM itineraries WHERE uid=? AND user_id=?').get(r.target_uid, user.id) : null;
+    if (!plan) { malformed.push({ recommendation_uid: r.uid, reason: 'its proposed plan no longer exists' }); continue; }
+    if (!q('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=?').get(plan.id).n) malformed.push({ recommendation_uid: r.uid, reason: 'its proposed plan has no stops' });
+    rel[r.relation].push(r.uid);
+  }
+  for (const [k, v] of Object.entries(rel)) for (const extra of v.slice(1)) malformed.push({ recommendation_uid: extra, reason: `more than one ${k} proposal` });
+  const relations = Object.fromEntries(Object.entries(rel).map(([k, v]) => [k, { present: v.length > 0, itinerary_recommendation_uids: v }]));
+  return { ok: true, origin_itinerary_uid: origin.uid, relations, complete: Object.values(rel).every((v) => v.length === 1) && !malformed.length, malformed };
+}
+// Build a whole plan the member asked the AI to build, in one transaction:
+// the itinerary, its days, canonical travel marks for the places chosen, the
+// stops and their order; then audit it. Composes itineraryCreate, groupCreate,
+// resolveTravelMark and stopAdd. Ambiguity is checked before anything is
+// written: a probable match stops the build and returns the candidates.
+function buildItinerary(user, a, ctx) {
+  const title = String(a.title || '').trim();
+  if (!title) throw new Error('title is required: what should this itinerary be called?');
+  const days = Array.isArray(a.days) ? a.days : [], loose = Array.isArray(a.stops) ? a.stops : [];
+  if (!days.length && !loose.length) throw new Error('Give the plan some stops: days[].stops, or stops for stops not yet on a day.');
+  const all = [...days.flatMap((d) => Array.isArray(d.stops) ? d.stops : []), ...loose];
+  if (all.length > 60) throw new Error('At most 60 stops in one build.');
+  for (const st of all) {
+    if (!String(st.label || '').trim() && !(st.place && st.place.place)) throw new Error('Every stop needs a label, or a place.');
+    if (st.place && st.mark_uid) throw new Error('A stop takes a place or a mark_uid, not both.');
+    if (st.kind && !['particular', 'experiential', 'allocation'].includes(st.kind)) throw new Error('kind must be particular, experiential or allocation.');
+  }
+  // 1. ambiguity first: nothing is written if any place might be one they already have
+  const candidates = [];
+  for (const st of all.filter((x) => x.place && !x.place.allow_distinct_from_candidate)) {
+    const p = st.place, m = matchPlace(user.id, { name: p.place, locality: p.locality, country: p.country, address: p.address, lat: p.lat, lng: p.lng }, { scope: 'all' });
+    if (m.state === 'probable') candidates.push({ place: p.place, stop_label: st.label || p.place, match: placeMatchPublic(m) });
+  }
+  if (candidates.length) return { ok: true, action: 'candidates', itinerary: null, days: [], unplaced: [], marks: [], audit: null, candidates };
+  // 2. write it all, or nothing
+  const marks = [];
+  const place = (st) => {
+    if (st.mark_uid) {
+      const mk = q('SELECT uid, name FROM marks WHERE uid=? AND user_id=?').get(st.mark_uid, user.id);
+      if (!mk) throw new Error(`No such travel mark: ${st.mark_uid}.`);
+      if (!isAdopted('mark', mk.uid)) throw new Error(`Travel mark ${mk.uid} is only a recommendation: keep it first with keep_recommendation.`);
+      return mk.uid;
+    }
+    if (!st.place) return null;
+    const r = resolveTravelMark(user, { ...st.place, target_state: 'canonical', recommendation_context: undefined }, ctx);
+    marks.push({ uid: r.mark.uid, name: r.mark.name, action: r.action, match: r.match.state });
+    return r.mark.uid;
+  };
+  const addStop = (itUid, st, group_uid, position) => {
+    const mark_uid = place(st);
+    const s = stopAdd(user, itUid, { label: String(st.label || (st.place && st.place.place) || '').trim(), mark_uid,
+      resolution: mark_uid ? null : (st.kind || 'particular'), group_uid, position }, ctx);
+    return { uid: s.uid, label: s.label, mark_uid: mark_uid || null };
+  };
+  let out;
+  db.exec('BEGIN');
+  try {
+    const it = itineraryCreate(user, { title, context: a.context || '', private: a.private === false ? 0 : 1 }, ctx);
+    const dayOut = days.map((d, i) => {
+      const g = groupCreate(user, it.uid, { label: String(d.label || `Day ${i + 1}`), position: i + 1 }, ctx);
+      return { uid: g.uid, label: g.label, stops: (d.stops || []).map((st, j) => addStop(it.uid, st, g.uid, j + 1)) };
+    });
+    const unplaced = loose.map((st) => addStop(it.uid, st, null, null));
+    db.exec('COMMIT');
+    out = { it, dayOut, unplaced };
+  } catch (e) { try { db.exec('ROLLBACK'); } catch {} throw e; }
+  // 3. check what was actually written
+  const audit = auditItinerary(user, out.it.uid, { all_specific_stops_linked: false, no_unplaced_stops: !!days.length && !loose.length, ordered: !!days.length });
+  return { ok: true, action: 'created', itinerary: { uid: out.it.uid, id: out.it.id, title: out.it.title }, days: out.dayOut, unplaced: out.unplaced, marks, audit, candidates: [] };
 }
 const placeMatchPublic = (m) => ({ state: m.state, basis: m.basis || [], ...(m.confidence ? { confidence: m.confidence } : {}),
   ...(m.uid ? { candidate_uid: m.uid, candidate_id: m.id, candidate_name: m.name } : {}) });
@@ -9317,12 +9419,15 @@ const OS_LOCATION = { type: 'object', additionalProperties: false, description: 
 const OS_PLACE_MATCH = { type: 'object', additionalProperties: false, required: ['state', 'basis'],
   properties: { state: { type: 'string', enum: ['exact', 'probable', 'possible', 'none'] }, basis: { type: 'array', items: { type: 'string' } },
     confidence: { type: 'number' }, candidate_uid: { type: 'string' }, candidate_id: { type: 'integer' }, candidate_name: { type: 'string' } } };
+const OS_FIELD_STATUS = { type: 'object', additionalProperties: false, required: ['address', 'coordinates', 'link', 'why', 'image'],
+  description: 'Each field: present; unavailable (researched and established not to exist); or not_attempted (simply absent).',
+  properties: Object.fromEntries(['address', 'coordinates', 'link', 'why', 'image'].map((k) => [k, { type: 'string', enum: ['present', 'unavailable', 'not_attempted'] }])) };
 const OS_RESOLVE_MARK = { type: 'object', additionalProperties: false, required: ['ok', 'action', 'mark', 'match', 'place_identity', 'changed'],
   properties: { ok: { type: 'boolean' }, action: { type: 'string', enum: ['created', 'reused', 'enriched', 'candidate'] },
     mark: { type: ['object', 'null'], additionalProperties: false, required: ['uid', 'id', 'name', 'kept'],
       properties: { uid: { type: 'string' }, id: { type: 'integer' }, name: { type: 'string' }, kept: { type: 'boolean' } } },
     match: OS_PLACE_MATCH, place_identity: { anyOf: [OS_PLACE_IDENTITY, { type: 'null' }] },
-    changed: { type: 'array', items: { type: 'string' } }, recommendation_uid: { type: 'string' } } };
+    fields: OS_FIELD_STATUS, changed: { type: 'array', items: { type: 'string' } }, recommendation_uid: { type: 'string' } } };
 const OS_AUDIT_ITIN = { type: 'object', additionalProperties: false, required: ['ok', 'itinerary_uid', 'checks', 'satisfied', 'failed'],
   properties: { ok: { type: 'boolean' }, itinerary_uid: { type: 'string' }, satisfied: { type: 'boolean' },
     failed: { type: 'array', items: { type: 'string' } },
@@ -9330,10 +9435,28 @@ const OS_AUDIT_ITIN = { type: 'object', additionalProperties: false, required: [
       properties: {
         unresolved_particular_stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['stop_uid', 'label'], properties: { stop_uid: { type: 'string' }, label: { type: 'string' } } } },
         unplaced_stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['stop_uid', 'label'], properties: { stop_uid: { type: 'string' }, label: { type: 'string' } } } },
-        linked_marks_missing_core_fields: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['mark_uid', 'stop_uid', 'missing'],
-          properties: { mark_uid: { type: 'string' }, stop_uid: { type: 'string' }, missing: { type: 'array', items: { type: 'string', enum: ['locality', 'country', 'address', 'coordinates', 'link', 'why'] } } } } },
+        linked_marks_missing_core_fields: { type: 'array', items: { type: 'object', additionalProperties: false,
+          required: ['mark_uid', 'stop_uid', 'missing', 'unavailable'],
+          properties: { mark_uid: { type: 'string' }, stop_uid: { type: 'string' }, missing: { type: 'array', items: { type: 'string', enum: ['locality', 'country', 'address', 'coordinates', 'link', 'why'] } },
+            unavailable: { type: 'array', items: { type: 'string', enum: ['address', 'coordinates', 'link', 'why'] } } } } },
         sequencing: { type: 'string', enum: ['complete', 'partial', 'absent'] },
         conflicts: { type: 'array', items: { type: 'string' } } } } } };
+const OS_EXPANSION = { type: 'object', additionalProperties: false, required: ['ok', 'origin_itinerary_uid', 'relations', 'complete', 'malformed'],
+  properties: { ok: { type: 'boolean' }, origin_itinerary_uid: { type: 'string' }, complete: { type: 'boolean' },
+    relations: { type: 'object', additionalProperties: false, required: ['same_city', 'similar', 'different'],
+      properties: Object.fromEntries(['same_city', 'similar', 'different'].map((k) => [k, { type: 'object', additionalProperties: false, required: ['present', 'itinerary_recommendation_uids'],
+        properties: { present: { type: 'boolean' }, itinerary_recommendation_uids: { type: 'array', items: { type: 'string' } } } }])) },
+    malformed: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['recommendation_uid', 'reason'], properties: { recommendation_uid: { type: 'string' }, reason: { type: 'string' } } } } } };
+const OS_BUILD_STOP = { type: 'object', additionalProperties: false, required: ['uid', 'label', 'mark_uid'],
+  properties: { uid: { type: 'string' }, label: { type: 'string' }, mark_uid: { type: ['string', 'null'] } } };
+const OS_BUILD = { type: 'object', additionalProperties: false, required: ['ok', 'action', 'itinerary', 'days', 'unplaced', 'marks', 'audit', 'candidates'],
+  properties: { ok: { type: 'boolean' }, action: { type: 'string', enum: ['created', 'candidates'] },
+    itinerary: { type: ['object', 'null'], additionalProperties: false, required: ['uid', 'id', 'title'], properties: { uid: { type: 'string' }, id: { type: 'integer' }, title: { type: 'string' } } },
+    days: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['uid', 'label', 'stops'], properties: { uid: { type: 'string' }, label: { type: 'string' }, stops: { type: 'array', items: OS_BUILD_STOP } } } },
+    unplaced: { type: 'array', items: OS_BUILD_STOP },
+    marks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['uid', 'name', 'action', 'match'], properties: { uid: { type: 'string' }, name: { type: 'string' }, action: { type: 'string' }, match: { type: 'string' } } } },
+    audit: { anyOf: [OS_AUDIT_ITIN, { type: 'null' }] },
+    candidates: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['place', 'stop_label', 'match'], properties: { place: { type: 'string' }, stop_label: { type: 'string' }, match: OS_PLACE_MATCH } } } } };
 const OS_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'image_url', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
@@ -9923,7 +10046,11 @@ const TOOLS = [
         properties: { workflow: { type: 'string', enum: ['cold_start', 'destination_objects', 'for_another_time'] },
           itinerary_uid: { type: 'string' }, stop_uid: { type: 'string' }, rationale: { type: 'string' },
           evidence_uids: { type: 'array', items: { type: 'string' } } } },
-      allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned: true when you have established this is a different place.' } } } },
+      allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned: true when you have established this is a different place.' },
+      image: { type: 'string', description: 'A picture of the place: an https:// URL (fetched and stored), or use image_uid.' },
+      image_uid: { type: 'string', description: 'A picture already uploaded, from upload_image or begin_image_upload.' },
+      unavailable: { type: 'array', items: { type: 'string', enum: ['address', 'coordinates', 'link', 'why', 'image'] },
+        description: 'Fields you looked for and established do not exist (a public street with no website, say). Recorded so audits do not treat them as undone work. Never list a field you did not look for.' } } } },
   { name: 'audit_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_AUDIT_ITIN, description: 'Check one of the member\'s itineraries for structural completeness and travel mark linkage, and return the exact stop and mark uids that need attention. Use it after building or repairing a plan in several steps, or after keeping a recommended plan, before telling the member it is done. Read-only: it never creates, resolves, enriches, reorders or deletes anything; fix what it reports with resolve_travel_mark, resolve_itinerary_stop, arrange_itinerary or edit_travel_mark. satisfied reflects only the expectations you pass (no_conflicts by default); a missing website or note never fails a plan, and experiential or open-time stops are complete as they are. Complements my_itineraries, which shows the plan itself.',
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From my_itineraries or create_itinerary.' },
@@ -9933,6 +10060,38 @@ const TOOLS = [
           ordered: { type: 'boolean', description: 'Every placed stop has a position.' },
           no_conflicts: { type: 'boolean', description: 'No stop points at a missing mark, and no mark repeats within a day. On by default.' },
           enhanced_marks: { type: 'boolean', description: 'Every linked mark has a locality, a country, and an address or coordinates.' } } } } } },
+  { name: 'audit_recommendation_expansion', securitySchemes: SEC_OAUTH, outputSchema: OS_EXPANSION, description: 'Check the For another time proposals made after one of the member\'s plans: whether each of the three (same city, similar, different) is present, and anything malformed (no relation, a proposed plan that is missing or empty, or more than one of a kind). Use it after recording For another time itineraries with record_recommendations, before telling the member they are there. Read-only: it never creates, fixes or removes a proposal; record a missing one with record_recommendations and add its stops with add_itinerary_stops. Returns the recommendation uids for each relation. Complements list_recommendations, which lists them for the member.',
+    inputSchema: { type: 'object', required: ['origin_itinerary_uid'], properties: {
+      origin_itinerary_uid: { type: 'string', description: 'The member\u2019s plan the proposals were made after, from my_itineraries.' } } } },
+  { name: 'build_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_BUILD, description: 'Write a whole itinerary the member asked you to build, in one step: the plan, its days, a canonical travel mark for each place you chose, the stops, and their order; then it audits the result. Use it when the member asked you to plan or build a trip ("help me plan a day in Taipei") and you have chosen the stops. Not for changing a plan they already have (add_itinerary_stops, arrange_itinerary), not for optional ideas (record_recommendations, For another time), and not for recommending. Places are resolved exactly as resolve_travel_mark does, target_state canonical: an exact existing mark is reused, never duplicated. Ambiguity is checked before anything is written: if any place may be one they already have (a probable match), nothing is written and the candidates come back; resolve them and call again (with allow_distinct_from_candidate on that place if it is different). Otherwise everything is written in one transaction, or nothing: a failure leaves no partial plan. The plan is private unless private is false. It records intention only: never a visit, check-in, booking, ownership or warrant. Returns the itinerary, day and stop uids, the marks it used or created, and the audit; follow with record_recommendations for For another time.',
+    inputSchema: { type: 'object', required: ['title'], properties: {
+      title: { type: 'string', description: 'What the member would call the plan.' },
+      context: { type: 'string', description: 'The trip in a sentence, when useful.' },
+      private: { type: 'boolean', description: 'Default true.' },
+      days: { type: 'array', maxItems: 21, description: 'The days in order, each with its stops in order.', items: { type: 'object', additionalProperties: false, required: ['stops'], properties: {
+        label: { type: 'string', description: 'Default "Day 1", "Day 2"...' },
+        stops: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
+            label: { type: 'string', description: 'The stop in words: what the member intends there.' },
+            kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'For a stop with no place: particular (a specific place not yet identified), experiential (the words are the intention) or allocation (open time). Default particular.' },
+            mark_uid: { type: 'string', description: 'A kept travel mark of theirs, from my_travel_marks or resolve_travel_mark.' },
+            place: { type: 'object', additionalProperties: false, required: ['place', 'identity_basis'], description: 'A place you chose and grounded; resolved into a canonical travel mark exactly as resolve_travel_mark does.',
+              properties: { place: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, address: { type: 'string' },
+                lat: { type: 'number' }, lng: { type: 'number' }, link: { type: 'string' }, why: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
+                external_id: { type: 'object', additionalProperties: false, required: ['provider', 'id'], properties: { provider: { type: 'string' }, id: { type: 'string' } } },
+                identity_basis: { type: 'array', minItems: 1, items: { type: 'string', enum: ['member_identity', 'mapping_provider', 'authoritative_source', 'stable_external_id'] } },
+                unavailable: { type: 'array', items: { type: 'string', enum: ['address', 'coordinates', 'link', 'why', 'image'] } },
+                allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned for this place: true when it is a different place.' } } } } } } } } },
+      stops: { type: 'array', description: 'Stops not yet on a day.', items: { type: 'object', additionalProperties: false, properties: {
+            label: { type: 'string', description: 'The stop in words: what the member intends there.' },
+            kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'], description: 'For a stop with no place: particular (a specific place not yet identified), experiential (the words are the intention) or allocation (open time). Default particular.' },
+            mark_uid: { type: 'string', description: 'A kept travel mark of theirs, from my_travel_marks or resolve_travel_mark.' },
+            place: { type: 'object', additionalProperties: false, required: ['place', 'identity_basis'], description: 'A place you chose and grounded; resolved into a canonical travel mark exactly as resolve_travel_mark does.',
+              properties: { place: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, address: { type: 'string' },
+                lat: { type: 'number' }, lng: { type: 'number' }, link: { type: 'string' }, why: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
+                external_id: { type: 'object', additionalProperties: false, required: ['provider', 'id'], properties: { provider: { type: 'string' }, id: { type: 'string' } } },
+                identity_basis: { type: 'array', minItems: 1, items: { type: 'string', enum: ['member_identity', 'mapping_provider', 'authoritative_source', 'stable_external_id'] } },
+                unavailable: { type: 'array', items: { type: 'string', enum: ['address', 'coordinates', 'link', 'why', 'image'] } },
+                allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned for this place: true when it is a different place.' } } } } } } } } },
 ];
 // ---- tool annotations -------------------------------------------------------
 // Every tool declares how it behaves, in the MCP-standard annotations that
@@ -10024,6 +10183,8 @@ const TOOL_ANNOTATIONS = {
   list_stop_notes:            ['List a plan\u2019s stop notes', true, false, false],
   resolve_travel_mark:        ['Resolve a place into a travel mark', false, false, true],
   audit_itinerary:            ['Check an itinerary is complete', true, false, false],
+  audit_recommendation_expansion: ['Check For another time proposals', true, false, false],
+  build_itinerary:            ['Build an itinerary in one step', false, false, true],
 };
 for (const t of TOOLS) {
   const a = TOOL_ANNOTATIONS[t.name];
@@ -11412,7 +11573,20 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       structured: { ok: true, recommendation: v, changed: out.changed ? [`reaction:${v.reaction}`] : [], kept: [] } };
   }
   // ---- Stop -> Note ---------------------------------------------------------------
+  if (name === 'audit_recommendation_expansion') {
+    const r = auditRecommendationExpansion(user, a.origin_itinerary_uid);
+    const have = Object.entries(r.relations).filter(([, v]) => v.present).map(([k]) => k);
+    return { text: `${r.complete ? 'Complete' : 'Incomplete'}: ${have.length ? have.join(', ') : 'none'} of same_city, similar, different present${r.malformed.length ? `; ${r.malformed.length} malformed` : ''}.`, structured: r };
+  }
+  if (name === 'build_itinerary') {
+    const r = buildItinerary(user, a, mcpActor(user));
+    const text = r.action === 'candidates'
+      ? `Nothing was written: ${r.candidates.map((c) => `"${c.place}" may be their existing "${c.match.candidate_name}" (uid ${c.match.candidate_uid})`).join('; ')}. Use that mark_uid for the stop, or set allow_distinct_from_candidate on the place, and call again.`
+      : `Built "${r.itinerary.title}" (uid ${r.itinerary.uid}): ${r.days.length} day(s), ${r.days.reduce((n, d) => n + d.stops.length, 0) + r.unplaced.length} stop(s), ${r.marks.filter((m) => m.action === 'created').length} new travel mark(s). Audit: ${r.audit.satisfied ? 'satisfied' : 'not satisfied (' + r.audit.failed.join(', ') + ')'}. No visits were recorded.`;
+    return { text, structured: r };
+  }
   if (name === 'resolve_travel_mark') {
+    if (a.image || a.image_uid) a._image_uid = await resolveAssetRef(user.id, { image_uid: a.image_uid, image: a.image }, mcpActor(user), 'upload', 'travel mark image') || undefined;
     const r = resolveTravelMark(user, a, mcpActor(user));
     const m = r.mark;
     const text = r.action === 'candidate'

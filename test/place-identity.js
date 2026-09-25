@@ -75,5 +75,46 @@ const counts = () => ({ visits: one('SELECT COUNT(*) n FROM visits').n, warrants
   const mine2 = await call('my_travel_marks', { query: 'Wistaria' });
   ok('H2 keeping it later brings the same mark into their marks (existing keep semantics)', mine2.items.length === 1 && mine2.items[0].uid === fat.mark.uid, JSON.stringify(kept).slice(0, 160));
   ok('H3 and still no visits, warrants or ownership anywhere', JSON.stringify(counts()) === JSON.stringify(before));
+  // J. per-field status: researched absence is recorded, and a value supersedes it
+  const street = await call('resolve_travel_mark', { place: 'Dihua Street', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'], target_state: 'canonical', unavailable: ['link', 'address', 'coordinates'] });
+  ok('J1 fields researched and absent are "unavailable"; untouched ones "not_attempted"', street.fields.link === 'unavailable' && street.fields.address === 'unavailable' && street.fields.why === 'not_attempted', JSON.stringify(street.fields));
+  const street2 = await call('resolve_travel_mark', { place: 'Dihua Street', locality: 'Taipei', country: 'Taiwan', link: 'https://example.org/dihua', identity_basis: ['authoritative_source'], target_state: 'canonical' });
+  ok('J2 supplying a value later makes it present', street2.fields.link === 'present' && street2.mark.uid === street.mark.uid);
+  const itJ = await call('create_itinerary', { title: 'A street walk' });
+  await call('add_itinerary_stops', { itinerary_uid: itJ.uid, stops: [{ label: 'Walk Dihua Street', mark_uid: street.mark.uid }] });
+  const auJ = await call('audit_itinerary', { itinerary_uid: itJ.uid, expect: { enhanced_marks: true } });
+  const entJ = auJ.checks.linked_marks_missing_core_fields[0];
+  ok('J3 an audit lists unavailable fields apart from missing ones, and a street with no address or coordinates still counts as grounded', auJ.satisfied && entJ.unavailable.includes('address') && !entJ.missing.includes('address'), JSON.stringify(auJ));
+  // K. images: an uploaded picture on a resolved mark
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const up = await call('upload_image', { image: PNG });
+  const pic = await call('resolve_travel_mark', { place: 'Lin Liu-Hsin Puppet Theatre Museum', locality: 'Taipei', country: 'Taiwan', image_uid: up.image_uid, identity_basis: ['authoritative_source'], target_state: 'canonical' });
+  ok('K1 an uploaded image is stored on the mark', pic.fields.image === 'present' && !!one('SELECT image FROM marks WHERE uid=?', pic.mark.uid).image);
+  // L. For another time, checked
+  const origin = await call('create_itinerary', { title: 'Taipei, an extra day (origin)' });
+  const rs = await call('record_recommendations', { items: [
+    { kind: 'itinerary', label: 'Slower Taipei', workflow: 'for_another_time', origin_itinerary_uid: origin.uid, relation: 'same_city' },
+    { kind: 'itinerary', label: 'Like Taipei, in Tainan', workflow: 'for_another_time', origin_itinerary_uid: origin.uid, relation: 'similar' } ] });
+  const same = rs.items[0].recommendation.target.uid;
+  await call('add_itinerary_stops', { itinerary_uid: same, stops: [{ label: 'A tea house', kind: 'particular' }] });
+  const ex = await call('audit_recommendation_expansion', { origin_itinerary_uid: origin.uid });
+  ok('L1 the expansion audit reports which relations are present', ex.relations.same_city.present && ex.relations.similar.present && !ex.relations.different.present && !ex.complete);
+  ok('L2 and what is malformed (the similar plan has no stops), with its uid', ex.malformed.length === 1 && ex.malformed[0].recommendation_uid === rs.items[1].recommendation.uid && /no stops/.test(ex.malformed[0].reason), JSON.stringify(ex.malformed));
+  // M. build_itinerary
+  const plans0 = one('SELECT COUNT(*) n FROM itineraries').n, marks0 = one('SELECT COUNT(*) n FROM marks').n, ev0 = counts();
+  const built = await call('build_itinerary', { title: 'Taipei in two days', days: [
+    { label: 'Day 1', stops: [{ label: 'Coffee', mark_uid: kaffa.mark.uid }, { label: 'Fabric', place: { place: 'Yongle Fabric Market', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'] } }] },
+    { label: 'Day 2', stops: [{ label: 'Tea', place: { place: 'Wistaria Tea House', locality: 'Taipei', country: 'Taiwan', address: '1 Xinsheng S Rd', identity_basis: ['authoritative_source'] } }, { label: 'Leave the afternoon free', kind: 'allocation' }] } ] });
+  ok('M1 one call writes the plan, its days, stops in order and canonical marks, then audits it', built.action === 'created' && built.days.length === 2 && built.days[1].stops.length === 2 && built.audit.satisfied && built.audit.checks.sequencing === 'complete', JSON.stringify(built.audit));
+  ok('M2 existing exact marks are reused, not duplicated (Yongle Fabric Market, Wistaria Tea House)', built.marks.every((m) => m.action !== 'created') && one("SELECT COUNT(*) n FROM marks WHERE name='Yongle Fabric Market'").n === 1, JSON.stringify(built.marks));
+  ok('M3 a recommendation-only mark used by the build becomes canonical and stays single (Wistaria)', one("SELECT COUNT(*) n FROM marks WHERE name='Wistaria Tea House'").n === 1);
+  ok('M4 building records no visits, warrants or ownership', JSON.stringify(counts()) === JSON.stringify(ev0));
+  const plans1 = one('SELECT COUNT(*) n FROM itineraries').n;
+  const amb2 = await call('build_itinerary', { title: 'Ambiguous', days: [{ stops: [{ label: 'Books', place: { place: 'Hatchards', identity_basis: ['authoritative_source'] } }] }] });
+  ok('M5 a probable match stops the build before anything is written, and names the candidate', amb2.action === 'candidates' && amb2.candidates[0].match.candidate_name === 'Hatchards' && one('SELECT COUNT(*) n FROM itineraries').n === plans1);
+  const marks1 = one('SELECT COUNT(*) n FROM marks').n;
+  const broken = await raw('build_itinerary', { title: 'Will fail', days: [{ stops: [{ label: 'New place', place: { place: 'Rollback Test Cafe', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'] } }] },
+    { stops: [{ label: 'Bad', mark_uid: '00000000-0000-0000-0000-000000000000' }] }] });
+  ok('M6 a failure part-way writes nothing at all: no plan, no new mark', broken.isError && one('SELECT COUNT(*) n FROM itineraries').n === plans1 && one('SELECT COUNT(*) n FROM marks').n === marks1 && !one("SELECT 1 FROM marks WHERE name='Rollback Test Cafe'"));
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('error:', e.message); process.exit(2); });

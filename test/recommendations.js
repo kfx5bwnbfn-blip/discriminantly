@@ -42,9 +42,9 @@ const counts = () => ({ own: one('SELECT COUNT(*) n FROM ownership_assertions').
   const asAdmin = () => {};
   console.log('\nadditive tools');
   const bTools = await list(B);
-  ok('R0 /mcp lists all 63 tools (v2.58 adds resolve_travel_mark and audit_itinerary), the recommendation and stop-note tools among them, for every connection alike',
-     ['record_recommendations', 'resolve_recommendation', 'list_recommendations', 'keep_recommendation', 'dismiss_recommendation', 'set_stop_note', 'list_stop_notes', 'resolve_travel_mark', 'audit_itinerary'].every((n) => tools.includes(n))
-     && tools.length === 63 && JSON.stringify(tools) === JSON.stringify(bTools), String(tools.length));
+  ok('R0 /mcp lists all 65 tools (v2.58-v2.59 add resolve_travel_mark, audit_itinerary, audit_recommendation_expansion, build_itinerary), the recommendation and stop-note tools among them, for every connection alike',
+     ['record_recommendations', 'resolve_recommendation', 'list_recommendations', 'keep_recommendation', 'dismiss_recommendation', 'set_stop_note', 'list_stop_notes', 'resolve_travel_mark', 'audit_itinerary', 'audit_recommendation_expansion', 'build_itinerary'].every((n) => tools.includes(n))
+     && tools.length === 65 && JSON.stringify(tools) === JSON.stringify(bTools), String(tools.length));
   ok('R0b the server instructions carry the RECOMMENDATIONS paragraph for every connection',
      /RECOMMENDATIONS\./.test(await instr(A)) && (await instr(A)).split('\n').slice(1).join('\n') === (await instr(B)).split('\n').slice(1).join('\n'));
   ok('R0c there is no second, developer-only endpoint', (await post(A, '/mcp-dev/', { method: 'tools/list' })).status === 404);

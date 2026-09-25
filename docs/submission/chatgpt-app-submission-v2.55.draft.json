@@ -757,6 +757,30 @@
         "open_world_justification": "Closed-world: it reads only the member's own account and reaches no outside service.",
         "destructive_justification": "Not destructive: it only reads."
       }
+    },
+    "audit_recommendation_expansion": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: it inspects the member's own recommendations and changes nothing.",
+        "open_world_justification": "Closed-world: it reads only the member's own private recommendations and reaches no outside service.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
+    },
+    "build_itinerary": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: creates an itinerary with its days and stops, and travel marks for the places in it.",
+        "open_world_justification": "Open-world: the travel marks it creates are public unless made private, so it can publish content.",
+        "destructive_justification": "Not destructive: it only creates, or reuses an exact existing mark; it never overwrites or deletes, and a failure writes nothing."
+      }
     }
   },
   "test_cases": [
