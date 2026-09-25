@@ -58,6 +58,8 @@ BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test
 echo
 TA=$(q "console.log(require('$W/live/d.db.fixture.json').tokA)"); SA=$(q "console.log(require('$W/live/d.db.fixture.json').sidA)")
 TB=$(q "console.log(require('$W/live/d.db.fixture.json').tokB)"); SB=$(q "console.log(require('$W/live/d.db.fixture.json').sidB)")
+# v2.58: place identity and delegated itinerary authoring (scenarios A-I)
+BASE=http://localhost:3205 TOKEN="$TA" DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/place-identity.js"
 echo; echo "/mcp, the founder's connection: exactly the v2.56 contract"
 TOKEN=$TA SID=$SA BASE=http://localhost:3205 DB_PATH="$W/live/d.db" node --no-warnings "$ROOT/test/mcp-contract.js"
 echo; echo "/mcp, any other member's connection: exactly the same contract"

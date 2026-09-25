@@ -733,6 +733,30 @@
         "open_world_justification": "Open-world: on a public record the endorsement is published and shown to others. On a private record it is never published.",
         "destructive_justification": "Not destructive: it adds or links data and deletes or overwrites nothing."
       }
+    },
+    "resolve_travel_mark": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: creates a travel mark, or fills empty fields on an existing one, and can record a recommendation.",
+        "open_world_justification": "Open-world: a canonical travel mark is public unless made private, so creating one publishes content.",
+        "destructive_justification": "Not destructive: it only creates, or fills fields that are empty; it never overwrites or deletes."
+      }
+    },
+    "audit_itinerary": {
+      "annotations": {
+        "readOnlyHint": true,
+        "openWorldHint": false,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Read-only: it inspects one of the member's itineraries and changes nothing.",
+        "open_world_justification": "Closed-world: it reads only the member's own account and reaches no outside service.",
+        "destructive_justification": "Not destructive: it only reads."
+      }
     }
   },
   "test_cases": [

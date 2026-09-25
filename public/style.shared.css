@@ -1189,3 +1189,28 @@ body[data-skin] article.welcome-card .wl-tab { margin: 0 .15rem 1.2rem; }
 .welcome-card .wl-tabs .wl-tab, body[data-skin] article.welcome-card .wl-tab { display: flex; align-items: center; justify-content: center; margin: 0; opacity: 1; text-align: center; }
 @media (max-width: 52rem) { .welcome-card .wl-tabs { max-width: none; } }
 .welcome-card .wl-num { margin-right: .4em; }
+
+/* ---- v2.58 UI fixes --------------------------------------------------------- */
+/* Profile: the Follow button sits clear of the profile card above it. */
+body[data-skin] .prail-follow { margin: 1rem 0 1.2rem; }
+/* Home and profile, desktop: the sticky left rail scrolls without a visible bar. */
+@media (min-width: 52.01rem) {
+  body[data-skin] .cols > .rail { scrollbar-width: none; }
+  body[data-skin] .cols > .rail::-webkit-scrollbar { display: none; width: 0; height: 0; }
+}
+/* Recommended itineraries: always open; Keep this plan centred on its own row. */
+.rec-explore.is-open { display: block; }
+.rec-plan .rec-keep-row { display: flex; justify-content: center; margin: 1rem 0 .2rem; }
+.rec-plan .rec-keep-row .keep-form { margin: 0; }
+/* Welcome: an arced headline over the tabs; three separate tiles. */
+.welcome-card .wl-headline { display: flex; justify-content: center; margin: .2rem 0 0; }
+.welcome-card .wl-headline svg { max-width: min(100%, 28rem); height: auto; }
+.welcome-card .wl-since { text-align: center; margin: .2rem 0 1rem; }
+.welcome-card .wl-kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: .9rem; margin: .4rem 0 1rem; }
+body:not([data-skin="modern"]) .welcome-card .wl-kind { background: rgba(0,0,0,.04); border-radius: 14px; }
+@media (max-width: 52rem) { .welcome-card .wl-kinds { grid-template-columns: 1fr; } }
+/* the arc's SVG reserves room for a second line it doesn't use here */
+.welcome-card .wl-headline { margin-bottom: -2.1rem; }
+.welcome-card .wl-kind, .welcome-card .wl-kind .wl-say { text-align: center; }
+.welcome-card .wl-tab, .welcome-card .wl-num { white-space: nowrap; }
+@media (max-width: 52rem) { .welcome-card .wl-num { display: none; } }

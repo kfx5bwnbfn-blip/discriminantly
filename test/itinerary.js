@@ -388,7 +388,7 @@ console.log('\nMCP tool descriptions');
   const blocks = marks.map((o, k) => ({ name: o.n, txt: seg.slice(o.i, k + 1 < marks.length ? marks[k + 1].i : seg.length) }));
   const mine = blocks.filter((b3) => /itinerar/.test(b3.name));
 
-  ok('   nine itinerary tools present', mine.length === 9, String(mine.length));
+  ok('   ten itinerary tools present (v2.58 adds audit_itinerary)', mine.length === 10, String(mine.length));
   ok('   no duplicate tool names', names.length === new Set(names).size);
 
   const bare = [];
@@ -1139,7 +1139,7 @@ function loadToolsFromSource(SRC) {
     'list_ensembles', 'get_ensemble', 'list_unresolved_components', 'list_checkins', 'read_comments', 'view_images',
     'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake',
     'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload',
-    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes'];
+    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes', 'audit_itinerary'];
   ok('SW1 closed-world is exactly the reads plus the writes confined to never-public data',
      JSON.stringify(TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()),
      TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).filter((n) => !closed.includes(n)).join(', '));
@@ -1149,8 +1149,8 @@ function loadToolsFromSource(SRC) {
       'resolve_ensemble_component', 'remove_ensemble_artifact', 'remove_ensemble_component', 'delete_ensemble', 'discard_ensemble',
       'delete_note', 'delete_travel_mark'].every((n) => ann[n].openWorldHint));
   const cnt = (k) => TOOLS_SRC.filter((t) => t.annotations[k]).length;
-  ok('SW3 final counts (v2.55, 61 tools): 16 read-only, 16 destructive, 38 open-world',
-     TOOLS_SRC.length === 61 && cnt('readOnlyHint') === 16 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 38,
+  ok('SW3 final counts (v2.58, 63 tools): 17 read-only, 16 destructive, 39 open-world',
+     TOOLS_SRC.length === 63 && cnt('readOnlyHint') === 17 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 39,
      `${TOOLS_SRC.length} tools: ${cnt('readOnlyHint')} ro, ${cnt('destructiveHint')} de, ${cnt('openWorldHint')} ow`);
   ok('SW4 v2.55 audit corrections: staging and keeping an ensemble, and keeping a recommendation, are open-world; arranging an itinerary is destructive',
      ann.create_pending_ensemble.openWorldHint && ann.keep_ensemble.openWorldHint && ann.keep_recommendation.openWorldHint && ann.arrange_itinerary.destructiveHint);
@@ -1161,7 +1161,7 @@ console.log('\nrepeat creation');
 {
   const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-results.json'), 'utf8'));
   const pair = (tool, via) => [fx[tool].find((r) => r.label === `repeat first (${via})`), fx[tool].find((r) => r.label === `repeat second (${via})`)];
-  for (const [tool, subject, re] of [['add_travel_mark', 'mark', /if \(dup\) return wr\(`This looks like it may already be marked: [\s\S]*?,\s*'unchanged', 'mark', dup\.id, uidOf\('marks', dup\.id\), dup\.name, 'already_exists'\);/],
+  for (const [tool, subject, re] of [['add_travel_mark', 'mark', /if \(pm\.state === 'exact'\) return \{ \.\.\.wr\(`Already in the member's marks: [\s\S]*?,\s*'unchanged', 'mark', pm\.id, pm\.uid, pm\.name, 'already_exists'\), meta \};/],
                                      ['note_object', 'note', /if \(dup\) return wr\(`This looks like it may already be noted: [\s\S]*?,\s*'unchanged', 'note', dup\.id, uidOf\('objects', dup\.id\), dup\.name, 'already_exists'\);/]]) {
     ok(`SU ${tool}: a detected duplicate returns the standard write result, action unchanged`, re.test(SRC));
     for (const via of ['legacy', 'oauth']) {
@@ -1332,7 +1332,8 @@ console.log('\nadoption');
      /SELECT \* FROM adopted_itineraries WHERE user_id=\? ORDER BY id DESC LIMIT \?/.test(SRC)
      && /COUNT\(\*\) FROM note_collections nc JOIN adopted_objects o ON o\.id=nc\.note_id WHERE nc\.collection_id=c\.id/.test(SRC));
   ok('K1f duplicate detection never calls an unkept record "already noted"',
-     /function findSimilarNote[\s\S]{0,500}FROM adopted_objects WHERE user_id=\?/.test(SRC) && /function findSimilarMark[\s\S]{0,300}FROM adopted_marks WHERE user_id=\?/.test(SRC));
+     /function findSimilarNote[\s\S]{0,500}FROM adopted_objects WHERE user_id=\?/.test(SRC) && /function matchPlace\(userId, c, \{ scope = 'adopted' \} = \{\}\) \{[\s\S]{0,200}'marks' : 'adopted_marks'/.test(SRC)
+     && /const pm = matchPlace\(user\.id, \{ name: a\.place,/.test(SRC));
   // K2: corpus surfaces, by name
   const home = body("rows = mineToo", 'const banner = resurfaceBanner(');
   ok('K2a the home feed reads notes, marks and itineraries from the projection',
@@ -1374,7 +1375,7 @@ console.log('\nadoption');
   const calls = [...SRC.matchAll(/recordAdoption\(/g)].map((m) => m.index).filter((i) => !SRC.slice(i - 9, i).includes('function'));
   const where = calls.map((i) => { const f = SRC.lastIndexOf('\nfunction ', i); return SRC.slice(f + 10, SRC.indexOf('(', f + 10)); });
   ok('K4d nothing else records Adoption (no inference from other acts)',
-     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep', 'keepRecommendedRecord', 'ensembleKeepAdoptsLinked', 'keepFromRecommendedPlan'].includes(w)), where.join(', '));
+     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep', 'keepRecommendedRecord', 'ensembleKeepAdoptsLinked', 'keepFromRecommendedPlan', 'resolveTravelMark'].includes(w)), where.join(', '));
 
   // K5: independence
   const own = body('function assertOwned(', '// ---- Adoption (members see "Keep"');
@@ -1437,7 +1438,8 @@ console.log('\nrecommendation');
      && /itineraryCreate\(user, \{ title: r\.label, private: 1 \}, ctx, \{ adopt: false \}\)/.test(dom));
   ok('RC6 reuse before creation: existing records gain the recommendation', /findExistingNote\(user\.id/.test(dom) && /findExistingMark\(user\.id/.test(dom));
   ok('RC7 Adoption is recorded only when the member keeps: keep_recommendation, asking to note/mark the very thing recommended, or (web, Increment 4) keeping one place of a recommended plan; all cite the recommendation',
-     (dom.match(/recordAdoption\(/g) || []).length === 3 && /source_kind: 'recommendation', source_ref: r\.uid \}\)\) kept\.push/.test(dom)
+     (dom.match(/recordAdoption\(/g) || []).length === 4
+     && /if \(target === 'canonical' && !isAdopted\('mark', uid\)\) \{ recordAdoption\(user\.id, 'mark', uid, ctx, \{ source_kind: 'resolution'/.test(dom) && /source_kind: 'recommendation', source_ref: r\.uid \}\)\) kept\.push/.test(dom)
      && /function keepFromRecommendedPlan\(user, subjectType, row, p, ctx\) \{\s*return recordAdoption\(user\.id, subjectType, row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: p\.rec \? p\.rec\.uid : p\.plan_uid \}\);/.test(dom)
      && /function keepRecommendedRecord\(user, type, found, ctx\) \{\s*return recordAdoption\(user\.id, type, found\.row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: found\.rec \}\);/.test(dom));
   ok('RC8 a new place in a recommended plan is not kept; in a kept plan it is',
@@ -1476,18 +1478,22 @@ console.log('\nlifecycle invariants (source)');
 console.log('\nMCP contract (definitions)');
 {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
-  const cur = read('mcp-contract-v2.56.json'), rel = read('mcp-contract-v2.55.json'), hist = read('submitted-mcp-contract.json');
+  const cur = read('mcp-contract-v2.58.json'), rel = read('mcp-contract-v2.56.json'), hist = read('submitted-mcp-contract.json');
   const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
   const gen = norm(loadToolsFromSource(SRC));
   const names = (l) => l.map((t) => t.name);
-  ok('MC1 the v2.56 snapshot holds 61 tools, as does the v2.55 release; the historical one still holds the submitted 54', cur.tools.length === 61 && rel.tools.length === 61 && hist.tools.length === 54);
-  // Increment 4 against the v2.55 release: the same tools, names and annotations;
-  // only the recommendation tools changed (origin fields; Keep attaches to its stop).
-  const INC4_CHANGED = ['dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'record_recommendations', 'resolve_recommendation'];
+  ok('MC1 the v2.58 snapshot holds 63 tools and v2.56 held 61; the historical one still holds the submitted 54', cur.tools.length === 63 && rel.tools.length === 61 && hist.tools.length === 54);
+  // v2.58 against v2.56: delegated itinerary authoring and place identity.
+  // Only these descriptions and my_travel_marks' result changed; two tools added;
+  // every existing annotation and the server instructions are unchanged.
+  const V258_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'my_travel_marks', 'record_recommendations', 'resolve_itinerary_stop', 'verify_place'];
+  const V258_ADDED = ['audit_itinerary', 'resolve_travel_mark'];
   const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
-  ok('MC9 against the v2.55 release, only the recommendation tools changed, annotations untouched, instructions unchanged',
-     JSON.stringify(incChanged) === JSON.stringify(INC4_CHANGED) && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
-     && rel.initialize.instructions === cur.initialize.instructions, incChanged.join(', '));
+  const incAdded = cur.tools.filter((t) => !rel.tools.find((x) => x.name === t.name)).map((t) => t.name).sort();
+  ok('MC9 against v2.56, only the approved v2.58 tools changed or were added; existing annotations and the instructions unchanged',
+     JSON.stringify(incChanged) === JSON.stringify(V258_CHANGED) && JSON.stringify(incAdded) === JSON.stringify(V258_ADDED)
+     && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
+     && rel.initialize.instructions === cur.initialize.instructions, `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
   const drift = gen.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name);
   ok('MC2 every tool definition generated from source matches the v2.56 snapshot (names, descriptions, schemas, annotations, security)',
      !drift.length && gen.length === cur.tools.length, 'differs: ' + drift.join(', '));
@@ -1498,14 +1504,12 @@ console.log('\nMCP contract (definitions)');
   // Historical regression reference: what changed since the cancelled
   // submission, and only that. A change outside these lists is a finding.
   // delete_note / delete_travel_mark: descriptions state de-resolution (final semantic pass)
-  const APPROVED_CHANGED = ['add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark',
-    'discard_ensemble', 'keep_ensemble', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component'];
+  const APPROVED_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark', 'discard_ensemble', 'keep_ensemble', 'my_travel_marks', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component', 'resolve_itinerary_stop', 'verify_place'];
   // The shared write result gained one action, 'kept' (note_object /
   // add_travel_mark keeping an already-recommended record). That alone is
   // not a change to a tool's meaning, so it is compared without it.
   const sansKept = (t) => JSON.parse(JSON.stringify(t, (k, v) => (k === 'enum' && Array.isArray(v) && v.includes('kept') && v.includes('created')) ? v.filter((x) => x !== 'kept') : v));
-  const APPROVED_ADDED = ['dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes',
-    'record_recommendations', 'resolve_recommendation', 'set_stop_note'];
+  const APPROVED_ADDED = ['audit_itinerary', 'dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes', 'record_recommendations', 'resolve_recommendation', 'resolve_travel_mark', 'set_stop_note'];
   const removed = names(hist.tools).filter((n) => !gen.find((t) => t.name === n));
   const changed = hist.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return g && JSON.stringify(sansKept(g)) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const added = names(gen).filter((n) => !hist.tools.find((t) => t.name === n)).sort();
@@ -1553,8 +1557,46 @@ console.log('\nwelcome');
      /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(f) && /coming to ChatGPT\\u2019s plugin directory/.test(f));
   ok('WL5 current Claude wording: Customize \u203a Connectors, Add custom connector, + \u203a Connectors',
      /Customize \\u203a Connectors/.test(f) && /Add custom connector/.test(f) && /\+ \\u203a Connectors/.test(f));
-  ok('WL6 built from the skin\u2019s own components (sbox-title, sbox-sub, wcell, btn3d, link caps)',
-     ['sbox-title', 'sbox-sub', 'wcell', 'btn3d', 'link caps'].every((c) => f.includes(c)));
+  ok('WL6 built from the skin\u2019s own components (arcTitle headline, sbox-title, sbox-sub, btn3d, link caps), with three separate tiles',
+     ['arcTitle(', 'sbox-title', 'sbox-sub', 'btn3d', 'link caps'].every((c) => f.includes(c)) && !/wtable wl-kinds|wcell wl-kind/.test(f)
+     && /\[\[1, 'Orientation', 'Orientation'\], \[2, 'Connect your AI', 'Connect'\], \[3, 'Get started', 'Start'\]\]/.test(f));
+}
+
+// ---- Place identity (v2.58): one matcher, exact-only reuse -------------------
+console.log('\nplace identity');
+{
+  const vm = require('vm');
+  const pick = (from, to) => SRC.slice(SRC.indexOf(from), SRC.indexOf(to, SRC.indexOf(from)));
+  const code = pick('const normTitle = ', '\nfunction findSimilarNote') + '\n' + pick('const PLACE_GENERIC = ', '\n// scope \'adopted\'');
+  const ctx = {}; vm.runInNewContext(code + '\nthis.placeMatchRow = placeMatchRow; this.placeMatchBest = placeMatchBest;', ctx);
+  const { placeMatchRow: row, placeMatchBest: best } = ctx;
+  const mplus = { id: 1, uid: 'mplus', name: 'M+', locality: 'Hong Kong', country: 'Hong Kong', address: '38 Museum Drive, West Kowloon', lat: 22.3017, lng: 114.1597 };
+  const taipei = ['Simple Kaffa Huashan Flagship Store', 'National Taiwan Museum \u2014 Railway Department Park', 'Yongle Fabric Market', 'Mountain and Sea House', 'Bar Mood Taipei'];
+  ok('PM1 none of the five Taipei places matches M+ Hong Kong (the dogfood failure)',
+     taipei.every((n) => row({ name: n, locality: 'Taipei', country: 'Taiwan' }, mplus).state === 'none'));
+  ok('PM2 without any locality or country either, a name containing "m" is still no match',
+     taipei.every((n) => row({ name: n }, mplus).state === 'none'));
+  ok('PM3 another country is never the same place on its name', row({ name: 'M+', locality: 'Taipei', country: 'Taiwan' }, mplus).state === 'none');
+  ok('PM4 same name, same city: exact (normalized_name_locality)',
+     (({ state, basis }) => state === 'exact' && basis.includes('normalized_name_locality'))(row({ name: 'M+', locality: 'Hong Kong' }, mplus)));
+  ok('PM5 same address and a matching name: exact, even with no coordinates',
+     row({ name: 'M+', address: '38 Museum Drive, West Kowloon' }, { ...mplus, lat: null, lng: null }).state === 'exact');
+  ok('PM6 effectively identical coordinates and a matching name: exact',
+     row({ name: 'M+ museum', lat: 22.30172, lng: 114.15972 }, mplus).state === 'exact');
+  const bb = { id: 2, uid: 'bbk', name: 'Blue Bottle Coffee Kiyosumi', locality: 'Tokyo', country: 'Japan' };
+  ok('PM7 a branch of the same chain in another country: no match', row({ name: 'Blue Bottle Coffee Mission', locality: 'San Francisco', country: 'United States' }, bb).state === 'none');
+  ok('PM8 another branch in the same city: possible at most, never reused', ['possible', 'none'].includes(row({ name: 'Blue Bottle Coffee Aoyama', locality: 'Tokyo' }, bb).state));
+  ok('PM9 generic words alone ("Coffee Store") never make a match', row({ name: 'Coffee Store', locality: 'Tokyo' }, { id: 3, uid: 'x', name: 'Coffee Store Kitchen', locality: 'Tokyo' }).state === 'none');
+  const two = [{ id: 4, uid: 'h1', name: 'Hatchards', locality: 'London', country: 'United Kingdom' }, { id: 5, uid: 'h2', name: 'Hatchards', locality: 'Edinburgh', country: 'United Kingdom' }];
+  ok('PM10 the same name in two cities and no city given: probable, not exact (surfaced, not substituted)', best({ name: 'Hatchards' }, two).state === 'probable');
+  ok('PM11 the same name in another city: possible', row({ name: 'Hatchards', locality: 'Bath' }, two[0]).state === 'possible');
+  ok('PM12 every place path reuses only on exact: add_travel_mark, recommendations, recommended plans, recommended records',
+     /if \(pm\.state === 'exact'\) return \{ \.\.\.wr\(`Already in the member's marks:/.test(SRC)
+     && /return m\.state === 'exact' \? m\.row : null;/.test(SRC)
+     && /const m = placeMatchBest\(\{ name, locality, \.\.\.place \}, open\); return m\.state === 'exact' \? m\.row : null;/.test(SRC)
+     && !/function findSimilarMark\(/.test(SRC));
+  ok('PM13 match diagnostics reach the caller in the reply and its _meta (no schema change)',
+     /meta: \{ 'discriminantly\/place_match': pm \? placeMatchPublic\(pm\)/.test(SRC) && /if \(out && typeof out === 'object' && out\.meta\) payload\._meta = /.test(SRC));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

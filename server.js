@@ -1460,6 +1460,14 @@ const MIGRATIONS = [
     run('CREATE INDEX IF NOT EXISTS idx_recommendations_origin ON recommendations(user_id, origin_itinerary_uid)');
   }],
 
+  // Place identity (v2.58): how a mark's identity was established, where its
+  // location came from, and a stable external id when one is known. Additive;
+  // existing marks keep '' (their identity is derived from what they hold).
+  ['056-mark-identity', () => {
+    if (!hasColumn('marks', 'identity_basis')) db.exec("ALTER TABLE marks ADD COLUMN identity_basis TEXT DEFAULT ''");
+    if (!hasColumn('marks', 'location_source')) db.exec("ALTER TABLE marks ADD COLUMN location_source TEXT DEFAULT ''");
+    if (!hasColumn('marks', 'external_id')) db.exec("ALTER TABLE marks ADD COLUMN external_id TEXT DEFAULT ''");
+  }],
 ];
 
 function backupTo(file) {
@@ -5013,26 +5021,221 @@ function recTarget(user, kind, type, uid) {
 }
 // Reuse before creation (design Q18): an existing record of the member's,
 // Kept or not, gains Recommendation evidence and is never duplicated.
-function findExistingMark(userId, { place_name, locality }) {
-  const n = normTitle(place_name);
-  if (!n) return null;
-  const loc = String(locality || '').trim().toLowerCase();
-  return q('SELECT * FROM marks WHERE user_id=? ORDER BY id').all(userId)
-    .find((m) => normTitle(m.name) === n && (!loc || !m.locality || m.locality.toLowerCase() === loc)) || null;
+// ---- Place identity (v2.58): one matcher for every place path --------------
+// Every place create-or-match path asks this, and only this. It answers with
+// { state: 'exact'|'probable'|'possible'|'none', id, uid, name, basis,
+// confidence }. Only 'exact' may be reused silently; 'probable' and
+// 'possible' are surfaced, never substituted. A false merge corrupts plans and
+// the member's catalogue, so it is worse than a cautious miss:
+// - a place in another country is never the same place on its name;
+// - another city is at most 'possible';
+// - a name merely containing another means nothing, and neither do very short
+//   or generic words (so "M+" cannot match everything with an "m" in it).
+const PLACE_GENERIC = new Set(['the', 'and', 'of', 'at', 'in', 'on', 'de', 'la', 'le', 'du', 'des', 'da', 'di', 'del', 'el',
+  'cafe', 'coffee', 'store', 'shop', 'bar', 'restaurant', 'hotel', 'museum', 'market', 'house', 'flagship', 'gallery',
+  'bookshop', 'books', 'park', 'centre', 'center', 'club', 'kitchen', 'bakery']);
+const placeTokens = (s) => normTitle(s).split(' ').filter((t) => t.length >= 3 && !PLACE_GENERIC.has(t));
+// true when both sides say the same, false when both say different things, null when either is unknown
+const placeSame = (a, b) => { const x = normTitle(a), y = normTitle(b); return x && y ? x === y : null; };
+const placeHasCoords = (p) => p && p.lat !== null && p.lat !== undefined && p.lat !== '' && p.lng !== null && p.lng !== undefined && p.lng !== ''
+  && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng));
+function placeMetres(a, b) {
+  const R = 6371000, rad = (d) => (Number(d) * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+// One candidate against one existing place. Pure: easy to test.
+function placeMatchRow(c, r) {
+  // A stable external id (same provider) settles identity either way, even across countries.
+  const ex = (v) => String(v || '').trim().toLowerCase();
+  if (ex(c.external_id) && ex(r.external_id) && ex(c.external_id).split(':')[0] === ex(r.external_id).split(':')[0])
+    return ex(c.external_id) === ex(r.external_id) ? { state: 'exact', basis: ['stable_external_id'], confidence: 0.99 } : { state: 'none', basis: ['external_id_differs'] };
+  const country = placeSame(c.country, r.country), locality = placeSame(c.locality, r.locality);
+  if (country === false) return { state: 'none', basis: ['country_differs'] };
+  const nameEq = !!normTitle(c.name) && normTitle(c.name) === normTitle(r.name);
+  const addrEq = placeSame(c.address, r.address) === true && normTitle(c.address).length >= 6;
+  const near = placeHasCoords(c) && placeHasCoords(r) && placeMetres({ lat: +c.lat, lng: +c.lng }, { lat: +r.lat, lng: +r.lng }) <= 30;
+  const ta = new Set(placeTokens(c.name)), tb = new Set(placeTokens(r.name));
+  const shared = [...ta].filter((t) => tb.has(t)).length, union = new Set([...ta, ...tb]).size;
+  const jac = union ? shared / union : 0;
+  const alike = nameEq || jac >= 0.5;
+  if (addrEq && alike && locality !== false) return { state: 'exact', basis: ['exact_address', nameEq ? 'normalized_name' : 'fuzzy_name'], confidence: 0.97 };
+  // One name containing the other means nothing alone (the M+ bug), but beside
+  // coordinates that already agree it corroborates ("M+ museum" at M+).
+  const na = normTitle(c.name), nb = normTitle(r.name), contains = !!(na && nb && (na.includes(nb) || nb.includes(na)));
+  if (near && (alike || contains)) return { state: 'exact', basis: ['exact_coordinates', nameEq ? 'normalized_name' : 'fuzzy_name'], confidence: 0.96 };
+  if (nameEq && locality === true) return { state: 'exact', basis: ['normalized_name_locality'], confidence: 0.93 };
+  if (locality === false) return nameEq || jac >= 0.6 ? { state: 'possible', basis: ['fuzzy_name', 'locality_differs'], confidence: 0.3 } : { state: 'none', basis: [] };
+  if (nameEq) return { state: 'probable', basis: ['normalized_name'], confidence: 0.7 };
+  if (near) return { state: 'probable', basis: ['exact_coordinates'], confidence: 0.65 };
+  if (addrEq) return { state: 'probable', basis: ['exact_address'], confidence: 0.65 };
+  if (jac >= 0.8 && locality === true) return { state: 'probable', basis: ['fuzzy_name', 'locality'], confidence: 0.6 };
+  if (jac >= 0.5) return { state: 'possible', basis: ['fuzzy_name'], confidence: 0.35 };
+  return { state: 'none', basis: [] };
+}
+// The best match among a set of existing places (exact, then probable, then possible).
+function placeMatchBest(c, rows) {
+  const rank = { exact: 3, probable: 2, possible: 1, none: 0 };
+  let best = { state: 'none', basis: [] }, row = null;
+  for (const r of rows) {
+    const m = placeMatchRow(c, r);
+    if (rank[m.state] > rank[best.state] || (rank[m.state] === rank[best.state] && (m.confidence || 0) > (best.confidence || 0))) { best = m; row = r; }
+  }
+  return row && best.state !== 'none' ? { ...best, id: row.id, uid: row.uid, name: row.name, row } : { state: 'none', basis: [] };
+}
+// scope 'adopted': the member's own marks (their catalogue). 'all': any of
+// their marks, including ones a Recommendation or a recommended plan explains.
+function matchPlace(userId, c, { scope = 'adopted' } = {}) {
+  const rows = q(`SELECT * FROM ${scope === 'all' ? 'marks' : 'adopted_marks'} WHERE user_id=? ORDER BY id`).all(userId);
+  return placeMatchBest(c, rows);
+}
+// How grounded a mark's identity is, from what it holds and how it was
+// established. Replaces reading `verified` (which new marks never set).
+const IDENTITY_BASES = ['member_identity', 'mapping_provider', 'authoritative_source', 'stable_external_id'];
+function placeIdentityOf(m) {
+  const stored = String(m.identity_basis || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const hasAddr = !!String(m.address || '').trim(), hasCoords = placeHasCoords(m), hasLoc = !!(String(m.locality || '').trim() || String(m.country || '').trim());
+  const basis = [];
+  if (stored.includes('member_identity')) basis.push('member_confirmed');
+  if (stored.includes('mapping_provider')) basis.push('mapping_provider');
+  if (stored.includes('authoritative_source') && hasAddr) basis.push('authoritative_address');
+  if (stored.includes('stable_external_id') || String(m.external_id || '').trim()) basis.push('stable_external_id');
+  if (hasLoc) basis.push('name_locality');
+  const status = hasLoc && (hasAddr || hasCoords || basis.includes('stable_external_id')) ? 'resolved' : hasLoc ? 'partial' : 'unresolved';
+  return { status, basis };
+}
+function locationOf(m) {
+  const out = {};
+  if (String(m.address || '').trim()) out.address = m.address;
+  if (placeHasCoords(m)) { out.lat = Number(m.lat); out.lng = Number(m.lng); }
+  const src = String(m.location_source || '').trim();
+  if (src && (out.address || out.lat !== undefined)) out.source = src;
+  return out;
+}
+// Resolve a grounded place into the member's marks: reuse an exact identity,
+// otherwise create one, or return the ambiguous candidate. Shares matchPlace
+// with add_travel_mark. Never records a visit, ownership or a warrant.
+function resolveTravelMark(user, a, ctx) {
+  const place = String(a.place || '').trim();
+  if (!place) throw new Error('place is required: the place\u2019s name.');
+  const basis = (Array.isArray(a.identity_basis) ? a.identity_basis : []).filter((b) => IDENTITY_BASES.includes(b));
+  if (!basis.length) throw new Error('identity_basis is required: how the identity was established (member_identity, mapping_provider, authoritative_source or stable_external_id).');
+  const target = a.target_state;
+  if (target !== 'canonical' && target !== 'recommendation') throw new Error('target_state must be "canonical" or "recommendation".');
+  const has = (v) => v !== undefined && v !== null && v !== '';
+  if (has(a.lat) !== has(a.lng)) throw new Error('lat and lng come together, or not at all.');
+  const coords = has(a.lat);
+  if (coords && !Number.isFinite(Number(a.lat) + Number(a.lng))) throw new Error('lat and lng must be numbers.');
+  if (coords && !basis.some((b) => b === 'mapping_provider' || b === 'member_identity' || b === 'stable_external_id'))
+    throw new Error('Coordinates need a source: include mapping_provider (from verify_place) or member_identity. Never estimate them; leave them out instead.');
+  const ext = a.external_id && a.external_id.provider && a.external_id.id ? `${String(a.external_id.provider).trim().toLowerCase()}:${String(a.external_id.id).trim()}` : '';
+  if (ext && !basis.includes('stable_external_id')) basis.push('stable_external_id');
+  const tags = Array.isArray(a.tags) ? a.tags.map((t) => String(t).trim()).filter(Boolean).join(', ') : String(a.tags || '').trim();
+  const cand = { name: place, locality: a.locality, country: a.country, address: a.address, lat: coords ? +a.lat : null, lng: coords ? +a.lng : null, external_id: ext };
+  const m = matchPlace(user.id, cand, { scope: 'all' });
+  const match = placeMatchPublic(m);
+  // Probable blocks (it may be this very place). Possible (another city, a
+  // similar name) is created and the candidate named, as add_travel_mark does.
+  if (m.state === 'probable' && !a.allow_distinct_from_candidate)
+    return { ok: true, action: 'candidate', mark: null, match, place_identity: null, changed: [] };
+  const locSource = coords ? (basis.includes('mapping_provider') ? 'mapping_provider' : basis.includes('member_identity') ? 'member' : 'authoritative_source')
+    : (String(a.address || '').trim() ? (basis.includes('authoritative_source') ? 'authoritative_source' : basis.includes('member_identity') ? 'member' : '') : '');
+  let uid, action; const changed = [];
+  if (m.state === 'exact') {
+    const row = m.row; uid = row.uid; action = 'reused';
+    // Enrich only what is empty: never overwrite what is there.
+    const fill = { locality: a.locality, country: a.country, address: a.address, url: a.link, why: a.why, tags };
+    const sets = [], vals = [];
+    for (const [k, v] of Object.entries(fill)) if (String(v || '').trim() && !String(row[k] || '').trim()) { sets.push(`${k}=?`); vals.push(String(v).trim()); changed.push(k === 'url' ? 'link' : k); }
+    if (coords && !placeHasCoords(row)) { sets.push('lat=?', 'lng=?'); vals.push(+a.lat, +a.lng); changed.push('coordinates'); }
+    if (ext && !String(row.external_id || '').trim()) { sets.push('external_id=?'); vals.push(ext); changed.push('external_id'); }
+    const merged = [...new Set([...String(row.identity_basis || '').split(',').filter(Boolean), ...basis])].join(',');
+    if (merged !== String(row.identity_basis || '')) { sets.push('identity_basis=?'); vals.push(merged); }
+    if ((changed.includes('coordinates') || changed.includes('address')) && locSource) { sets.push('location_source=?'); vals.push(locSource); }
+    if (sets.length) q(`UPDATE marks SET ${sets.join(', ')} WHERE id=?`).run(...vals, row.id);
+    if (changed.length) { recordProvenance('mark', uid, 'edited', ctx, { source_kind: 'resolution', fields: changed.join(',') }); action = 'enriched'; }
+    if (target === 'canonical' && !isAdopted('mark', uid)) { recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'resolution', source_ref: uid }); changed.push('kept'); }
+  } else {
+    const r = markCreate(user, { name: place, locality: a.locality || '', country: a.country || '', address: a.address || '',
+      lat: coords ? +a.lat : null, lng: coords ? +a.lng : null, why: a.why || '', tags, url: a.link || '',
+      private: target === 'recommendation' ? true : !!a.private }, ctx, { source_kind: 'resolution', adopt: target === 'canonical' });
+    q('UPDATE marks SET identity_basis=?, location_source=?, external_id=? WHERE id=?').run(basis.join(','), locSource, ext, r.id);
+    uid = r.uid; action = 'created';
+  }
+  const row = q('SELECT * FROM marks WHERE uid=?').get(uid);
+  let recommendation_uid = null;
+  const rc = a.recommendation_context;
+  if (rc && rc.workflow) {
+    const made = recommendationCreate(user, { kind: 'place', label: place, resolution: 'resolved', workflow: rc.workflow,
+      target_type: 'mark', target_uid: uid, context_itinerary_uid: rc.itinerary_uid, context_stop_uid: rc.stop_uid,
+      rationale: rc.rationale, evidence_uids: rc.evidence_uids, place_name: place, locality: a.locality, country: a.country }, ctx);
+    recommendation_uid = (made && made.rec && made.rec.uid) || null;
+  }
+  return { ok: true, action, mark: { uid, id: row.id, name: row.name, kept: isAdopted('mark', uid) },
+    match, place_identity: placeIdentityOf(row), changed, ...(recommendation_uid ? { recommendation_uid } : {}) };
+}
+// A read-only integrity view of one of the member's plans. Returns the exact
+// stop and mark uids that need attention; never changes anything.
+function auditItinerary(user, uid, expect = {}) {
+  const it = itinOwned(user, uid);
+  const stops = q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id);
+  const unresolved = stops.filter((st) => st.resolution === 'particular' && !st.mark_uid).map((st) => ({ stop_uid: st.uid, label: st.label }));
+  const groups = q('SELECT COUNT(*) n FROM itinerary_groups WHERE itinerary_id=?').get(it.id).n;
+  const unplaced = groups ? stops.filter((st) => !st.group_id).map((st) => ({ stop_uid: st.uid, label: st.label })) : [];
+  const conflicts = [], missing = [], seen = new Map();
+  for (const st of stops.filter((x) => x.mark_uid)) {
+    const mk = q('SELECT * FROM marks WHERE uid=? AND user_id=?').get(st.mark_uid, user.id);
+    if (!mk) { conflicts.push(`stop ${st.uid} ("${st.label}") points at a travel mark that no longer exists`); continue; }
+    const key = `${st.group_id || 0}:${mk.uid}`;
+    if (seen.has(key)) conflicts.push(`travel mark ${mk.uid} ("${mk.name}") appears twice on the same day (stops ${seen.get(key)} and ${st.uid})`); else seen.set(key, st.uid);
+    const gaps = [];
+    if (!String(mk.locality || '').trim()) gaps.push('locality');
+    if (!String(mk.country || '').trim()) gaps.push('country');
+    if (!String(mk.address || '').trim()) gaps.push('address');
+    if (!placeHasCoords(mk)) gaps.push('coordinates');
+    if (!String(mk.url || '').trim()) gaps.push('link');
+    if (!String(mk.why || '').trim()) gaps.push('why');
+    if (gaps.length) missing.push({ mark_uid: mk.uid, stop_uid: st.uid, missing: gaps });
+  }
+  const placed = groups ? stops.filter((st) => st.group_id) : [];
+  const ordered = placed.filter((st) => st.position !== null && st.position !== undefined).length;
+  const sequencing = !placed.length || !ordered ? 'absent' : ordered === placed.length ? 'complete' : 'partial';
+  const e = { all_specific_stops_linked: false, no_unplaced_stops: false, ordered: false, no_conflicts: true, enhanced_marks: false, ...(expect || {}) };
+  const failed = [];
+  if (e.all_specific_stops_linked && unresolved.length) failed.push('all_specific_stops_linked');
+  if (e.no_unplaced_stops && unplaced.length) failed.push('no_unplaced_stops');
+  if (e.ordered && sequencing !== 'complete') failed.push('ordered');
+  if (e.no_conflicts && conflicts.length) failed.push('no_conflicts');
+  // "Enhanced" asks for a grounded identity (locality, country, and an address
+  // or coordinates). A missing website or note never fails it: many real
+  // places have none, and a resolver can legitimately find no coordinates.
+  if (e.enhanced_marks && missing.some((x) => x.missing.includes('locality') || x.missing.includes('country') || (x.missing.includes('address') && x.missing.includes('coordinates')))) failed.push('enhanced_marks');
+  return { ok: true, itinerary_uid: it.uid, checks: { unresolved_particular_stops: unresolved, unplaced_stops: unplaced,
+    linked_marks_missing_core_fields: missing, sequencing, conflicts }, satisfied: !failed.length, failed };
+}
+const placeMatchPublic = (m) => ({ state: m.state, basis: m.basis || [], ...(m.confidence ? { confidence: m.confidence } : {}),
+  ...(m.uid ? { candidate_uid: m.uid, candidate_id: m.id, candidate_name: m.name } : {}) });
+
+function findExistingMark(userId, { place_name, locality, country, address, lat, lng }) {
+  // Reuse is silent, so it needs an exact identity (placeMatchRow).
+  const m = matchPlace(userId, { name: place_name, locality, country, address, lat, lng }, { scope: 'all' });
+  return m.state === 'exact' ? m.row : null;
 }
 // The member asks to note or mark something that was already recommended to
 // them and exists only as that recommendation's record: keeping THAT record is
 // what they asked for, and a second record would duplicate it (design Q18).
 // Matches by title, like duplicate detection; returns { row, rec } or null.
-function recommendedRecordFor(userId, type, name, locality = '') {
+function recommendedRecordFor(userId, type, name, locality = '', place = {}) {
   const n = normTitle(name);
   if (!n) return null;
   const table = type === 'object' ? 'objects' : 'marks';
   const loc = String(locality || '').trim().toLowerCase();
   const rows = q(`SELECT t.*, r.uid AS rec_uid FROM ${table} t JOIN recommendations r ON r.target_type=? AND r.target_uid=t.uid AND r.user_id=t.user_id
     WHERE t.user_id=? ORDER BY r.id DESC`).all(type, userId);
-  const hit = rows.find((t) => !isAdopted(type, t.uid) && normTitle(t.name) === n
-    && (type === 'object' || !loc || !t.locality || t.locality.toLowerCase() === loc));
+  const open = rows.filter((t) => !isAdopted(type, t.uid));
+  const hit = type === 'object' ? open.find((t) => normTitle(t.name) === n)
+    : (() => { const m = placeMatchBest({ name, locality, ...place }, open); return m.state === 'exact' ? m.row : null; })();
   return hit ? { row: hit, rec: hit.rec_uid } : null;
 }
 function keepRecommendedRecord(user, type, found, ctx) {
@@ -5053,7 +5256,7 @@ function recMaterialise(user, r, ctx) {
   }
   if (r.kind === 'place') {
     const place = r.place_name || r.label;
-    const existing = findExistingMark(user.id, { place_name: place, locality: r.locality });
+    const existing = findExistingMark(user.id, { place_name: place, locality: r.locality, country: r.country, address: r.address, lat: r.lat, lng: r.lng });
     if (existing) return { type: 'mark', uid: existing.uid, origin: 'pre_existing' };
     const m = markCreate(user, { name: place, locality: r.locality, country: r.country, address: r.address,
       lat: r.lat, lng: r.lng, url: r.url, image: r.image_uid ? `/i/${r.image_uid}` : '', private: true },
@@ -5487,7 +5690,7 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
     // In a recommended plan, a place the member already has a Mark for is
     // that Mark (it gains the plan's context), never a duplicate (decision C).
     // A kept plan keeps its submitted behaviour.
-    const reuse = !isAdopted('itinerary', it.uid) ? findExistingMark(user.id, { place_name: np.name, locality: np.locality }) : null;
+    const reuse = !isAdopted('itinerary', it.uid) ? findExistingMark(user.id, { place_name: np.name, locality: np.locality, country: np.country, address: np.address, lat: np.lat, lng: np.lng }) : null;
     if (reuse) mark_uid = reuse.uid;
     else mark_uid = markCreate(user, {
       name: np.name, locality: np.locality, country: np.country, address: np.address,
@@ -6752,22 +6955,22 @@ function proposalCard(x, origin, me) {
   const acts = kept
     ? `<div class="rec-acts"><a class="btn" href="/t/${plan.id}">Open the itinerary</a><span class="rec-note">No visits, ownership or warrants were recorded</span></div>`
     : r.reaction ? `<div class="rec-acts"><span class="rec-note">${r.reaction === 'not_this_trip' ? 'Not this trip' : r.reaction === 'not_for_me' ? 'Not for me' : 'Set aside'}</span></div>`
-    : `<div class="rec-acts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}${reactForm(r.uid, 'not_for_me', 'Not for me')}<span class="rec-sp"></span>${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'btn btn-keep')}</div>`;
+    : `<div class="rec-acts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}${reactForm(r.uid, 'not_for_me', 'Not for me')}</div><div class="rec-keep-row">${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'nf-post btn-keep')}</div>`;
   return `<article class="rec-plan${kept ? ' is-kept' : ''}${r.reaction && !kept ? ' is-reacted' : ''}" data-rec="${esc(r.uid)}">
     <p class="rec-kind">${kind}</p>
     <h3 class="rec-title"><a href="/t/${plan.id}">${esc(r.label)}</a></h3>
     ${r.rationale ? `<p class="rec-why">${esc(r.rationale)}</p>` : ''}
     <p class="rec-meta">${meta}</p>
-    <details class="rec-explore" data-rec="${esc(r.uid)}"><summary class="rec-explore-btn"><span class="is-closed">Explore</span><span class="is-open">Close</span></summary>
+    <div class="rec-explore is-open" data-rec="${esc(r.uid)}" tabindex="-1">
       ${proposalStops(plan, me, kept)}
-    </details>
+    </div>
     ${acts}
   </article>`;
 }
 function proposalsColumn(it, proposals, me) {
   return `<div class="rec-head"><h3 class="lbl rec-h">For another time</h3><span class="rec-count">proposed after this plan · ${proposals.length}</span></div>
     ${proposals.map((x) => proposalCard(x, it, me)).join('')}
-    <script>(function(){var ds=document.querySelectorAll('.rec-explore');function sync(){var any=false;ds.forEach(function(d){var g=document.querySelector('.itin-map g.rec-pins[data-rec="'+d.dataset.rec+'"]');if(g){g.classList.toggle('on',d.open);if(d.open)any=true;}});var f=document.querySelector('.itin-map');if(f)f.classList.toggle('is-previewing',any);}ds.forEach(function(d){d.addEventListener('toggle',sync);});})();</script>`;
+    <script>(function(){var ds=document.querySelectorAll('.rec-explore'),on=null;function sync(){var any=false;ds.forEach(function(d){var g=document.querySelector('.itin-map g.rec-pins[data-rec="'+d.dataset.rec+'"]');if(g){var hit=d===on;g.classList.toggle('on',hit);if(hit)any=true;}});var f=document.querySelector('.itin-map');if(f)f.classList.toggle('is-previewing',any);}ds.forEach(function(d){var c=d.closest('.rec-plan')||d;c.addEventListener('mouseenter',function(){on=d;sync();});c.addEventListener('mouseleave',function(){on=null;sync();});c.addEventListener('focusin',function(){on=d;sync();});c.addEventListener('focusout',function(){on=null;sync();});});})();</script>`;
 }
 
 // After a plan or composition is deleted: the records kept with it, each with
@@ -7605,7 +7808,7 @@ function welcomeCard(me) {
   const step1 = `<div class="wl-panel wl-p1">
     <p class="sbox-title">Three kinds of things to keep.</p>
     <p class="sbox-sub">Everything you keep is one of these.</p>
-    <div class="wtable wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wcell wl-kind">${WL_ICON[k]}<span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
+    <div class="wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wl-kind">${WL_ICON[k]}<span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
     <div class="wl-warrant">${WL_ICON.warrant}<span class="wl-warrant-name">Warrant</span><span class="wl-warrant-for">things and places you stand behind</span></div>
     <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
   </div>`;
@@ -7623,7 +7826,7 @@ function welcomeCard(me) {
       <details class="wl-ai${st.chatgpt ? ' is-on' : ''}"><summary><span class="wl-ai-name">ChatGPT</span><span class="caps">Discriminantly plugin</span>${aiState(st.chatgpt, st.viaChatGPT)}</summary>${st.chatgpt ? '<p class="fine center">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps}</details>
       <details class="wl-ai${st.claude ? ' is-on' : ''}"><summary><span class="wl-ai-name">Claude</span><span class="caps">MCP connector</span>${aiState(st.claude)}</summary>${st.claude ? '<p class="fine center">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps}</details>
     </div>
-    <div class="wl-nav">${next(1, '\u2190 Things, places, plans')}${nextBtn(3, 'Next: getting started')}</div>
+    <div class="wl-nav">${next(1, '\u2190 Orientation')}${nextBtn(3, 'Next: get started')}</div>
   </div>`;
   const top = [
     st.viaChatGPT && st.kept ? ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.']
@@ -7642,9 +7845,10 @@ function welcomeCard(me) {
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
   </div>`;
   return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
-  <p class="wl-eyebrow"><span class="caps">Welcome \u00b7 Discriminantly, for ${esc(me.handle)}</span><span class="caps">${esc(right)}</span></p>
+  <div class="wl-headline">${arcTitle('Welcome to discriminant\u2022ly', 'wl-arc-' + me.id)}</div>
+  <p class="caps wl-since">${esc(right)}</p>
   ${[1,2,3].map((n) => `<input type="radio" name="wl-step" id="wl-s${n}" class="wl-radio"${n === open ? ' checked' : ''}>`).join('')}
-  <div class="vis-tabs wl-tabs">${[[1, 'Things, places, plans', 'Keep'], [2, 'Connect your AI', 'Connect'], [3, 'Getting started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
+  <div class="vis-tabs wl-tabs">${[[1, 'Orientation', 'Orientation'], [2, 'Connect your AI', 'Connect'], [3, 'Get started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
   ${step1}${step2}${step3}
   <script>document.querySelectorAll('.welcome-card [data-wl-copy]').forEach(function (b) { b.addEventListener('click', function () {
     var t = b.textContent; navigator.clipboard.writeText(b.getAttribute('data-wl-copy')).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1600); }); }); });</script>
@@ -9103,11 +9307,39 @@ const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, remarked_from_uid: { type: ['string', 'null'] },
     warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
+const OS_PLACE_IDENTITY = { type: 'object', additionalProperties: false, required: ['status', 'basis'],
+  description: 'How grounded this place is. resolved: a locality or country plus an address, coordinates or a stable external id. partial: name and locality only. Prefer this to verified.',
+  properties: { status: { type: 'string', enum: ['resolved', 'partial', 'unresolved'] },
+    basis: { type: 'array', items: { type: 'string', enum: ['mapping_provider', 'authoritative_address', 'stable_external_id', 'member_confirmed', 'name_locality'] } } } };
+const OS_LOCATION = { type: 'object', additionalProperties: false, description: 'What is known of where it is, and where that came from. Fields are absent when unknown; never estimated.',
+  properties: { address: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
+    source: { type: 'string', enum: ['mapping_provider', 'authoritative_source', 'member'] } } };
+const OS_PLACE_MATCH = { type: 'object', additionalProperties: false, required: ['state', 'basis'],
+  properties: { state: { type: 'string', enum: ['exact', 'probable', 'possible', 'none'] }, basis: { type: 'array', items: { type: 'string' } },
+    confidence: { type: 'number' }, candidate_uid: { type: 'string' }, candidate_id: { type: 'integer' }, candidate_name: { type: 'string' } } };
+const OS_RESOLVE_MARK = { type: 'object', additionalProperties: false, required: ['ok', 'action', 'mark', 'match', 'place_identity', 'changed'],
+  properties: { ok: { type: 'boolean' }, action: { type: 'string', enum: ['created', 'reused', 'enriched', 'candidate'] },
+    mark: { type: ['object', 'null'], additionalProperties: false, required: ['uid', 'id', 'name', 'kept'],
+      properties: { uid: { type: 'string' }, id: { type: 'integer' }, name: { type: 'string' }, kept: { type: 'boolean' } } },
+    match: OS_PLACE_MATCH, place_identity: { anyOf: [OS_PLACE_IDENTITY, { type: 'null' }] },
+    changed: { type: 'array', items: { type: 'string' } }, recommendation_uid: { type: 'string' } } };
+const OS_AUDIT_ITIN = { type: 'object', additionalProperties: false, required: ['ok', 'itinerary_uid', 'checks', 'satisfied', 'failed'],
+  properties: { ok: { type: 'boolean' }, itinerary_uid: { type: 'string' }, satisfied: { type: 'boolean' },
+    failed: { type: 'array', items: { type: 'string' } },
+    checks: { type: 'object', additionalProperties: false, required: ['unresolved_particular_stops', 'unplaced_stops', 'linked_marks_missing_core_fields', 'sequencing', 'conflicts'],
+      properties: {
+        unresolved_particular_stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['stop_uid', 'label'], properties: { stop_uid: { type: 'string' }, label: { type: 'string' } } } },
+        unplaced_stops: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['stop_uid', 'label'], properties: { stop_uid: { type: 'string' }, label: { type: 'string' } } } },
+        linked_marks_missing_core_fields: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['mark_uid', 'stop_uid', 'missing'],
+          properties: { mark_uid: { type: 'string' }, stop_uid: { type: 'string' }, missing: { type: 'array', items: { type: 'string', enum: ['locality', 'country', 'address', 'coordinates', 'link', 'why'] } } } } },
+        sequencing: { type: 'string', enum: ['complete', 'partial', 'absent'] },
+        conflicts: { type: 'array', items: { type: 'string' } } } } } };
 const OS_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'image_url', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
     name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' }, why: { type: 'string' },
     tags: { type: 'string' }, private: { type: 'boolean' }, verified: { type: 'boolean' },
+    place_identity: OS_PLACE_IDENTITY, location: OS_LOCATION,
     remarked_from_uid: { type: ['string', 'null'] },
     has_image: { type: 'boolean', description: 'Whether this mark already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass straight to create_pending_ensemble as image_uid, or to view_images to look at it. Never re-upload a picture the member already has.' },
@@ -9482,7 +9714,7 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: "Either (a) an https:// URL this server can fetch — the preferred use of this tool, any size — or (b) a data: URL you built in code from real local bytes, which is fine for a genuinely small image. For a local file of any real size, use start_image_upload instead of inlining it here: one large argument can be truncated in transit by your runtime, and chunking is not subject to that. Never a file id or a filesystem path. PNG, JPEG, WEBP or GIF." } } },
     outputSchema: OS_IMAGE },
-  { name: 'verify_place', securitySchemes: SEC_OAUTH, description: 'Check whether a place can be found in mapping data before adding it as a travel mark. Uses the same OpenStreetMap lookup as this app\'s own "search for a place" field — free, no business listings or opening hours, but a real geographic database rather than a guess. Call this before add_travel_mark whenever the member has not given a precise address, or whenever you are not confident the name/city is exactly right. Show the match (or the fact that nothing was found) to the member before writing anything. If several candidates come back, ask which one. If nothing comes back, say so plainly and ask whether to add it anyway without verification, or to try again with more detail — never invent coordinates or an address to fill the gap.',
+  { name: 'verify_place', securitySchemes: SEC_OAUTH, description: 'Look up a place in mapping data (OpenStreetMap, the same lookup as this app\'s own place search) to establish its identity before writing it anywhere. Read-only: it never creates or changes a travel mark; pass what it finds to resolve_travel_mark (or add_travel_mark for a simple "mark this place"). When the member names a place themselves, show the match before writing. When the member asked you to plan or build an itinerary and exactly one result clearly matches the place you researched (same name, locality and country), you may use it without asking again. If several plausible results come back, surface the choice instead of picking one. If nothing comes back but an official or authoritative source establishes the place and its address, you may still resolve it (identity_basis authoritative_source) with no coordinates. Never invent coordinates or an address.',
     inputSchema: { type: 'object', required: ['query'], properties: {
       query: { type: 'string', description: 'The place name, ideally with its city, e.g. "Nahm restaurant Bangkok"' },
       limit: { type: 'integer', default: 5, description: 'How many candidate matches to return. Defaults to 5.' } } } ,
@@ -9501,7 +9733,7 @@ const TOOLS = [
       collections: { type: 'array', items: { type: 'string' }, description: "Names of the collections to file this place under, created if new. Check my_collections first and reuse an existing name exactly — Lisbon and lisbon become two separate collections. These can be changed later with edit_travel_mark." },
       visited_on: { type: 'string', description: "YYYY-MM-DD, only when the member has ALREADY been: it records a check-in alongside the mark. Marking a place is not a claim to have been there, so leave this out for somewhere they mean to go, have only heard about, or did not say they visited. They can check in later with log_visit." },
       private: { type: 'boolean', description: 'True to keep the mark visible only to the member.' },
-      allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named mark the tool flagged.' } } } ,
+      allow_duplicate: { type: 'boolean', description: 'Set true to create a new mark after a probable_match was returned and you have established it is a different place (for example another branch or city). Not needed for a possible match, which is created anyway and names the candidate.' } } } ,
     outputSchema: OS_WRITE },
   { name: 'log_visit', securitySchemes: SEC_OAUTH, description: "Add a check-in to an existing travel mark — one visit. A single day is the common case: a date and, if the member said something, a line about it. If they remember being there but not when, set date_unknown and skip the date entirely — that still counts as having visited. A CONTINUOUS multi-day visit (a hotel stay, a few days somewhere) is still ONE check-in: give ended_on as well, and optionally attach a note to individual days inside the range with `days`. Two separate trips are two separate check-ins, however close together. Never split one stay into several check-ins.",
     inputSchema: { type: 'object', required: ['id'], properties: {
@@ -9563,14 +9795,14 @@ const TOOLS = [
       modifier: { type: 'string', enum: ['early', 'mid', 'late'], description: 'Only with modifier_scope.' },
       modifier_scope: { type: 'string', enum: ['year', 'period', 'month'], description: 'WHICH component the modifier describes. "late 2028" is modifier=late, scope=year. "late fall 2028" is scope=period. Never guess: ask, or leave both out.' } } } },
 
-  { name: 'add_itinerary_stops', securitySchemes: SEC_OAUTH, outputSchema: OS_ADD_STOPS, description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop.',
+  { name: 'add_itinerary_stops', securitySchemes: SEC_OAUTH, outputSchema: OS_ADD_STOPS, description: 'Add one or more stops to an itinerary in a single call \u2014 pass every stop the member just listed, not one call each. A stop is a parcel of intended time: it does NOT need to be a known travel mark. Use kind "particular" when they mean a specific place you cannot yet name ("that tapas place Flora recommended"), "experiential" when the words are the whole intention ("some chilli crab"), and "allocation" for deliberately open time ("leave the afternoon free"); all three are complete as they stand and none is a defective mark. A stop records what the member INTENDS, never what happened: if they are telling you they have already been somewhere, that is log_visit against the travel mark, not a stop. Attach a specific place (mark_uid, or new_place) when the member identified it, or when you selected and grounded it while building a plan the member asked you to build: resolve_travel_mark returns the mark_uid to pass. Do not add unrelated suggestions to an existing plan outside that request.',
     inputSchema: { type: 'object', required: ['itinerary_uid', 'stops'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       stops: { type: 'array', items: { type: 'object', required: ['label'], properties: {
         label: { type: 'string', description: 'What the member said, kept verbatim.' },
         kind: { type: 'string', enum: ['particular', 'experiential', 'allocation'] },
-        mark_uid: { type: 'string', description: 'An existing travel mark, from my_travel_marks or search_catalogue, when this stop IS that place. Never invent a uid, and never pass one for a place they have not confirmed.' },
-        new_place: { type: 'object', description: 'Use this INSTEAD of mark_uid when the member has just accepted a place you proposed that they have not marked before: it creates the travel mark as part of accepting it, and records that the mark came from this plan. Only for places they have actually confirmed.',
+        mark_uid: { type: 'string', description: 'An existing travel mark, from my_travel_marks or search_catalogue, when this stop IS that place. Never invent a uid, and never pass one for a place whose identity is not established (the member identified it, or you grounded it for a plan they asked you to build).' },
+        new_place: { type: 'object', description: 'Use this INSTEAD of mark_uid for a place they have not marked before, when the member accepted it or when you selected and grounded it for a plan they asked you to build: it creates the travel mark and records that it came from this plan. Prefer resolve_travel_mark first when identity needs checking; it reuses an exact existing mark.',
           properties: { name: { type: 'string' }, locality: { type: 'string' }, country: { type: 'string' },
             address: { type: 'string' }, lat: { type: 'number' }, lng: { type: 'number' },
             why: { type: 'string', description: 'Why it is worth going, in the member\u2019s words if they gave any.' } } },
@@ -9598,7 +9830,7 @@ const TOOLS = [
       clock: { type: 'string', description: 'HH:MM, 24-hour.' },
       clear: { type: 'array', items: { type: 'string' }, description: 'Component names to unset.' } } } },
 
-  { name: 'arrange_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_ARRANGE, description: 'Create days, put stops on them, and set order \u2014 in one call. Only set order when the member asked for one: an itinerary with no asserted sequence is perfectly normal, and inventing an order would put words in their mouth. If you suggest an arrangement and they have not agreed yet, say so in conversation and do not call this.',
+  { name: 'arrange_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_ARRANGE, description: 'Create days, put stops on them, and set order, in one call. Set an order when the member gave one, or when the member asked you to plan or arrange the itinerary and the order is part of the plan you are building. Do not reorder a plan the member arranged themselves unless they ask you to optimise or replan it. An itinerary with no asserted sequence is perfectly normal. Arranging records intention only: no visits, bookings or check-ins.',
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From create_itinerary or my_itineraries.' },
       create_day: { type: 'object', properties: {
@@ -9609,11 +9841,11 @@ const TOOLS = [
         items: { type: 'object', required: ['stop_uid'], properties: {
           stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
           day_uid: { type: 'string', description: 'A day uid; omit, or pass null, to take the stop off its day and leave it unplaced.' },
-          position: { type: 'integer', description: 'Only if they asked for a specific place in the order.' } } } },
-      order_stops: { type: 'array', description: 'Stop uids in the order the member asked for.', items: { type: 'string' } },
-      order_days: { type: 'array', description: 'Day uids in the order the member asked for.', items: { type: 'string' } } } } },
+          position: { type: 'integer', description: 'When they asked for a place in the order, or it is part of the plan you are building for them.' } } } },
+      order_stops: { type: 'array', description: 'Stop uids in order: the order the member asked for, or the one you are building when they asked you to plan it.', items: { type: 'string' } },
+      order_days: { type: 'array', description: 'Day uids in order: the order the member asked for, or the one you are building when they asked you to plan it.', items: { type: 'string' } } } } },
 
-  { name: 'resolve_itinerary_stop', securitySchemes: SEC_OAUTH, outputSchema: OS_RESOLVE_STOP, description: 'Point a stop at a travel mark once the member has confirmed which place it is, or unlink it again. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one.',
+  { name: 'resolve_itinerary_stop', securitySchemes: SEC_OAUTH, outputSchema: OS_RESOLVE_STOP, description: 'Point a stop at a travel mark once its identity is established, or unlink it again. Established means the member confirmed which place it is, or you grounded it (with resolve_travel_mark, verify_place or an authoritative source) while building a plan the member asked you to build; never a materially ambiguous guess. The stop keeps its identity and its original words: resolving answers the intention, it does not replace it. Use intent "refine" for a first resolution, "correct" when fixing a wrong one. Linking records no visit.',
     inputSchema: { type: 'object', required: ['stop_uid'], properties: {
       stop_uid: { type: 'string', description: 'From add_itinerary_stops or my_itineraries.' },
       mark_uid: { type: 'string', description: 'The travel mark, from my_travel_marks or search_catalogue \u2014 or from add_travel_mark if the place was not marked before. Omit, with unlink:true, to un-resolve.' },
@@ -9639,7 +9871,7 @@ const TOOLS = [
       limit: { type: 'integer' } } } },
 
   // ---- Recommendations orbit ---------------------------------------------------
-  { name: 'record_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_WRITE, description: 'Record what a Discriminantly recommendation workflow has deliberately selected and presented to the member as a recommendation: things, places or whole itineraries, for cold_start (starting their catalogue), destination_objects (for one of their trips or plans) or for_another_time (worth keeping in mind with no particular trip, including something you set aside for later while doing either of the others). Record only what you actually present, never the candidates you researched or considered and dropped. Not for general recommendation questions that do not involve their Discriminantly catalogue or plans, and not when the member asks to keep, note or mark something themselves: that is note_object, add_travel_mark, create_itinerary or keep_recommendation. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, it is never evidence of their taste, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation). Record the resolution you actually reached: a category ("medium-roast Ka\u02bbu coffee") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind "itinerary" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one.',
+  { name: 'record_recommendations', securitySchemes: SEC_OAUTH, outputSchema: OS_REC_WRITE, description: 'Record what a Discriminantly recommendation workflow has deliberately selected and presented to the member as a recommendation: things, places or whole itineraries, for cold_start (starting their catalogue), destination_objects (for one of their trips or plans) or for_another_time (worth keeping in mind with no particular trip, including something you set aside for later while doing either of the others). Record only what you actually present, never the candidates you researched or considered and dropped. Not for general recommendation questions that do not involve their Discriminantly catalogue or plans, and not when the member asks to keep, note or mark something themselves: that is note_object, add_travel_mark, create_itinerary or keep_recommendation. A recommendation is your proposal: it does not mean they saw, liked, kept, own, visited or endorse it, it is never evidence of their taste, and it is not added to their notes, marks or itineraries (my_notes, my_travel_marks, search_catalogue and my_itineraries do not show it) unless they later say to keep it (keep_recommendation) or it points at a record that is already theirs. Record the resolution you actually reached: a category ("medium-roast Ka\u02bbu coffee") is unresolved, a producer without the exact product is partial, and neither needs inventing detail. If it is something they already have, pass target_uid and that record gains the recommendation. A resolved thing or place that they do not have is given a private record that is not kept. For a whole plan, use kind "itinerary" (a new private plan, not kept), then add_itinerary_stops with its target uid. Recording the same proposition in the same context again returns the existing one. Inside a plan the member asked you to build, the places you choose are the plan itself: make them canonical travel marks (resolve_travel_mark, target_state canonical) and add them as stops; you may still record that you proposed them, with target_uid pointing at that mark (or pass recommendation_context to resolve_travel_mark), and no keep_recommendation is needed. keep_recommendation is for optional ideas the member has not taken up, such as For another time.',
     inputSchema: { type: 'object', required: ['items'], properties: {
       items: { type: 'array', minItems: 1, maxItems: 10, description: 'One entry per recommendation presented.',
         items: { type: 'object', required: ['kind', 'label', 'workflow'], properties: REC_ITEM_PROPS } } } } },
@@ -9670,6 +9902,37 @@ const TOOLS = [
     inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
       itinerary_uid: { type: 'string', description: 'From my_itineraries, or a recommended itinerary\u2019s target.' } } } },
 
+  { name: 'resolve_travel_mark', securitySchemes: SEC_OAUTH, outputSchema: OS_RESOLVE_MARK, description: 'Resolve one specific real-world place into the member\'s travel marks, and return its mark uid. Call it when you have established a place\'s identity (from the member, verify_place, an official source or a stable id) and need a travel mark for a plan, a recommendation or a standalone place. Reuses an existing mark only on an exact identity match (same stable id, same address, near-identical coordinates, or same name and city); another country is never the same place by name. On a probable match (it may be the same place) it creates nothing and returns the candidate (action "candidate"): check it, then call again with allow_distinct_from_candidate if it is a different place, or use the candidate\'s uid if it is the same. On a possible match (another city, a similar name) it creates the mark and names the candidate in match. Otherwise it creates the mark. On reuse it only fills fields that are empty, never overwriting. target_state "canonical" is an ordinary kept mark: use it for a plan the member asked you to build, or when they ask to mark a place. "recommendation" makes a private, unkept mark for an optional idea (for example For another time), which the member may keep later with keep_recommendation. Pass recommendation_context to record that you proposed it; for a canonical mark that needs no keep step. A travel mark is a place to remember: this never records a visit, check-in, booking, ownership or warrant. Not for simple direct marking (add_travel_mark), surgical edits (edit_travel_mark), lookup alone (verify_place) or searching what they have (search_catalogue). Next: add_itinerary_stops or resolve_itinerary_stop with the returned mark uid, then audit_itinerary.',
+    inputSchema: { type: 'object', required: ['place', 'identity_basis', 'target_state'], properties: {
+      place: { type: 'string', description: 'The place\u2019s name.' },
+      locality: { type: 'string', description: 'City or town. Strongly recommended: it is what tells branches and namesakes apart.' },
+      country: { type: 'string' },
+      address: { type: 'string', description: 'Only an address you found in mapping data, an official source, or from the member.' },
+      lat: { type: 'number', description: 'From verify_place or the member only; never estimated. Leave out if unknown.' },
+      lng: { type: 'number' },
+      external_id: { type: 'object', additionalProperties: false, required: ['provider', 'id'], description: 'A stable identifier for the place, e.g. an OpenStreetMap id.',
+        properties: { provider: { type: 'string' }, id: { type: 'string' } } },
+      link: { type: 'string', description: 'The place\u2019s official page, if it has one.' },
+      why: { type: 'string', description: 'Why it is worth remembering, in a sentence.' },
+      tags: { type: 'array', items: { type: 'string' } },
+      private: { type: 'boolean', description: 'Canonical marks only: keep it private. Recommendation marks are always private.' },
+      identity_basis: { type: 'array', minItems: 1, items: { type: 'string', enum: ['member_identity', 'mapping_provider', 'authoritative_source', 'stable_external_id'] },
+        description: 'How the identity was established. Coordinates need mapping_provider or member_identity.' },
+      target_state: { type: 'string', enum: ['canonical', 'recommendation'], description: 'canonical: an ordinary kept mark. recommendation: private and unkept, for an optional idea.' },
+      recommendation_context: { type: 'object', additionalProperties: false, required: ['workflow'], description: 'Record that you proposed this place, as record_recommendations would.',
+        properties: { workflow: { type: 'string', enum: ['cold_start', 'destination_objects', 'for_another_time'] },
+          itinerary_uid: { type: 'string' }, stop_uid: { type: 'string' }, rationale: { type: 'string' },
+          evidence_uids: { type: 'array', items: { type: 'string' } } } },
+      allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned: true when you have established this is a different place.' } } } },
+  { name: 'audit_itinerary', securitySchemes: SEC_OAUTH, outputSchema: OS_AUDIT_ITIN, description: 'Check one of the member\'s itineraries for structural completeness and travel mark linkage, and return the exact stop and mark uids that need attention. Use it after building or repairing a plan in several steps, or after keeping a recommended plan, before telling the member it is done. Read-only: it never creates, resolves, enriches, reorders or deletes anything; fix what it reports with resolve_travel_mark, resolve_itinerary_stop, arrange_itinerary or edit_travel_mark. satisfied reflects only the expectations you pass (no_conflicts by default); a missing website or note never fails a plan, and experiential or open-time stops are complete as they are. Complements my_itineraries, which shows the plan itself.',
+    inputSchema: { type: 'object', required: ['itinerary_uid'], properties: {
+      itinerary_uid: { type: 'string', description: 'From my_itineraries or create_itinerary.' },
+      expect: { type: 'object', additionalProperties: false, description: 'What this plan should satisfy.',
+        properties: { all_specific_stops_linked: { type: 'boolean', description: 'Every "particular" stop points at a travel mark.' },
+          no_unplaced_stops: { type: 'boolean', description: 'When the plan has days, every stop is on one.' },
+          ordered: { type: 'boolean', description: 'Every placed stop has a position.' },
+          no_conflicts: { type: 'boolean', description: 'No stop points at a missing mark, and no mark repeats within a day. On by default.' },
+          enhanced_marks: { type: 'boolean', description: 'Every linked mark has a locality, a country, and an address or coordinates.' } } } } } },
 ];
 // ---- tool annotations -------------------------------------------------------
 // Every tool declares how it behaves, in the MCP-standard annotations that
@@ -9759,6 +10022,8 @@ const TOOL_ANNOTATIONS = {
   dismiss_recommendation:     ['Dismiss a recommendation', false, false, false],
   set_stop_note:              ['Attach or detach a stop note', false, false, true],   // a note on a public plan's stop can be seen by others
   list_stop_notes:            ['List a plan\u2019s stop notes', true, false, false],
+  resolve_travel_mark:        ['Resolve a place into a travel mark', false, false, true],
+  audit_itinerary:            ['Check an itinerary is complete', true, false, false],
 };
 for (const t of TOOLS) {
   const a = TOOL_ANNOTATIONS[t.name];
@@ -9784,15 +10049,6 @@ function findSimilarNote(userId, title) {
   // Recommendation) as one of their notes. Reuse of such a record by identity
   // is findExistingNote's job, which deliberately reads every row.
   for (const r of q('SELECT id, name FROM adopted_objects WHERE user_id=?').all(userId)) {
-    const rn = normTitle(r.name);
-    if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
-  }
-  return null;
-}
-function findSimilarMark(userId, place) {
-  const norm = normTitle(place);
-  if (!norm) return null;
-  for (const r of q('SELECT id, name FROM adopted_marks WHERE user_id=?').all(userId)) {
     const rn = normTitle(r.name);
     if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
   }
@@ -10221,13 +10477,18 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
   if (name === 'add_travel_mark') {
     if (!a.place) throw new Error('place is required');
     if (!a.allow_duplicate) {
-      const dup = findSimilarMark(user.id, a.place);
-      // Nothing is created, so the result reports the existing mark as unchanged
-      // (a structured result, as the outputSchema requires). No provenance is
-      // written: no record changed.
-      if (dup) return wr(`This looks like it may already be marked: #${dup.id} "${dup.name}". If it's a genuinely different place, call add_travel_mark again with allow_duplicate: true — or if the member is returning, use log_visit on #${dup.id} instead.`,
-        'unchanged', 'mark', dup.id, uidOf('marks', dup.id), dup.name, 'already_exists');
-      const rec = recommendedRecordFor(user.id, 'mark', a.place, a.locality);
+      const pm = matchPlace(user.id, { name: a.place, locality: a.locality, country: a.country, address: a.address, lat: a.lat, lng: a.lng });
+      const meta = { 'discriminantly/place_match': placeMatchPublic(pm) };
+      // Nothing is created when the place is already theirs (exact) or may be
+      // (probable): the result reports that mark as unchanged, and no provenance
+      // is written. A 'possible' match does not block (another city, a similar
+      // name): the new mark is made and the candidate is named.
+      if (pm.state === 'exact') return { ...wr(`Already in the member's marks: #${pm.id} "${pm.name}" (the same place: ${pm.basis.join(', ')}). Nothing was created; use this mark (uid ${pm.uid}). If the member is returning, use log_visit with id ${pm.id}.`,
+        'unchanged', 'mark', pm.id, pm.uid, pm.name, 'already_exists'), meta };
+      if (pm.state === 'probable') return { ...wr(`Nothing was created: #${pm.id} "${pm.name}" may be the same place (probable: ${pm.basis.join(', ')}), but it isn't certain. If it is that place, use it (uid ${pm.uid}). If it's a different place, call add_travel_mark again with allow_duplicate: true, ideally with locality, country and address so the two can be told apart.`,
+        'unchanged', 'mark', pm.id, pm.uid, pm.name, 'probable_match'), meta };
+      a._placeMatch = pm;
+      const rec = recommendedRecordFor(user.id, 'mark', a.place, a.locality, { country: a.country, address: a.address, lat: a.lat, lng: a.lng });
       if (rec) {
         const ctx = mcpActor(user);
         keepRecommendedRecord(user, 'mark', rec, ctx);
@@ -10271,8 +10532,11 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         { source_kind: 'coordinates_supplied', source_ref: `${a.lat},${a.lng}` });
     }
     const verifiedNote = a.lat != null && a.lng != null ? '' : ' — not verified against mapping data; mention this to the member';
-    return wr(`Marked #${r.id}: ${a.place}${a.locality ? ', ' + a.locality : ''} ${a.visited_on ? ` (checked in ${a.visited_on})` : ''}${verifiedNote}`,
-      'created', 'mark', r.id, uidOf('marks', r.id), a.place);
+    const pm = a._placeMatch;
+    const maybe = pm && pm.state === 'possible' ? ` A similar mark exists, #${pm.id} "${pm.name}" (possible: ${pm.basis.join(', ')}), so this was made as a separate place; if they are the same, the member can delete one.` : '';
+    return { ...wr(`Marked #${r.id}: ${a.place}${a.locality ? ', ' + a.locality : ''} ${a.visited_on ? ` (checked in ${a.visited_on})` : ''}${verifiedNote}${maybe}`,
+      'created', 'mark', r.id, uidOf('marks', r.id), a.place),
+      meta: { 'discriminantly/place_match': pm ? placeMatchPublic(pm) : { state: 'none', basis: [] } } };
   }
   if (name === 'edit_travel_mark') {
     if (!a.id) throw new Error('id is required');
@@ -10445,7 +10709,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
       }).join('\n') || 'No travel marks yet.',
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
-        country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified,
+        country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified, place_identity: placeIdentityOf(x), location: locationOf(x),
         remarked_from_uid: x.remarked_from_uid || null,
         has_image: !!x.image, image_uid: imageUidOf(x), image_url: imageUrlOf(x),
         visit_count: markVisits(x.id).length,
@@ -11148,6 +11412,20 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       structured: { ok: true, recommendation: v, changed: out.changed ? [`reaction:${v.reaction}`] : [], kept: [] } };
   }
   // ---- Stop -> Note ---------------------------------------------------------------
+  if (name === 'resolve_travel_mark') {
+    const r = resolveTravelMark(user, a, mcpActor(user));
+    const m = r.mark;
+    const text = r.action === 'candidate'
+      ? `Nothing was created: "${r.match.candidate_name}" (uid ${r.match.candidate_uid}) may be the same place (${r.match.state}: ${r.match.basis.join(', ')}). If it is, use that uid; if not, call again with allow_distinct_from_candidate: true.`
+      : `${r.action === 'created' ? 'Created' : r.action === 'enriched' ? 'Reused and filled in' : 'Reused'} travel mark #${m.id} "${m.name}" (uid ${m.uid}; ${m.kept ? 'kept' : 'not kept: a recommendation'}; identity ${r.place_identity.status}).${r.changed.length ? ' Changed: ' + r.changed.join(', ') + '.' : ''} No visit was recorded.`;
+    return { text, structured: r };
+  }
+  if (name === 'audit_itinerary') {
+    const r = auditItinerary(user, a.itinerary_uid, a.expect || {});
+    const c = r.checks;
+    const text = `${r.satisfied ? 'Satisfied' : 'Not satisfied (' + r.failed.join(', ') + ')'}. ${c.unresolved_particular_stops.length} unresolved specific stops, ${c.unplaced_stops.length} unplaced, ${c.linked_marks_missing_core_fields.length} linked marks with gaps, sequencing ${c.sequencing}, ${c.conflicts.length} conflicts.`;
+    return { text, structured: r };
+  }
   if (name === 'set_stop_note' || name === 'list_stop_notes') {
     let it;
     if (name === 'set_stop_note') {
@@ -11261,6 +11539,8 @@ RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their c
         for (const im of out.images) payload.content.push({ type: 'image', data: im.data, mimeType: im.mimeType });
       }
       if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
+      // Handlers may add result _meta (e.g. place-match diagnostics): live results, not the contract.
+      if (out && typeof out === 'object' && out.meta) payload._meta = { ...(payload._meta || {}), ...out.meta };
       return reply(id, payload);
     } catch (e) {
       // Every failure gets a short reference that is kept in the server log only
