@@ -11827,9 +11827,17 @@ async function mcp(req, res, tok) {
   if (req.method === 'DELETE') { res.writeHead(200); return res.end(); }
   let body = ''; for await (const c of req) body += c;
   let msg; try { msg = JSON.parse(body); } catch { res.writeHead(400); return res.end(); }
-  const reply = (id, result, error) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
+  // Diagnostics (v2.61.2): which MCP methods a client calls and which fail.
+  // Method names, client name/version and error codes only: never params,
+  // tokens or content.
+  const mcpLog = (line) => console.log(`mcp ${line}`);
+  const reply = (id, result, error) => { if (error) mcpLog(`${msg && msg.method} -> error ${error.code}`); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error ? { jsonrpc: '2.0', id, error } : { jsonrpc: '2.0', id, result })); };
+  if (Array.isArray(msg)) mcpLog(`batch of ${msg.length}: ${msg.map((x) => x && x.method).join(', ')} (ignored)`);
+  else if (msg.id === undefined) mcpLog(`notify ${msg.method}`);
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
+  mcpLog(method === 'initialize' ? `initialize protocol=${String((params || {}).protocolVersion || '-').slice(0, 20)} client=${String(((params || {}).clientInfo || {}).name || '-').slice(0, 40)}/${String(((params || {}).clientInfo || {}).version || '-').slice(0, 20)} caps=${Object.keys((params || {}).capabilities || {}).join('+') || '-'}`
+    : method === 'skills/list' || method === 'skills/get' || method === 'resources/read' ? `${method}${(params || {}).cursor ? ' (cursor)' : ''} -> ${method === 'skills/list' ? SKILLS.length + ' skills' : 'ok'}` : method);
   // What the client says it is. Recorded once and never overwritten: a later
   // session claiming a different name is grounds for a new connection, not for
   // rewriting identity-bearing state. Read from the handshake and, for newer
