@@ -1221,3 +1221,5 @@ body:not([data-skin="modern"]) .welcome-card .wl-kind { background: rgba(0,0,0,.
 .rec-plan .rec-foot { display: flex; justify-content: center; align-items: center; gap: .7rem; margin: .5rem 0 0; }
 .rec-plan .rec-foot form { margin: 0; display: inline; }
 .rec-plan .rec-dot { opacity: .5; }
+/* Travel mark cards: the photo now sits under the arched title; give it room above. */
+.travelmark .mark-title + .mark-photo, .travelmark .mark-title ~ .mark-photo { margin: .6rem 0 1rem; }

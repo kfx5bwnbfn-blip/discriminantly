@@ -4201,10 +4201,10 @@ function markCard(m, me, full = false) {
   <div class="card">
     ${warrantSeal(m, 'mark', me)}
     <div class="text">
-      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
       <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
       ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
       <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
+      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
       ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
       ${full ? '' : '<div class="mark-more" aria-hidden="true"><div class="mark-more-inner">'}
