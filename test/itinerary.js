@@ -1655,5 +1655,18 @@ console.log('\nskills');
   ok('SK7 the server serves the skills over the documented extension', /extensions: \{ 'io\.modelcontextprotocol\/skills': \{\} \}/.test(SRC) && /method === 'skills\/list'/.test(SRC) && /method === 'skills\/get'/.test(SRC) && /method === 'resources\/read'/.test(SRC));
 }
 
+// ---- Listing copy boundary (fcf4953): the portal owns the public listing ----
+console.log('\nlisting boundary');
+{
+  const files = ['plugin/chatgpt-app-submission.json', ...fs.readdirSync(path.join(__dirname, '..', 'docs', 'submission')).filter((f) => f.endsWith('.json')).map((f) => `docs/submission/${f}`)];
+  const listingKeys = /^(app_info|display_name|displayName|subtitle|short_description|shortDescription|long_description|longDescription|category)$/;
+  const leaks = [];
+  for (const f of files) {
+    const d = JSON.parse(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'));
+    for (const k of Object.keys(d)) if (listingKeys.test(k)) leaks.push(`${f}: ${k}`);
+  }
+  ok('LB1 no submission import file carries app_info or any listing field, so an import can never overwrite the portal listing', files.length >= 2 && !leaks.length, leaks.join(', '));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
