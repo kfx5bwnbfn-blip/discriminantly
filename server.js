@@ -5082,7 +5082,14 @@ function placeMatchRow(c, r) {
   // coordinates that already agree it corroborates ("M+ museum" at M+).
   const na = normTitle(c.name), nb = normTitle(r.name), contains = !!(na && nb && (na.includes(nb) || nb.includes(na)));
   if (near && (alike || contains)) return { state: 'exact', basis: ['exact_coordinates', nameEq ? 'normalized_name' : 'fuzzy_name'], confidence: 0.96 };
-  if (nameEq && locality === true) return { state: 'exact', basis: ['normalized_name_locality'], confidence: 0.93 };
+  // Same name and city is exact only when nothing contradicts it: two different
+  // street addresses, or coordinates hundreds of metres apart, are evidence of
+  // two places (branches), so it is at most probable.
+  const addrConflict = !!(normTitle(c.address) && normTitle(r.address)) && !addrEq;
+  const coordConflict = placeHasCoords(c) && placeHasCoords(r) && placeMetres({ lat: +c.lat, lng: +c.lng }, { lat: +r.lat, lng: +r.lng }) > 300;
+  if (nameEq && locality === true) return addrConflict || coordConflict
+    ? { state: 'probable', basis: ['normalized_name_locality', addrConflict ? 'address_differs' : 'coordinates_differ'], confidence: 0.55 }
+    : { state: 'exact', basis: ['normalized_name_locality'], confidence: 0.93 };
   if (locality === false) return nameEq || jac >= 0.6 ? { state: 'possible', basis: ['fuzzy_name', 'locality_differs'], confidence: 0.3 } : { state: 'none', basis: [] };
   if (nameEq) return { state: 'probable', basis: ['normalized_name'], confidence: 0.7 };
   if (near) return { state: 'probable', basis: ['exact_coordinates'], confidence: 0.65 };
@@ -5099,6 +5106,12 @@ function placeMatchBest(c, rows) {
     const m = placeMatchRow(c, r);
     if (rank[m.state] > rank[best.state] || (rank[m.state] === rank[best.state] && (m.confidence || 0) > (best.confidence || 0))) { best = m; row = r; }
   }
+  // Two or more existing places matching only by name and city, with nothing
+  // stronger (address, coordinates, external id) to choose between them, is
+  // genuine ambiguity: surface it, never reuse whichever came first.
+  if (row && best.state === 'exact' && best.basis.length === 1 && best.basis[0] === 'normalized_name_locality'
+    && rows.filter((r) => r !== row && placeMatchRow(c, r).state === 'exact').length)
+    return { state: 'probable', basis: ['normalized_name_locality', 'several_matches'], confidence: 0.5, id: row.id, uid: row.uid, name: row.name, row };
   return row && best.state !== 'none' ? { ...best, id: row.id, uid: row.uid, name: row.name, row } : { state: 'none', basis: [] };
 }
 // scope 'adopted': the member's own marks (their catalogue). 'all': any of

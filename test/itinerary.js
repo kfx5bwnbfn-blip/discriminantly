@@ -1595,6 +1595,14 @@ console.log('\nplace identity');
   const two = [{ id: 4, uid: 'h1', name: 'Hatchards', locality: 'London', country: 'United Kingdom' }, { id: 5, uid: 'h2', name: 'Hatchards', locality: 'Edinburgh', country: 'United Kingdom' }];
   ok('PM10 the same name in two cities and no city given: probable, not exact (surfaced, not substituted)', best({ name: 'Hatchards' }, two).state === 'probable');
   ok('PM11 the same name in another city: possible', row({ name: 'Hatchards', locality: 'Bath' }, two[0]).state === 'possible');
+  const two2 = [{ id: 6, uid: 's1', name: 'Sorbillo', locality: 'Naples', country: 'Italy', address: 'Via dei Tribunali 32' }, { id: 7, uid: 's2', name: 'Sorbillo', locality: 'Naples', country: 'Italy', address: 'Via Partenope 1' }];
+  ok('PM14 two existing places with the same name in the same city, nothing to choose between them: probable (never the first one silently)',
+     (({ state, basis }) => state === 'probable' && basis.includes('several_matches'))(best({ name: 'Sorbillo', locality: 'Naples', country: 'Italy' }, two2)));
+  ok('PM15 ...but the address decides: exact, the right branch', (({ state, uid }) => state === 'exact' && uid === 's2')(best({ name: 'Sorbillo', locality: 'Naples', address: 'Via Partenope 1' }, two2)));
+  ok('PM16 ...and a single match is still exact reuse', best({ name: 'Sorbillo', locality: 'Naples' }, [two2[0]]).state === 'exact');
+  ok('PM17 same name and city but a different street address: probable, not the same place', (({ state, basis }) => state === 'probable' && basis.includes('address_differs'))(row({ name: 'Sorbillo', locality: 'Naples', address: 'Via Partenope 1' }, two2[0])));
+  ok('PM18 same name and city, coordinates far apart: probable', row({ name: 'Sorbillo', locality: 'Naples', lat: 40.8506, lng: 14.2556 }, { ...two2[0], lat: 40.8322, lng: 14.2466 }).state === 'probable');
+  ok('PM19 a mention without an address still reuses a single kept place (no contradiction)', row({ name: 'Sorbillo', locality: 'Naples' }, two2[0]).state === 'exact');
   ok('PM12 every place path reuses only on exact: add_travel_mark, recommendations, recommended plans, recommended records',
      /if \(pm\.state === 'exact'\) return \{ \.\.\.wr\(`Already in the member's marks:/.test(SRC)
      && /return m\.state === 'exact' \? m\.row : null;/.test(SRC)

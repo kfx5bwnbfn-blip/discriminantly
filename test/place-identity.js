@@ -153,5 +153,14 @@ const counts = () => ({ visits: one('SELECT COUNT(*) n FROM visits').n, warrants
   await call('add_itinerary_stops', { itinerary_uid: r1.uid, stops: [{ label: 'One' }, { label: 'Two' }] });
   await call('add_itinerary_stops', { itinerary_uid: r1.uid, stops: [{ label: 'One' }, { label: 'Two' }] });
   ok('R2 a retried add_itinerary_stops adds nothing more', one('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=(SELECT id FROM itineraries WHERE uid=?)', r1.uid).n === 2);
+  // S. exact reuse versus genuine ambiguity (two same-name places in one city)
+  const sa = await call('resolve_travel_mark', { place: 'Sorbillo', locality: 'Naples', country: 'Italy', address: 'Via dei Tribunali 32', identity_basis: ['authoritative_source'], target_state: 'canonical' });
+  const sb = await call('resolve_travel_mark', { place: 'Sorbillo', locality: 'Naples', country: 'Italy', address: 'Via Partenope 1', identity_basis: ['authoritative_source'], target_state: 'canonical', allow_distinct_from_candidate: true });
+  ok('S1 two branches can both be kept when established as distinct', sa.mark.uid !== sb.mark.uid);
+  const plans2 = one('SELECT COUNT(*) n FROM itineraries').n;
+  const amb3 = await call('build_itinerary', { title: 'Pizza day', days: [{ stops: [{ label: 'Pizza', place: { place: 'Sorbillo', locality: 'Naples', country: 'Italy', identity_basis: ['authoritative_source'] } }] }] });
+  ok('S2 with no address to choose between them, the build returns the candidate and writes nothing', amb3.action === 'candidates' && amb3.candidates[0].match.basis.includes('several_matches') && one('SELECT COUNT(*) n FROM itineraries').n === plans2);
+  const exact2 = await call('build_itinerary', { title: 'Pizza day', days: [{ stops: [{ label: 'Pizza', place: { place: 'Sorbillo', locality: 'Naples', country: 'Italy', address: 'Via Partenope 1', identity_basis: ['authoritative_source'] } }] }] });
+  ok('S3 given the address, the right branch is reused, not duplicated', exact2.action === 'created' && exact2.days[0].stops[0].mark_uid === sb.mark.uid && one("SELECT COUNT(*) n FROM marks WHERE name='Sorbillo'").n === 2);
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('error:', e.message); process.exit(2); });
