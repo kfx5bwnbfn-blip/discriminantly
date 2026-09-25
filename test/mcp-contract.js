@@ -1,7 +1,7 @@
 // MCP contract guard (live part).
 //
 // Compares what a running server actually generates with the current contract
-// snapshot, test/fixtures/mcp-contract-v2.60.json (63 tools: v2.56 plus resolve_travel_mark and audit_itinerary; formerly 61:
+// snapshot, test/fixtures/mcp-contract-v2.61.json (63 tools: v2.56 plus resolve_travel_mark and audit_itinerary; formerly 61:
 // additive Increment 4 fields; the v2.55 snapshot stays as the release baseline):
 //   - tools/list: every tool definition (also checked from source by the suite)
 //   - initialize: server info, capabilities, server instructions
@@ -25,7 +25,7 @@
 //                     snapshot is never rewritten.
 //   ... --historical  compare with the historical submission instead
 const fs = require('fs'), path = require('path');
-const FILE = path.join(__dirname, 'fixtures', 'mcp-contract-v2.60.json');
+const FILE = path.join(__dirname, 'fixtures', 'mcp-contract-v2.61.json');
 const HIST = path.join(__dirname, 'fixtures', 'submitted-mcp-contract.json');
 const BASE = (process.env.BASE || 'http://localhost:3000').replace(/\/$/, ''), TOKEN = process.env.TOKEN, SID = process.env.SID;
 const RECORD = process.argv.includes('--record'), HISTORICAL = process.argv.includes('--historical');
@@ -120,7 +120,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
     info('added since the historical submission: ' + (added.join(', ') || 'none'));
     info('server instructions ' + (now.initialize.instructions === want.initialize.instructions ? 'unchanged' : 'changed'));
   } else {
-    cmp(`tool definitions (${now.tools.length} tools, all exactly as the v2.60 snapshot)`, now.tools, want.tools);
+    cmp(`tool definitions (${now.tools.length} tools, all exactly as the v2.61 snapshot)`, now.tools, want.tools);
     for (const n of removed) console.log('       missing: ' + n);
     for (const n of changed) console.log('       changed: ' + n);
     for (const n of added) console.log('       added: ' + n);
@@ -138,7 +138,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJA
   for (const k of Object.keys(want.result_shapes)) cmp('result shape: ' + k,
     HISTORICAL && k === 'my_travel_marks' ? sansIdentity(now.result_shapes[k]) : now.result_shapes[k], want.result_shapes[k]);
   cmp('Stop -> Note does not change the my_itineraries result', now.result_shapes.my_itineraries_one_after_stop_note, now.result_shapes.my_itineraries_one);
-  console.log(fail ? `\n${fail} contract difference(s) from the ${HISTORICAL ? 'historical submission' : 'v2.60 snapshot'}.`
-    : (HISTORICAL ? '\nHistorical comparison: nothing removed; OAuth, discovery and shared result shapes unchanged.' : '\nMCP contract matches the v2.60 snapshot.'));
+  console.log(fail ? `\n${fail} contract difference(s) from the ${HISTORICAL ? 'historical submission' : 'v2.61 snapshot'}.`
+    : (HISTORICAL ? '\nHistorical comparison: nothing removed; OAuth, discovery and shared result shapes unchanged.' : '\nMCP contract matches the v2.61 snapshot.'));
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('contract guard error:', e.message); process.exit(2); });

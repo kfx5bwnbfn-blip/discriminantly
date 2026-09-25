@@ -1,0 +1,79 @@
+{
+  "release": "v2.61.0",
+  "kind": "reconciled release",
+  "mcp": {
+    "tools": 67,
+    "contract_snapshot": "test/fixtures/mcp-contract-v2.61.json",
+    "contract_sha256": "sha256:64d756904e3c648fe64a97e87d282a312350693ed886a61396af1e45237e468c",
+    "instructions_sha256": "sha256:3ffd8feec1c685c7c2d176f2e44247fbcd10d841a1d0c4912a281021caaaefe9",
+    "capabilities": {
+      "tools": {},
+      "resources": {},
+      "extensions": {
+        "io.modelcontextprotocol/skills": {}
+      }
+    }
+  },
+  "skills": [
+    {
+      "name": "discriminantly-destination-objects",
+      "uri": "skill://discriminantly/discriminantly-destination-objects/SKILL.md",
+      "resources": [
+        {
+          "uri": "skill://discriminantly/discriminantly-destination-objects/SKILL.md",
+          "digest": "sha256:3ec304eab82ef60569c5d96167f72fb7d670797f9ddf45d38d1758664ce1564e"
+        }
+      ]
+    },
+    {
+      "name": "discriminantly-for-another-time",
+      "uri": "skill://discriminantly/discriminantly-for-another-time/SKILL.md",
+      "resources": [
+        {
+          "uri": "skill://discriminantly/discriminantly-for-another-time/SKILL.md",
+          "digest": "sha256:d965e75e2eb00c4ea2c7439aa8ded5565a8a6b8e4622fc3bad6038287a8da054"
+        }
+      ]
+    },
+    {
+      "name": "discriminantly-note-enhancement",
+      "uri": "skill://discriminantly/discriminantly-note-enhancement/SKILL.md",
+      "resources": [
+        {
+          "uri": "skill://discriminantly/discriminantly-note-enhancement/SKILL.md",
+          "digest": "sha256:1bf1d1738107c213c60fa6891a18fc458e8e6d17475bd22ef0aa78f5dba3c316"
+        }
+      ]
+    },
+    {
+      "name": "discriminantly-travel-mark-enhancement",
+      "uri": "skill://discriminantly/discriminantly-travel-mark-enhancement/SKILL.md",
+      "resources": [
+        {
+          "uri": "skill://discriminantly/discriminantly-travel-mark-enhancement/SKILL.md",
+          "digest": "sha256:2a24acdc8062f47f2d4788a501f2843d2f46b22b6bf0d77798148c31cb3a19e5"
+        }
+      ]
+    },
+    {
+      "name": "discriminantly-trip-planning",
+      "uri": "skill://discriminantly/discriminantly-trip-planning/SKILL.md",
+      "resources": [
+        {
+          "uri": "skill://discriminantly/discriminantly-trip-planning/SKILL.md",
+          "digest": "sha256:2d0da7b269d37c8097214c5225eb02a6646e709de5a9eb4fd308e0717e44511f"
+        }
+      ]
+    }
+  ],
+  "dependencies": {
+    "discriminantly-trip-planning": [
+      "discriminantly-travel-mark-enhancement",
+      "discriminantly-destination-objects",
+      "discriminantly-for-another-time"
+    ],
+    "discriminantly-destination-objects": [
+      "discriminantly-note-enhancement"
+    ]
+  }
+}

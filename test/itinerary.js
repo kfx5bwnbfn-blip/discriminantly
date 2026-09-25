@@ -1481,21 +1481,21 @@ console.log('\nlifecycle invariants (source)');
 console.log('\nMCP contract (definitions)');
 {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
-  const cur = read('mcp-contract-v2.60.json'), rel = read('mcp-contract-v2.59.json'), hist = read('submitted-mcp-contract.json');
+  const cur = read('mcp-contract-v2.61.json'), rel = read('mcp-contract-v2.60.json'), hist = read('submitted-mcp-contract.json');
   const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
   const gen = norm(loadToolsFromSource(SRC));
   const names = (l) => l.map((t) => t.name);
-  ok('MC1 the v2.60 snapshot holds 67 tools and v2.59 held 65; the historical one still holds the submitted 54', cur.tools.length === 67 && rel.tools.length === 65 && hist.tools.length === 54);
+  ok('MC1 the v2.61 snapshot holds 67 tools, as did v2.60; the historical one still holds the submitted 54', cur.tools.length === 67 && rel.tools.length === 67 && hist.tools.length === 54);
   // v2.58 against v2.56: delegated itinerary authoring and place identity.
   // Only these descriptions and my_travel_marks' result changed; two tools added;
   // every existing annotation and the server instructions are unchanged.
   // v2.59 against v2.58: the deferred items (field status, images, expansion audit, build_itinerary).
-  // v2.60 against v2.59: stops carry their place; upload_image wording; general Keep; leftovers.
-  const V258_CHANGED = ['add_itinerary_stops',  'arrange_itinerary',  'my_itineraries',  'resolve_itinerary_stop',  'upload_image'];
-  const V258_ADDED = ['clear_prospective_leftovers',  'keep_record'];
+  // v2.61 against v2.60: no tool changed; only the server capabilities (Skills extension).
+  const V258_CHANGED = [];
+  const V258_ADDED = [];
   const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const incAdded = cur.tools.filter((t) => !rel.tools.find((x) => x.name === t.name)).map((t) => t.name).sort();
-  ok('MC9 against v2.59, only the approved v2.60 tools changed or were added; existing annotations and the instructions unchanged',
+  ok('MC9 against v2.60, no tool changed or was added (v2.61 adds only the Skills extension); existing annotations and the instructions unchanged',
      JSON.stringify(incChanged) === JSON.stringify(V258_CHANGED) && JSON.stringify(incAdded) === JSON.stringify(V258_ADDED)
      && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
      && rel.initialize.instructions === cur.initialize.instructions, `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
@@ -1618,6 +1618,33 @@ console.log('\nnote identity');
   ok('NM4 strong word overlap is probable, surfaced not substituted', row({ name: 'Blenheim Forge Model chef knife' }, { name: 'Blenheim Forge Model chef knife steel', url: '' }).state === 'probable');
   ok('NM5 note_object reports a probable match without writing, and diagnostics in _meta', /if \(dup\.state === 'probable'\) return \{ \.\.\.wr\(`Nothing was created:/.test(SRC) && /'discriminantly\/note_match'/.test(SRC));
   ok('NM6 the web mark form uses the shared place matcher (D2 on the web)', /\/\/ D2 on the web[\s\S]{0,200}const pm = matchPlace\(me\.id,/.test(SRC) && /if \(pm\.state === 'exact'\) return redirect\(res, `\/m\/\$\{pm\.id\}\?already=1`\);/.test(SRC));
+}
+
+// ---- The five Skills (v2.61): one source, valid, and only real tools ----------
+console.log('\nskills');
+{
+  const dir = path.join(__dirname, '..', 'skills');
+  const names = fs.readdirSync(dir).filter((d) => fs.existsSync(path.join(dir, d, 'SKILL.md'))).sort();
+  const want = ['discriminantly-destination-objects', 'discriminantly-for-another-time', 'discriminantly-note-enhancement', 'discriminantly-travel-mark-enhancement', 'discriminantly-trip-planning'];
+  ok('SK1 exactly the five skills, one directory each', JSON.stringify(names) === JSON.stringify(want), names.join(', '));
+  const toolNames = new Set(loadToolsFromSource(SRC).map((t) => t.name));
+  const skillNames = new Set(want);
+  for (const n of names) {
+    const t = fs.readFileSync(path.join(dir, n, 'SKILL.md'), 'utf8');
+    const m = /^---\n([\s\S]*?)\n---\n/.exec(t);
+    const lines = m ? m[1].split('\n').filter(Boolean) : [];
+    const fmObj = Object.fromEntries(lines.map((l) => [l.slice(0, l.indexOf(': ')), l.slice(l.indexOf(': ') + 2)]));
+    ok(`SK2 ${n}: front matter is exactly name and description, and name matches the directory`, JSON.stringify(Object.keys(fmObj)) === JSON.stringify(['name', 'description']) && fmObj.name === n);
+    ok(`SK3 ${n}: the description is plain YAML (no ": " or "#" that would change its parsed value)`, !/: |#/.test(fmObj.description || 'x:') && (fmObj.description || '').length <= 1024);
+    const refs = [...t.matchAll(/`([a-z][a-z0-9_]+)`/g)].map((x) => x[1]).filter((x) => x.includes('_') && !/^(target_state|identity_basis|mark_uid|allow_distinct_from_candidate|all_specific_stops_linked|no_unplaced_stops|enhanced_marks|image_uid|context_itinerary_uid|context_stop_uid|origin_itinerary_uid|same_city|destination_objects|for_another_time|target_uid|recommendation_context|authoritative_source|mapping_provider|member_identity|stable_external_id|place_identity)$/.test(x));
+    const unknown = [...new Set(refs.filter((x) => !toolNames.has(x)))];
+    ok(`SK4 ${n}: every tool it names exists`, unknown.length === 0, unknown.join(', '));
+    const skillRefs = [...t.matchAll(/discriminantly-[a-z-]+/g)].map((x) => x[0]).filter((x) => x !== n);
+    ok(`SK5 ${n}: every skill it depends on exists`, skillRefs.every((x) => skillNames.has(x)));
+  }
+  const plan = fs.readFileSync(path.join(dir, 'discriminantly-trip-planning', 'SKILL.md'), 'utf8');
+  ok('SK6 the Naples correction: planning makes enhancement a required step for every mark, with read-back and a quality check', /## 4\. Enhance every place \(required\)/.test(plan) && /EVERY travel mark created or newly kept/.test(plan) && /not "as useful"/.test(plan) && /B\. Record quality/.test(plan));
+  ok('SK7 the server serves the skills over the documented extension', /extensions: \{ 'io\.modelcontextprotocol\/skills': \{\} \}/.test(SRC) && /method === 'skills\/list'/.test(SRC) && /method === 'skills\/get'/.test(SRC) && /method === 'resources\/read'/.test(SRC));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

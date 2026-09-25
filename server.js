@@ -7108,9 +7108,9 @@ function proposalCard(x, origin, me) {
   // One primary action in the skin's Show more token, centred, with the quiet
   // reactions (or what keeping did not record) centred beneath it.
   const acts = kept
-    ? `<div class="more rec-keep-row"><a class="nf-post more-link" href="/t/${plan.id}">Open the itinerary</a></div><p class="rec-foot"><span class="rec-note">No visits, ownership or warrants were recorded</span></p>`
+    ? `<div class="rec-keep-row"><a class="btn-note" href="/t/${plan.id}">Open the itinerary</a></div><p class="rec-foot"><span class="rec-note">No visits, ownership or warrants were recorded</span></p>`
     : r.reaction ? `<p class="rec-foot"><span class="rec-note">${r.reaction === 'not_this_trip' ? 'Not this trip' : r.reaction === 'not_for_me' ? 'Not for me' : 'Set aside'}</span></p>`
-    : `<div class="more rec-keep-row">${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'nf-post more-link btn-keep')}</div><div class="rec-foot rec-reacts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}<span class="rec-dot" aria-hidden="true">\u00b7</span>${reactForm(r.uid, 'not_for_me', 'Not for me')}</div>`;
+    : `<div class="more rec-keep-row">${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'btn-note btn-keep')}</div><div class="rec-foot rec-reacts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}<span class="rec-dot" aria-hidden="true">\u00b7</span>${reactForm(r.uid, 'not_for_me', 'Not for me')}</div>`;
   return `<article class="rec-plan${kept ? ' is-kept' : ''}${r.reaction && !kept ? ' is-reacted' : ''}" data-rec="${esc(r.uid)}">
     <p class="rec-kind">${kind}</p>
     <h3 class="rec-title"><a href="/t/${plan.id}">${esc(r.label)}</a></h3>
@@ -9264,6 +9264,49 @@ const IMAGE_FIELD_DESC = 'An image reference: either a real https:// URL to an e
 // has verified+visit_count, search_catalogue has neither) — that difference
 // is documented per-tool on purpose. Unifying those shapes is a runtime
 // change, out of scope here; this only describes what already exists.
+// ---- Skills over MCP (v2.61) -------------------------------------------------
+// The five workflow Skills live in skills/<name>/SKILL.md, the one source.
+// Served through the draft SEP-2640 Skills extension that OpenAI's plugin
+// submission imports at Scan Tools (skills/list, skills/get, resources/read,
+// sha256 digests of the exact UTF-8 bytes). Read once at boot; never edited.
+const SKILLS_ROOT = path.join(__dirname, 'skills');
+const SKILL_SERVER = 'discriminantly';
+function parseFrontmatter(text) {
+  const m = /^---\n([\s\S]*?)\n---\n/.exec(text);
+  if (!m) throw new Error('SKILL.md has no front matter');
+  const fm = {};
+  for (const line of m[1].split('\n')) {
+    if (!line.trim()) continue;
+    const k = line.indexOf(': ');
+    if (k < 1) throw new Error(`front matter line is not "key: value": ${line}`);
+    fm[line.slice(0, k).trim()] = line.slice(k + 2).trim();
+  }
+  return fm;
+}
+function loadSkills() {
+  if (!fs.existsSync(SKILLS_ROOT)) return [];
+  const out = [];
+  for (const dir of fs.readdirSync(SKILLS_ROOT).sort()) {
+    const base = path.join(SKILLS_ROOT, dir);
+    if (!fs.statSync(base).isDirectory() || !fs.existsSync(path.join(base, 'SKILL.md'))) continue;
+    const files = [];
+    const walk = (d, rel) => { for (const f of fs.readdirSync(d).sort()) { const full = path.join(d, f), r = rel ? `${rel}/${f}` : f; if (fs.statSync(full).isDirectory()) walk(full, r); else files.push(r); } };
+    walk(base, '');
+    const resources = files.map((rel) => {
+      const text = fs.readFileSync(path.join(base, rel), 'utf8');
+      return { rel, uri: `skill://${SKILL_SERVER}/${dir}/${rel}`, text, digest: 'sha256:' + crypto.createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex') };
+    });
+    const main = resources.find((r) => r.rel === 'SKILL.md');
+    const frontmatter = parseFrontmatter(main.text);
+    if (frontmatter.name !== dir) throw new Error(`skill directory ${dir} does not match its name ${frontmatter.name}`);
+    out.push({ name: dir, uri: main.uri, frontmatter, resources });
+  }
+  return out;
+}
+const SKILLS = loadSkills();
+const skillEntry = (sk) => ({ uri: sk.uri, frontmatter: sk.frontmatter, resources: sk.resources.map((r) => ({ uri: r.uri, digest: r.digest })) });
+const skillResource = (uri) => { for (const sk of SKILLS) for (const r of sk.resources) if (r.uri === uri) return r; return null; };
+
 const OS_RENOTED = { type: 'object', additionalProperties: false, required: ['count', 'note_uids'],
   properties: { count: { type: 'integer' }, note_uids: { type: 'array', items: { type: 'string' } } } };
 // basis is required: flattening it would erase the difference between a member
@@ -10179,6 +10222,7 @@ const TOOLS = [
 //               member's private ownership records, staged ensembles, and image
 //               bytes in transit.
 // [title, readOnly, destructive, openWorld]
+
 const TOOL_ANNOTATIONS = {
   // reading the member's own catalogue (and other members' public notes)
   my_notes:                   ['List my notes', true, false, false],
@@ -11786,7 +11830,7 @@ async function mcp(req, res, tok) {
       conn.client_name = declared;
     }
   }
-  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {}, resources: {}, extensions: { 'io.modelcontextprotocol/skills': {} } }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
 
 HOW TO WORK HERE. Never say something was saved before the tool call that saves it has returned successfully. If a call fails you will get a reference code — tell the member it failed, quote the reason and the code, and never quietly carry on as if it worked. Do not retry an identical failing call more than once. When a tool result tells you what to do next, do it without pausing to ask the member: internal plumbing is not their decision. Confirm before deleting anything.
 
@@ -11805,6 +11849,17 @@ ENSEMBLES. When the member asks to combine or compose things visually: look at e
 RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their catalogue, things for one of their trips, or something to keep in mind for another time) presents a thing, place or itinerary to the member as a recommendation, record what you actually present, and only that, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. Candidates you only researched are not recommendations, and an ordinary recommendation question outside their catalogue and plans records nothing. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). A check-in, ownership, warrant, comment or edit attaches only to a kept record: when the member says they went, own it or stand behind it, that already says to keep it, so keep it first and then record it, without asking again. Earlier ones: list_recommendations.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
+  // Skills extension (SEP-2640 subset used by OpenAI plugin submission).
+  if (method === 'skills/list') return reply(id, { skills: SKILLS.map(skillEntry) });
+  if (method === 'skills/get') {
+    const sk = SKILLS.find((x) => x.uri === String((params || {}).uri || ''));
+    return sk ? reply(id, { skill: skillEntry(sk) }) : reply(id, null, { code: -32602, message: 'No such skill' });
+  }
+  if (method === 'resources/list') return reply(id, { resources: SKILLS.flatMap((sk) => sk.resources.map((r) => ({ uri: r.uri, name: `${sk.name}/${r.rel}`, mimeType: 'text/markdown' }))) });
+  if (method === 'resources/read') {
+    const r = skillResource(String((params || {}).uri || ''));
+    return r ? reply(id, { contents: [{ uri: r.uri, mimeType: 'text/markdown', text: r.text }] }) : reply(id, null, { code: -32602, message: 'No such resource' });
+  }
   if (method === 'tools/call') {
     try {
       const out = await mcpCall(user, conn, params.name, params.arguments, authMethod);
@@ -12425,7 +12480,11 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/r\/([0-9a-f-]{36})\/keep$/)) && m === 'POST') {
     if (!me) return need();
     try { recommendationKeep(me, mt[1], webActor(me)); } catch (e) { return send(res, esc(e.message), 409); }
-    return redirect(res, back('/'));
+    // Keeping a recommended plan opens that plan, now the member's; other
+    // recommendations return to the page they were kept from.
+    const kr = q('SELECT target_type, target_uid FROM recommendations WHERE uid=? AND user_id=?').get(mt[1], me.id);
+    const plan = kr && kr.target_type === 'itinerary' && kr.target_uid ? itinByUid(kr.target_uid) : null;
+    return redirect(res, plan ? `/t/${plan.id}` : back('/'));
   }
   if ((mt = p.match(/^\/r\/([0-9a-f-]{36})\/react$/)) && m === 'POST') {
     if (!me) return need();

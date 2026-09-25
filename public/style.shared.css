@@ -1223,3 +1223,7 @@ body:not([data-skin="modern"]) .welcome-card .wl-kind { background: rgba(0,0,0,.
 .rec-plan .rec-dot { opacity: .5; }
 /* Travel mark cards: the photo now sits under the arched title; give it room above. */
 .travelmark .mark-title + .mark-photo, .travelmark .mark-title ~ .mark-photo { margin: .6rem 0 1rem; }
+/* Keep this plan / Open the itinerary: the travel mark button token (btn-note,
+   as Directions and Check in), at a comparable width. */
+.rec-plan .rec-keep-row .btn-note { display: inline-flex; justify-content: center; width: min(100%, 22rem); }
+.rec-plan .rec-keep-row .keep-form { width: min(100%, 22rem); }
