@@ -781,6 +781,30 @@
         "open_world_justification": "Open-world: the travel marks it creates are public unless made private, so it can publish content.",
         "destructive_justification": "Not destructive: it only creates, or reuses an exact existing mark; it never overwrites or deletes, and a failure writes nothing."
       }
+    },
+    "keep_record": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": true,
+        "destructiveHint": false
+      },
+      "justifications": {
+        "read_only_justification": "Writes: records that the member kept one of their own notes or travel marks.",
+        "open_world_justification": "Open-world: keeping a record that is not private makes it visible to others in the member's catalogue.",
+        "destructive_justification": "Not destructive: it adds a keep and changes or removes nothing."
+      }
+    },
+    "clear_prospective_leftovers": {
+      "annotations": {
+        "readOnlyHint": false,
+        "openWorldHint": false,
+        "destructiveHint": true
+      },
+      "justifications": {
+        "read_only_justification": "Writes when confirmed: deletes records that were never kept and that nothing uses.",
+        "open_world_justification": "Closed-world: it touches only private records the member never kept, which no one else can see.",
+        "destructive_justification": "Destructive when confirmed: deleting a record cannot be undone. It lists by default and deletes only with confirm, and only records with no plan, check-in, ownership, warrant, comment or open recommendation."
+      }
     }
   },
   "test_cases": [

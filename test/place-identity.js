@@ -116,5 +116,42 @@ const counts = () => ({ visits: one('SELECT COUNT(*) n FROM visits').n, warrants
   const broken = await raw('build_itinerary', { title: 'Will fail', days: [{ stops: [{ label: 'New place', place: { place: 'Rollback Test Cafe', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'] } }] },
     { stops: [{ label: 'Bad', mark_uid: '00000000-0000-0000-0000-000000000000' }] }] });
   ok('M6 a failure part-way writes nothing at all: no plan, no new mark', broken.isError && one('SELECT COUNT(*) n FROM itineraries').n === plans1 && one('SELECT COUNT(*) n FROM marks').n === marks1 && !one("SELECT 1 FROM marks WHERE name='Rollback Test Cafe'"));
+  // N. dates, not instants
+  const mn = await call('my_travel_marks', { limit: 3 });
+  const stamp = JSON.stringify(mn).match(/"created_at":"([^"]*)"/);
+  ok('N1 tool results carry dates, not timestamps', !stamp || /^\d{4}-\d{2}-\d{2}$/.test(stamp[1]), stamp ? stamp[1] : 'no created_at');
+  // O. general Keep
+  const idea = await call('resolve_travel_mark', { place: 'Taipei Fine Arts Museum', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'], target_state: 'recommendation', recommendation_context: { workflow: 'for_another_time' } });
+  const k1 = await call('keep_record', { type: 'mark', uid: idea.mark.uid });
+  const k2 = await call('keep_record', { type: 'mark', uid: idea.mark.uid });
+  ok('O1 keep_record keeps an unkept mark (through its recommendation), and again changes nothing', k1.action === 'kept' && k1.via === 'recommendation' && k2.action === 'unchanged' && (await call('my_travel_marks', { query: 'Fine Arts' })).items.length === 1, JSON.stringify(k1));
+  const k3 = await raw('keep_record', { type: 'mark', uid: '00000000-0000-0000-0000-000000000000' });
+  ok('O2 an unknown uid is refused without writing', k3.isError && /No such travel mark/.test(k3.content[0].text));
+  ok('O3 keeping records no visit, warrant or ownership', JSON.stringify(counts()) === JSON.stringify(before));
+  // P. leftovers: explicit, and only what nothing uses
+  const rp = await call('record_recommendations', { items: [{ kind: 'itinerary', label: 'A plan for later', workflow: 'for_another_time' }] });
+  const rplan = rp.items[0].recommendation.target.uid;
+  await call('add_itinerary_stops', { itinerary_uid: rplan, stops: [{ label: 'Leftover Noodles', new_place: { name: 'Leftover Noodles', locality: 'Taipei', country: 'Taiwan' } }] });
+  await call('delete_itinerary_entity', { kind: 'itinerary', uid: rplan });
+  const lo = await call('clear_prospective_leftovers', {});
+  ok('P1 a place left by a deleted, never-kept recommended plan is listed, and nothing is deleted without confirm', lo.action === 'listed' && lo.items.some((x) => x.name === 'Leftover Noodles') && !!one("SELECT 1 FROM marks WHERE name='Leftover Noodles'"));
+  ok('P2 nothing kept is ever listed', !lo.items.some((x) => one('SELECT 1 FROM marks WHERE uid=?', x.uid) && [kaffa, museum, moun].some((m) => m.mark.uid === x.uid)));
+  const done = await call('clear_prospective_leftovers', { confirm: true });
+  ok('P3 with confirm it deletes exactly those, recording each deletion', done.action === 'deleted' && !one("SELECT 1 FROM marks WHERE name='Leftover Noodles'")
+     && !!one("SELECT 1 FROM provenance WHERE action='deleted' AND source_kind='review_cleanup'"));
+  // Q. a stop remembers where its place was
+  const snap = await call('resolve_travel_mark', { place: 'Snapshot Cafe', locality: 'Taipei', country: 'Taiwan', identity_basis: ['authoritative_source'], target_state: 'canonical' });
+  const itQ = await call('create_itinerary', { title: 'Snapshot plan' });
+  await call('add_itinerary_stops', { itinerary_uid: itQ.uid, stops: [{ label: 'Cafe', mark_uid: snap.mark.uid }] });
+  await call('delete_travel_mark', { id: snap.mark.id });
+  const afterQ = await call('my_itineraries', { uid: itQ.uid });
+  const stQ = afterQ.unplaced[0];
+  ok('Q1 after its mark is deleted, the stop still says where it was', stQ && !stQ.mark_uid && stQ.place && stQ.place.locality === 'Taipei' && stQ.place.country === 'Taiwan', JSON.stringify(stQ));
+  // R. retry safety
+  const r1 = await call('create_itinerary', { title: 'Retry me' }), r2 = await call('create_itinerary', { title: 'Retry me' });
+  ok('R1 a retried create_itinerary returns the plan just made', r2.action === 'unchanged' && r2.uid === r1.uid && one("SELECT COUNT(*) n FROM itineraries WHERE title='Retry me'").n === 1);
+  await call('add_itinerary_stops', { itinerary_uid: r1.uid, stops: [{ label: 'One' }, { label: 'Two' }] });
+  await call('add_itinerary_stops', { itinerary_uid: r1.uid, stops: [{ label: 'One' }, { label: 'Two' }] });
+  ok('R2 a retried add_itinerary_stops adds nothing more', one('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=(SELECT id FROM itineraries WHERE uid=?)', r1.uid).n === 2);
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('error:', e.message); process.exit(2); });

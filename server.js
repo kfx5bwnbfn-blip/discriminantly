@@ -1472,6 +1472,19 @@ const MIGRATIONS = [
   ['057-mark-field-status', () => {
     if (!hasColumn('marks', 'field_status')) db.exec("ALTER TABLE marks ADD COLUMN field_status TEXT DEFAULT ''");
   }],
+  // Stop place snapshot (v2.60): a stop keeps the city and country of the
+  // place it pointed at, so after the mark is deleted it still says where.
+  // Kept current by triggers whenever a stop is linked; never cleared.
+  ['058-stop-place-snapshot', () => {
+    if (!hasColumn('itinerary_stops', 'place_locality')) db.exec("ALTER TABLE itinerary_stops ADD COLUMN place_locality TEXT DEFAULT ''");
+    if (!hasColumn('itinerary_stops', 'place_country')) db.exec("ALTER TABLE itinerary_stops ADD COLUMN place_country TEXT DEFAULT ''");
+    const set = `UPDATE itinerary_stops SET place_locality = COALESCE((SELECT locality FROM marks WHERE uid = NEW.mark_uid), place_locality),
+      place_country = COALESCE((SELECT country FROM marks WHERE uid = NEW.mark_uid), place_country) WHERE id = NEW.id;`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_place_snapshot_ins AFTER INSERT ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL BEGIN ${set} END`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_place_snapshot_upd AFTER UPDATE OF mark_uid ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL BEGIN ${set} END`);
+    db.exec("UPDATE itinerary_stops SET place_locality = (SELECT locality FROM marks WHERE uid = itinerary_stops.mark_uid), "
+      + "place_country = (SELECT country FROM marks WHERE uid = itinerary_stops.mark_uid) WHERE mark_uid IN (SELECT uid FROM marks)");
+  }],
 ];
 
 function backupTo(file) {
@@ -4221,7 +4234,7 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
   const mine = q("SELECT id, name FROM collections WHERE user_id=? AND kind='mark' ORDER BY name").all(me.id);
   const sel = new Set(picked ? picked : editing ? markCollections(m.id).map((c) => c.name) : []);
   return `
-<form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">
+<form method="post" action="${editing ? `/m/${m.id}/edit` : '/marks/new'}" class="nf">${m.allow_duplicate_offer ? '<label class="nf-dup"><input type="checkbox" name="allow_duplicate" value="1"> Save as a separate place</label>' : ''}
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
   <div class="nf-box">
     <div class="nf-top">${formWarrantControl('mark', m, me)}<span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${m.private ? 'checked' : ''}><span></span></label></div>
@@ -5315,6 +5328,44 @@ function buildItinerary(user, a, ctx) {
   // 3. check what was actually written
   const audit = auditItinerary(user, out.it.uid, { all_specific_stops_linked: false, no_unplaced_stops: !!days.length && !loose.length, ordered: !!days.length });
   return { ok: true, action: 'created', itinerary: { uid: out.it.uid, id: out.it.id, title: out.it.title }, days: out.dayOut, unplaced: out.unplaced, marks, audit, candidates: [] };
+}
+// General Keep (v2.60): the member keeps one of their own notes or marks
+// that is outside their catalogue. Recommendations and recommended-plan places
+// go through their own Keep (citing the recommendation); a piece identified
+// for a pending composition, or a record that survived a discarded one, is
+// kept citing what explained it. Only the member's word does this.
+function keepRecord(user, subjectType, uid, ctx) {
+  const table = subjectType === 'mark' ? 'marks' : 'objects';
+  const row = q(`SELECT * FROM ${table} WHERE uid=? AND user_id=?`).get(String(uid || ''), user.id);
+  if (!row) throw new Error(`No such ${subjectType === 'mark' ? 'travel mark' : 'note'}.`);
+  if (isAdopted(subjectType, row.uid)) return { action: 'unchanged', uid: row.uid, name: row.name };
+  const p = prospectiveOf(subjectType, row);
+  if (p && p.kind !== 'pending') { keepProspective(user, subjectType, row, ctx); return { action: 'kept', uid: row.uid, name: row.name, via: p.kind }; }
+  const why = p && p.kind === 'pending' ? (p.ensemble_uid || (p.ensemble && p.ensemble.uid) || null) : null;
+  recordAdoption(user.id, subjectType, row.uid, ctx, { source_kind: 'member_keep', source_ref: why || row.uid });
+  return { action: 'kept', uid: row.uid, name: row.name, via: p ? 'pending_composition' : 'survivor' };
+}
+// Leftovers (v2.60): records never kept that nothing uses any more: no plan,
+// stop, stop note or composition holds them; no check-in, ownership, warrant
+// or comment; no open recommendation. Found on request, deleted only when the
+// member confirms. Never a cascade.
+function prospectiveLeftovers(user) {
+  const out = [];
+  const openRec = (type, uid) => !!q("SELECT 1 FROM recommendations WHERE user_id=? AND target_type=? AND target_uid=? AND (reaction IS NULL OR reaction='')").get(user.id, type, uid);
+  for (const m of q('SELECT id, uid, name FROM marks WHERE user_id=?').all(user.id)) {
+    if (isAdopted('mark', m.uid) || openRec('mark', m.uid)) continue;
+    if (q('SELECT 1 FROM itinerary_stops WHERE mark_uid=?').get(m.uid) || q('SELECT 1 FROM visits WHERE mark_id=?').get(m.id)
+      || q('SELECT 1 FROM warrants WHERE subject_uid=?').get(m.uid) || q('SELECT 1 FROM mark_comments WHERE mark_id=?').get(m.id)) continue;
+    out.push({ type: 'mark', uid: m.uid, name: m.name });
+  }
+  for (const o of q('SELECT id, uid, name FROM objects WHERE user_id=?').all(user.id)) {
+    if (isAdopted('object', o.uid) || openRec('object', o.uid)) continue;
+    if (q('SELECT 1 FROM itinerary_stop_notes WHERE note_id=?').get(o.id) || q('SELECT 1 FROM ensemble_components WHERE note_uid=?').get(o.uid)
+      || q('SELECT 1 FROM ownership_assertions WHERE note_uid=?').get(o.uid) || q('SELECT 1 FROM warrants WHERE subject_uid=?').get(o.uid)
+      || q('SELECT 1 FROM comments WHERE object_id=?').get(o.id)) continue;
+    out.push({ type: 'note', uid: o.uid, name: o.name });
+  }
+  return out;
 }
 const placeMatchPublic = (m) => ({ state: m.state, basis: m.basis || [], ...(m.confidence ? { confidence: m.confidence } : {}),
   ...(m.uid ? { candidate_uid: m.uid, candidate_id: m.id, candidate_name: m.name } : {}) });
@@ -7054,10 +7105,12 @@ function proposalCard(x, origin, me) {
   const shape = [days ? `${days} ${days === 1 ? 'day' : 'days'}` : '', `${nStops} ${nStops === 1 ? 'stop' : 'stops'}`].filter(Boolean).join(' · ');
   const kind = kept ? `<b>${esc(me.handle)}</b> <span class="who-private">privately planned</span>` : proposalKind(r, origin);
   const meta = kept ? `${shape} · kept · proposed ${monYear(r.created_at)}, from “${esc(origin.title)}”` : `${shape} · proposed ${monYear(r.created_at)}`;
+  // One primary action in the skin's Show more token, centred, with the quiet
+  // reactions (or what keeping did not record) centred beneath it.
   const acts = kept
-    ? `<div class="rec-acts"><a class="btn" href="/t/${plan.id}">Open the itinerary</a><span class="rec-note">No visits, ownership or warrants were recorded</span></div>`
-    : r.reaction ? `<div class="rec-acts"><span class="rec-note">${r.reaction === 'not_this_trip' ? 'Not this trip' : r.reaction === 'not_for_me' ? 'Not for me' : 'Set aside'}</span></div>`
-    : `<div class="rec-acts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}${reactForm(r.uid, 'not_for_me', 'Not for me')}</div><div class="rec-keep-row">${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'nf-post btn-keep')}</div>`;
+    ? `<div class="more rec-keep-row"><a class="nf-post more-link" href="/t/${plan.id}">Open the itinerary</a></div><p class="rec-foot"><span class="rec-note">No visits, ownership or warrants were recorded</span></p>`
+    : r.reaction ? `<p class="rec-foot"><span class="rec-note">${r.reaction === 'not_this_trip' ? 'Not this trip' : r.reaction === 'not_for_me' ? 'Not for me' : 'Set aside'}</span></p>`
+    : `<div class="more rec-keep-row">${keepForm(`/r/${r.uid}/keep`, 'Keep this plan', 'nf-post more-link btn-keep')}</div><div class="rec-foot rec-reacts">${reactForm(r.uid, 'not_this_trip', 'Not this trip')}<span class="rec-dot" aria-hidden="true">\u00b7</span>${reactForm(r.uid, 'not_for_me', 'Not for me')}</div>`;
   return `<article class="rec-plan${kept ? ' is-kept' : ''}${r.reaction && !kept ? ' is-reacted' : ''}" data-rec="${esc(r.uid)}">
     <p class="rec-kind">${kind}</p>
     <h3 class="rec-title"><a href="/t/${plan.id}">${esc(r.label)}</a></h3>
@@ -7237,7 +7290,8 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
       // as the mark card, with an eyebrow in the same register as "MARKED", so
       // an intention is a peer of a resolved place rather than a lesser one.
       // Less resolved means less detail on the card, never less presence.
-      const eb = vis.dangling ? 'Once marked' : st.resolution === 'particular' ? 'Somewhere particular' : 'Intended';
+      const where = !st.mark_uid && (st.place_locality || st.place_country) ? ` \u00b7 ${[st.place_locality, st.place_country].filter(Boolean).join(', ')}` : '';
+      const eb = (vis.dangling ? 'Once marked' : st.resolution === 'particular' ? 'Somewhere particular' : 'Intended') + where;
       return `<li ${attrs}><div class="stop-head">${time}${flag}${menu}</div>${handle}
         <div class="card stop-card ${st.resolution === 'particular' ? 'is-unres' : ''}">
           <span class="stop-eb">${eb}</span>
@@ -9313,7 +9367,8 @@ const OS_WRITE = { type: 'object', additionalProperties: false,
 const orError = (ok) => ok;
 const OS_ITIN_STOP = { type: 'object', additionalProperties: false,
   required: ['uid', 'label', 'kind', 'mark_uid', 'position', 'visibility', 'when'],
-  properties: { uid: { type: 'string' }, label: { type: 'string' },
+  properties: { place: { type: 'object', additionalProperties: false, required: ['locality', 'country'], description: 'Where this stop\u2019s place is (or was, if its mark was deleted).', properties: { locality: { type: 'string' }, country: { type: 'string' } } },
+    uid: { type: 'string' }, label: { type: 'string' },
     kind: { type: 'string', enum: ['linked', 'particular', 'experiential', 'allocation'] },
     mark_uid: { type: ['string', 'null'], description: 'The travel mark this stop points at, when it is linked.' },
     position: { type: ['integer', 'null'] }, visibility: { type: 'string', enum: ['visible', 'suspended'] },
@@ -9457,6 +9512,12 @@ const OS_BUILD = { type: 'object', additionalProperties: false, required: ['ok',
     marks: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['uid', 'name', 'action', 'match'], properties: { uid: { type: 'string' }, name: { type: 'string' }, action: { type: 'string' }, match: { type: 'string' } } } },
     audit: { anyOf: [OS_AUDIT_ITIN, { type: 'null' }] },
     candidates: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['place', 'stop_label', 'match'], properties: { place: { type: 'string' }, stop_label: { type: 'string' }, match: OS_PLACE_MATCH } } } } };
+const OS_KEEP_RECORD = { type: 'object', additionalProperties: false, required: ['ok', 'action', 'uid', 'name'],
+  properties: { ok: { type: 'boolean' }, action: { type: 'string', enum: ['kept', 'unchanged'] }, uid: { type: 'string' }, name: { type: 'string' },
+    via: { type: 'string', enum: ['recommendation', 'recommended_plan', 'pending_composition', 'survivor'] } } };
+const OS_LEFTOVERS = { type: 'object', additionalProperties: false, required: ['ok', 'action', 'items'],
+  properties: { ok: { type: 'boolean' }, action: { type: 'string', enum: ['listed', 'deleted'] },
+    items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['type', 'uid', 'name'], properties: { type: { type: 'string', enum: ['note', 'mark'] }, uid: { type: 'string' }, name: { type: 'string' } } } } } };
 const OS_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'verified', 'remarked_from_uid', 'has_image', 'image_uid', 'image_url', 'visit_count', 'visits', 'warrant', 'provenance'],
   properties: { type: { const: 'mark' }, uid: { type: 'string' }, id: { type: 'integer' },
@@ -9833,7 +9894,7 @@ const TOOLS = [
       subject_type: { type: 'string', enum: ['note', 'mark'], description: "Whether that id is a note or a travel mark. Defaults to 'note'." },
       body: { type: 'string', description: "What the member wants to say, in their voice. One or two sentences is usual." } } },
     outputSchema: OS_WRITE },
-  { name: 'upload_image', securitySchemes: SEC_OAUTH, description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer start_image_upload / upload_image_chunk / finish_image_upload instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
+  { name: 'upload_image', securitySchemes: SEC_OAUTH, description: "Store an image that is ALREADY REACHABLE and get back a stable image_uid: pass an https:// URL and Discriminantly fetches it server-to-server. That is what this tool is best at, and no chunking is needed for it. A small inline data: URL also works. FOR A LOCAL FILE — an attachment the user sent, a file under /mnt/data or /workspace, or a picture you generated — prefer begin_image_upload, then upload_image_chunk, instead: sending a whole image as one tool argument has proved unreliable, with runtimes silently truncating arguments at sizes as small as 135 KB, whereas chunking always works. Never pass a file id or a filesystem path to any of these tools; those name something in YOUR sandbox that this server cannot open. Upload one image at a time, keep each returned image_uid, and pass those uids onward (create_pending_ensemble, note_object, add_travel_mark) rather than sending a picture twice. A successful result is itself proof the image is stored; images are private, so do not fetch the returned /i/<uid> path to check.",
     inputSchema: { type: 'object', required: ['image'], properties: {
       image: { type: 'string', description: "Either (a) an https:// URL this server can fetch — the preferred use of this tool, any size — or (b) a data: URL you built in code from real local bytes, which is fine for a genuinely small image. For a local file of any real size, use start_image_upload instead of inlining it here: one large argument can be truncated in transit by your runtime, and chunking is not subject to that. Never a file id or a filesystem path. PNG, JPEG, WEBP or GIF." } } },
     outputSchema: OS_IMAGE },
@@ -10092,6 +10153,13 @@ const TOOLS = [
                 identity_basis: { type: 'array', minItems: 1, items: { type: 'string', enum: ['member_identity', 'mapping_provider', 'authoritative_source', 'stable_external_id'] } },
                 unavailable: { type: 'array', items: { type: 'string', enum: ['address', 'coordinates', 'link', 'why', 'image'] } },
                 allow_distinct_from_candidate: { type: 'boolean', description: 'After a candidate was returned for this place: true when it is a different place.' } } } } } } } } },
+  { name: 'keep_record', securitySchemes: SEC_OAUTH, outputSchema: OS_KEEP_RECORD, description: 'Keep one of the member\'s own notes or travel marks that is not yet in their catalogue, when they say to keep it: a piece identified for a composition still pending review, something that survived a discarded composition, or a recommended thing or place (for which keep_recommendation works equally). Keeping adds it to their notes or marks (my_notes, my_travel_marks); it means they chose it, not that they own it, visited it or stand behind it, and it records none of those. Only on the member\'s word, never inferred from praise or a purchase. Already kept: changes nothing. Not for their own new things (note_object, add_travel_mark) or whole plans (keep_recommendation with the plan).',
+    inputSchema: { type: 'object', required: ['type', 'uid'], properties: {
+      type: { type: 'string', enum: ['note', 'mark'] },
+      uid: { type: 'string', description: 'The note or travel mark uid, from get_ensemble, list_recommendations or a tool result.' } } } },
+  { name: 'clear_prospective_leftovers', securitySchemes: SEC_OAUTH, outputSchema: OS_LEFTOVERS, description: 'Find, and when the member confirms delete, records that were never kept and that nothing uses any more: places or things left from a recommended plan that was deleted, or from recommendations they turned down. A record is a leftover only if it is not kept, no plan, stop, stop note or composition holds it, it has no check-in, ownership, warrant or comment, and no open recommendation points at it. Without confirm it only lists them; with confirm: true it deletes exactly those, recording each deletion. Never touches anything the member kept. Use when the member asks to tidy up old suggestions, not on your own initiative.',
+    inputSchema: { type: 'object', properties: {
+      confirm: { type: 'boolean', description: 'true to delete what is listed; omit to list only. Only when the member has said to clear them.' } } } },
 ];
 // ---- tool annotations -------------------------------------------------------
 // Every tool declares how it behaves, in the MCP-standard annotations that
@@ -10185,6 +10253,8 @@ const TOOL_ANNOTATIONS = {
   audit_itinerary:            ['Check an itinerary is complete', true, false, false],
   audit_recommendation_expansion: ['Check For another time proposals', true, false, false],
   build_itinerary:            ['Build an itinerary in one step', false, false, true],
+  keep_record:                ['Keep a note or travel mark', false, false, true],
+  clear_prospective_leftovers: ['Clear unused suggestions', false, true, false],
 };
 for (const t of TOOLS) {
   const a = TOOL_ANNOTATIONS[t.name];
@@ -10202,18 +10272,32 @@ for (const n of Object.keys(TOOL_ANNOTATIONS))
 const normTitle = (s) => String(s || '').toLowerCase()
   .replace(/['’]/g, '')                // apostrophes vanish rather than splitting the word: M'250 and M250 must match
   .replace(/[^a-z0-9]+/g, ' ').trim();
-function findSimilarNote(userId, title) {
-  const norm = normTitle(title);
-  if (!norm) return null;
-  // The member's corpus only: "this may already be noted" must never present
-  // a record they have not Kept (a pending Ensemble's Note, later a
-  // Recommendation) as one of their notes. Reuse of such a record by identity
-  // is findExistingNote's job, which deliberately reads every row.
-  for (const r of q('SELECT id, name FROM adopted_objects WHERE user_id=?').all(userId)) {
-    const rn = normTitle(r.name);
-    if (rn && (rn === norm || rn.includes(norm) || norm.includes(rn))) return r;
+// Notes (v2.60): the same rules as places, for things. Exact (reused
+// silently): the same link, or the same normalised title. Probable (surfaced,
+// nothing written): strong overlap of meaningful words. One title merely
+// containing another means nothing: that is how "M+" matched everything.
+const NOTE_GENERIC = new Set(['the', 'and', 'of', 'for', 'with', 'in', 'on', 'a', 'an', 'edition', 'new', 'set', 'size', 'colour', 'color', 'black', 'white', 'grey', 'gray']);
+const noteTokens = (s) => normTitle(s).split(' ').filter((t) => t.length >= 3 && !NOTE_GENERIC.has(t));
+const normLink = (u) => String(u || '').trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+function noteMatchRow(c, r) {
+  if (normLink(c.link) && normLink(c.link) === normLink(r.url)) return { state: 'exact', basis: ['same_link'], confidence: 0.97 };
+  const a = normTitle(c.name), b = normTitle(r.name);
+  if (a && a === b) return { state: 'exact', basis: ['normalized_title'], confidence: 0.9 };
+  const ta = new Set(noteTokens(c.name)), tb = new Set(noteTokens(r.name));
+  const shared = [...ta].filter((t) => tb.has(t)).length, union = new Set([...ta, ...tb]).size;
+  if (union && ta.size >= 2 && tb.size >= 2 && shared / union >= 0.75) return { state: 'probable', basis: ['fuzzy_title'], confidence: 0.6 };
+  return { state: 'none', basis: [] };
+}
+// The member's corpus only: "this may already be noted" must never present a
+// record they have not Kept. Identity reuse of any row is findExistingNote's job.
+function findSimilarNote(userId, title, link = '') {
+  const rank = { exact: 2, probable: 1, none: 0 };
+  let best = { state: 'none', basis: [] }, row = null;
+  for (const r of q('SELECT id, uid, name, url FROM adopted_objects WHERE user_id=?').all(userId)) {
+    const m = noteMatchRow({ name: title, link }, r);
+    if (rank[m.state] > rank[best.state]) { best = m; row = r; }
   }
-  return null;
+  return row ? { ...best, row, id: row.id, uid: row.uid, name: row.name } : { state: 'none', basis: [] };
 }
 
 async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor = null) {
@@ -10228,10 +10312,11 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     if (!a.headline) throw new Error('headline is required');
     if (!a.image) throw new Error('image is required: every note carries an image');
     if (!a.allow_duplicate) {
-      const dup = findSimilarNote(user.id, a.headline);
+      const dup = findSimilarNote(user.id, a.headline, a.link);
+      const meta = { 'discriminantly/note_match': { state: dup.state, basis: dup.basis || [], ...(dup.uid ? { candidate_uid: dup.uid, candidate_id: dup.id, candidate_name: dup.name } : {}) } };
       // As for marks: nothing is created, so report the existing note as unchanged.
-      if (dup) return wr(`This looks like it may already be noted: #${dup.id} "${dup.name}". If it's genuinely a different item, call note_object again with allow_duplicate: true.`,
-        'unchanged', 'note', dup.id, uidOf('objects', dup.id), dup.name, 'already_exists');
+      if (dup.state === 'exact') return { ...wr(`This is already noted: #${dup.id} "${dup.name}" (${dup.basis.join(', ')}). Nothing was created; use this note (uid ${dup.uid}).`, 'unchanged', 'note', dup.id, dup.uid, dup.name, 'already_exists'), meta };
+      if (dup.state === 'probable') return { ...wr(`Nothing was created: #${dup.id} "${dup.name}" may be the same thing (${dup.basis.join(', ')}). If it is, use it (uid ${dup.uid}); if it's a different item, call note_object again with allow_duplicate: true.`, 'unchanged', 'note', dup.id, dup.uid, dup.name, 'probable_match'), meta };
       const rec = recommendedRecordFor(user.id, 'object', a.headline);
       if (rec) {
         keepRecommendedRecord(user, 'object', rec, mcpActor(user));
@@ -11349,7 +11434,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       for (const c of a.clear || []) { const k = 't_' + c.replace(/^t_/, ''); if (T_COLS.includes(k)) t[k] = null; }
       return t;
     };
-    const stopView = (st) => ({
+    const stopView = (st) => ({ ...(st.place_locality || st.place_country ? { place: { locality: st.place_locality || '', country: st.place_country || '' } } : {}),
       uid: st.uid, label: st.label, kind: st.resolution, mark_uid: st.mark_uid,
       position: st.position, visibility: st.visibility, when: temporalFormat(temporalOf(st)) || null,
     });
@@ -11358,6 +11443,9 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       // title is required by the schema; an untitled plan was being created.
       if (typeof a.title !== 'string' || !a.title.trim()) throw new Error('title is required: what should this itinerary be called?');
       const ctx = mcpActor(user);
+      // A retried call (the same title within 120 s) returns the plan already made.
+      const again = q("SELECT * FROM itineraries WHERE user_id=? AND title=? AND created_at >= datetime('now', '-120 seconds') ORDER BY id DESC LIMIT 1").get(user.id, a.title.trim());
+      if (again) return wr(`"${again.title}" was just started (uid ${again.uid}); nothing new was created.`, 'unchanged', 'itinerary', again.id, again.uid, again.title, 'retry');
       const it = itineraryCreate(user, { title: a.title, context: a.context || '',
         temporal: T_IN(a), private: a.private === false ? 0 : 1 }, ctx);
       const when = temporalFormat(temporalOf(it));
@@ -11366,6 +11454,14 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
 
     if (name === 'add_itinerary_stops') {
       const ctx = mcpActor(user);
+      // A retried call (the same stops, in order, just added within 120 s) returns them rather than adding them again.
+      {
+        const it0 = itinOwned(user, a.itinerary_uid), want = (a.stops || []).map((sp) => [String(sp.label || '').trim(), sp.mark_uid || null]);
+        const last = want.length ? q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id DESC LIMIT ?').all(it0.id, want.length).reverse() : [];
+        const recent = last.length === want.length && last.every((st) => q("SELECT 1 FROM provenance WHERE entity_uid=? AND action='created' AND created_at >= datetime('now', '-120 seconds')").get(st.uid));
+        if (recent && last.every((st, i) => st.label === want[i][0] && (want[i][1] === null || st.mark_uid === want[i][1])))
+          return { text: `Those ${last.length} stop(s) were just added to "${it0.title}"; nothing new was added.`, structured: { ok: true, itinerary_uid: it0.uid, stops: last.map((st) => stopView(st)) } };
+      }
       const added = [];
       for (const sp of a.stops || []) {
         const st = stopAdd(user, a.itinerary_uid, {
@@ -11573,6 +11669,18 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       structured: { ok: true, recommendation: v, changed: out.changed ? [`reaction:${v.reaction}`] : [], kept: [] } };
   }
   // ---- Stop -> Note ---------------------------------------------------------------
+  if (name === 'keep_record') {
+    const r = keepRecord(user, a.type === 'mark' ? 'mark' : 'object', a.uid, mcpActor(user));
+    const via = r.via === 'plan' ? 'recommended_plan' : r.via;
+    return { text: r.action === 'unchanged' ? `"${r.name}" is already kept.` : `Kept "${r.name}": it is now in their ${a.type === 'mark' ? 'marks' : 'notes'}. No visit, ownership or warrant was recorded.`,
+      structured: { ok: true, action: r.action, uid: r.uid, name: r.name, ...(via ? { via } : {}) } };
+  }
+  if (name === 'clear_prospective_leftovers') {
+    const items = prospectiveLeftovers(user), ctx = mcpActor(user);
+    if (!a.confirm) return { text: items.length ? `${items.length} leftover(s): ${items.map((x) => `"${x.name}"`).join(', ')}. Nothing was deleted; call again with confirm: true if the member wants them cleared.` : 'No leftovers.', structured: { ok: true, action: 'listed', items } };
+    for (const x of items) memberDeleteRecord(user, x.type, x.uid, ctx, null);
+    return { text: `Deleted ${items.length} leftover(s).`, structured: { ok: true, action: 'deleted', items } };
+  }
   if (name === 'audit_recommendation_expansion') {
     const r = auditRecommendationExpansion(user, a.origin_itinerary_uid);
     const have = Object.entries(r.relations).filter(([, v]) => v.present).map(([k]) => k);
@@ -11712,7 +11820,9 @@ RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their c
       if (out && typeof out === 'object' && Array.isArray(out.images)) {
         for (const im of out.images) payload.content.push({ type: 'image', data: im.data, mimeType: im.mimeType });
       }
-      if (out && typeof out === 'object' && out.structured) payload.structuredContent = out.structured;
+      // Minimisation (v2.60): tool results carry dates, not instants.
+      if (out && typeof out === 'object' && out.structured) payload.structuredContent = JSON.parse(JSON.stringify(out.structured, (k, v) =>
+        (k === 'created_at' || k === 'updated_at' || k === 'since') && typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[ T]/.test(v) ? v.slice(0, 10) : v));
       // Handlers may add result _meta (e.g. place-match diagnostics): live results, not the contract.
       if (out && typeof out === 'object' && out.meta) payload._meta = { ...(payload._meta || {}), ...out.meta };
       return reply(id, payload);
@@ -12174,6 +12284,14 @@ async function handle(req, res) {
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.markForm(req, res, me, b, 'A mark needs a place name.', colls);
     const [lat, lng] = (b.latlng || '').split(',').map((x) => parseFloat(x));
+    // D2 on the web: the same place matcher the AI tools use. An exact match
+    // opens the mark they already have; a probable one asks first.
+    if (!b.allow_duplicate) {
+      const pm = matchPlace(me.id, { name: b.name, locality: b.locality, country: b.country, address: b.address, lat: isNaN(lat) ? null : lat, lng: isNaN(lng) ? null : lng });
+      if (pm.state === 'exact') return redirect(res, `/m/${pm.id}?already=1`);
+      if (pm.state === 'probable') return pages.markForm(req, res, me, { ...b, allow_duplicate_offer: 1 },
+        `You may already have this place: \u201c${pm.name}\u201d. Add its city to tell them apart, or choose Save as a separate place.`, colls);
+    }
     const r = markCreate(me, {
       name: b.name, locality: b.locality, country: b.country, address: b.address,
       lat: isNaN(lat) ? null : lat, lng: isNaN(lng) ? null : lng, why: b.why,

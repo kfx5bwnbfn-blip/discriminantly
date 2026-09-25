@@ -143,6 +143,8 @@ db.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)');
 db.exec('INSERT INTO users(id) VALUES(1)');
 // Notes exist only as a foreign-key target here (Stop → Note, migration 051).
 db.exec('CREATE TABLE objects(id INTEGER PRIMARY KEY)');
+// ...and marks, which the stop place snapshot (migration 058) reads.
+db.exec('CREATE TABLE marks(id INTEGER PRIMARY KEY, uid TEXT, locality TEXT, country TEXT)');
 const stmts = [...mig.matchAll(/db\.exec\(`([\s\S]*?)`\)/g)].map((m) => m[1]);
 for (const st of stmts) {
   if (st.includes('${')) continue;                      // triggers use interpolation; not needed here
@@ -204,7 +206,7 @@ console.log('\nsequencing transformations (test 2 of the corrections)');
   try { fs.unlinkSync(t2); } catch {}
   const d = new DatabaseSync(t2);
   d.exec('PRAGMA foreign_keys=ON');
-  d.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)'); d.exec('INSERT INTO users VALUES(1)'); d.exec('CREATE TABLE objects(id INTEGER PRIMARY KEY)');
+  d.exec('CREATE TABLE users(id INTEGER PRIMARY KEY)'); d.exec('INSERT INTO users VALUES(1)'); d.exec('CREATE TABLE objects(id INTEGER PRIMARY KEY)'); d.exec('CREATE TABLE marks(id INTEGER PRIMARY KEY, uid TEXT, locality TEXT, country TEXT)');
   for (const st of stmts) { if (!st.includes('${')) d.exec(st); }
   d.exec("INSERT INTO itineraries(user_id,title) VALUES(1,'S')");
   d.exec("INSERT INTO itinerary_groups(itinerary_id,label) VALUES(1,'G1'),(1,'G2')");
@@ -1139,7 +1141,7 @@ function loadToolsFromSource(SRC) {
     'list_ensembles', 'get_ensemble', 'list_unresolved_components', 'list_checkins', 'read_comments', 'view_images',
     'record_note_ownership', 'release_note_ownership', 'correct_note_ownership_mistake',
     'begin_image_upload', 'upload_image_chunk', 'start_image_upload', 'finish_image_upload',
-    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes', 'audit_itinerary', 'audit_recommendation_expansion'];
+    'list_recommendations', 'dismiss_recommendation', 'list_stop_notes', 'audit_itinerary', 'audit_recommendation_expansion', 'clear_prospective_leftovers'];
   ok('SW1 closed-world is exactly the reads plus the writes confined to never-public data',
      JSON.stringify(TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).sort()) === JSON.stringify([...closed].sort()),
      TOOLS_SRC.filter((t) => !t.annotations.openWorldHint).map((t) => t.name).filter((n) => !closed.includes(n)).join(', '));
@@ -1149,8 +1151,8 @@ function loadToolsFromSource(SRC) {
       'resolve_ensemble_component', 'remove_ensemble_artifact', 'remove_ensemble_component', 'delete_ensemble', 'discard_ensemble',
       'delete_note', 'delete_travel_mark'].every((n) => ann[n].openWorldHint));
   const cnt = (k) => TOOLS_SRC.filter((t) => t.annotations[k]).length;
-  ok('SW3 final counts (v2.59, 65 tools): 18 read-only, 16 destructive, 40 open-world',
-     TOOLS_SRC.length === 65 && cnt('readOnlyHint') === 18 && cnt('destructiveHint') === 16 && cnt('openWorldHint') === 40,
+  ok('SW3 final counts (v2.60, 67 tools): 18 read-only, 17 destructive, 41 open-world',
+     TOOLS_SRC.length === 67 && cnt('readOnlyHint') === 18 && cnt('destructiveHint') === 17 && cnt('openWorldHint') === 41,
      `${TOOLS_SRC.length} tools: ${cnt('readOnlyHint')} ro, ${cnt('destructiveHint')} de, ${cnt('openWorldHint')} ow`);
   ok('SW4 v2.55 audit corrections: staging and keeping an ensemble, and keeping a recommendation, are open-world; arranging an itinerary is destructive',
      ann.create_pending_ensemble.openWorldHint && ann.keep_ensemble.openWorldHint && ann.keep_recommendation.openWorldHint && ann.arrange_itinerary.destructiveHint);
@@ -1162,7 +1164,7 @@ console.log('\nrepeat creation');
   const fx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tool-results.json'), 'utf8'));
   const pair = (tool, via) => [fx[tool].find((r) => r.label === `repeat first (${via})`), fx[tool].find((r) => r.label === `repeat second (${via})`)];
   for (const [tool, subject, re] of [['add_travel_mark', 'mark', /if \(pm\.state === 'exact'\) return \{ \.\.\.wr\(`Already in the member's marks: [\s\S]*?,\s*'unchanged', 'mark', pm\.id, pm\.uid, pm\.name, 'already_exists'\), meta \};/],
-                                     ['note_object', 'note', /if \(dup\) return wr\(`This looks like it may already be noted: [\s\S]*?,\s*'unchanged', 'note', dup\.id, uidOf\('objects', dup\.id\), dup\.name, 'already_exists'\);/]]) {
+                                     ['note_object', 'note', /if \(dup\.state === 'exact'\) return \{ \.\.\.wr\(`This is already noted: [\s\S]*?,\s*'unchanged', 'note', dup\.id, dup\.uid, dup\.name, 'already_exists'\), meta \};/]]) {
     ok(`SU ${tool}: a detected duplicate returns the standard write result, action unchanged`, re.test(SRC));
     for (const via of ['legacy', 'oauth']) {
       const [a, b] = pair(tool, via);
@@ -1375,7 +1377,7 @@ console.log('\nadoption');
   const calls = [...SRC.matchAll(/recordAdoption\(/g)].map((m) => m.index).filter((i) => !SRC.slice(i - 9, i).includes('function'));
   const where = calls.map((i) => { const f = SRC.lastIndexOf('\nfunction ', i); return SRC.slice(f + 10, SRC.indexOf('(', f + 10)); });
   ok('K4d nothing else records Adoption (no inference from other acts)',
-     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep', 'keepRecommendedRecord', 'ensembleKeepAdoptsLinked', 'keepFromRecommendedPlan', 'resolveTravelMark'].includes(w)), where.join(', '));
+     where.every((w) => ['noteCreate', 'markCreate', 'itineraryCreate', 'renoteFrom', 'recommendationKeep', 'keepRecommendedRecord', 'ensembleKeepAdoptsLinked', 'keepFromRecommendedPlan', 'resolveTravelMark', 'keepRecord'].includes(w)), where.join(', '));
 
   // K5: independence
   const own = body('function assertOwned(', '// ---- Adoption (members see "Keep"');
@@ -1438,7 +1440,8 @@ console.log('\nrecommendation');
      && /itineraryCreate\(user, \{ title: r\.label, private: 1 \}, ctx, \{ adopt: false \}\)/.test(dom));
   ok('RC6 reuse before creation: existing records gain the recommendation', /findExistingNote\(user\.id/.test(dom) && /findExistingMark\(user\.id/.test(dom));
   ok('RC7 Adoption is recorded only when the member keeps: keep_recommendation, asking to note/mark the very thing recommended, or (web, Increment 4) keeping one place of a recommended plan; all cite the recommendation',
-     (dom.match(/recordAdoption\(/g) || []).length === 4
+     (dom.match(/recordAdoption\(/g) || []).length === 5
+     && /recordAdoption\(user\.id, subjectType, row\.uid, ctx, \{ source_kind: 'member_keep'/.test(dom)
      && /if \(target === 'canonical' && !isAdopted\('mark', uid\)\) \{ recordAdoption\(user\.id, 'mark', uid, ctx, \{ source_kind: 'resolution'/.test(dom) && /source_kind: 'recommendation', source_ref: r\.uid \}\)\) kept\.push/.test(dom)
      && /function keepFromRecommendedPlan\(user, subjectType, row, p, ctx\) \{\s*return recordAdoption\(user\.id, subjectType, row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: p\.rec \? p\.rec\.uid : p\.plan_uid \}\);/.test(dom)
      && /function keepRecommendedRecord\(user, type, found, ctx\) \{\s*return recordAdoption\(user\.id, type, found\.row\.uid, ctx, \{ source_kind: 'recommendation', source_ref: found\.rec \}\);/.test(dom));
@@ -1478,20 +1481,21 @@ console.log('\nlifecycle invariants (source)');
 console.log('\nMCP contract (definitions)');
 {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
-  const cur = read('mcp-contract-v2.59.json'), rel = read('mcp-contract-v2.58.json'), hist = read('submitted-mcp-contract.json');
+  const cur = read('mcp-contract-v2.60.json'), rel = read('mcp-contract-v2.59.json'), hist = read('submitted-mcp-contract.json');
   const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
   const gen = norm(loadToolsFromSource(SRC));
   const names = (l) => l.map((t) => t.name);
-  ok('MC1 the v2.59 snapshot holds 65 tools and v2.58 held 63; the historical one still holds the submitted 54', cur.tools.length === 65 && rel.tools.length === 63 && hist.tools.length === 54);
+  ok('MC1 the v2.60 snapshot holds 67 tools and v2.59 held 65; the historical one still holds the submitted 54', cur.tools.length === 67 && rel.tools.length === 65 && hist.tools.length === 54);
   // v2.58 against v2.56: delegated itinerary authoring and place identity.
   // Only these descriptions and my_travel_marks' result changed; two tools added;
   // every existing annotation and the server instructions are unchanged.
   // v2.59 against v2.58: the deferred items (field status, images, expansion audit, build_itinerary).
-  const V258_CHANGED = ['audit_itinerary', 'resolve_travel_mark'];
-  const V258_ADDED = ['audit_recommendation_expansion', 'build_itinerary'];
+  // v2.60 against v2.59: stops carry their place; upload_image wording; general Keep; leftovers.
+  const V258_CHANGED = ['add_itinerary_stops',  'arrange_itinerary',  'my_itineraries',  'resolve_itinerary_stop',  'upload_image'];
+  const V258_ADDED = ['clear_prospective_leftovers',  'keep_record'];
   const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const incAdded = cur.tools.filter((t) => !rel.tools.find((x) => x.name === t.name)).map((t) => t.name).sort();
-  ok('MC9 against v2.58, only the approved v2.59 tools changed or were added; existing annotations and the instructions unchanged',
+  ok('MC9 against v2.59, only the approved v2.60 tools changed or were added; existing annotations and the instructions unchanged',
      JSON.stringify(incChanged) === JSON.stringify(V258_CHANGED) && JSON.stringify(incAdded) === JSON.stringify(V258_ADDED)
      && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
      && rel.initialize.instructions === cur.initialize.instructions, `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
@@ -1505,12 +1509,12 @@ console.log('\nMCP contract (definitions)');
   // Historical regression reference: what changed since the cancelled
   // submission, and only that. A change outside these lists is a finding.
   // delete_note / delete_travel_mark: descriptions state de-resolution (final semantic pass)
-  const APPROVED_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark', 'discard_ensemble', 'keep_ensemble', 'my_travel_marks', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component', 'resolve_itinerary_stop', 'verify_place'];
+  const APPROVED_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark', 'discard_ensemble', 'keep_ensemble', 'my_itineraries', 'my_travel_marks', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component', 'resolve_itinerary_stop', 'upload_image', 'verify_place'];
   // The shared write result gained one action, 'kept' (note_object /
   // add_travel_mark keeping an already-recommended record). That alone is
   // not a change to a tool's meaning, so it is compared without it.
   const sansKept = (t) => JSON.parse(JSON.stringify(t, (k, v) => (k === 'enum' && Array.isArray(v) && v.includes('kept') && v.includes('created')) ? v.filter((x) => x !== 'kept') : v));
-  const APPROVED_ADDED = ['audit_itinerary', 'audit_recommendation_expansion', 'build_itinerary', 'dismiss_recommendation', 'keep_recommendation', 'list_recommendations', 'list_stop_notes', 'record_recommendations', 'resolve_recommendation', 'resolve_travel_mark', 'set_stop_note'];
+  const APPROVED_ADDED = ['audit_itinerary', 'audit_recommendation_expansion', 'build_itinerary', 'clear_prospective_leftovers', 'dismiss_recommendation', 'keep_recommendation', 'keep_record', 'list_recommendations', 'list_stop_notes', 'record_recommendations', 'resolve_recommendation', 'resolve_travel_mark', 'set_stop_note'];
   const removed = names(hist.tools).filter((n) => !gen.find((t) => t.name === n));
   const changed = hist.tools.filter((t) => { const g = gen.find((x) => x.name === t.name); return g && JSON.stringify(sansKept(g)) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const added = names(gen).filter((n) => !hist.tools.find((t) => t.name === n)).sort();
@@ -1598,6 +1602,22 @@ console.log('\nplace identity');
      && !/function findSimilarMark\(/.test(SRC));
   ok('PM13 match diagnostics reach the caller in the reply and its _meta (no schema change)',
      /meta: \{ 'discriminantly\/place_match': pm \? placeMatchPublic\(pm\)/.test(SRC) && /if \(out && typeof out === 'object' && out\.meta\) payload\._meta = /.test(SRC));
+}
+
+// ---- Note identity (v2.60): no containment matches ------------------------
+console.log('\nnote identity');
+{
+  const vm = require('vm');
+  const pick = (from, to) => SRC.slice(SRC.indexOf(from), SRC.indexOf(to, SRC.indexOf(from)));
+  const code = pick('const normTitle = ', '\n// Notes (v2.60)') + '\n' + pick('const NOTE_GENERIC = ', '\n// The member\'s corpus only');
+  const ctx = {}; vm.runInNewContext(code + '\nthis.noteMatchRow = noteMatchRow;', ctx);
+  const row = ctx.noteMatchRow, leica = { name: 'Leica', url: '' };
+  ok('NM1 a short title never swallows others (the M+ bug, for things)', ['Leica M6 Classic', 'Leica Q3 camera strap'].every((n) => row({ name: n }, leica).state === 'none'));
+  ok('NM2 the same title is exact', row({ name: 'Leica' }, leica).state === 'exact');
+  ok('NM3 the same link is exact, whatever the title', row({ name: 'Pan', link: 'https://www.debuyer.com/en/mineral-b?x=1' }, { name: 'de Buyer 28 cm', url: 'http://debuyer.com/en/mineral-b/' }).state === 'exact');
+  ok('NM4 strong word overlap is probable, surfaced not substituted', row({ name: 'Blenheim Forge Model chef knife' }, { name: 'Blenheim Forge Model chef knife steel', url: '' }).state === 'probable');
+  ok('NM5 note_object reports a probable match without writing, and diagnostics in _meta', /if \(dup\.state === 'probable'\) return \{ \.\.\.wr\(`Nothing was created:/.test(SRC) && /'discriminantly\/note_match'/.test(SRC));
+  ok('NM6 the web mark form uses the shared place matcher (D2 on the web)', /\/\/ D2 on the web[\s\S]{0,200}const pm = matchPlace\(me\.id,/.test(SRC) && /if \(pm\.state === 'exact'\) return redirect\(res, `\/m\/\$\{pm\.id\}\?already=1`\);/.test(SRC));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

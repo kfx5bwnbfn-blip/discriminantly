@@ -2517,3 +2517,6 @@ body[data-skin="modern"] .btn3d.btn-solid:hover { background: var(--m-glass-3); 
 body[data-skin="modern"] .ens-parts { -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; padding: 1.2rem 1rem 1.3rem; }
 body[data-skin="modern"] .ens-parts .ens-parts-h { margin: 0 0 .9rem; }
 body[data-skin="modern"] .ens-parts .ens-comps, body[data-skin="modern"] .ens-parts .ens-comps .ens-comp { padding-left: 0; padding-right: 0; }
+/* the Show more token on a button, as on a link */
+body[data-skin="modern"] .rec-keep-row button.more-link { cursor: pointer; border: 0; font-family: inherit; }
+body[data-skin="modern"] .rec-plan .rec-dot { color: var(--m-ink-3); opacity: 1; }

@@ -1214,3 +1214,10 @@ body:not([data-skin="modern"]) .welcome-card .wl-kind { background: rgba(0,0,0,.
 .welcome-card .wl-kind, .welcome-card .wl-kind .wl-say { text-align: center; }
 .welcome-card .wl-tab, .welcome-card .wl-num { white-space: nowrap; }
 @media (max-width: 52rem) { .welcome-card .wl-num { display: none; } }
+/* Recommended plans: the primary action (Show more token) centred, its quiet
+   reactions or note centred beneath. */
+.rec-plan .rec-keep-row { display: flex; justify-content: center; margin: 1.1rem 0 .3rem; }
+.rec-plan .rec-keep-row .keep-form { margin: 0; }
+.rec-plan .rec-foot { display: flex; justify-content: center; align-items: center; gap: .7rem; margin: .5rem 0 0; }
+.rec-plan .rec-foot form { margin: 0; display: inline; }
+.rec-plan .rec-dot { opacity: .5; }
