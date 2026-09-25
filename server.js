@@ -11837,7 +11837,6 @@ async function mcp(req, res, tok) {
   if (Array.isArray(msg) || msg.id === undefined) { res.writeHead(202); return res.end(); } // notifications
   const { id, method, params = {} } = msg;
   mcpLog(method === 'initialize' ? `initialize protocol=${String((params || {}).protocolVersion || '-').slice(0, 20)} client=${String(((params || {}).clientInfo || {}).name || '-').slice(0, 40)}/${String(((params || {}).clientInfo || {}).version || '-').slice(0, 20)} caps=${Object.keys((params || {}).capabilities || {}).join('+') || '-'}`
-    : method === 'server/discover' ? 'server/discover -> capabilities incl. skills extension'
     : method === 'skills/list' || method === 'skills/get' || method === 'resources/read' ? `${method}${(params || {}).cursor ? ' (cursor)' : ''} -> ${method === 'skills/list' ? SKILLS.length + ' skills' : 'ok'}` : method);
   // What the client says it is. Recorded once and never overwritten: a later
   // session claiming a different name is grounds for a new connection, not for
@@ -11852,11 +11851,7 @@ async function mcp(req, res, tok) {
       conn.client_name = declared;
     }
   }
-  // initialize (the 2025 handshake) and server/discover (MCP 2026-07-28, which
-  // OpenAI's plugin scanner calls first) describe the same server from one
-  // object. discover lists only the versions this server speaks, so clients
-  // fall back to the handshake; instructions name the member: cache private.
-  if (method === 'initialize' || method === 'server/discover') { const init = { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {}, resources: {}, extensions: { 'io.modelcontextprotocol/skills': {} } }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
+  if (method === 'initialize') return reply(id, { protocolVersion: params.protocolVersion || '2025-06-18', capabilities: { tools: {}, resources: {}, extensions: { 'io.modelcontextprotocol/skills': {} } }, serverInfo: { name: 'discriminant.ly', version: '1.3' }, instructions: `You are connected to discriminant.ly as ${user.name} (@${user.handle}) [ensemble_contract: chunked-upload-v4-autofinal; catalogue-images-v5].
 
 HOW TO WORK HERE. Never say something was saved before the tool call that saves it has returned successfully. If a call fails you will get a reference code — tell the member it failed, quote the reason and the code, and never quietly carry on as if it worked. Do not retry an identical failing call more than once. When a tool result tells you what to do next, do it without pausing to ask the member: internal plumbing is not their decision. Confirm before deleting anything.
 
@@ -11872,11 +11867,7 @@ ${ingestDirective(user).line}\n\nIMAGES FROM YOUR OWN SANDBOX. An attachment or 
 
 ENSEMBLES. When the member asks to combine or compose things visually: look at each constituent (view_images for anything already in their catalogue), generate the composition yourself — discriminant.ly does not generate it — ingest only what is genuinely new, then call create_pending_ensemble with the uids. Only after it succeeds, ask whether to keep or discard, and call keep_ensemble or discard_ensemble with the id you already have.
 
-RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their catalogue, things for one of their trips, or something to keep in mind for another time) presents a thing, place or itinerary to the member as a recommendation, record what you actually present, and only that, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. Candidates you only researched are not recommendations, and an ordinary recommendation question outside their catalogue and plans records nothing. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). A check-in, ownership, warrant, comment or edit attaches only to a kept record: when the member says they went, own it or stand behind it, that already says to keep it, so keep it first and then record it, without asking again. Earlier ones: list_recommendations.` };
-    if (method === 'initialize') return reply(id, init);
-    return reply(id, { resultType: 'complete', supportedVersions: ['2025-11-25', '2025-06-18'], capabilities: init.capabilities,
-      _meta: { 'io.modelcontextprotocol/serverInfo': init.serverInfo }, instructions: init.instructions, ttlMs: 0, cacheScope: 'private' });
-  }
+RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their catalogue, things for one of their trips, or something to keep in mind for another time) presents a thing, place or itinerary to the member as a recommendation, record what you actually present, and only that, with record_recommendations, at the resolution you truly reached: unresolved and partial are honest answers. Candidates you only researched are not recommendations, and an ordinary recommendation question outside their catalogue and plans records nothing. A recommendation is not the member's note, mark or plan and never evidence of their taste; it becomes theirs only when they say to keep it (keep_recommendation). A check-in, ownership, warrant, comment or edit attaches only to a kept record: when the member says they went, own it or stand behind it, that already says to keep it, so keep it first and then record it, without asking again. Earlier ones: list_recommendations.` });
   if (method === 'ping') return reply(id, {});
   if (method === 'tools/list') return reply(id, { tools: TOOLS });
   // Skills extension (SEP-2640 subset used by OpenAI plugin submission).
