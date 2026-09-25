@@ -84,6 +84,10 @@ The behavioural scenarios in the brief (delegated plan, ideas only, empty descri
 4. In ChatGPT, with standalone personal copies of these skills turned off (not deleted), in a fresh conversation, try: "Help me plan a day in Lisbon" and "Plan a trip to Naples, I love tailoring and pizza". Check the plan exists in the app, every new mark has a description, and three For another time plans appear under Recommended.
 5. For Claude: upload the five ZIPs from `dist/skills/` as skills, and connect the Discriminantly connector.
 
+## Listing copy
+
+See `LISTING-COPY.md`: the approved listing lives in the portal and is **awaiting verification**; the import file deliberately carries no listing; the package manifest holds an unverified draft.
+
 ## 9. Full text of the five Skills
 
 ### discriminantly-destination-objects

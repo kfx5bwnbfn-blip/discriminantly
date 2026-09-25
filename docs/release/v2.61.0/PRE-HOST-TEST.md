@@ -60,6 +60,8 @@ It needs the registered connection's app id, which only ChatGPT can issue:
 
 Fresh conversation, local package installed, standalone Skill copies off. Each scenario records the prompt, the tool calls, the app state afterwards, and pass or fail.
 
+If the package is tested before its display copy is synchronized with the portal (see `LISTING-COPY.md`), record that once, as a **separate display-copy limitation**: the install surface shows unverified draft copy. It is not a Skill or MCP result and does not affect any H1–H10 outcome.
+
 | # | Scenario | Pass means |
 |---|---|---|
 | H1 | "Help me plan a day in Lisbon" | A plan exists in the app, built without a second approval; stops ordered |
