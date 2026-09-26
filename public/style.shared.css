@@ -1357,3 +1357,5 @@ body[data-skin] .welcome-card input.wl-ai-toggle { display: none !important; }
 .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ais label[data-ai="chatgpt"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] { background: rgba(0,0,0,.09); box-shadow: 0 0 0 4px rgba(127,127,127,.18); }
+/* Orientation: the outcome headings at the step headline's size */
+body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-card .wl-warrant .wl-warrant-name { font-size: 21.25px; font-size: 1.25rem; line-height: 1.3; }

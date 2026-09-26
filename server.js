@@ -5580,7 +5580,10 @@ else if(b.hasAttribute('data-ev-launch')){ev('starter_launched',b.dataset.evSurf
 else if(b.hasAttribute('data-wl-pick')){try{localStorage.setItem('dl-starter',b.getAttribute('data-wl-pick'));}catch(x){}ev('starter_selected',b.dataset.evSurface,{starter:b.getAttribute('data-wl-pick'),via:'connect_first'});var r=document.getElementById('wl-s2');if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));r.closest('.welcome-card').scrollIntoView({behavior:'smooth',block:'start'});}else location.href='/#connect';}
 else if(b.hasAttribute('data-ev-action')){ev('empty_state_action',b.dataset.evSurface,{action:b.dataset.evAction});}},true);
 document.addEventListener('change',function(e){var r=e.target;if(r&&r.name==='wl-step'&&r.checked)ev('welcome_tab_viewed','welcome',{tab:r.id.slice(-1)});
-if(r&&r.classList.contains('wl-ai-toggle')&&r.checked){document.querySelectorAll('.wl-ai-toggle').forEach(function(i){if(i!==r)i.checked=false;});}});
+});
+// the platform tiles are one-of-three (radios); tapping the open one closes it
+document.addEventListener('pointerdown',function(e){var l=e.target.closest&&e.target.closest('label.wl-ai');if(!l)return;var i=document.getElementById(l.htmlFor);if(i)l.dataset.was=i.checked?'1':'';},true);
+document.addEventListener('click',function(e){var l=e.target.closest&&e.target.closest('label.wl-ai');if(!l||l.dataset.was!=='1')return;var i=document.getElementById(l.htmlFor);if(i){e.preventDefault();i.checked=false;l.dataset.was='';}},true);
 if(location.hash==='#connect'){var r2=document.getElementById('wl-s2');if(r2)r2.checked=true;}
 try{var p=localStorage.getItem('dl-starter');if(p){var el=document.querySelector('.welcome-card [data-starter="'+p+'"]');if(el)el.classList.add('is-picked');}}catch(x){}
 })();</script>`;
@@ -8215,7 +8218,7 @@ function welcomeCard(me) {
         ['claude', 'Claude', 'MCP connector', st.claude, aiEyebrow(st.claude), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
         ['other', 'Other', 'Any MCP client', st.other, aiEyebrow(st.other), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
       return `<div class="wl-ais-wrap">
-      ${ais.map(([k]) => `<input type="checkbox" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
+      ${ais.map(([k]) => `<input type="radio" name="wl-ai-${me.id}" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
       <div class="wl-ais">${ais.map(([k, name, kind, on, eb]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${eb}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
       ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
     </div>`;
