@@ -997,8 +997,8 @@ console.log('\nplugin submission');
 // ---- policy pages: accuracy and no placeholders ------------------------------
 console.log('\npolicy pages');
 {
-  const pp = SRC.slice(SRC.indexOf('function policyPage('), SRC.indexOf("function layout({ title, body, me, flash"));
-  const all = SRC.slice(SRC.indexOf('// Publisher and contact are configuration'), SRC.indexOf("function layout({ title, body, me, flash"));
+  const pp = SRC.slice(SRC.indexOf('function policyPage('), SRC.indexOf("// Screenshot aliases (v2.65.4)"));
+  const all = SRC.slice(SRC.indexOf('// Publisher and contact are configuration'), SRC.indexOf("// Screenshot aliases (v2.65.4)"));
   ok('PP1 no placeholder operator or contact wording can be published',
      !/operator of Discriminantly|has not been published|not been published yet/.test(all));
   ok('PP2 without PUBLISHER_NAME and SUPPORT_EMAIL the pages refuse to render (503)',
@@ -1256,12 +1256,10 @@ console.log('\nday notes and collection names');
 console.log('\nadmin settings');
 {
   const r = SRC.indexOf("if (p === '/settings/admin-handle' && m === 'POST') {"), rb = SRC.slice(r, SRC.indexOf('\n  }\n', r));
-  ok('AH1 only an admin can change their username, with the same cleaning rule as joining (slug)',
-     r > 0 && /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/.test(rb) && /handle = slug\(raw\)/.test(rb));
-  ok('AH2 a taken username is refused, and only the admin\u2019s own row is changed',
-     /SELECT 1 FROM users WHERE handle=\? AND id<>\?/.test(rb) && /UPDATE users SET handle=\? WHERE id=\?'\)\.run\(handle, me\.id\)/.test(rb));
-  ok('AH3 the change is recorded in provenance as the admin editing their handle',
-     /recordProvenance\('user', me\.uid, 'edited', webActor\(me\), \{ source_kind: 'manual', fields: 'handle' \}\)/.test(rb));
+  const ahR = SRC.slice(SRC.indexOf("if (p === '/settings/admin-alias' && m === 'POST') {"), SRC.indexOf("return back();\n  }", SRC.indexOf("if (p === '/settings/admin-alias'")));
+  ok('AH1 only an admin can set a screenshot handle', /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/.test(ahR));
+  ok('AH2 it sets only users.display_alias, never the handle, and refuses someone else\u2019s handle', /UPDATE users SET display_alias=\? WHERE id=\?/.test(ahR) && !/SET handle/.test(ahR) && /handle=\? OR display_alias=\?/.test(ahR));
+  ok('AH3 the alias changes visible text only: tags, scripts and styles are untouched', /function layout\(opts\) \{ return applyAliases\(layoutPage\(opts\)\); \}/.test(SRC) && /<script\[\\s\\S\]\*\?<\\\/script>\|<style/.test(SRC));
   const side = SRC.indexOf('<div class="settings-stack-side">'), inst = SRC.indexOf('id="install-box"'), adm = SRC.indexOf('settings-admin" id="admin"'), stackEnd = SRC.indexOf('<div class="settings-stack-side">');
   ok('AS1 the Admin section comes after Install, both in the column-3 cell (last on phones)',
      side > 0 && side < inst && inst < adm && SRC.indexOf('settings-invites') < side);
@@ -1553,14 +1551,14 @@ console.log('\nMCP compatibility-critical regions');
 console.log('\nwelcome');
 {
   ok('WL1 Welcome is a feed entry on All only (signed in, unfiltered), placed under the member\u2019s own oldest record, never pinned',
-     /if \(me && feed === 'all' && !s && !tag\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => welcomeCard\(me\), me\.id\);/.test(SRC)
+     /if \(me && feed === 'all' && !s && !tag\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => \{ recordEvent\(me\.id, 'welcome_viewed', \{ surface: 'all', dedupeMinutes: 30 \}\); return welcomeCard\(me\); \}, me\.id\);/.test(SRC)
      && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);\s*entries\.splice\(last \+ 1, 0, w\);/.test(SRC));
   const f = SRC.slice(SRC.indexOf('function welcomeCard('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeCard(')));
   ok('WL2 no dismiss or completion mechanics', !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '')));
   ok('WL3 connection state comes from the member\u2019s live connections, per AI',
      /const live = conns\.filter\(\(c\) => !c\.revoked_at\);/.test(SRC) && /chatgpt\|openai/.test(SRC) && /claude\|anthropic/.test(SRC));
   ok('WL4 the ChatGPT steps appear only once the listing exists (CHATGPT_PLUGIN_URL); until then, a truthful "coming" note',
-     /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(f) && /coming to ChatGPT\\u2019s plugin directory/.test(f));
+     /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(f) && /Coming to ChatGPT\\u2019s plugin directory/.test(f) && /pluginUrl\s*\?[\s\S]{0,400}Open in ChatGPT/.test(f));
   ok('WL5 current Claude wording: Customize \u203a Connectors, Add custom connector, + \u203a Connectors',
      /Customize \\u203a Connectors/.test(f) && /Add custom connector/.test(f) && /\+ \\u203a Connectors/.test(f));
   ok('WL6 built from the skin\u2019s own components (arcTitle headline, sbox-title, sbox-sub, btn3d, link caps), with three separate tiles',

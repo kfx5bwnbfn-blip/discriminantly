@@ -1491,6 +1491,27 @@ const MIGRATIONS = [
     if (!hasColumn('users', 'signup_source')) db.exec("ALTER TABLE users ADD COLUMN signup_source TEXT DEFAULT ''");
     db.exec("UPDATE users SET signup_source = 'invite' WHERE signup_source = '' AND id IN (SELECT used_by FROM invites WHERE used_by IS NOT NULL)");
   }],
+  // Activation (v2.65): private product events, first-touch source context,
+  // a research flag (founder-assisted / test; not authorization or entitlement),
+  // and terms acceptance. All deleted with the account (FK cascade).
+  ['060-activation', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS product_events (
+      id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, anon TEXT DEFAULT '',
+      event TEXT NOT NULL, surface TEXT DEFAULT '', meta TEXT DEFAULT '', created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS product_events_user ON product_events(user_id, event)`);
+    db.exec(`CREATE TABLE IF NOT EXISTS signup_context (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, client_host TEXT DEFAULT '', ref_host TEXT DEFAULT '',
+      utm_source TEXT DEFAULT '', utm_medium TEXT DEFAULT '', utm_campaign TEXT DEFAULT '', ref TEXT DEFAULT '', landing TEXT DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    if (!hasColumn('users', 'research_flag')) db.exec("ALTER TABLE users ADD COLUMN research_flag TEXT DEFAULT ''");
+    if (!hasColumn('users', 'terms_accepted_at')) db.exec("ALTER TABLE users ADD COLUMN terms_accepted_at TEXT DEFAULT ''");
+    if (!hasColumn('users', 'terms_version')) db.exec("ALTER TABLE users ADD COLUMN terms_version TEXT DEFAULT ''");
+  }],
+  // Screenshot alias (v2.65.4): a handle shown in the web app's visible text
+  // instead of the real one; the real handle, URLs and data are unchanged.
+  ['061-display-alias', () => {
+    if (!hasColumn('users', 'display_alias')) db.exec("ALTER TABLE users ADD COLUMN display_alias TEXT DEFAULT ''");
+  }],
 ];
 
 function backupTo(file) {
@@ -2671,7 +2692,22 @@ function policyPage(req, res, me, which) {
     body: `<h3 class="strip">${title}</h3><div class="settings policy">${date}${parts.join('')}</div>` }));
 }
 
-function layout({ title, body, me, flash, cls = '', nav = '', req = null }) {
+// Screenshot aliases (v2.65.4): every page's visible text shows an alias in
+// place of the handle it stands for. Tags (so every href and attribute), and
+// script and style blocks, are left exactly as they are.
+function applyAliases(html) {
+  let rows = [];
+  try { rows = q("SELECT handle, display_alias FROM users WHERE display_alias IS NOT NULL AND display_alias <> ''").all(); } catch { return html; }
+  if (!rows.length) return html;
+  const map = new Map(rows.map((r) => [r.handle, r.display_alias]));
+  const re = new RegExp(`(^|[^a-z0-9/_.-])(${[...map.keys()].map((h) => h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![a-z0-9_-])`, 'g');
+  return html.replace(/(<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>)|([^<]+)/g, (m, tag, text) => tag ? tag : text.replace(re, (mm, pre, h) => pre + map.get(h)));
+}
+// A handle written so the alias substitution never replaces it (for the one
+// place that must show the real one: the admin's own setting).
+const realHandle = (h) => `&#${String(h).charCodeAt(0)};${esc(String(h).slice(1))}`;
+function layout(opts) { return applyAliases(layoutPage(opts)); }
+function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null }) {
   req = req || CURRENT_REQ;
   if (adminOn(me)) body = `<p class="admin-view-note">Admin view is on: you can see members’ private content. <a href="/settings#admin">Turn it off</a></p>` + body;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -3724,6 +3760,18 @@ function emptyState(me, kind, subject = null) {
     tagged: ['Nothing noted under this tag yet'],
   }[kind] || ['Nothing here yet'];
 
+  // v2.65: Marks and Itineraries, for their owner, offer a first act instead of a dead end
+  if (own && me && (kind === 'marks' || kind === 'itineraries')) {
+    const st = welcomeState(me), any = st.chatgpt || st.claude || st.other;
+    const ask = (key) => any ? `<div class="es-starter wl-starter"><p class="fine">Or ask your AI:</p><p class="wl-q">\u201c${STARTERS[key][0]}\u201d</p>${starterActions(key, st, kind)}</div>`
+      : `<p class="fine es-connect"><a href="/#connect" data-ev-action="connect" data-ev-surface="${kind}">Connect your AI</a> and it can ${key === 'plan' ? 'plan with you' : 'keep places for you'} in conversation.</p>`;
+    const body = kind === 'marks'
+      ? `<p class="empty-line es-title">Keep a place worth returning to.</p>
+         <p class="es-act"><a class="btn3d" href="/marks/new" data-ev-action="add_place" data-ev-surface="marks">Add a place</a></p>${ask('place')}`
+      : `<p class="empty-line es-title">Plan a trip, a day, or an afternoon.</p>${ask('plan')}
+         <p class="es-act"><a class="btn3d" href="/t?new=1#itin-create" data-ev-action="start_plan" data-ev-surface="itineraries">Start a plan here</a></p>`;
+    return `<div class="empty-first-act">${body}</div>${STARTER_JS}`;
+  }
   let suggest = '';
   if (own && (kind === 'notes' || kind === 'feed')) {
     const picks = q(ADOPTED_OBJ_SQL + ' WHERE o.private=0' + (me ? ' AND o.user_id<>?' : '') + ' ORDER BY RANDOM() LIMIT 4').all(...(me ? [me.id] : []));
@@ -5393,9 +5441,11 @@ function prospectiveLeftovers(user) {
 // target, so neither page can be used to redirect elsewhere.
 const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authorize\?[^\r\n]*$/.test(v) ? v : ''; };
 const signupSourceFor = (next) => {
-  let cid = ''; try { cid = new URLSearchParams(next.slice(next.indexOf('?') + 1)).get('client_id') || ''; } catch { cid = ''; }
-  const l = cid.toLowerCase();
-  return /openai|chatgpt/.test(l) ? 'chatgpt' : /claude|anthropic/.test(l) ? 'claude' : 'oauth';
+  // v2.65: from the host of the client's metadata document (its client_id),
+  // not words anywhere in it. The real ChatGPT client_id is not yet observed:
+  // signup_context.client_host records it so the first real sign-up shows it.
+  const h = clientHostOf(next);
+  return /(^|\.)(chatgpt\.com|openai\.com)$/.test(h) ? 'chatgpt' : /(^|\.)(claude\.ai|anthropic\.com)$/.test(h) ? 'claude' : 'oauth';
 };
 const SIGNUP_WINDOW = new Map();          // network -> recent sign-up times (in memory; resets on restart)
 function signupAllowed(req) {
@@ -5413,6 +5463,24 @@ function uniqueHandle(base) {
 }
 // Activation (v2.62): the member's first kept itinerary, within 7 days of
 // joining, by how they arrived. Private, server-side, admin only.
+// v2.65: per-account first acts, from the domain tables (not events).
+function activationAccounts() {
+  const users = q(`SELECT u.id, u.handle, u.created_at, COALESCE(NULLIF(u.signup_source, ''), 'unknown') AS src, COALESCE(u.research_flag, '') AS flag,
+      c.client_host, c.utm_source, c.utm_medium, c.utm_campaign, c.ref, c.ref_host FROM users u LEFT JOIN signup_context c ON c.user_id = u.id ORDER BY u.id DESC`).all();
+  const one = (sql, id) => !!q(sql).get(id);
+  return users.map((u) => {
+    const joined = Date.parse(u.created_at.replace(' ', 'T') + 'Z');
+    const firstKept = q("SELECT MIN(created_at) t FROM adoptions WHERE user_id=? AND subject_type='itinerary' AND state='adopted'").get(u.id).t;
+    const conns = q('SELECT client_label, created_at FROM connections WHERE user_id=? ORDER BY id').all(u.id);
+    return { ...u, conns,
+      connected: conns.length > 0,
+      note: one('SELECT 1 FROM adopted_objects WHERE user_id=? LIMIT 1', u.id), mark: one('SELECT 1 FROM adopted_marks WHERE user_id=? LIMIT 1', u.id),
+      itinerary: one('SELECT 1 FROM adopted_itineraries WHERE user_id=? LIMIT 1', u.id), recommendation: one('SELECT 1 FROM recommendations WHERE user_id=? LIMIT 1', u.id),
+      checkin: one('SELECT 1 FROM visits WHERE user_id=? LIMIT 1', u.id),
+      kept7: !!firstKept && Date.parse(firstKept.replace(' ', 'T') + 'Z') - joined <= 7 * 864e5,
+      returned: !!q("SELECT 1 FROM sessions WHERE user_id=? AND created_at >= datetime(?, '+1 day') LIMIT 1").get(u.id, u.created_at) };
+  });
+}
 function activationReport() {
   const rows = q(`SELECT u.id, u.created_at, COALESCE(NULLIF(u.signup_source, ''), 'unknown') AS src,
       (SELECT MIN(a.created_at) FROM adoptions a WHERE a.user_id = u.id AND a.subject_type = 'itinerary' AND a.state = 'adopted') AS first_kept,
@@ -5428,6 +5496,97 @@ function activationReport() {
   const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
   return Object.values(by).sort((a, b) => b.signups - a.signups).map((g) => ({ source: g.source, signups: g.signups, activated: g.activated,
     rate: g.signups ? g.activated / g.signups : 0, in_window: g.in_window, median_hours: med(g.hours) }));
+}
+// ---- Activation (v2.65): events, source context, starters ---------------
+// Product events: private operational evidence of the first-run journey,
+// never taste evidence. Bounded, sanitised values only: no prompts, corpus
+// text, tokens or connector URLs. Deleted with the account (FK cascade).
+const EVENT_TYPES = new Set(['signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
+  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action']);
+const CLIENT_EVENTS = new Set(['welcome_tab_viewed', 'starter_selected', 'starter_copied', 'starter_launched', 'empty_state_action']);
+const clip = (v, n = 64) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9._:-]/g, '').slice(0, n);
+function recordEvent(userId, event, { anon = '', surface = '', meta = {}, dedupeMinutes = 0 } = {}) {
+  if (!EVENT_TYPES.has(event)) return false;
+  const m = JSON.stringify(Object.fromEntries(Object.entries(meta || {}).slice(0, 6).map(([k, v]) => [clip(k, 24), typeof v === 'number' ? v : clip(v, 64)])));
+  const who = userId ? ['user_id=?', userId] : ['anon=?', clip(anon, 40)];
+  if (!userId && !who[1]) return false;
+  if (dedupeMinutes && q(`SELECT 1 FROM product_events WHERE ${who[0]} AND event=? AND meta=? AND created_at >= datetime('now', ?)`).get(who[1], event, m, `-${dedupeMinutes} minutes`)) return false;
+  q('INSERT INTO product_events(user_id, anon, event, surface, meta) VALUES(?,?,?,?,?)').run(userId || null, userId ? '' : who[1], event, clip(surface, 32), m);
+  return true;
+}
+// First-touch source context: utm_*, ref and an external referrer's host,
+// sanitised and bounded, kept in a short cookie until an account is made.
+function sourceCookieFor(req, url) {
+  if (cookies(req).dl_src) return null;
+  const qp = (k) => clip(url.searchParams.get(k), 48);
+  let refHost = '';
+  try { const h = new URL(String(req.headers.referer || '')).hostname.toLowerCase(); if (h && !/discriminantly\.com$|^localhost$/.test(h)) refHost = clip(h, 64); } catch {}
+  const ctx = { s: qp('utm_source'), m: qp('utm_medium'), c: qp('utm_campaign'), r: qp('ref'), h: refHost, l: clip(url.pathname, 32) };
+  if (!ctx.s && !ctx.m && !ctx.c && !ctx.r && !ctx.h) return null;
+  return `dl_src=${Buffer.from(JSON.stringify(ctx)).toString('base64url')}; Path=/; Max-Age=2592000; SameSite=Lax${SECURE ? '; Secure' : ''}`;
+}
+function sourceFromCookie(req) {
+  try { const o = JSON.parse(Buffer.from(String(cookies(req).dl_src || ''), 'base64url').toString('utf8')) || {}; return { s: clip(o.s, 48), m: clip(o.m, 48), c: clip(o.c, 48), r: clip(o.r, 48), h: clip(o.h, 64), l: clip(o.l, 32) }; }
+  catch { return { s: '', m: '', c: '', r: '', h: '', l: '' }; }
+}
+// The OAuth client's identity: the host of its Client ID Metadata Document URL
+// (the client_id itself), a stronger signal than words inside it.
+function clientHostOf(next) {
+  try { const cid = new URLSearchParams(next.slice(next.indexOf('?') + 1)).get('client_id') || ''; return clip(new URL(cid).hostname, 64); } catch { return ''; }
+}
+// Anonymous visitor id for pre-signup events (random, no personal data).
+const anonId = (req) => clip(cookies(req).aid, 40);
+const anonCookie = (req) => (cookies(req).aid ? null : `aid=${token(12)}; Path=/; Max-Age=2592000; SameSite=Lax${SECURE ? '; Secure' : ''}`);
+// Login throttle: 8 failures per email or 20 per network in 15 minutes; a
+// success clears the email's count. In memory (resets on restart; one instance).
+const LOGIN_FAILS = new Map();
+const loginKeys = (req, email) => [`ip:${String(req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '').split(',')[0].trim()}`, `em:${String(email || '').toLowerCase().trim()}`];
+function loginBlocked(req, email) {
+  const now = Date.now(), [ip, em] = loginKeys(req, email);
+  const recent = (k) => (LOGIN_FAILS.get(k) || []).filter((t) => now - t < 15 * 60e3);
+  return recent(ip).length >= 20 || recent(em).length >= 8;
+}
+function loginFailed(req, email) { const now = Date.now(); for (const k of loginKeys(req, email)) LOGIN_FAILS.set(k, [...(LOGIN_FAILS.get(k) || []).filter((t) => now - t < 15 * 60e3), now]); }
+function loginSucceeded(req, email) { LOGIN_FAILS.delete(loginKeys(req, email)[1]); }
+// Terms: which versions a member agreed to, from the policy pages' own dates.
+const TERMS_VERSION = () => `terms:${POLICY_DATE}|privacy:${PRIVACY_UPDATED}`;
+// Starters: one set of first acts, used by Welcome and the empty states.
+const STARTERS = {
+  plan: ['I\u2019m planning a trip to [destination]. Help me build an itinerary based on what I like.', 'A plan for you, and your first places, in one conversation.'],
+  place: ['There\u2019s a place I want to remember: [place, city]. Keep it in my Discriminantly marks.', 'A place worth returning to, kept with its details.'],
+  thing: ['There\u2019s something I want to remember: [thing]. Keep it in my Discriminantly notes.', 'Something you noticed, kept with a picture and a link.'],
+  show: ['Show me what I\u2019ve kept in Discriminantly so far.', 'See what you have, and what your AI can do with it.'],
+  resume: ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.'],
+};
+// Actions for one starter, by what the member has connected. Claude Desktop
+// documents a prefilled-prompt link (claude://claude.ai/new?q=); ChatGPT and
+// Claude on the web document none, so those copy.
+function starterActions(key, st, surface) {
+  const [text] = STARTERS[key];
+  const any = st.chatgpt || st.claude || st.other;
+  const copy = `<button type="button" class="link caps wl-copy" data-wl-copy="${esc(text)}" data-ev-starter="${key}" data-ev-surface="${surface}">Copy</button>`;
+  const launch = st.claude ? `<a class="link caps wl-launch" href="claude://claude.ai/new?q=${encodeURIComponent(text)}" data-ev-launch="${key}" data-ev-surface="${surface}">Open in Claude Desktop</a>` : '';
+  const first = any ? '' : `<button type="button" class="link caps wl-pick" data-wl-pick="${key}" data-ev-surface="${surface}">Connect first</button>`;
+  const hint = `<span class="wl-copied-hint" hidden>Copied. Paste it into ${st.chatgpt && st.claude ? 'ChatGPT or Claude' : st.chatgpt ? 'ChatGPT' : st.claude ? 'Claude' : 'your AI'} and send.</span>`;
+  return `<span class="wl-acts-wrap"><span class="wl-acts">${copy}${launch}${first}</span>${hint}</span>`;
+}
+// One small script for starters anywhere: copy with a visible state, the
+// connect-first pick (kept in this browser), and private event beacons.
+const STARTER_JS = `<script>(function(){if(window.__dlStarters)return;window.__dlStarters=1;
+function ev(e,s,m){try{navigator.sendBeacon('/e',new Blob([JSON.stringify({event:e,surface:s||'',meta:m||{}})],{type:'application/json'}));}catch(x){}}
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-wl-copy],[data-ev-launch],[data-wl-pick],[data-ev-action]');if(!b)return;
+if(b.hasAttribute('data-wl-copy')){var t=b.textContent;navigator.clipboard&&navigator.clipboard.writeText(b.getAttribute('data-wl-copy')).then(function(){b.textContent='Copied';var h=b.closest('.wl-starter,.es-starter');h=h&&h.querySelector('.wl-copied-hint');if(h)h.hidden=false;setTimeout(function(){b.textContent=t;},1800);});ev('starter_copied',b.dataset.evSurface,{starter:b.dataset.evStarter});}
+else if(b.hasAttribute('data-ev-launch')){ev('starter_launched',b.dataset.evSurface,{starter:b.dataset.evLaunch,target:'claude_desktop'});}
+else if(b.hasAttribute('data-wl-pick')){try{localStorage.setItem('dl-starter',b.getAttribute('data-wl-pick'));}catch(x){}ev('starter_selected',b.dataset.evSurface,{starter:b.getAttribute('data-wl-pick'),via:'connect_first'});var r=document.getElementById('wl-s2');if(r){r.checked=true;r.dispatchEvent(new Event('change',{bubbles:true}));r.closest('.welcome-card').scrollIntoView({behavior:'smooth',block:'start'});}else location.href='/#connect';}
+else if(b.hasAttribute('data-ev-action')){ev('empty_state_action',b.dataset.evSurface,{action:b.dataset.evAction});}},true);
+document.addEventListener('change',function(e){var r=e.target;if(r&&r.name==='wl-step'&&r.checked)ev('welcome_tab_viewed','welcome',{tab:r.id.slice(-1)});
+if(r&&r.classList.contains('wl-ai-toggle')&&r.checked){document.querySelectorAll('.wl-ai-toggle').forEach(function(i){if(i!==r)i.checked=false;});}});
+if(location.hash==='#connect'){var r2=document.getElementById('wl-s2');if(r2)r2.checked=true;}
+try{var p=localStorage.getItem('dl-starter');if(p){var el=document.querySelector('.welcome-card [data-starter="'+p+'"]');if(el)el.classList.add('is-picked');}}catch(x){}
+})();</script>`;
+// A small raw body reader for the event beacon (4 KB cap).
+function readRaw(req, limit = 4096) {
+  return new Promise((res) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > limit) { b = ''; req.destroy(); } }); req.on('end', () => res(b)); req.on('error', () => res('')); });
 }
 const placeMatchPublic = (m) => ({ state: m.state, basis: m.basis || [], ...(m.confidence ? { confidence: m.confidence } : {}),
   ...(m.uid ? { candidate_uid: m.uid, candidate_id: m.id, candidate_name: m.name } : {}) });
@@ -8001,17 +8160,18 @@ function welcomeState(me) {
   const live = conns.filter((c) => !c.revoked_at);
   const chatgpt = live.some((c) => is(c, /chatgpt|openai/i));
   const claude = live.some((c) => is(c, /claude|anthropic/i));
+  const other = live.some((c) => !is(c, /chatgpt|openai|claude|anthropic/i));
   // Made through ChatGPT: the account's first ChatGPT connection came within
   // half an hour of the account itself (the plugin signs you up, then asks).
   const joined = Date.parse(String(me.created_at).replace(' ', 'T') + 'Z');
   const viaChatGPT = conns.some((c) => is(c, /chatgpt|openai/i)
     && Math.abs(Date.parse(String(c.created_at).replace(' ', 'T') + 'Z') - joined) < 30 * 60 * 1000);
   const kept = q('SELECT (SELECT COUNT(*) FROM adopted_objects WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_marks WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_itineraries WHERE user_id=?) n').get(me.id, me.id, me.id).n;
-  return { chatgpt, claude, viaChatGPT, kept, joined };
+  return { chatgpt, claude, other, viaChatGPT, kept, joined };
 }
 function welcomeCard(me) {
   const st = welcomeState(me);
-  const any = st.chatgpt || st.claude;
+  const any = st.chatgpt || st.claude || st.other;
   const open = any || st.viaChatGPT ? 3 : 1;
   const since = new Date(st.joined).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   const right = st.viaChatGPT ? 'You arrived from ChatGPT' : `Since ${since}`;
@@ -8020,46 +8180,53 @@ function welcomeCard(me) {
   const next = (n, label) => `<label for="wl-s${n}" class="link caps wl-next">${label}</label>`;
   const nextBtn = (n, label) => `<label for="wl-s${n}" class="btn3d btn-solid wl-next wl-next-primary">${label} \u2192</label>`;
   const copy = (text, label = 'Copy') => `<button type="button" class="link caps wl-copy" data-wl-copy="${esc(text)}">${label}</button>`;
-  const kinds = [['note', 'Notes', 'for things', '\u201cKeep this watch in my Notes.\u201d'],
-                 ['mark', 'Marks', 'for places', '\u201cKeep that shop for my next trip to London.\u201d'],
-                 ['plan', 'Itineraries', 'for plans', '\u201cPlan a day in Prince Edward County.\u201d']];
+  const kinds = [['note', 'Remember things that matter', 'Notes', '\u201cKeep this watch in my Notes.\u201d', `/u/${esc(me.handle)}?tab=notes`],
+                 ['mark', 'Keep places worth returning to', 'Travel marks', '\u201cKeep that shop for my next trip to London.\u201d', `/u/${esc(me.handle)}?tab=marks`],
+                 ['plan', 'Plan with what you already know', 'Itineraries', '\u201cPlan a day in Prince Edward County.\u201d', '/t']];
   const step1 = `<div class="wl-panel wl-p1">
-    <p class="sbox-title">Three kinds of things to keep.</p>
-    <p class="sbox-sub">Everything you keep is one of these.</p>
-    <div class="wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wl-kind"><span class="wl-ico">${WL_ICON[k]}</span><span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
-    <div class="wl-warrant"><span class="wl-ico wl-ico-sm">${WL_ICON.warrant}</span><span class="wl-warrant-name">Warrant</span><span class="wl-warrant-for">things and places you stand behind</span></div>
+    <p class="sbox-title">What you can do here.</p>
+    <p class="sbox-sub">Everything you keep becomes one of these.</p>
+    <div class="wl-kinds">${kinds.map(([k, n, f, say, href]) => `<div class="wl-kind"><span class="wl-ico">${WL_ICON[k]}</span><span class="wl-kind-name">${n}</span><a class="wl-term" href="${href}">${f}</a><span class="wl-say">${say}</span></div>`).join('')}</div>
+    <div class="wl-warrant"><span class="wl-ico wl-ico-sm">${WL_ICON.warrant}</span><span class="wl-warrant-name">Stand behind what you genuinely endorse</span><a class="wl-term" href="/u/${esc(me.handle)}?tab=warrants">Warrants</a></div>
     <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
   </div>`;
-  const aiState = (on, since) => on ? `<span class="wl-ai-state is-on">${since ? 'Connected since your first conversation' : 'Connected'}</span>` : '<span class="wl-ai-state">Connect</span>';
+  // Connected: an eyebrow above the name (the caps label token); not connected: the Connect state beneath
+  const aiEyebrow = (on, since) => on ? `<span class="lbl wl-ai-eb">${since ? 'Connected since your first conversation' : 'Connected'}</span>` : '';
+  const aiState = (on) => on ? '' : '<span class="wl-ai-state">Connect</span>';
+  // Steps use the rail's numbered-circle list (ol.steps), one helper for all three.
+  const steps = (items) => `<ol class="steps wl-how">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
+  // the address may break only after the scheme, never mid-word; Copy copies it whole
+  const addr = `<span class="wl-addr"><code class="wl-url">${esc(mcpUrl).replace('://', '://<wbr>')}</code>${copy(mcpUrl, 'Copy address')}</span>`;
   const chatgptSteps = pluginUrl
-    ? `<ol class="wl-how"><li>In ChatGPT, open <b>Plugins</b> (in the sidebar, or at chatgpt.com/plugins).</li><li>Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.</li><li>Choose <b>Connect</b> when asked, and sign in to Discriminantly.</li><li>In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.</li></ol><p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
-    : `<p class="fine center">Discriminantly is coming to ChatGPT\u2019s plugin directory. Once it\u2019s listed: open <b>Plugins</b>, search for <b>Discriminantly</b>, choose <b>Install plugin</b>, then <b>Connect</b> and sign in.</p>`;
-  const claudeSteps = `<ol class="wl-how"><li>In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.</li><li>Name it <b>Discriminantly</b> and paste this address: <code class="wl-url">${esc(mcpUrl)}</code> ${copy(mcpUrl, 'Copy address')}</li><li>Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.</li><li>In a chat, turn it on under <b>+ \u203a Connectors</b>.</li></ol><p class="fine center">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
+    ? `${steps(['In ChatGPT, open <b>Plugins</b> (in the sidebar, or at chatgpt.com/plugins).', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b> when asked, and sign in to Discriminantly.', 'In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.'])}<p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
+    : `<p class="lbl wl-soon">Coming to ChatGPT\u2019s plugin directory</p>${steps(['In ChatGPT, open <b>Plugins</b>.', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b>, and sign in to Discriminantly.'])}`;
+  const claudeSteps = `${steps(['In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.', `Name it <b>Discriminantly</b> and paste this address: ${addr}`, 'Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.', 'In a chat, turn it on under <b>+ \u203a Connectors</b>.'])}<p class="fine wl-note">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
+  const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
   const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
     : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
   const step2 = `<div class="wl-panel wl-p2">
     <p class="sbox-title">Connect your AI.</p>
     <p class="sbox-sub">${lede}</p>
-    <div class="wl-ais">
-      <details class="wl-ai${st.chatgpt ? ' is-on' : ''}"><summary><span class="wl-ai-name">ChatGPT</span><span class="caps">Discriminantly plugin</span>${aiState(st.chatgpt, st.viaChatGPT)}</summary>${st.chatgpt ? '<p class="fine center">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps}</details>
-      <details class="wl-ai${st.claude ? ' is-on' : ''}"><summary><span class="wl-ai-name">Claude</span><span class="caps">MCP connector</span>${aiState(st.claude)}</summary>${st.claude ? '<p class="fine center">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps}</details>
-    </div>
+    ${(() => {
+      // Tiles toggle one shared instruction container beneath the row (the
+      // resurfacing tint), with a small triangle pointing at the open tile.
+      const ais = [
+        ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiEyebrow(st.chatgpt, st.viaChatGPT), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
+        ['claude', 'Claude', 'MCP connector', st.claude, aiEyebrow(st.claude), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
+        ['other', 'Other', 'Any MCP client', st.other, aiEyebrow(st.other), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
+      return `<div class="wl-ais-wrap">
+      ${ais.map(([k]) => `<input type="checkbox" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
+      <div class="wl-ais">${ais.map(([k, name, kind, on, eb]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${eb}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
+      ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
+    </div>`;
+    })()}
     <div class="wl-nav">${next(1, '\u2190 Orientation')}${nextBtn(3, 'Next: get started')}</div>
   </div>`;
-  const top = [
-    st.viaChatGPT && st.kept ? ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.']
-      : ['I\u2019m planning a trip to [destination]. Help me build an itinerary based on what I like.', 'A plan for you, and your first places, in one conversation.'],
-    ['Help me remember some places that matter to me in [city]. Show me before you add anything.', 'You choose what becomes yours.'],
-  ];
-  const quick = ['There\u2019s something I want to remember. Help me add it to Discriminantly.',
-                 'What things we\u2019ve talked about before might be worth keeping here? Let me choose.',
-                 'Show me what I\u2019ve kept so far.'];
+  const keys = [st.viaChatGPT && st.kept ? 'resume' : 'plan', 'place', 'thing', 'show'];
   const step3 = `<div class="wl-panel wl-p3">
     <p class="sbox-title">${st.viaChatGPT && st.kept ? 'Pick up where you left off.' : 'Start with something real.'}</p>
-    <p class="sbox-sub">${any ? 'Copy one into ' + (st.chatgpt && st.claude ? 'either AI' : st.chatgpt ? 'ChatGPT' : 'Claude') + ' and make it yours.' : 'Copy one into your AI once it\u2019s connected.'}</p>
-    <div class="wl-prompts">${top.map(([t, why]) => `<div class="wl-prompt"><div><p class="wl-q">\u201c${t}\u201d</p><p class="fine">${why}</p></div>${copy(t)}</div>`).join('')}</div>
-    <p class="caps wl-quick-label">Quick ones</p>
-    <div class="wl-prompts wl-quick">${quick.map((t) => `<div class="wl-prompt"><p class="wl-q">\u201c${t}\u201d</p>${copy(t)}</div>`).join('')}</div>
+    <p class="sbox-sub">${any ? (st.claude ? 'Copy one into ' + (st.chatgpt ? 'ChatGPT, or open it in Claude Desktop' : 'Claude, or open it in Claude Desktop') : 'Copy one into ChatGPT') + ', and make it yours.' : 'Pick one, then connect your AI to begin.'}</p>
+    <div class="wl-prompts">${keys.map((k, n) => `<div class="wl-prompt wl-starter${n === 0 ? ' is-lead' : ''}" data-starter="${k}"><div><p class="wl-q">\u201c${STARTERS[k][0]}\u201d</p><p class="fine">${STARTERS[k][1]}</p></div>${starterActions(k, st, 'welcome')}</div>`).join('')}</div>
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
   </div>`;
   return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
@@ -8068,8 +8235,7 @@ function welcomeCard(me) {
   ${[1,2,3].map((n) => `<input type="radio" name="wl-step" id="wl-s${n}" class="wl-radio"${n === open ? ' checked' : ''}>`).join('')}
   <div class="vis-tabs wl-tabs">${[[1, 'Orientation', 'Orientation'], [2, 'Connect your AI', 'Connect'], [3, 'Get started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
   ${step1}${step2}${step3}
-  <script>document.querySelectorAll('.welcome-card [data-wl-copy]').forEach(function (b) { b.addEventListener('click', function () {
-    var t = b.textContent; navigator.clipboard.writeText(b.getAttribute('data-wl-copy')).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = t; }, 1600); }); }); });</script>
+  ${STARTER_JS}
 </article>`;
 }
 
@@ -8116,7 +8282,7 @@ const pages = {
     // feed (all of theirs are newer than it), and at the top when they have
     // none; never pinned, never dismissed.
     if (me && feed === 'all' && !s && !tag) {
-      const w = lazy(me.created_at, 'welcome', () => welcomeCard(me), me.id);
+      const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all', dedupeMinutes: 30 }); return welcomeCard(me); }, me.id);
       let last = -1; entries.forEach((e, i) => { if (e.owner === me.id) last = i; });
       entries.splice(last + 1, 0, w);
     }
@@ -8253,7 +8419,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     // nf-top, nf-field inputs stacked in nf-stack with their tracked-caps
     // placeholders as labels. Timing is behind a button, closed by default.
     const monthOpts = `<option value="">MONTH</option>${T_MONTHS.map((m2, i) => `<option value="${i + 1}">${m2}</option>`).join('')}`;
-    const create = own ? `<details class="itin-create">
+    const create = own ? `<details class="itin-create" id="itin-create"${url.searchParams.get('new') ? ' open' : ''}>
       <summary class="post-box"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Start an itinerary</span></summary>
       <form method="post" action="/t/new" class="nf nf-compact itin-new">
         <div class="nf-box">
@@ -8278,7 +8444,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
 
     ${create}
     ${rows.length ? `<div class="grid" id="feed-grid">${rows.map(preview).join('')}</div>` : ''}
-    ${rows.length || own ? '' : emptyState(me, 'itineraries')}`;
+    ${rows.length ? '' : own ? emptyState(me, 'itineraries') : emptyState(me, 'itineraries', subject)}`;
     const body = `<div class="cols profile-cols">${profileRail(subject, me, 'itineraries')}
   <section class="feed profile-feed itin-list">${main}</section>
 </div>`;
@@ -8748,7 +8914,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
       ${(() => { const pg = pageOf(rows, url); return rows.length
         ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
-        : '<p class="empty pad">No travel marks here yet.</p>'; })()}
+        : me && me.id === u.id && !q('SELECT 1 FROM adopted_marks WHERE user_id=? LIMIT 1').get(me.id) ? emptyState(me, 'marks') : '<p class="empty pad">No travel marks here yet.</p>'; })()}
       <script>
       (function () {
         var t = document.getElementById('tiles');
@@ -8971,6 +9137,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <label class="slabel">Your name<input name="name" value="${esc(vals.name || '')}" required autofocus autocomplete="name"></label>
       <label class="slabel">Email<input name="email" type="email" value="${esc(vals.email || '')}" required autocomplete="email"></label>
       <label class="slabel">Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+      <label class="auth-terms"><input type="checkbox" name="terms" value="1" required${vals.terms ? ' checked' : ''}><span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a>.</span></label>
       ${next ? `<input type="hidden" name="next" value="${esc(next)}">` : ''}${code ? `<input type="hidden" name="code" value="${esc(code)}">` : ''}
       <button class="btn3d block">${next ? 'Create account and continue' : 'Create account'}</button>
     </div>
@@ -9117,12 +9284,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
             </div>
             <div class="wcell wcell-wide">
-              <form method="post" action="/settings/admin-handle">
-                <label class="slabel">Username:<input name="handle" value="${esc(me.handle)}" required autocapitalize="none" autocomplete="off" spellcheck="false"></label>
-                ${url.searchParams.get('handle_error') ? `<p class="fine center">${esc(url.searchParams.get('handle_error'))}</p>` : ''}
-                <button class="btn3d block">Change username</button>
+              <form method="post" action="/settings/admin-alias">
+                <label class="slabel">Screenshot handle:<input name="alias" value="${esc(me.display_alias || '')}" maxlength="24" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="leave empty to show your own"></label>
+                ${url.searchParams.get('alias_error') ? `<p class="fine center">${esc(url.searchParams.get('alias_error'))}</p>` : ''}
+                <button class="btn3d block">Save</button>
               </form>
-              <p class="fine center">Your profile moves to /u/ followed by the new name; links to the old one stop working. Lowercase letters and numbers only.</p>
+              <p class="fine center">Shown instead of your handle (@${realHandle(me.handle)}) wherever the web app displays it, for product screenshots. Your real handle, profile address and links are unchanged. Leave it empty to show your own.</p>
             </div>
           </div>` : ''}
       </div>
@@ -12113,16 +12280,43 @@ async function handle(req, res) {
     }
     return redirect(res, `/u/${me.handle}?tab=${c && c.kind === 'mark' ? 'marks' : 'notes'}`);
   }
+  if (p === '/admin/activation/flag' && m === 'POST') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const b = await readBody(req); const flag = ['', 'founder_assisted', 'test'].includes(b.flag) ? b.flag : '';
+    q('UPDATE users SET research_flag=? WHERE id=?').run(flag, +b.user_id || 0);
+    return redirect(res, '/admin/activation#accounts');
+  }
   if (p === '/admin/activation' && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const rows = activationReport();
+    const accts = activationAccounts();
     const pct = (x) => `${Math.round(x * 100)}%`, hrs = (h) => h === null ? '\u2014' : h < 1 ? '< 1 hour' : h < 48 ? `${Math.round(h)} hours` : `${(h / 24).toFixed(1)} days`;
+    // one row per arrival route, organic; founder-assisted and test accounts on their own rows
+    const groups = {};
+    for (const a of accts) { const key = a.flag ? `${a.src} \u00b7 ${a.flag.replace('_', '-')}` : a.src; (groups[key] = groups[key] || []).push(a); }
+    const base = Object.fromEntries(rows.map((r) => [r.source, r]));
+    const count = (list, k) => list.filter((a) => a[k]).length;
+    const trs = Object.entries(groups).sort((x, y) => y[1].length - x[1].length).map(([k, list]) => {
+      const r = base[k] || { rate: list.length ? count(list, 'kept7') / list.length : 0, in_window: 0, median_hours: null };
+      return `<tr><td>${esc(k)}</td><td>${list.length}</td><td>${count(list, 'kept7')}</td><td>${pct(list.length ? count(list, 'kept7') / list.length : 0)}</td><td>${count(list, 'connected')}</td><td>${count(list, 'note')}</td><td>${count(list, 'mark')}</td><td>${count(list, 'itinerary')}</td><td>${count(list, 'recommendation')}</td><td>${count(list, 'checkin')}</td><td>${count(list, 'returned')}</td><td>${hrs(r.median_hours)}</td></tr>`;
+    }).join('');
+    const evs = q(`SELECT event, COUNT(*) n, COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), anon)) who FROM product_events WHERE created_at >= datetime('now', '-30 days') GROUP BY event ORDER BY n DESC`).all();
+    const flagForm = (a) => `<form method="post" action="/admin/activation/flag" class="act-flag"><input type="hidden" name="user_id" value="${a.id}"><select name="flag" onchange="this.form.submit()">${[['', 'organic'], ['founder_assisted', 'founder-assisted'], ['test', 'test']].map(([v, l]) => `<option value="${v}"${a.flag === v ? ' selected' : ''}>${l}</option>`).join('')}</select></form>`;
+    const firstAct = (a) => ['note', 'mark', 'itinerary', 'recommendation', 'checkin'].filter((k) => a[k]).join(', ') || '\u2014';
     const body = `<h3 class="strip dark-strip">Activation</h3>
 <div class="settings"><div class="wtable settings-table"><div class="wcell wcell-wide">
-  <p class="sbox-title">First kept itinerary, within 7 days of joining</p>
-  <p class="sbox-sub">By how each member arrived. Members who joined less than 7 days ago and have not kept one yet are still in their window.</p>
-  <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Arrived by</th><th>Joined</th><th>Activated</th><th>Rate</th><th>Still in window</th><th>Median time</th></tr></thead><tbody>
-  ${rows.map((r) => `<tr><td>${esc(r.source)}</td><td>${r.signups}</td><td>${r.activated}</td><td>${pct(r.rate)}</td><td>${r.in_window}</td><td>${hrs(r.median_hours)}</td></tr>`).join('')}
+  <p class="sbox-title">By arrival route</p>
+  <p class="sbox-sub">From the domain tables (canonical): accounts, AI connections, first kept records, recommendations, check-ins, return sign-ins. The activation event is a first kept itinerary within 7 days of joining. Founder-assisted and test accounts are counted separately.</p>
+  <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Arrived by</th><th>Joined</th><th>Kept itinerary \u2264 7 days</th><th>Rate</th><th>AI connected</th><th>First note</th><th>First mark</th><th>First itinerary</th><th>Recommendation</th><th>Check-in</th><th>Returned after day 1</th><th>Median time to first kept itinerary</th></tr></thead><tbody>${trs}</tbody></table></div>
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">First-run events, last 30 days</p>
+  <p class="sbox-sub">From product events (collected from v2.65 on; none before). Not collected: onboarding completion (there is nothing to complete), AI connection failures (not observable without changing the authorization code, which is frozen during review).</p>
+  <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Event</th><th>Count</th><th>People</th></tr></thead><tbody>${evs.map((e) => `<tr><td>${esc(e.event)}</td><td>${e.n}</td><td>${e.who}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}</tbody></table></div>
+</div><div class="wcell wcell-wide" id="accounts">
+  <p class="sbox-title">Recent accounts</p>
+  <p class="sbox-sub">For checking a sign-up end to end: how they arrived, the AI client (the host of its metadata document), connections, first acts. Mark founder-assisted or test journeys here; this never grants anything.</p>
+  <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Joined</th><th>Arrived by</th><th>AI client</th><th>Campaign / referrer</th><th>Connections</th><th>First acts</th><th>Journey</th></tr></thead><tbody>
+  ${accts.slice(0, 30).map((a) => `<tr><td>@${esc(a.handle)}</td><td>${esc(a.created_at)}</td><td>${esc(a.src)}</td><td>${esc(a.client_host || '\u2014')}</td><td>${esc([a.utm_source, a.utm_medium, a.utm_campaign, a.ref, a.ref_host].filter(Boolean).join(' \u00b7 ') || '\u2014')}</td><td>${a.conns.map((c) => `${esc(c.client_label)} (${esc(c.created_at)})`).join('<br>') || '\u2014'}</td><td>${firstAct(a)}</td><td>${flagForm(a)}</td></tr>`).join('')}
   </tbody></table></div>
 </div></div></div>`;
     return send(res, layout({ title: 'Activation', body, me, req, cls: 'is-dark-page' }));
@@ -12140,21 +12334,21 @@ async function handle(req, res) {
       return;
     } catch (e) { return send(res, 'Backup failed: ' + e.message, 500); }
   }
-  if (p === '/settings/admin-handle' && m === 'POST') {
-    // Admins may change their own username (handle). Same rule as joining:
-    // lowercase letters and digits, up to 24, unique. User ids are what every
-    // record points at, so nothing but the /u/ URL changes.
+  if (p === '/settings/admin-alias' && m === 'POST') {
+    // v2.65.4: the admin's screenshot handle. Display only: the real handle,
+    // the account's stable identifier, is never changed.
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const b = await readBody(req);
-    const raw = String(b.handle || '').trim(), handle = slug(raw);
-    const back = (err) => redirect(res, '/settings' + (err ? '?handle_error=' + encodeURIComponent(err) : '') + '#admin');
-    if (!raw.toLowerCase().replace(/[^a-z0-9]+/g, '')) return back('Use lowercase letters and numbers.');
-    if (handle === me.handle) return back();
-    if (q('SELECT 1 FROM users WHERE handle=? AND id<>?').get(handle, me.id)) return back('That username is already taken.');
-    q('UPDATE users SET handle=? WHERE id=?').run(handle, me.id);
-    recordProvenance('user', me.uid, 'edited', webActor(me), { source_kind: 'manual', fields: 'handle' });
+    const raw = String(b.alias || '').trim(), alias = raw ? slug(raw) : '';
+    const back = (err) => redirect(res, '/settings' + (err ? '?alias_error=' + encodeURIComponent(err) : '') + '#admin');
+    if (raw && !raw.toLowerCase().replace(/[^a-z0-9]+/g, '')) return back('Use lowercase letters and numbers.');
+    if (alias && q('SELECT 1 FROM users WHERE (handle=? OR display_alias=?) AND id<>?').get(alias, alias, me.id)) return back('That handle belongs to someone else.');
+    q('UPDATE users SET display_alias=? WHERE id=?').run(alias === me.handle ? '' : alias, me.id);
+    recordProvenance('user', me.uid, 'edited', webActor(me), { source_kind: 'manual', fields: 'display_alias' });
     return back();
   }
+
+
   if (p === '/settings/admin-view' && m === 'POST') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const b = await readBody(req);
@@ -12382,13 +12576,22 @@ async function handle(req, res) {
   // environment rather than being invented here.
   if (p === '/privacy' || p === '/terms' || p === '/support') return policyPage(req, res, me, p.slice(1));
   if (p === '/about') return pages.about(req, res, me);
-  if (p === '/welcome') return pages.welcome(req, res, me);
+  if (p === '/welcome') { if (!me) { const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc); } return pages.welcome(req, res, me); }
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
   if (p === '/login') {
-    if (m === 'GET') { const nx = oauthNext(url.searchParams.get('next')); if (me && nx) return redirect(res, nx); return pages.login(req, res, me, '', nx); }
-    const b = await readBody(req); const u = q('SELECT * FROM users WHERE email=?').get((b.email || '').toLowerCase().trim());
-    if (!u || !checkPass(b.password || '', u.pass)) return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next));
+    if (m === 'GET') {
+      const nx = oauthNext(url.searchParams.get('next')); if (me && nx) return redirect(res, nx);
+      const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
+      if (nx) recordEvent(null, 'ai_connection_started', { anon: anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : ''), surface: 'signin', meta: { client_host: clientHostOf(nx) }, dedupeMinutes: 30 });
+      return pages.login(req, res, me, '', nx);
+    }
+    const b = await readBody(req); const em = (b.email || '').toLowerCase().trim();
+    // Throttled before the password is checked, with the same message whether or not the account exists.
+    if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next));
+    const u = q('SELECT * FROM users WHERE email=?').get(em);
+    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next)); }
+    loginSucceeded(req, em);
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
     // carry the member's look into the cookies too, so the signed-out pages
     // they meet next (logout, a second tab) do not snap to a different theme
@@ -12396,25 +12599,43 @@ async function handle(req, res) {
     // back to the authorization that sent them here, if any; otherwise home
     return redirect(res, oauthNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
   }
+  // Private product events from the first-run surfaces (v2.65): allow-listed
+  // types, bounded values, signed-in members only; dropped silently otherwise.
+  if (p === '/e' && m === 'POST') {
+    if (me) { try { const b = JSON.parse(await readRaw(req) || '{}'); if (CLIENT_EVENTS.has(b.event))
+      recordEvent(me.id, b.event, { surface: b.surface, meta: b.meta && typeof b.meta === 'object' ? b.meta : {}, dedupeMinutes: b.event === 'welcome_tab_viewed' ? 30 : 1 }); } catch {} }
+    res.writeHead(204); return res.end();
+  }
   if (p === '/logout' && m === 'POST') { const t = cookies(req).sid; if (t) q('DELETE FROM sessions WHERE token=?').run(t); return redirect(res, '/', { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' }); }
 
   if (p === '/join') {
     // Open to everyone (v2.63). An invite link still works and credits the invite.
-    if (m === 'GET') { const nx = oauthNext(url.searchParams.get('next')); if (me) return redirect(res, nx || '/'); return pages.join(req, res, me, url.searchParams.get('code') || '', '', nx); }
+    if (m === 'GET') {
+      const nx = oauthNext(url.searchParams.get('next')); if (me) return redirect(res, nx || '/');
+      const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
+      const aid = anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : '');
+      recordEvent(null, 'signup_started', { anon: aid, surface: nx ? 'oauth' : 'web', meta: nx ? { client_host: clientHostOf(nx) } : {}, dedupeMinutes: 30 });
+      return pages.join(req, res, me, url.searchParams.get('code') || '', '', nx);
+    }
     const b = await readBody(req); const nx = oauthNext(b.next), code = String(b.code || '').trim();
     const inv = code ? q('SELECT * FROM invites WHERE code=? AND used_by IS NULL').get(code) : null;
     const email = (b.email || '').toLowerCase().trim(), name = String(b.name || '').trim().slice(0, 80);
-    const again = (err) => pages.join(req, res, me, inv ? code : '', err, nx, { name, email });
+    const again = (err) => pages.join(req, res, me, inv ? code : '', err, nx, { name, email, terms: b.terms === '1' });
     if (!name) return again('Please add your name.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Please enter a valid email address.');
     if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again(`An account with that email already exists. <a href="/login${nx ? `?next=${encodeURIComponent(nx)}` : ''}">Sign in instead</a>.`);
     if ((b.password || '').length < 8) return again('Password needs at least 8 characters.');
+    if (b.terms !== '1') return again('Please agree to the Terms and Privacy policy to create your account.');
     if (!inv && !signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
     const wanted = String(b.handle || '').trim() ? slug(b.handle) : ''; // slug('') is 'member', so only when one was given
     const handle = wanted.length >= 2 && !q('SELECT 1 FROM users WHERE handle=?').get(wanted) ? wanted : uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
     const source = inv ? 'invite' : nx ? signupSourceFor(nx) : 'web';
-    const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source) VALUES(?,?,?,?,'modern',?)").run(handle, name, email, hashPass(b.password), source);
+    const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source,terms_accepted_at,terms_version) VALUES(?,?,?,?,'modern',?,CURRENT_TIMESTAMP,?)").run(handle, name, email, hashPass(b.password), source, TERMS_VERSION());
     if (inv) q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
+    const sc = sourceFromCookie(req);
+    q('INSERT OR REPLACE INTO signup_context(user_id, client_host, ref_host, utm_source, utm_medium, utm_campaign, ref, landing) VALUES(?,?,?,?,?,?,?,?)')
+      .run(r.lastInsertRowid, nx ? clientHostOf(nx) : '', sc.h, sc.s, sc.m, sc.c, sc.r, sc.l);
+    recordEvent(r.lastInsertRowid, 'signup_completed', { surface: nx ? 'oauth' : 'web', meta: { source } });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
     // back to the AI's authorization if they came from one; otherwise All, where Welcome is
     return redirect(res, nx || '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
@@ -12999,6 +13220,9 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/u\/([a-z0-9]+)$/))) return pages.user(req, res, me, mt[1], url);
   if (p === '/invites') {
     if (!me) return need();
+    if (m === 'POST') { // v2.65: new codes are admin-only
+      if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    }
     if (m === 'POST') { if (q('SELECT COUNT(*) c FROM invites WHERE from_user=? AND used_by IS NULL').get(me.id).c < 5) q('INSERT INTO invites(code,from_user) VALUES(?,?)').run(token(6), me.id); return redirect(res, '/invites'); }
     return redirect(res, '/settings'); // joining is open; no invites page
   }

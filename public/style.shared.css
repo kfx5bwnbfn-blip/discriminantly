@@ -1130,7 +1130,7 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .welcome-card .wl-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 1.2rem; }
 .welcome-card .wl-next { cursor: pointer; }
 .welcome-card .wl-ais { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
-.welcome-card .wl-ai summary { list-style: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: 1.5rem 1rem; border-radius: 18px; text-align: center; }
+.welcome-card .wl-ai summary, .welcome-card label.wl-ai { list-style: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: 1.5rem 1rem; border-radius: 18px; text-align: center; }
 .welcome-card .wl-ai summary::-webkit-details-marker { display: none; }
 .welcome-card .wl-ai-name { font-size: 1.7rem; font-weight: 300; line-height: 1; }
 .welcome-card .wl-ai-state { font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: .3rem; }
@@ -1153,7 +1153,7 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
   .welcome-card .wl-prompt { flex-direction: column; align-items: flex-start; gap: .5rem; }
 }
 /* classic skin: quiet surfaces from its own palette */
-body:not([data-skin="modern"]) .welcome-card .wl-ai summary, body:not([data-skin="modern"]) .welcome-card .wl-prompt:not(.wl-quick .wl-prompt) { background: rgba(0,0,0,.04); }
+body:not([data-skin="modern"]) .welcome-card .wl-ai summary, body:not([data-skin="modern"]) .welcome-card label.wl-ai, body:not([data-skin="modern"]) .welcome-card .wl-prompt:not(.wl-quick .wl-prompt) { background: rgba(0,0,0,.04); }
 body:not([data-skin="modern"]) .welcome-card .wl-quick .wl-prompt { border-top: 1px solid rgba(0,0,0,.08); }
 body:not([data-skin="modern"]) .welcome-card .wl-ai-state.is-on { color: #3d7a52; }
 /* The card is a column in the modern skin and a padded block in classic, and
@@ -1246,3 +1246,114 @@ body:not([data-skin="modern"]) .welcome-card .wl-kind { background: rgba(0,0,0,.
 /* Create account: the arced welcome above the fields */
 .auth-card .auth-arc { display: flex; justify-content: center; margin: .2rem 0 .5rem; }
 .auth-card .auth-arc svg { width: 100%; max-width: 19rem; height: auto; }
+
+/* ---- v2.65 activation ---------------------------------------------------- */
+.auth-card .auth-terms { display: flex; gap: .5rem; align-items: flex-start; font-size: .9rem; line-height: 1.4; margin: .2rem 0 .8rem; text-align: left; }
+.auth-card .auth-terms input { margin-top: .2rem; flex: none; }
+.welcome-card .wl-acts, .empty-first-act .wl-acts { display: inline-flex; flex-wrap: wrap; gap: .9rem; align-items: center; }
+.wl-copied-hint { display: block; font-size: .85rem; font-style: italic; opacity: .8; margin-top: .3rem; }
+.wl-copied-hint[hidden] { display: none; }
+.welcome-card .wl-starter.is-lead .wl-q { font-size: 1.08em; }
+.welcome-card .wl-starter.is-picked { outline: 1px solid currentColor; outline-offset: 4px; border-radius: 12px; }
+.welcome-card .wl-kind-for { font-style: normal; text-transform: uppercase; letter-spacing: .12em; font-size: .75rem; opacity: .7; }
+.empty-first-act { text-align: center; max-width: 34rem; margin: 2rem auto; padding: 1.4rem 1.2rem; border-radius: 16px; background: rgba(0,0,0,.035); }
+.empty-first-act .es-title { font-size: 1.35rem; margin: 0 0 1rem; }
+.empty-first-act .es-act { margin: 1rem 0; }
+.empty-first-act .es-starter { margin-top: 1rem; }
+.empty-first-act .wl-q { font-style: italic; margin: .3rem 0 .5rem; }
+/* the terms box: a real checkbox beside its sentence (the skin's full-width inputs must not apply) */
+body[data-skin] .auth-card .auth-terms { display: flex; flex-direction: row; align-items: flex-start; gap: .6rem; text-transform: none; letter-spacing: normal; }
+body[data-skin] .auth-card .auth-terms input[type="checkbox"] { -webkit-appearance: checkbox; appearance: auto; width: 1.1rem; height: 1.1rem; min-width: 1.1rem; margin: .2rem 0 0; padding: 0; border: 0; background: none; box-shadow: none; flex: none; accent-color: currentColor; }
+body[data-skin] .auth-card .auth-terms span { flex: 1; font-size: .92rem; line-height: 1.45; }
+/* starter actions with their copied hint underneath */
+.wl-acts-wrap { display: flex; flex-direction: column; align-items: flex-end; gap: .25rem; }
+.empty-first-act .wl-acts-wrap { align-items: center; }
+.wl-acts-wrap .wl-copied-hint { text-align: right; max-width: 14rem; }
+body[data-skin] .auth-card .auth-terms, body[data-skin] .auth-card .auth-terms span, body[data-skin] .auth-card .auth-terms a {
+  text-transform: none !important; letter-spacing: normal !important; font-variant: normal !important; font-weight: 400; font-size: .95rem; }
+body[data-skin] .auth-card .auth-terms a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- v2.65.2: token alignment ------------------------------------------- */
+/* Welcome tiles: the term is the rail's nav label token, linked; smaller icons in the same wells */
+.welcome-card .wl-term { display: inline-block; font-size: .6rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; text-decoration: none; margin: .1rem 0 .5rem; }
+.welcome-card .wl-term:hover { text-decoration: underline; text-underline-offset: 3px; }
+.welcome-card .wl-warrant .wl-term { margin: 0; }
+.welcome-card .wl-ico svg { width: 1.9rem; height: 2.05rem; }
+.welcome-card .wl-ico-sm svg { width: 1.45rem; height: 1.6rem; }
+/* Account and sign-in forms: one label treatment */
+.auth-card .slabel { display: block; text-align: left; margin: .2rem 0 .9rem; }
+.auth-card .slabel input { margin-top: .4rem; }
+body[data-skin] .auth-card .auth-terms, body[data-skin] .auth-card .auth-terms span, body[data-skin] .auth-card .auth-terms a { font-size: .78rem; line-height: 1.45; }
+body[data-skin] .auth-card .auth-terms input[type="checkbox"] { width: .95rem; height: .95rem; min-width: .95rem; margin-top: .15rem; }
+/* Get started: prompt cell | rule | actions stacked and centred, status beneath */
+.welcome-card .wl-starter { display: grid; grid-template-columns: 1fr auto; align-items: stretch; gap: 0; }
+.welcome-card .wl-starter > div:first-child { display: flex; flex-direction: column; justify-content: center; padding-right: 1.1rem; }
+.welcome-card .wl-starter .wl-acts-wrap { border-left: 1px solid rgba(127,127,127,.28); padding-left: 1.1rem; min-width: 11rem; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: .35rem; }
+.welcome-card .wl-starter .wl-acts { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+.welcome-card .wl-starter .wl-copied-hint { text-align: center; max-width: 11rem; font-size: .78rem; }
+/* Empty first acts: watermark title, the button at its full size, actions stacked and centred */
+.empty-first-act { max-width: 40rem; padding: 1.6rem 1.4rem 1.8rem; }
+.empty-first-act .es-title.empty-line { margin: .2rem auto 1.2rem; }
+.empty-first-act .es-act .btn3d { display: inline-block; min-width: 16rem; padding: 1.05rem 1.6rem; }
+.empty-first-act .es-starter { margin-top: 1.2rem; display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+.empty-first-act .es-starter .wl-acts-wrap { align-items: center; margin-top: .3rem; }
+.empty-first-act .wl-acts { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+.empty-first-act .wl-acts-wrap .wl-copied-hint { text-align: center; }
+.empty-first-act .fine, .empty-first-act .wl-q { max-width: 30rem; }
+@media (max-width: 52rem) { .welcome-card .wl-starter { grid-template-columns: 1fr; } .welcome-card .wl-starter .wl-acts-wrap { border-left: 0; border-top: 1px solid rgba(127,127,127,.28); padding: .7rem 0 0; margin-top: .7rem; } }
+/* buttons among the starter actions take the same caps-link token as the links beside them */
+.wl-acts button.link.caps, .wl-acts button.wl-pick { font-family: var(--slab); font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+/* Welcome terms: the rail's nav label token, and nothing else wins over it */
+body[data-skin] .welcome-card .wl-kind .wl-term, body[data-skin] .welcome-card .wl-warrant .wl-term {
+  text-transform: uppercase; font-style: normal; font-family: var(--slab); font-size: .6rem; font-weight: 700; letter-spacing: .16em; }
+.welcome-card .wl-warrant .wl-ico { flex: none; }
+
+/* ---- v2.65.5 Connect your AI ------------------------------------------------ */
+.welcome-card .wl-ais { grid-template-columns: repeat(3, 1fr); }
+/* steps: the signed-out rail's numbered circles (ol.steps), left-aligned under each tile */
+.welcome-card ol.steps.wl-how { margin: 1rem .2rem .4rem; text-align: left; }
+.welcome-card ol.steps.wl-how li { align-items: flex-start; font-size: .95rem; line-height: 1.5; }
+.welcome-card ol.steps.wl-how li > span { flex: none; margin-top: .1rem; }
+.welcome-card ol.steps.wl-how li > div { flex: 1; min-width: 0; }
+.welcome-card .wl-note { text-align: left; margin: .4rem .2rem 0; }
+.welcome-card .wl-soon { display: block; text-align: left; margin: 1rem .2rem 0; }
+/* the address on one line, scrolling within its box; Copy beside it in the caps-link token */
+.welcome-card .wl-addr { display: flex; align-items: center; gap: .7rem; margin-top: .35rem; max-width: 100%; }
+.welcome-card .wl-addr .wl-url { display: block; overflow-x: auto; white-space: nowrap; font-size: .8rem; padding: .25rem .5rem; border-radius: 6px; min-width: 0; }
+.welcome-card .wl-addr button { flex: none; font-family: var(--slab); font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+/* connected: an eyebrow above the name */
+.welcome-card .wl-ai-eb { display: block; margin-bottom: .45rem; }
+@media (max-width: 52rem) { .welcome-card .wl-ais { grid-template-columns: 1fr; } }
+/* the rail's .steps styles every span in a step; only the number is a circle here */
+.welcome-card ol.steps.wl-how li > div span { width: auto; height: auto; border-radius: 0; background: none; color: inherit; display: inline; font-size: inherit; font-weight: inherit; place-items: initial; }
+.welcome-card ol.steps.wl-how li > div .wl-addr { display: flex; align-items: center; gap: .7rem; margin-top: .35rem; }
+.welcome-card .wl-ais { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.welcome-card ol.steps.wl-how li > div .wl-addr { flex-wrap: wrap; gap: .4rem; }
+.welcome-card ol.steps.wl-how li > div .wl-addr .wl-url { flex: 1 1 100%; white-space: nowrap; overflow-x: auto; }
+@media (max-width: 52rem) { .welcome-card .wl-ais { grid-template-columns: minmax(0, 1fr); } }
+body[data-skin] .welcome-card ol.steps.wl-how .wl-addr .wl-url { font-size: .7rem; letter-spacing: -.01em; padding: .3rem .45rem; }
+body[data-skin] .welcome-card ol.steps.wl-how .wl-addr .wl-url { white-space: normal; overflow-wrap: normal; word-break: keep-all; overflow-x: visible; font-size: .78rem; }
+
+/* ---- v2.65.6: one instruction container beneath the tiles, pointing at the open one ---- */
+.welcome-card .wl-ais-wrap { position: relative; }
+.welcome-card .wl-ai { cursor: pointer; }
+.welcome-card .wl-ai-panel { display: none; position: relative; margin: 1.1rem 0 .2rem; padding: 1.4rem 1.2rem 1.2rem; border-radius: 16px; background: rgba(0,0,0,.035); }
+.welcome-card .wl-ai-panel::before { content: ""; position: absolute; top: -11px; left: calc((var(--wl-col) + .5) * 100% / 3); transform: translateX(-50%); border: 11px solid transparent; border-top: 0; border-bottom-color: rgba(0,0,0,.035); }
+.welcome-card #wl-ai-chatgpt-0:checked ~ .wl-ai-panel[data-for="chatgpt"] { display: block; }
+.welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ai-panel[data-for="chatgpt"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ai-panel[data-for="other"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ai-panel[data-for="claude"] { display: block; }
+.welcome-card .wl-ai-panel-in { max-width: 34rem; margin: 0 auto; text-align: center; }
+.welcome-card .wl-ai-panel-in ol.steps.wl-how { display: inline-block; text-align: left; margin: 0 auto .4rem; }
+.welcome-card .wl-ai-panel-in .wl-note, .welcome-card .wl-ai-panel-in .wl-soon { text-align: center; margin: .6rem 0 0; }
+.welcome-card .wl-ai-panel-in .wl-soon { margin: 0 0 .8rem; }
+.welcome-card .wl-ai-panel-in .steps li > div { max-width: 28rem; }
+@media (max-width: 52rem) { .welcome-card .wl-ai-panel::before { left: 50%; } }
+body[data-skin] .welcome-card input.wl-ai-toggle { display: none !important; }
+.welcome-card label.wl-ai { margin: 0; font-weight: inherit; text-transform: none; letter-spacing: normal; }
+.welcome-card .wl-ai-toggle:checked + .wl-ai-toggle, .welcome-card .wl-ai-toggle { position: absolute; }
+.welcome-card .wl-ai-panel::before { top: -14px; border-width: 14px; border-top-width: 0; }
+/* the open tile: lifted like an active profile chip (brighter fill, light edge, faint halo) */
+.welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ais label[data-ai="chatgpt"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] { background: rgba(0,0,0,.09); box-shadow: 0 0 0 4px rgba(127,127,127,.18); }

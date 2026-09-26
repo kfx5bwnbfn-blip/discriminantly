@@ -33,7 +33,11 @@ if (process.argv[2] === 'compare') {
     .replace(/\n[ \t]*(?=\n)/g, '')
     // v2.63: joining is open; the signed-out rail's invite field became a button.
     .replace(/<form class="signup" method="get" action="\/join">[\s\S]*?<\/form>/g, '[signup]')
-    .replace(/<p class="signup"><a class="btn3d block" href="\/join">Create an account<\/a><\/p>/g, '[signup]');
+    .replace(/<p class="signup"><a class="btn3d block" href="\/join">Create an account<\/a><\/p>/g, '[signup]')
+    // v2.65: the create-plan panel has an id (so an empty state can open it), and
+    // a member with no itineraries sees the first-act empty state (was nothing).
+    .replace(/<details class="itin-create" id="itin-create"( open)?>/g, '<details class="itin-create">')
+    .replace(/<div class="empty-first-act">[\s\S]*?window\.__dlStarters[\s\S]*?<\/script>/g, '');
   for (const set of [full, without, after]) for (const k of Object.keys(set)) set[k].body = inc4(set[k].body);
   const pendingNote = `owner /o/${process.argv[6]}`, pendingEns = `owner /e/${process.argv[7]}`;
   const digits = (x) => x.replace(/\d+/g, '#');

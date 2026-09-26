@@ -2491,8 +2491,8 @@ body[data-skin="modern"] .welcome-card .wl-tab { color: var(--m-ink-2); }
 body[data-skin="modern"] .welcome-card .wl-radio:checked + .wl-tab { background: var(--m-glass-3); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line-2); }
 body[data-skin="modern"] .welcome-card .wl-kind { background: var(--m-glass-2); border-radius: 18px; box-shadow: inset 0 1px 0 var(--m-line); }
 body[data-skin="modern"] .welcome-card .wl-kinds { gap: .8rem; background: none; }
-body[data-skin="modern"] .welcome-card .wl-ai summary { background: var(--m-glass-3); box-shadow: inset 0 1px 0 var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
-body[data-skin="modern"] .welcome-card .wl-ai.is-on summary { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .welcome-card .wl-ai summary, body[data-skin="modern"] .welcome-card label.wl-ai { background: var(--m-glass-3); box-shadow: inset 0 1px 0 var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
+body[data-skin="modern"] .welcome-card .wl-ai.is-on summary, body[data-skin="modern"] .welcome-card label.wl-ai.is-on { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
 body[data-skin="modern"] .welcome-card .wl-ai-state { color: var(--m-accent); }
 body[data-skin="modern"] .welcome-card .wl-ai-state.is-on { color: var(--m-ink-2); }
 body[data-skin="modern"] .welcome-card .wl-prompt { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
@@ -2527,3 +2527,19 @@ body[data-skin="modern"] .welcome-card .wl-ico { background: var(--m-glass); box
 body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ico, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-ico { box-shadow: inset 0 7px 10px -4px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.7); }
 body[data-skin="modern"] .welcome-card .wl-warrant { background: rgba(0,0,0,.035); box-shadow: none; border-radius: 16px; }
 body[data-skin="modern"][data-mode="light"] .welcome-card .wl-warrant, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-warrant { background: rgba(20,22,28,.045); }
+/* v2.65.2: Welcome terms in the rail's muted ink; empty-state watermark inside the quiet container; admin tables in the resurfacing container */
+body[data-skin="modern"] .welcome-card .wl-term { color: var(--m-ink-3); }
+body[data-skin="modern"] .welcome-card .wl-starter .wl-acts-wrap { border-left-color: var(--m-line); }
+body[data-skin="modern"] .empty-first-act .es-title.empty-line { font-size: 2.1rem; opacity: .3; }
+body[data-skin="modern"] .act-table-wrap { background: rgba(0,0,0,.035); border-radius: 16px; padding: .6rem 1rem .8rem; margin-top: .6rem; }
+body[data-skin="modern"][data-mode="light"] .act-table-wrap, html.m-light body[data-skin="modern"][data-mode="system"] .act-table-wrap { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .welcome-card .wl-ai-eb { color: var(--m-accent, #8a7bff); }
+body[data-skin="modern"] .welcome-card ol.steps.wl-how li > span { background: var(--m-ink); color: var(--m-bg, #111); }
+body[data-skin="modern"] .welcome-card .wl-ai-panel { background: rgba(0,0,0,.035); }
+body[data-skin="modern"] .welcome-card .wl-ai-panel::before { border-bottom-color: rgba(0,0,0,.035); }
+body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ai-panel, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-ai-panel { background: rgba(20,22,28,.045); }
+body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ai-panel::before, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-ai-panel::before { border-bottom-color: rgba(20,22,28,.045); }
+body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ais label[data-ai="chatgpt"],
+body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
+body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] {
+  background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), 0 0 0 4px var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
