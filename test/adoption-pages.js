@@ -30,7 +30,10 @@ if (process.argv[2] === 'compare') {
     .replace(/\s*<a class="mark-photo" href="[^"]*"><img [^>]*><\/a>/g, '')
     // ...and a mark with no photo leaves an empty line that moved with it.
     // Whitespace-only lines carry no meaning in HTML, so neither side keeps them.
-    .replace(/\n[ \t]*(?=\n)/g, '');
+    .replace(/\n[ \t]*(?=\n)/g, '')
+    // v2.63: joining is open; the signed-out rail's invite field became a button.
+    .replace(/<form class="signup" method="get" action="\/join">[\s\S]*?<\/form>/g, '[signup]')
+    .replace(/<p class="signup"><a class="btn3d block" href="\/join">Create an account<\/a><\/p>/g, '[signup]');
   for (const set of [full, without, after]) for (const k of Object.keys(set)) set[k].body = inc4(set[k].body);
   const pendingNote = `owner /o/${process.argv[6]}`, pendingEns = `owner /e/${process.argv[7]}`;
   const digits = (x) => x.replace(/\d+/g, '#');

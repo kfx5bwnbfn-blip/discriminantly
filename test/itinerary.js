@@ -813,7 +813,7 @@ console.log('\ndirections');
 // ---- the feed draws only what it shows --------------------------------------
 console.log('\nfeed cost');
 {
-  const f = SRC.slice(SRC.indexOf('const lazy = (at, key, draw)'), SRC.indexOf('const banner = resurfaceBanner('));
+  const f = SRC.slice(SRC.indexOf('const lazy = (at, key, draw, owner = 0)'), SRC.indexOf('const banner = resurfaceBanner('));
   ok('F1 feed cards are drawn on first read, not up front',
      /get html\(\) \{ return this\._h \?\? \(this\._h = draw\(\)\); \}/.test(f));
   ok('F2 no card is drawn while the entries are being built',
@@ -1552,8 +1552,9 @@ console.log('\nMCP compatibility-critical regions');
 // ---- Welcome in All (v2.56) ------------------------------------------------
 console.log('\nwelcome');
 {
-  ok('WL1 Welcome is a feed entry dated by the member\u2019s join time: never pinned, only on All, signed in, unfiltered',
-     /\.\.\.\(me && feed === 'all' && !s && !tag \? \[lazy\(me\.created_at, 'welcome', \(\) => welcomeCard\(me\)\)\] : \[\]\)/.test(SRC));
+  ok('WL1 Welcome is a feed entry on All only (signed in, unfiltered), placed under the member\u2019s own oldest record, never pinned',
+     /if \(me && feed === 'all' && !s && !tag\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => welcomeCard\(me\), me\.id\);/.test(SRC)
+     && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);\s*entries\.splice\(last \+ 1, 0, w\);/.test(SRC));
   const f = SRC.slice(SRC.indexOf('function welcomeCard('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeCard(')));
   ok('WL2 no dismiss or completion mechanics', !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '')));
   ok('WL3 connection state comes from the member\u2019s live connections, per AI',

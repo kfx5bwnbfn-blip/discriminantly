@@ -1485,6 +1485,12 @@ const MIGRATIONS = [
     db.exec("UPDATE itinerary_stops SET place_locality = (SELECT locality FROM marks WHERE uid = itinerary_stops.mark_uid), "
       + "place_country = (SELECT country FROM marks WHERE uid = itinerary_stops.mark_uid) WHERE mark_uid IN (SELECT uid FROM marks)");
   }],
+  // How each member arrived (v2.62): invite, chatgpt, claude, oauth. Existing
+  // members who used an invite are marked 'invite'; the rest stay unknown.
+  ['059-user-signup-source', () => {
+    if (!hasColumn('users', 'signup_source')) db.exec("ALTER TABLE users ADD COLUMN signup_source TEXT DEFAULT ''");
+    db.exec("UPDATE users SET signup_source = 'invite' WHERE signup_source = '' AND id IN (SELECT used_by FROM invites WHERE used_by IS NOT NULL)");
+  }],
 ];
 
 function backupTo(file) {
@@ -5380,6 +5386,49 @@ function prospectiveLeftovers(user) {
   }
   return out;
 }
+// ---- Sign-in return and sign-up from an AI's authorization (v2.62) ---------
+// Arriving from ChatGPT or Claude's authorization is the invite: someone who
+// is not yet a member creates an account on the way and returns straight to
+// the authorization. Only this server's own /oauth/authorize is ever a return
+// target, so neither page can be used to redirect elsewhere.
+const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authorize\?[^\r\n]*$/.test(v) ? v : ''; };
+const signupSourceFor = (next) => {
+  let cid = ''; try { cid = new URLSearchParams(next.slice(next.indexOf('?') + 1)).get('client_id') || ''; } catch { cid = ''; }
+  const l = cid.toLowerCase();
+  return /openai|chatgpt/.test(l) ? 'chatgpt' : /claude|anthropic/.test(l) ? 'claude' : 'oauth';
+};
+const SIGNUP_WINDOW = new Map();          // network -> recent sign-up times (in memory; resets on restart)
+function signupAllowed(req) {
+  const ip = String(req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '').split(',')[0].trim();
+  const now = Date.now(), recent = (SIGNUP_WINDOW.get(ip) || []).filter((t) => now - t < 3600e3);
+  if (recent.length >= 5) return false;
+  recent.push(now); SIGNUP_WINDOW.set(ip, recent); return true;
+}
+function uniqueHandle(base) {
+  let h = slug(String(base || '')).slice(0, 20);
+  if (h.length < 2) h = (h + 'member').slice(0, 20);
+  let x = h, n = 2;
+  while (q('SELECT 1 FROM users WHERE handle=?').get(x)) x = `${h.slice(0, 20)}${n++}`;
+  return x;
+}
+// Activation (v2.62): the member's first kept itinerary, within 7 days of
+// joining, by how they arrived. Private, server-side, admin only.
+function activationReport() {
+  const rows = q(`SELECT u.id, u.created_at, COALESCE(NULLIF(u.signup_source, ''), 'unknown') AS src,
+      (SELECT MIN(a.created_at) FROM adoptions a WHERE a.user_id = u.id AND a.subject_type = 'itinerary' AND a.state = 'adopted') AS first_kept,
+      julianday('now') - julianday(u.created_at) AS age_days FROM users u`).all();
+  const by = {};
+  for (const r of rows) {
+    const g = by[r.src] || (by[r.src] = { source: r.src, signups: 0, activated: 0, in_window: 0, hours: [] });
+    g.signups++;
+    const d = r.first_kept ? (Date.parse(r.first_kept.replace(' ', 'T') + 'Z') - Date.parse(r.created_at.replace(' ', 'T') + 'Z')) / 3600e3 : null;
+    if (d !== null && d <= 7 * 24) { g.activated++; g.hours.push(Math.max(0, d)); }
+    else if (d === null && r.age_days < 7) g.in_window++;
+  }
+  const med = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  return Object.values(by).sort((a, b) => b.signups - a.signups).map((g) => ({ source: g.source, signups: g.signups, activated: g.activated,
+    rate: g.signups ? g.activated / g.signups : 0, in_window: g.in_window, median_hours: med(g.hours) }));
+}
 const placeMatchPublic = (m) => ({ state: m.state, basis: m.basis || [], ...(m.confidence ? { confidence: m.confidence } : {}),
   ...(m.uid ? { candidate_uid: m.uid, candidate_id: m.id, candidate_name: m.name } : {}) });
 
@@ -7977,8 +8026,8 @@ function welcomeCard(me) {
   const step1 = `<div class="wl-panel wl-p1">
     <p class="sbox-title">Three kinds of things to keep.</p>
     <p class="sbox-sub">Everything you keep is one of these.</p>
-    <div class="wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wl-kind">${WL_ICON[k]}<span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
-    <div class="wl-warrant">${WL_ICON.warrant}<span class="wl-warrant-name">Warrant</span><span class="wl-warrant-for">things and places you stand behind</span></div>
+    <div class="wl-kinds">${kinds.map(([k, n, f, say]) => `<div class="wl-kind"><span class="wl-ico">${WL_ICON[k]}</span><span class="wl-kind-name">${n}</span><span class="wl-kind-for">${f}</span><span class="wl-say">${say}</span></div>`).join('')}</div>
+    <div class="wl-warrant"><span class="wl-ico wl-ico-sm">${WL_ICON.warrant}</span><span class="wl-warrant-name">Warrant</span><span class="wl-warrant-for">things and places you stand behind</span></div>
     <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
   </div>`;
   const aiState = (on, since) => on ? `<span class="wl-ai-state is-on">${since ? 'Connected since your first conversation' : 'Connected'}</span>` : '<span class="wl-ai-state">Connect</span>';
@@ -8014,7 +8063,7 @@ function welcomeCard(me) {
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
   </div>`;
   return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
-  <div class="wl-headline">${arcTitle('Welcome to discriminant\u2022ly', 'wl-arc-' + me.id)}</div>
+  <div class="wl-headline">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'wl-arc-' + me.id)}</div>
   <p class="caps wl-since">${esc(right)}</p>
   ${[1,2,3].map((n) => `<input type="radio" name="wl-step" id="wl-s${n}" class="wl-radio"${n === open ? ' checked' : ''}>`).join('')}
   <div class="vis-tabs wl-tabs">${[[1, 'Orientation', 'Orientation'], [2, 'Connect your AI', 'Connect'], [3, 'Get started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
@@ -8057,14 +8106,20 @@ const pages = {
     const itins = feed === 'all'
       ? q('SELECT * FROM adopted_itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
       : [];
-    const lazy = (at, key, draw) => ({ at, key, get html() { return this._h ?? (this._h = draw()); } });
-    const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me))),
-                     ...marks.map((x) => lazy(x.created_at, 'mark:' + x.id, () => markCard(x, me))),
-                     ...itins.filter((it) => canSee(it, me)).map((it) => lazy(it.created_at, 'itin:' + it.id, () => itineraryPreview(it, me))),
-      // Welcome: dated by the member's join time, so it starts at the top and
-      // is overtaken by everything that happens after (never pinned).
-      ...(me && feed === 'all' && !s && !tag ? [lazy(me.created_at, 'welcome', () => welcomeCard(me))] : [])]
+    const lazy = (at, key, draw, owner = 0) => ({ at, key, owner, get html() { return this._h ?? (this._h = draw()); } });
+    const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me), o.user_id)),
+                     ...marks.map((x) => lazy(x.created_at, 'mark:' + x.id, () => markCard(x, me), x.user_id)),
+                     ...itins.filter((it) => canSee(it, me)).map((it) => lazy(it.created_at, 'itin:' + it.id, () => itineraryPreview(it, me), it.user_id))]
       .sort((a, b) => (a.at < b.at ? 1 : -1));
+    // Welcome (v2.64): the member's own corpus pushes it down, not other
+    // members' activity. It sits directly under their oldest record in the
+    // feed (all of theirs are newer than it), and at the top when they have
+    // none; never pinned, never dismissed.
+    if (me && feed === 'all' && !s && !tag) {
+      const w = lazy(me.created_at, 'welcome', () => welcomeCard(me), me.id);
+      let last = -1; entries.forEach((e, i) => { if (e.owner === me.id) last = i; });
+      entries.splice(last + 1, 0, w);
+    }
     const banner = resurfaceBanner(me, feed, !!(s || tag));
     const shown = banner.skip;
     const page = pageOf(shown ? entries.filter((e) => e.key !== shown) : entries, url);
@@ -8099,7 +8154,7 @@ const pages = {
     } else {
       rail = `<p class="rail-title">Start remembering:</p>
       <ol class="steps"><li><span>1</span>Save what catches your eye</li><li><span>2</span>Remember where you've been</li><li><span>3</span>Connect to your AI</li></ol>
-      <form class="signup" method="get" action="/join"><label class="lbl">Invite code</label><input name="code" placeholder=""><button class="btn3d block">Sign me up</button></form>
+      <p class="signup"><a class="btn3d block" href="/join">Create an account</a></p>
 `;
     }
     const body = `
@@ -8888,40 +8943,41 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     send(res, layout({ title: u.handle, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
   },
 
-  login(req, res, me, err = '') {
+  login(req, res, me, err = '', next = '') {
     const body = `<h3 class="strip dark-strip">Sign in</h3>
 <div class="settings">
   ${err ? `<p class="err">${esc(err)}</p>` : ''}
-  <form method="post" action="/login" class="wtable settings-table">
+  <form method="post" action="/login" class="wtable settings-table auth-card">
     <div class="wcell wcell-wide">
       <label class="slabel">Email<input name="email" type="email" required autofocus></label>
       <label class="slabel">Password<input name="password" type="password" required></label>
+      ${next ? `<input type="hidden" name="next" value="${esc(next)}">` : ''}
       <button class="btn3d block">Sign in</button>
     </div>
-    <div class="wcell wcell-wide"><p class="fine center">Have an invite code? <a href="/join">Join discriminant.ly</a></p></div>
+    <div class="wcell wcell-wide"><p class="fine center">New to discriminant.ly? <a href="/join${next ? `?next=${encodeURIComponent(next)}` : ''}">Create an account</a></p></div>
   </form>
 </div>`;
     send(res, layout({ title: 'Sign in', body, me, req, cls: 'is-dark-page' }));
   },
 
-  join(req, res, me, code = '', err = '') {
-    const body = `<h3 class="strip dark-strip">Join discriminant.ly</h3>
+  join(req, res, me, code = '', err = '', next = '', vals = {}) {
+    const body = `<h3 class="strip dark-strip">Create your account</h3>
 <div class="settings">
-  ${err ? `<p class="err">${esc(err)}</p>` : ''}
-  <form method="post" action="/join" class="wtable settings-table">
+  ${err ? `<p class="err">${err}</p>` : ''}
+  <form method="post" action="/join" class="wtable settings-table auth-card">
     <div class="wcell wcell-wide">
-      <p class="fine center join-intro">Membership is by invitation. Enter the code a member sent you.</p>
-      <label class="slabel">Invite code<input name="code" value="${esc(code)}" required></label>
-      <label class="slabel">Your name<input name="name" required></label>
-      <label class="slabel">Handle<input name="handle" required pattern="[a-z0-9]{2,24}" title="lowercase letters and numbers"></label>
-      <label class="slabel">Email<input name="email" type="email" required></label>
-      <label class="slabel">Password<input name="password" type="password" required minlength="8"></label>
-      <button class="btn3d block">Create account</button>
+      <div class="auth-arc">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'join-arc')}</div>
+      <p class="fine center join-intro">${next ? 'Create your account, then you\u2019ll go straight back to your conversation.' : 'A place to keep the things you notice, the places you go, and the plans you make.'}</p>
+      <label class="slabel">Your name<input name="name" value="${esc(vals.name || '')}" required autofocus autocomplete="name"></label>
+      <label class="slabel">Email<input name="email" type="email" value="${esc(vals.email || '')}" required autocomplete="email"></label>
+      <label class="slabel">Password<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+      ${next ? `<input type="hidden" name="next" value="${esc(next)}">` : ''}${code ? `<input type="hidden" name="code" value="${esc(code)}">` : ''}
+      <button class="btn3d block">${next ? 'Create account and continue' : 'Create account'}</button>
     </div>
-    <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login">Sign in</a></p></div>
+    <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></div>
   </form>
 </div>`;
-    send(res, layout({ title: 'Join', body, me, req, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Create your account', body, me, req, cls: 'is-dark-page' }));
   },
 
   invites(req, res, me) {
@@ -9037,19 +9093,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               </select>
               <p class="lookup-note">Leave this on Automatic unless you are troubleshooting how images reach discriminant.ly.</p>
             </form>
-          </div>
-        </div>
-        <div class="wtable settings-table settings-invites">
-          <div class="wcell wcell-wide">
-            <p class="sbox-title">Bring someone in</p>
-            <p class="sbox-sub">Each member may hold a few open invites at a time.</p>
-            <form method="post" action="/invites"><button class="btn3d block" ${unusedInvites.length >= 5 ? 'disabled' : ''}>Create an invite</button></form>
-            <p class="fine center">${unusedInvites.length} of 5 open</p>
-            ${mine.length ? mine.map((i) => `<div class="invite-row">
-              ${i.used_by
-                ? `<p class="fine center">Used by @${esc(q('SELECT handle FROM users WHERE id=?').get(i.used_by).handle)}</p>`
-                : `<p class="conn-url"><code>${esc(baseUrl(req))}/join?code=${i.code}</code></p>`}
-            </div>`).join('') : ''}
           </div>
         </div>
       </div>
@@ -12070,6 +12113,20 @@ async function handle(req, res) {
     }
     return redirect(res, `/u/${me.handle}?tab=${c && c.kind === 'mark' ? 'marks' : 'notes'}`);
   }
+  if (p === '/admin/activation' && m === 'GET') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const rows = activationReport();
+    const pct = (x) => `${Math.round(x * 100)}%`, hrs = (h) => h === null ? '\u2014' : h < 1 ? '< 1 hour' : h < 48 ? `${Math.round(h)} hours` : `${(h / 24).toFixed(1)} days`;
+    const body = `<h3 class="strip dark-strip">Activation</h3>
+<div class="settings"><div class="wtable settings-table"><div class="wcell wcell-wide">
+  <p class="sbox-title">First kept itinerary, within 7 days of joining</p>
+  <p class="sbox-sub">By how each member arrived. Members who joined less than 7 days ago and have not kept one yet are still in their window.</p>
+  <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Arrived by</th><th>Joined</th><th>Activated</th><th>Rate</th><th>Still in window</th><th>Median time</th></tr></thead><tbody>
+  ${rows.map((r) => `<tr><td>${esc(r.source)}</td><td>${r.signups}</td><td>${r.activated}</td><td>${pct(r.rate)}</td><td>${r.in_window}</td><td>${hrs(r.median_hours)}</td></tr>`).join('')}
+  </tbody></table></div>
+</div></div></div>`;
+    return send(res, layout({ title: 'Activation', body, me, req, cls: 'is-dark-page' }));
+  }
   if (p === '/admin/backup' && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const tmp = path.join(path.dirname(DB_PATH), 'backups', `download-${Date.now()}.db`);
@@ -12329,29 +12386,38 @@ async function handle(req, res) {
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
   if (p === '/login') {
-    if (m === 'GET') return pages.login(req, res, me);
+    if (m === 'GET') { const nx = oauthNext(url.searchParams.get('next')); if (me && nx) return redirect(res, nx); return pages.login(req, res, me, '', nx); }
     const b = await readBody(req); const u = q('SELECT * FROM users WHERE email=?').get((b.email || '').toLowerCase().trim());
-    if (!u || !checkPass(b.password || '', u.pass)) return pages.login(req, res, me, 'That email and password do not match.');
+    if (!u || !checkPass(b.password || '', u.pass)) return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next));
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
     // carry the member's look into the cookies too, so the signed-out pages
     // they meet next (logout, a second tab) do not snap to a different theme
     const lookCookies = [`skin=${skinOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${modeOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`];
-    return redirect(res, '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
+    // back to the authorization that sent them here, if any; otherwise home
+    return redirect(res, oauthNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
   }
   if (p === '/logout' && m === 'POST') { const t = cookies(req).sid; if (t) q('DELETE FROM sessions WHERE token=?').run(t); return redirect(res, '/', { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' }); }
 
   if (p === '/join') {
-    if (m === 'GET') return pages.join(req, res, me, url.searchParams.get('code') || '');
-    const b = await readBody(req); const code = (b.code || '').trim();
-    const inv = q('SELECT * FROM invites WHERE code=? AND used_by IS NULL').get(code);
-    if (!inv) return pages.join(req, res, me, code, 'That invite code is not valid or has been used.');
-    const handle = slug(b.handle || ''); const email = (b.email || '').toLowerCase().trim();
-    if (q('SELECT 1 FROM users WHERE handle=? OR email=?').get(handle, email)) return pages.join(req, res, me, code, 'That handle or email is already taken.');
-    if ((b.password || '').length < 8) return pages.join(req, res, me, code, 'Password needs at least 8 characters.');
-    const r = q("INSERT INTO users(handle,name,email,pass,ui_skin) VALUES(?,?,?,?,'modern')").run(handle, (b.name || '').trim() || handle, email, hashPass(b.password));
-    q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
+    // Open to everyone (v2.63). An invite link still works and credits the invite.
+    if (m === 'GET') { const nx = oauthNext(url.searchParams.get('next')); if (me) return redirect(res, nx || '/'); return pages.join(req, res, me, url.searchParams.get('code') || '', '', nx); }
+    const b = await readBody(req); const nx = oauthNext(b.next), code = String(b.code || '').trim();
+    const inv = code ? q('SELECT * FROM invites WHERE code=? AND used_by IS NULL').get(code) : null;
+    const email = (b.email || '').toLowerCase().trim(), name = String(b.name || '').trim().slice(0, 80);
+    const again = (err) => pages.join(req, res, me, inv ? code : '', err, nx, { name, email });
+    if (!name) return again('Please add your name.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Please enter a valid email address.');
+    if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again(`An account with that email already exists. <a href="/login${nx ? `?next=${encodeURIComponent(nx)}` : ''}">Sign in instead</a>.`);
+    if ((b.password || '').length < 8) return again('Password needs at least 8 characters.');
+    if (!inv && !signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
+    const wanted = String(b.handle || '').trim() ? slug(b.handle) : ''; // slug('') is 'member', so only when one was given
+    const handle = wanted.length >= 2 && !q('SELECT 1 FROM users WHERE handle=?').get(wanted) ? wanted : uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
+    const source = inv ? 'invite' : nx ? signupSourceFor(nx) : 'web';
+    const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source) VALUES(?,?,?,?,'modern',?)").run(handle, name, email, hashPass(b.password), source);
+    if (inv) q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
-    return redirect(res, '/new', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
+    // back to the AI's authorization if they came from one; otherwise All, where Welcome is
+    return redirect(res, nx || '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
   }
 
   if (p === '/marks/new') {
@@ -12934,7 +13000,7 @@ async function handle(req, res) {
   if (p === '/invites') {
     if (!me) return need();
     if (m === 'POST') { if (q('SELECT COUNT(*) c FROM invites WHERE from_user=? AND used_by IS NULL').get(me.id).c < 5) q('INSERT INTO invites(code,from_user) VALUES(?,?)').run(token(6), me.id); return redirect(res, '/invites'); }
-    return pages.invites(req, res, me);
+    return redirect(res, '/settings'); // joining is open; no invites page
   }
   if (p === '/settings') {
     if (!me) return need();

@@ -2520,3 +2520,10 @@ body[data-skin="modern"] .ens-parts .ens-comps, body[data-skin="modern"] .ens-pa
 /* the Show more token on a button, as on a link */
 body[data-skin="modern"] .rec-keep-row button.more-link { cursor: pointer; border: 0; font-family: inherit; }
 body[data-skin="modern"] .rec-plan .rec-dot { color: var(--m-ink-3); opacity: 1; }
+/* v2.64: Welcome tiles take the quiet container (the itinerary shell / resurfacing tint) */
+body[data-skin="modern"] .welcome-card .wl-kind { background: rgba(0,0,0,.035); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; border-radius: 16px; }
+body[data-skin="modern"][data-mode="light"] .welcome-card .wl-kind, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-kind { background: rgba(20,22,28,.045); }
+body[data-skin="modern"] .welcome-card .wl-ico { background: var(--m-glass); box-shadow: inset 0 7px 10px -4px rgba(0,0,0,.55), inset 0 -1px 0 var(--m-line); }
+body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ico, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-ico { box-shadow: inset 0 7px 10px -4px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.7); }
+body[data-skin="modern"] .welcome-card .wl-warrant { background: rgba(0,0,0,.035); box-shadow: none; border-radius: 16px; }
+body[data-skin="modern"][data-mode="light"] .welcome-card .wl-warrant, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-warrant { background: rgba(20,22,28,.045); }
