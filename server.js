@@ -9243,7 +9243,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     // v2.66: the admin's own section, derived from Settings
     const body = `<h3 class="strip dark-strip">Admin</h3>
 <div class="settings">
-  <div class="settings-grid">
+  <div class="settings-grid admin-grid">
     <div class="settings-col">
       <div class="wtable settings-table" id="dashboards">
         <div class="wcell wcell-wide">

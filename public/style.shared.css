@@ -1368,3 +1368,7 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 #recent .act-table td.acct-who { white-space: normal; }
 #recent .act-table .acct-name { display: block; font-size: .8rem; opacity: .65; text-transform: none; letter-spacing: normal; margin-top: .1rem; }
 #recent .act-table th, #recent .act-table td { padding-left: .5rem; padding-right: .5rem; }
+/* v2.66.7 Admin: columns may shrink to the screen, so wide tables scroll inside their container */
+.admin-grid > .settings-col, .admin-grid .settings-table, .admin-grid .wcell { min-width: 0; max-width: 100%; }
+.admin-grid #recent .act-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.admin-grid #recent .act-table { min-width: 24rem; }
