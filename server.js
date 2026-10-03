@@ -1990,12 +1990,19 @@ function resurfaceCard(block, me) {
 // organic entries it would be an editorial interruption masquerading as one
 // of the member's own posts — a small dishonesty. Standing above the stream
 // in its own frame, it can be read as furniture and skipped past.
-// v2.66.5: a kept plan happening today (Eastern time) takes the resurfacing
+// v2.66.5: a kept plan happening today (the member's local day) takes the resurfacing
 // slot on All. Today: a day of the plan dated today, a stop dated today, or
 // the plan's own date with today inside its run of days.
-const todayEt = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+// v2.66.6: the member's own time zone, as their browser reports it (the tz
+// cookie, accepted only if it is a real zone); Eastern until the first report.
+function memberTz(req) {
+  let z = ''; try { z = decodeURIComponent(String((req && cookies(req).tz) || '')); } catch { z = ''; }
+  if (!/^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(z)) return 'America/Toronto';
+  try { new Intl.DateTimeFormat('en-CA', { timeZone: z }); return z; } catch { return 'America/Toronto'; }
+}
+const todayIn = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 function planToday(me) {
-  const [Y, M, D] = todayEt().split('-').map(Number);
+  const [Y, M, D] = todayIn(memberTz(CURRENT_REQ)).split('-').map(Number);
   const isToday = (r) => !!r && r.t_year === Y && r.t_month === M && r.t_day === D;
   for (const it of q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC').all(me.id)) {
     const days = q('SELECT id, label, position, t_year, t_month, t_day FROM itinerary_groups WHERE itinerary_id=? ORDER BY position, id').all(it.id);
@@ -2812,7 +2819,7 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
 <meta name="theme-color" content="${skinOf(me, req) !== 'modern' ? '#262727' : modeOf(me, req) === 'light' ? '#e4e7f0' : modeOf(me, req) === 'dark' ? '#15161f' : '#15161f'}">${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `
 <meta name="theme-color" content="#e4e7f0" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#15161f" media="(prefers-color-scheme: dark)">` : ''}<link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">${skinOf(me, req) === 'modern' ? '<div class="m-backdrop" aria-hidden="true"></div>' : ''}
-${me ? `<nav class="iconrail" aria-label="Main">
+${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&&document.cookie.indexOf('tz='+encodeURIComponent(z))<0)document.cookie='tz='+encodeURIComponent(z)+'; Path=/; Max-Age=31536000; SameSite=Lax';}catch(e){}</script>` : ''}${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
   <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
@@ -12424,7 +12431,7 @@ async function handle(req, res) {
   <p class="sbox-title">Recent accounts</p>
   <p class="sbox-sub">For checking a sign-up end to end: how they arrived, the AI client (the host of its metadata document), connections, first acts. Mark founder-assisted or test journeys here; this never grants anything.</p>
   <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Joined</th><th>Arrived by</th><th>AI client</th><th>Campaign / referrer</th><th>Connections</th><th>First acts</th><th>Journey</th></tr></thead><tbody>
-  ${accts.slice(0, 30).map((a) => `<tr><td>@${esc(a.handle)}</td><td>${esc(a.created_at)}</td><td>${esc(a.src)}</td><td>${esc(a.client_host || '\u2014')}</td><td>${esc([a.utm_source, a.utm_medium, a.utm_campaign, a.ref, a.ref_host].filter(Boolean).join(' \u00b7 ') || '\u2014')}</td><td>${a.conns.map((c) => `${esc(c.client_label)} (${esc(c.created_at)})`).join('<br>') || '\u2014'}</td><td>${firstAct(a)}</td><td>${flagForm(a)}</td></tr>`).join('')}
+  ${accts.slice(0, 30).map((a) => `<tr><td>@${esc(a.handle)}</td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td><td>${esc(a.client_host || '\u2014')}</td><td>${esc([a.utm_source, a.utm_medium, a.utm_campaign, a.ref, a.ref_host].filter(Boolean).join(' \u00b7 ') || '\u2014')}</td><td>${a.conns.map((c) => `${esc(c.client_label)} (${esc(whenUtc(c.created_at))})`).join('<br>') || '\u2014'}</td><td>${firstAct(a)}</td><td>${flagForm(a)}</td></tr>`).join('')}
   </tbody></table></div>
 </div></div></div>`;
     return send(res, layout({ title: 'Activation', body, me, req, cls: 'is-dark-page' }));
