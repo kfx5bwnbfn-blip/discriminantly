@@ -9194,14 +9194,21 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           <a class="btn3d block" href="/admin/activation">Open Activation</a>
         </div>
       </div>
-      <form method="post" action="/settings/avatar" class="wtable settings-table" id="profile-image">
+      <div class="wtable settings-table" id="ai-images">
         <div class="wcell wcell-wide">
-          <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
-          <p class="lbl set-cap">Change profile image</p>
-          <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
-          <button class="btn3d block">Save image</button>
+          <p class="sbox-title">How AI sends images</p>
+          <p class="sbox-sub">For troubleshooting uploads from your AI.</p>
+          <form method="post" action="/settings/ingest" class="ingest-mode">
+              
+              <select class="nf-field" name="mode" onchange="this.form.submit()">
+                <option value="auto"${(me.ingest_mode || 'auto') === 'auto' ? ' selected' : ''}>Automatic (recommended)</option>
+                <option value="always_chunk"${me.ingest_mode === 'always_chunk' ? ' selected' : ''}>Always in pieces</option>
+                <option value="never_chunk"${me.ingest_mode === 'never_chunk' ? ' selected' : ''}>Always in one go (testing)</option>
+              </select>
+              <p class="fine center">Leave this on Automatic unless you are troubleshooting how images reach discriminant.ly.</p>
+            </form>
         </div>
-      </form>
+      </div>
     </div>
     <div class="settings-col settings-col-outward">
       <div class="wtable settings-table settings-admin admin-tools" id="admin">
@@ -9237,11 +9244,11 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   <div class="settings-grid">
     <div class="settings-col">
       <form method="post" action="/settings" class="wtable settings-table">
-        ${isAdminUi(me) ? '' : `<div class="wcell wcell-wide">
+        <div class="wcell wcell-wide">
           <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
           <p class="lbl set-cap">Change profile image</p>
           <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
-        </div>`}
+        </div>
         <div class="wcell wcell-wide">
           <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
           <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>
@@ -9305,15 +9312,6 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
                 <button class="btn3d block">Create a connection</button>
               </form>
             </div>
-            <form method="post" action="/settings/ingest" class="ingest-mode">
-              <span class="nf-lbl">How AI sends images</span>
-              <select class="nf-field" name="mode" onchange="this.form.submit()">
-                <option value="auto"${(me.ingest_mode || 'auto') === 'auto' ? ' selected' : ''}>Automatic (recommended)</option>
-                <option value="always_chunk"${me.ingest_mode === 'always_chunk' ? ' selected' : ''}>Always in pieces</option>
-                <option value="never_chunk"${me.ingest_mode === 'never_chunk' ? ' selected' : ''}>Always in one go (testing)</option>
-              </select>
-              <p class="lookup-note">Leave this on Automatic unless you are troubleshooting how images reach discriminant.ly.</p>
-            </form>
           </div>
         </div>
       </div>
@@ -9330,7 +9328,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           ${isAdminUi(me) ? `<div class="wtable settings-table settings-admin" id="admin">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Admin</p>
-            <p class="sbox-sub">Your profile image, screenshot handle, private-content view and dashboards are on the Admin page.</p>
+            <p class="sbox-sub">The screenshot handle, how AI sends images, the private-content view and the dashboards are on the Admin page.</p>
             <a class="btn3d block" href="/admin">Open Admin</a>
           </div>
         </div>` : ''}
@@ -12407,11 +12405,12 @@ async function handle(req, res) {
     return redirect(res, '/settings');
   }
   if (p === '/settings/ingest' && m === 'POST') {
-    if (!me) return need();
+    // v2.66.3: set from the Admin page only
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const b = await readBody(req);
     const mode = INGEST_MODES.has(b.mode) ? b.mode : 'auto';
     q('UPDATE users SET ingest_mode=? WHERE id=?').run(mode, me.id);
-    return redirect(res, '/settings');
+    return redirect(res, '/admin#ai-images');
   }
   // ---- OAuth discovery ------------------------------------------------------
   // Advertises only what is actually implemented. S256 is mandatory: the MCP
@@ -13272,13 +13271,7 @@ async function handle(req, res) {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     return pages.admin(req, res, me, url);
   }
-  if (p === '/settings/avatar' && m === 'POST') {
-    // v2.66: the profile image on its own (the Admin page's module)
-    if (!me) return need();
-    const b = await readBody(req);
-    q('UPDATE users SET avatar=? WHERE id=?').run(String(b.avatar || '').trim(), me.id);
-    return redirect(res, isAdminUi(me) ? '/admin#profile-image' : '/settings');
-  }
+
   if (p === '/settings') {
     if (!me) return need();
     if (m === 'GET') return pages.settings(req, res, me);
