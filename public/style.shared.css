@@ -1364,3 +1364,7 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 @media (max-width: 52rem) { body:not([data-skin="modern"]) .iconrail .iconrail-admin { display: none; } } /* classic: no room on its bar; modern scrolls */
 /* the Admin key: exactly the gear's size and proportions */
 .iconrail a.iconrail-admin svg { width: 17px !important; height: 17px !important; max-width: none; flex: none; }
+/* Admin recent accounts: the name under the handle, quiet, so the three columns fit */
+#recent .act-table td.acct-who { white-space: normal; }
+#recent .act-table .acct-name { display: block; font-size: .8rem; opacity: .65; text-transform: none; letter-spacing: normal; margin-top: .1rem; }
+#recent .act-table th, #recent .act-table td { padding-left: .5rem; padding-right: .5rem; }

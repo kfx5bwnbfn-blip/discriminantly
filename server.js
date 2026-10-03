@@ -1990,11 +1990,39 @@ function resurfaceCard(block, me) {
 // organic entries it would be an editorial interruption masquerading as one
 // of the member's own posts — a small dishonesty. Standing above the stream
 // in its own frame, it can be read as furniture and skipped past.
+// v2.66.5: a kept plan happening today (Eastern time) takes the resurfacing
+// slot on All. Today: a day of the plan dated today, a stop dated today, or
+// the plan's own date with today inside its run of days.
+const todayEt = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+function planToday(me) {
+  const [Y, M, D] = todayEt().split('-').map(Number);
+  const isToday = (r) => !!r && r.t_year === Y && r.t_month === M && r.t_day === D;
+  for (const it of q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC').all(me.id)) {
+    const days = q('SELECT id, label, position, t_year, t_month, t_day FROM itinerary_groups WHERE itinerary_id=? ORDER BY position, id').all(it.id);
+    const n = days.findIndex(isToday);
+    if (n >= 0) return { it, n, total: days.length, day: days[n] };
+    if (it.t_year && it.t_month && it.t_day) {
+      const k = Math.round((Date.UTC(Y, M - 1, D) - Date.UTC(it.t_year, it.t_month - 1, it.t_day)) / 864e5);
+      if (k >= 0 && k < Math.max(1, days.length)) return { it, n: days.length ? k : -1, total: days.length, day: days[k] || null };
+    }
+    if (q('SELECT 1 FROM itinerary_stops WHERE itinerary_id=? AND t_year=? AND t_month=? AND t_day=? LIMIT 1').get(it.id, Y, M, D)) return { it, n: -1, total: days.length, day: null };
+  }
+  return null;
+}
+function todayPlanCard(t, me) {
+  const which = t.n >= 0 ? `Day ${t.n + 1}${t.total > 1 ? ` of ${t.total}` : ''}${t.day && t.day.label ? ' \u00b7 ' + esc(t.day.label) : ''}` : 'Today';
+  return `<aside class="resurface resurface-today" data-kind="today" aria-label="Your plan for today">
+    <p class="resurface-eyebrow">Today, in your plan<span class="fact">${which}</span></p>
+    <div class="resurface-body">${itineraryPreview(t.it, me)}</div>
+  </aside>`;
+}
 function resurfaceBanner(me, feed, searching) {
   if (!me || feed !== 'all') return { html: '', skip: null };   // All feed only
   // A search is a question with an answer; an editorial resurfacing above it
   // would be an interruption pretending to be a result.
   if (searching) return { html: '', skip: null };
+  const today = planToday(me);
+  if (today) return { html: todayPlanCard(today, me), skip: 'itin:' + today.it.id };
   const block = resurfaceCandidate(me);
   if (!block) return { html: '', skip: null };                  // nothing eligible: show nothing
   const rec = block.o ? ['note', block.o.id] : ['mark', block.m.id];
@@ -5466,6 +5494,30 @@ function uniqueHandle(base) {
 }
 // Activation (v2.62): the member's first kept itinerary, within 7 days of
 // joining, by how they arrived. Private, server-side, admin only.
+// v2.66.4: the Admin page's recent accounts and sign-ins. Sign-ins come from
+// signed_in events (from v2.66.4) and, for earlier ones, from sessions that
+// still exist (signing out deletes a session; the session made at sign-up is
+// not a sign-in).
+const whenUtc = (t) => {
+  // v2.66.5: shown in Eastern time (Toronto: EDT or EST as the date requires)
+  const d = new Date(String(t || '').replace(' ', 'T') + 'Z'); if (isNaN(d)) return '';
+  const f = (o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', ...o }).format(d);
+  const tz = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName');
+  return `${f({ day: 'numeric' })} ${new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Toronto', month: 'short' }).format(d)} ${f({ year: 'numeric' })} \u00b7 ${new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', hour: 'numeric', minute: '2-digit' }).format(d)} ${tz ? tz.value : 'ET'}`;
+};
+function recentAccounts(n = 10) {
+  return q("SELECT handle, name, created_at, COALESCE(NULLIF(signup_source, ''), 'unknown') AS src FROM users ORDER BY id DESC LIMIT ?").all(n);
+}
+function recentSignins(n = 5) {
+  const rows = q(`SELECT * FROM (
+      SELECT e.created_at AS at, u.handle, e.surface AS via FROM product_events e JOIN users u ON u.id = e.user_id WHERE e.event = 'signed_in'
+      UNION ALL
+      SELECT s.created_at AS at, u.handle, 'earlier' AS via FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.created_at > datetime(u.created_at, '+2 minutes')
+    ) ORDER BY at DESC LIMIT 60`).all();
+  const out = [], seen = new Set();
+  for (const r of rows) { const k = r.handle + '|' + String(r.at).slice(0, 16); if (seen.has(k)) continue; seen.add(k); out.push(r); if (out.length === n) break; }
+  return out;
+}
 // v2.65: per-account first acts, from the domain tables (not events).
 function activationAccounts() {
   const users = q(`SELECT u.id, u.handle, u.created_at, COALESCE(NULLIF(u.signup_source, ''), 'unknown') AS src, COALESCE(u.research_flag, '') AS flag,
@@ -5504,7 +5556,7 @@ function activationReport() {
 // Product events: private operational evidence of the first-run journey,
 // never taste evidence. Bounded, sanitised values only: no prompts, corpus
 // text, tokens or connector URLs. Deleted with the account (FK cascade).
-const EVENT_TYPES = new Set(['signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
+const EVENT_TYPES = new Set(['signed_in', 'signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
   'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action']);
 const CLIENT_EVENTS = new Set(['welcome_tab_viewed', 'starter_selected', 'starter_copied', 'starter_launched', 'empty_state_action']);
 const clip = (v, n = 64) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9._:-]/g, '').slice(0, n);
@@ -9194,6 +9246,22 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           <a class="btn3d block" href="/admin/activation">Open Activation</a>
         </div>
       </div>
+      <div class="wtable settings-table" id="recent">
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Recent accounts</p>
+          <p class="sbox-sub">The ten newest, with when they joined and how they arrived.</p>
+          <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Joined</th><th>Arrived by</th></tr></thead><tbody>
+          ${recentAccounts(10).map((a) => `<tr><td class="acct-who">@${esc(a.handle)}${a.name && a.name !== a.handle ? `<span class="acct-name">${esc(a.name)}</span>` : ''}</td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
+          </tbody></table></div>
+        </div>
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Recent sign-ins</p>
+          <p class="sbox-sub">The five latest. Before this version, sign-outs erased the record, so earlier history is partial.</p>
+          <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Signed in</th><th>From</th></tr></thead><tbody>
+          ${recentSignins(5).map((r) => `<tr><td>@${esc(r.handle)}</td><td>${esc(whenUtc(r.at))}</td><td>${r.via === 'oauth' ? 'an AI\u2019s sign-in' : r.via === 'web' ? 'the website' : '\u2014'}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
+          </tbody></table></div>
+        </div>
+      </div>
       <div class="wtable settings-table" id="ai-images">
         <div class="wcell wcell-wide">
           <p class="sbox-title">How AI sends images</p>
@@ -12633,6 +12701,7 @@ async function handle(req, res) {
     const u = q('SELECT * FROM users WHERE email=?').get(em);
     if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next)); }
     loginSucceeded(req, em);
+    recordEvent(u.id, 'signed_in', { surface: oauthNext(b.next) ? 'oauth' : 'web' });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
     // carry the member's look into the cookies too, so the signed-out pages
     // they meet next (logout, a second tab) do not snap to a different theme
