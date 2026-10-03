@@ -1359,3 +1359,8 @@ body[data-skin] .welcome-card input.wl-ai-toggle { display: none !important; }
 .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] { background: rgba(0,0,0,.09); box-shadow: 0 0 0 4px rgba(127,127,127,.18); }
 /* Orientation: the outcome headings at the step headline's size */
 body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-card .wl-warrant .wl-warrant-name { font-size: 21.25px; font-size: 1.25rem; line-height: 1.3; }
+
+/* ---- v2.66 Admin: the rail key is a desktop affordance; phones reach Admin from Settings ---- */
+@media (max-width: 52rem) { body:not([data-skin="modern"]) .iconrail .iconrail-admin { display: none; } } /* classic: no room on its bar; modern scrolls */
+/* the Admin key: exactly the gear's size and proportions */
+.iconrail a.iconrail-admin svg { width: 17px !important; height: 17px !important; max-width: none; flex: none; }

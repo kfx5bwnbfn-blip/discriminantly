@@ -2543,3 +2543,24 @@ body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:check
 body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
 body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] {
   background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), 0 0 0 4px var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
+/* v2.66.1 phones: the bottom bar scrolls sideways when its icons do not fit (no visible scrollbar);
+   while they fit, the auto margins keep the even, centred spacing */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .iconrail { justify-content: flex-start; gap: 14px; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; scroll-padding-inline: 12px; }
+  body[data-skin="modern"] .iconrail::-webkit-scrollbar { display: none; }
+  body[data-skin="modern"] .iconrail > :first-child { margin-left: auto; }
+  body[data-skin="modern"] .iconrail > :last-child { margin-right: auto; }
+}
+@media (max-width: 52rem) {
+  body[data-skin="modern"] nav.iconrail > a:first-child, body[data-skin="modern"] nav.iconrail > .iconrail-btn:first-child { margin-left: auto; }
+  body[data-skin="modern"] nav.iconrail > a:last-child, body[data-skin="modern"] nav.iconrail > .iconrail-btn:last-child { margin-right: auto; }
+}
+/* v2.66.2 phones: the original spacing (each icon a quarter of the bar), with anything past four scrolling */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .iconrail { gap: 0; justify-content: flex-start; }
+  body[data-skin="modern"] nav.iconrail > a, body[data-skin="modern"] nav.iconrail > .iconrail-btn,
+  body[data-skin="modern"] nav.iconrail > a:first-child, body[data-skin="modern"] nav.iconrail > a:last-child,
+  body[data-skin="modern"] nav.iconrail > .iconrail-btn:first-child, body[data-skin="modern"] nav.iconrail > .iconrail-btn:last-child {
+    margin: 0 max(4px, calc((100vw - 36px) / 8 - 24px)); }
+}

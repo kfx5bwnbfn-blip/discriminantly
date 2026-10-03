@@ -1598,6 +1598,8 @@ const objCollections = (noteId) => q(`SELECT c.id, c.name FROM note_collections 
 // place that sets adminPrivateView, so AI connections (which load their user
 // separately) never carry it.
 const adminOn = (me) => !!(me && me.is_admin && me.adminPrivateView === true);
+// v2.66: whether to show admin tools (the Admin page and its rail key). Never a visibility or ownership check.
+const isAdminUi = (me) => !!(me && me.is_admin);
 const canSee = (o, me) => !o.private || (me && (me.id === o.user_id || adminOn(me)));
 // An image is public only while some public record actually shows it. Nothing
 // else makes bytes public: an orphan upload, or one used solely by private
@@ -2787,6 +2789,7 @@ ${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
   <a href="/settings" title="Account settings" class="${nav === 'settings' ? 'on' : ''}">${ICONS.gear}</a>
   <a class="iconrail-btn iconrail-compose" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.lens}</a>
+  ${isAdminUi(me) ? `<a href="/admin" title="Admin" class="iconrail-admin ${nav === 'admin' ? 'on' : ''}">${ICONS.key}</a>` : ''}
 </nav>
 <div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant\u2022ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
 <script>
@@ -9177,6 +9180,54 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     send(res, layout({ title: 'Invites', body, me, cls: 'is-dark-page' }));
   },
 
+  admin(req, res, me, url) {
+    // v2.66: the admin's own section, derived from Settings
+    const body = `<h3 class="strip dark-strip">Admin</h3>
+<div class="settings">
+  <div class="settings-grid">
+    <div class="settings-col">
+      <div class="wtable settings-table" id="dashboards">
+        <div class="wcell wcell-wide">
+          <p class="sbox-title">Dashboards</p>
+          <p class="sbox-sub">Private to you.</p>
+          <p class="fine center">Activation: sign-ups by arrival route, first acts, first-run events and recent accounts.</p>
+          <a class="btn3d block" href="/admin/activation">Open Activation</a>
+        </div>
+      </div>
+      <form method="post" action="/settings/avatar" class="wtable settings-table" id="profile-image">
+        <div class="wcell wcell-wide">
+          <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
+          <p class="lbl set-cap">Change profile image</p>
+          <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
+          <button class="btn3d block">Save image</button>
+        </div>
+      </form>
+    </div>
+    <div class="settings-col settings-col-outward">
+      <div class="wtable settings-table settings-admin admin-tools" id="admin">
+        <div class="wcell wcell-wide">
+              <p class="sbox-title">Admin</p>
+              <p class="sbox-sub">Only you see this section.</p>
+              <form method="post" action="/settings/admin-view" class="look-form">
+                <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
+                  <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
+              </form>
+              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
+            </div>
+            <div class="wcell wcell-wide">
+              <form method="post" action="/settings/admin-alias">
+                <label class="slabel">Screenshot handle:<input name="alias" value="${esc(me.display_alias || '')}" maxlength="24" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="leave empty to show your own"></label>
+                ${url.searchParams.get('alias_error') ? `<p class="fine center">${esc(url.searchParams.get('alias_error'))}</p>` : ''}
+                <p class="fine center">Shown instead of your handle (@${realHandle(me.handle)}) wherever the web app displays it, for product screenshots. Your real handle, profile address and links are unchanged. Leave it empty to show your own.</p>
+                <button class="btn3d block">Save</button>
+              </form>
+            </div>
+          
+    </div>
+  </div>
+</div>`;
+    return send(res, layout({ title: 'Admin', body, me, req, nav: 'admin', cls: 'is-dark-page' }));
+  },
   settings(req, res, me, err = '', url = new URL(req.url, 'http://x')) {
     const mine = q('SELECT * FROM invites WHERE from_user=? ORDER BY created_at DESC').all(me.id);
     const unusedInvites = mine.filter((i) => !i.used_by);
@@ -9186,11 +9237,11 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   <div class="settings-grid">
     <div class="settings-col">
       <form method="post" action="/settings" class="wtable settings-table">
-        <div class="wcell wcell-wide">
+        ${isAdminUi(me) ? '' : `<div class="wcell wcell-wide">
           <button type="button" class="avatar-pick" id="avatar-pick" title="Change profile image">${avatar(me, 'avatar big')}<span class="avatar-pick-hint">Change</span></button>
           <p class="lbl set-cap">Change profile image</p>
           <label class="slabel">Image URL<input name="avatar" id="avatar-url" value="${esc(me.avatar)}" placeholder="https:// or upload a photo"></label>
-        </div>
+        </div>`}
         <div class="wcell wcell-wide">
           <label class="slabel">Email:<input value="${esc(me.email)}" disabled></label>
           <label class="slabel">Username:<input value="${esc(me.handle)}" disabled></label>
@@ -9276,25 +9327,13 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <button type="button" class="btn3d block" id="install-btn">Install Discriminantly</button>
           </div>
         </div>
-          ${me.is_admin ? `<div class="wtable settings-table settings-admin" id="admin">
-            <div class="wcell wcell-wide">
-              <p class="sbox-title">Admin</p>
-              <p class="sbox-sub">Only you see this section.</p>
-              <form method="post" action="/settings/admin-view" class="look-form">
-                <div class="nf-top look-row"><span class="nf-lbl">Show members’ private content</span>
-                  <label class="switch"><input type="checkbox" name="on" value="1" ${me.admin_private_view ? 'checked' : ''} onchange="this.form.submit()"><span></span></label></div>
-              </form>
-              <p class="fine center">For troubleshooting only. While this is on, you can see members’ private notes, marks, itineraries and ensembles here on the web, and edit or remove their notes, marks and comments. It never applies to your connected AI. Leave it off otherwise.</p>
-            </div>
-            <div class="wcell wcell-wide">
-              <form method="post" action="/settings/admin-alias">
-                <label class="slabel">Screenshot handle:<input name="alias" value="${esc(me.display_alias || '')}" maxlength="24" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="leave empty to show your own"></label>
-                ${url.searchParams.get('alias_error') ? `<p class="fine center">${esc(url.searchParams.get('alias_error'))}</p>` : ''}
-                <button class="btn3d block">Save</button>
-              </form>
-              <p class="fine center">Shown instead of your handle (@${realHandle(me.handle)}) wherever the web app displays it, for product screenshots. Your real handle, profile address and links are unchanged. Leave it empty to show your own.</p>
-            </div>
-          </div>` : ''}
+          ${isAdminUi(me) ? `<div class="wtable settings-table settings-admin" id="admin">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Admin</p>
+            <p class="sbox-sub">Your profile image, screenshot handle, private-content view and dashboards are on the Admin page.</p>
+            <a class="btn3d block" href="/admin">Open Admin</a>
+          </div>
+        </div>` : ''}
       </div>
     </div>
   </div>
@@ -12343,7 +12382,7 @@ async function handle(req, res) {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const b = await readBody(req);
     const raw = String(b.alias || '').trim(), alias = raw ? slug(raw) : '';
-    const back = (err) => redirect(res, '/settings' + (err ? '?alias_error=' + encodeURIComponent(err) : '') + '#admin');
+    const back = (err) => redirect(res, '/admin' + (err ? '?alias_error=' + encodeURIComponent(err) : '') + '#admin');
     if (raw && !raw.toLowerCase().replace(/[^a-z0-9]+/g, '')) return back('Use lowercase letters and numbers.');
     if (alias && q('SELECT 1 FROM users WHERE (handle=? OR display_alias=?) AND id<>?').get(alias, alias, me.id)) return back('That handle belongs to someone else.');
     q('UPDATE users SET display_alias=? WHERE id=?').run(alias === me.handle ? '' : alias, me.id);
@@ -12356,7 +12395,7 @@ async function handle(req, res) {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
     const b = await readBody(req);
     q('UPDATE users SET admin_private_view=? WHERE id=?').run(b.on === '1' ? 1 : 0, me.id);
-    return redirect(res, '/settings#admin');
+    return redirect(res, '/admin#admin');
   }
   if (p === '/settings/skin' && m === 'POST') {
     if (!me) return need();
@@ -13229,10 +13268,21 @@ async function handle(req, res) {
     if (m === 'POST') { if (q('SELECT COUNT(*) c FROM invites WHERE from_user=? AND used_by IS NULL').get(me.id).c < 5) q('INSERT INTO invites(code,from_user) VALUES(?,?)').run(token(6), me.id); return redirect(res, '/invites'); }
     return redirect(res, '/settings'); // joining is open; no invites page
   }
+  if (p === '/admin' && m === 'GET') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    return pages.admin(req, res, me, url);
+  }
+  if (p === '/settings/avatar' && m === 'POST') {
+    // v2.66: the profile image on its own (the Admin page's module)
+    if (!me) return need();
+    const b = await readBody(req);
+    q('UPDATE users SET avatar=? WHERE id=?').run(String(b.avatar || '').trim(), me.id);
+    return redirect(res, isAdminUi(me) ? '/admin#profile-image' : '/settings');
+  }
   if (p === '/settings') {
     if (!me) return need();
     if (m === 'GET') return pages.settings(req, res, me);
-    const b = await readBody(req); q('UPDATE users SET name=?,city=?,bio=?,avatar=?,site=? WHERE id=?').run((b.name || me.name).trim(), b.city || '', b.bio || '', b.avatar || '', b.site || '', me.id);
+    const b = await readBody(req); q('UPDATE users SET name=?,city=?,bio=?,avatar=?,site=? WHERE id=?').run((b.name || me.name).trim(), b.city || '', b.bio || '', b.avatar === undefined ? (me.avatar || '') : (b.avatar || ''), b.site || '', me.id); // v2.66: no image field (the admin's lives on Admin) keeps the image
     return redirect(res, `/u/${me.handle}`);
   }
   send(res, layout({ title: 'Not found', body: '<p>That page does not exist.</p>', me }), 404);

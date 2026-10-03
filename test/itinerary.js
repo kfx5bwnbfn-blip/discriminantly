@@ -1197,7 +1197,7 @@ console.log('\nadmin private view');
   const lines = SRC.split('\n');
   const adminLines = lines.map((l, i) => [i, l]).filter(([, l]) => /is_admin/.test(l));
   const allowed = [/is_admin INTEGER DEFAULT 0/, /^const adminOn = \(me\) => !!\(me && me\.is_admin && me\.adminPrivateView === true\);$/,
-    /if \(u && u\.is_admin && u\.admin_private_view\) u\.adminPrivateView = true;/, /\$\{me\.is_admin \? `<div class="wtable settings-table settings-admin" id="admin">/,
+    /if \(u && u\.is_admin && u\.admin_private_view\) u\.adminPrivateView = true;/, /^const isAdminUi = \(me\) => !!\(me && me\.is_admin\);$/, /\$\{me\.is_admin \? `<div class="wtable settings-table settings-admin" id="admin">/,
     /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/, /INSERT INTO users\(handle,name,email,pass,is_admin,avatar,ui_skin\)/,
 ];
   ok('AV1 no visibility or ownership check uses is_admin directly; the one exception is adminOn',
