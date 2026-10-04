@@ -2569,3 +2569,5 @@ body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checke
   body[data-skin="modern"] nav.iconrail > a.on, body[data-skin="modern"] nav.iconrail > .iconrail-btn.on {
     margin: 0 max(4px, calc((100vw - 36px) / 8 - 24px)); }
 }
+body[data-skin="modern"] .admin-wide .admin-activity .act-line { background: rgba(0,0,0,.035); border-color: transparent; }
+body[data-skin="modern"][data-mode="light"] .admin-wide .admin-activity .act-line, html.m-light body[data-skin="modern"][data-mode="system"] .admin-wide .admin-activity .act-line { background: rgba(20,22,28,.045); }

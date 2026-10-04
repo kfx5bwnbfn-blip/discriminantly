@@ -1372,3 +1372,15 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 .admin-grid > .settings-col, .admin-grid .settings-table, .admin-grid .wcell { min-width: 0; max-width: 100%; }
 .admin-grid #recent .act-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .admin-grid #recent .act-table { min-width: 24rem; }
+/* v2.66.9 Activation dashboard and member activity: cells shrink to the screen; tables scroll inside */
+.admin-wide .wtable, .admin-wide .wcell { min-width: 0; max-width: 100%; }
+.admin-wide .act-table-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.admin-wide .act-table { min-width: 34rem; }
+/* member activity: the profile's activity lines, one column, left-aligned */
+.admin-wide .admin-activity { display: block; text-align: left; }
+.admin-wide .admin-activity .act-line { margin: 0 0 .5rem; border-radius: 12px; }
+.admin-wide .admin-activity .act-date { flex: 0 0 11.5rem; }
+/* the description is the profile token's plain text, not the panel's caps label */
+.admin-wide .admin-activity .act-line > span:last-child { text-transform: none; letter-spacing: normal; font-size: .98rem; font-weight: 400; }
+@media (max-width: 52rem) { .admin-wide .admin-activity .act-line { flex-direction: column; gap: .15rem; } .admin-wide .admin-activity .act-date { width: auto; } }
+@media (max-width: 52rem) { .admin-wide .admin-activity .act-date { flex: none; width: auto; } }

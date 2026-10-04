@@ -5557,6 +5557,37 @@ const whenUtc = (t) => {
   const tz = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName');
   return `${f({ day: 'numeric' })} ${new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Toronto', month: 'short' }).format(d)} ${f({ year: 'numeric' })} \u00b7 ${new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', hour: 'numeric', minute: '2-digit' }).format(d)} ${tz ? tz.value : 'ET'}`;
 };
+// v2.66.9: one member's activity, newest first, for the admin. Built from the
+// records themselves; private content is named only with the admin's
+// private view on, as everywhere else.
+const EVENT_WORDS = { signup_started: 'Opened the sign-up form', signup_completed: 'Created their account', welcome_viewed: 'Saw the Welcome card',
+  welcome_tab_viewed: 'Opened a Welcome step', starter_selected: 'Picked a starter', starter_copied: 'Copied a starter prompt', starter_launched: 'Opened a starter in Claude Desktop',
+  ai_connection_started: 'Began connecting an AI', empty_state_action: 'Used an empty-state action' };
+function memberActivity(u, me, n = 200) {
+  const see = (row) => !row.private || adminOn(me);
+  const name = (row, kind, href) => see(row) ? `<a href="${href}">${esc(row.name || row.title || 'untitled')}</a>` : `a private ${kind}`;
+  const out = [{ at: u.created_at, html: `Joined, arriving by ${esc(u.signup_source || 'unknown')}` }];
+  for (const e of q("SELECT event, surface, meta, created_at FROM product_events WHERE user_id=? ORDER BY id DESC LIMIT 400").all(u.id)) {
+    let m = {}; try { m = JSON.parse(e.meta || '{}'); } catch {}
+    out.push({ at: e.created_at, html: e.event === 'signed_in' ? `Signed in from ${e.surface === 'oauth' ? 'an AI\u2019s sign-in' : 'the website'}`
+      : `${esc(EVENT_WORDS[e.event] || e.event)}${m.starter ? ` (${esc(m.starter)})` : m.tab ? ` (step ${esc(m.tab)})` : m.action ? ` (${esc(m.action)})` : ''}` });
+  }
+  for (const c of q('SELECT client_label, created_at, last_used_at, revoked_at FROM connections WHERE user_id=?').all(u.id)) {
+    out.push({ at: c.created_at, html: `Connected ${esc(c.client_label || 'an AI')}` });
+    if (c.last_used_at) out.push({ at: c.last_used_at, html: `${esc(c.client_label || 'Their AI')} last used Discriminantly` });
+    if (c.revoked_at) out.push({ at: c.revoked_at, html: `Disconnected ${esc(c.client_label || 'an AI')}` });
+  }
+  for (const o of q('SELECT id, name, private, created_at FROM objects WHERE user_id=?').all(u.id)) out.push({ at: o.created_at, html: `Noted ${name(o, 'note', '/o/' + o.id)}` });
+  for (const x of q('SELECT id, name, private, created_at FROM marks WHERE user_id=?').all(u.id)) out.push({ at: x.created_at, html: `Marked ${name(x, 'place', '/m/' + x.id)}` });
+  for (const t of q('SELECT id, title, private, created_at FROM itineraries WHERE user_id=?').all(u.id)) out.push({ at: t.created_at, html: `Planned ${name(t, 'plan', '/t/' + t.id)}` });
+  for (const en of q('SELECT id, title, private, status, created_at FROM ensembles WHERE user_id=?').all(u.id)) out.push({ at: en.created_at, html: `${en.status === 'pending_review' ? 'Staged' : 'Composed'} ${see(en) ? esc(en.title || 'an ensemble') : 'a private ensemble'}` });
+  for (const v of q('SELECT v.created_at, m.id, m.name, m.private FROM visits v JOIN marks m ON m.id = v.mark_id WHERE v.user_id=?').all(u.id)) out.push({ at: v.created_at, html: `Checked in at ${name(v, 'place', '/m/' + v.id)}` });
+  for (const w of q('SELECT subject_type, state, created_at FROM warrants WHERE user_id=?').all(u.id)) out.push({ at: w.created_at, html: `${w.state === 'revoked' ? 'Withdrew a warrant on' : 'Warranted'} a ${esc(w.subject_type === 'mark' ? 'place' : w.subject_type === 'object' ? 'note' : w.subject_type)}` });
+  for (const a of q('SELECT state, created_at FROM ownership_assertions WHERE user_id=?').all(u.id)) out.push({ at: a.created_at, html: a.state === 'released' ? 'Released something they owned' : a.state === 'corrected' ? 'Corrected an ownership mistake' : 'Marked something as owned' });
+  for (const cm of q('SELECT c.created_at, o.id, o.name, o.private FROM comments c JOIN objects o ON o.id = c.object_id WHERE c.user_id=?').all(u.id)) out.push({ at: cm.created_at, html: `Commented on ${name(cm, 'note', '/o/' + cm.id)}` });
+  for (const r of q('SELECT label, reaction, created_at FROM recommendations WHERE user_id=?').all(u.id)) out.push({ at: r.created_at, html: `Was recommended ${esc(r.label || 'something')}${r.reaction ? ` (${esc(String(r.reaction).replace(/_/g, ' '))})` : ''}` });
+  return out.filter((x) => x.at).sort((a, b) => (a.at < b.at ? 1 : -1)).slice(0, n);
+}
 function recentAccounts(n = 10) {
   return q("SELECT handle, name, created_at, COALESCE(NULLIF(signup_source, ''), 'unknown') AS src FROM users ORDER BY id DESC LIMIT ?").all(n);
 }
@@ -9284,6 +9315,25 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     send(res, layout({ title: 'Invites', body, me, cls: 'is-dark-page' }));
   },
 
+  adminMember(req, res, me, u) {
+    const log = memberActivity(u, me, 200);
+    const body = `<h3 class="strip dark-strip">Activity</h3>
+<div class="settings admin-wide">
+  <div class="wtable settings-table">
+    <div class="wcell wcell-wide">
+      ${avatar(u, 'avatar big')}
+      <p class="sbox-title">@${esc(u.handle)}</p>
+      <p class="sbox-sub">${esc(u.name || '')}${u.name ? ' \u00b7 ' : ''}joined ${esc(whenUtc(u.created_at))}, arriving by ${esc(u.signup_source || 'unknown')}</p>
+      <p class="fine center">The ${log.length === 200 ? '200 most recent' : log.length} things they have done, newest first. Times in Eastern.${adminOn(me) ? '' : ' Private items are named only with your private view on.'}</p>
+      <p class="center"><a class="btn3d" href="/u/${esc(u.handle)}">Open their profile</a></p>
+    </div>
+    <div class="wcell wcell-wide">
+      <div class="admin-activity">${log.map((a) => `<div class="act-line"><span class="act-date">${esc(whenUtc(a.at))}</span><span>${a.html}</span></div>`).join('') || '<p class="empty pad">Nothing yet.</p>'}</div>
+    </div>
+  </div>
+</div>`;
+    return send(res, layout({ title: '@' + u.handle + ' \u00b7 Activity', body, me, req, nav: 'admin', cls: 'is-dark-page' }));
+  },
   admin(req, res, me, url) {
     // v2.66: the admin's own section, derived from Settings
     const body = `<h3 class="strip dark-strip">Admin</h3>
@@ -9303,14 +9353,14 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
           <p class="sbox-title">Recent accounts</p>
           <p class="sbox-sub">The ten newest, with when they joined and how they arrived.</p>
           <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Joined</th><th>Arrived by</th></tr></thead><tbody>
-          ${recentAccounts(10).map((a) => `<tr><td class="acct-who">@${esc(a.handle)}${a.name && a.name !== a.handle ? `<span class="acct-name">${esc(a.name)}</span>` : ''}</td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
+          ${recentAccounts(10).map((a) => `<tr><td class="acct-who"><a href="/admin/members/${esc(a.handle)}">@${esc(a.handle)}</a>${a.name && a.name !== a.handle ? `<span class="acct-name">${esc(a.name)}</span>` : ''}</td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
           </tbody></table></div>
         </div>
         <div class="wcell wcell-wide">
           <p class="sbox-title">Recent sign-ins</p>
           <p class="sbox-sub">The five latest. Before this version, sign-outs erased the record, so earlier history is partial.</p>
           <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Signed in</th><th>From</th></tr></thead><tbody>
-          ${recentSignins(5).map((r) => `<tr><td>@${esc(r.handle)}</td><td>${esc(whenUtc(r.at))}</td><td>${r.via === 'oauth' ? 'an AI\u2019s sign-in' : r.via === 'web' ? 'the website' : '\u2014'}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
+          ${recentSignins(5).map((r) => `<tr><td><a href="/admin/members/${esc(r.handle)}">@${esc(r.handle)}</a></td><td>${esc(whenUtc(r.at))}</td><td>${r.via === 'oauth' ? 'an AI\u2019s sign-in' : r.via === 'web' ? 'the website' : '\u2014'}</td></tr>`).join('') || '<tr><td colspan="3">None yet</td></tr>'}
           </tbody></table></div>
         </div>
       </div>
@@ -12474,7 +12524,7 @@ async function handle(req, res) {
     const flagForm = (a) => `<form method="post" action="/admin/activation/flag" class="act-flag"><input type="hidden" name="user_id" value="${a.id}"><select name="flag" onchange="this.form.submit()">${[['', 'organic'], ['founder_assisted', 'founder-assisted'], ['test', 'test']].map(([v, l]) => `<option value="${v}"${a.flag === v ? ' selected' : ''}>${l}</option>`).join('')}</select></form>`;
     const firstAct = (a) => ['note', 'mark', 'itinerary', 'recommendation', 'checkin'].filter((k) => a[k]).join(', ') || '\u2014';
     const body = `<h3 class="strip dark-strip">Activation</h3>
-<div class="settings"><div class="wtable settings-table"><div class="wcell wcell-wide">
+<div class="settings admin-wide"><div class="wtable settings-table"><div class="wcell wcell-wide">
   <p class="sbox-title">By arrival route</p>
   <p class="sbox-sub">From the domain tables (canonical): accounts, AI connections, first kept records, recommendations, check-ins, return sign-ins. The activation event is a first kept itinerary within 7 days of joining. Founder-assisted and test accounts are counted separately.</p>
   <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Arrived by</th><th>Joined</th><th>Kept itinerary \u2264 7 days</th><th>Rate</th><th>AI connected</th><th>First note</th><th>First mark</th><th>First itinerary</th><th>Recommendation</th><th>Check-in</th><th>Returned after day 1</th><th>Median time to first kept itinerary</th></tr></thead><tbody>${trs}</tbody></table></div>
@@ -12486,7 +12536,7 @@ async function handle(req, res) {
   <p class="sbox-title">Recent accounts</p>
   <p class="sbox-sub">For checking a sign-up end to end: how they arrived, the AI client (the host of its metadata document), connections, first acts. Mark founder-assisted or test journeys here; this never grants anything.</p>
   <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Member</th><th>Joined</th><th>Arrived by</th><th>AI client</th><th>Campaign / referrer</th><th>Connections</th><th>First acts</th><th>Journey</th></tr></thead><tbody>
-  ${accts.slice(0, 30).map((a) => `<tr><td>@${esc(a.handle)}</td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td><td>${esc(a.client_host || '\u2014')}</td><td>${esc([a.utm_source, a.utm_medium, a.utm_campaign, a.ref, a.ref_host].filter(Boolean).join(' \u00b7 ') || '\u2014')}</td><td>${a.conns.map((c) => `${esc(c.client_label)} (${esc(whenUtc(c.created_at))})`).join('<br>') || '\u2014'}</td><td>${firstAct(a)}</td><td>${flagForm(a)}</td></tr>`).join('')}
+  ${accts.slice(0, 30).map((a) => `<tr><td><a href="/admin/members/${esc(a.handle)}">@${esc(a.handle)}</a></td><td>${esc(whenUtc(a.created_at))}</td><td>${esc(a.src)}</td><td>${esc(a.client_host || '\u2014')}</td><td>${esc([a.utm_source, a.utm_medium, a.utm_campaign, a.ref, a.ref_host].filter(Boolean).join(' \u00b7 ') || '\u2014')}</td><td>${a.conns.map((c) => `${esc(c.client_label)} (${esc(whenUtc(c.created_at))})`).join('<br>') || '\u2014'}</td><td>${firstAct(a)}</td><td>${flagForm(a)}</td></tr>`).join('')}
   </tbody></table></div>
 </div></div></div>`;
     return send(res, layout({ title: 'Activation', body, me, req, cls: 'is-dark-page' }));
@@ -13397,6 +13447,12 @@ async function handle(req, res) {
     }
     if (m === 'POST') { if (q('SELECT COUNT(*) c FROM invites WHERE from_user=? AND used_by IS NULL').get(me.id).c < 5) q('INSERT INTO invites(code,from_user) VALUES(?,?)').run(token(6), me.id); return redirect(res, '/invites'); }
     return redirect(res, '/settings'); // joining is open; no invites page
+  }
+  if ((mt = p.match(/^\/admin\/members\/([a-z0-9]+)$/)) && m === 'GET') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const u = q('SELECT * FROM users WHERE handle=?').get(mt[1]);
+    if (!u) return send(res, 'Not found', 404);
+    return pages.adminMember(req, res, me, u);
   }
   if (p === '/admin' && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
