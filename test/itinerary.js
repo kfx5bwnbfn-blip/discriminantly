@@ -1667,5 +1667,17 @@ console.log('\nlisting boundary');
   ok('LB1 no submission import file carries app_info or any listing field, so an import can never overwrite the portal listing', files.length >= 2 && !leaks.length, leaks.join(', '));
 }
 
+// ---- Image renditions (v2.67) ----
+console.log('\nimage renditions');
+{
+  const rt = SRC.slice(SRC.indexOf("const want = +url.searchParams.get('w') || 0;"), SRC.indexOf("const buf = imageBytes(img);", SRC.indexOf("const want = +url.searchParams.get('w') || 0;")));
+  ok('RD1 a rendition is served only after the same visibility check as the original', SRC.indexOf("if (!imageVisibleTo(img, me)) return send(res, 'Not found', 404);") < SRC.indexOf("const want = +url.searchParams.get('w') || 0;") && /imageIsPublic\(img\) \? 'public, max-age=31536000, immutable' : 'private, max-age=86400'/.test(rt));
+  ok('RD2 the original is the fallback: no sharp, an unconvertible type, or a failed conversion serves the original', /catch \{ sharpLib = null;/.test(SRC) && /if \(!sharpLib \|\| !img \|\| !RENDITIONABLE\.has\(img\.mime\)/.test(SRC) && /\.catch\(\(e\) => \{ console\.error\(`rendition/.test(SRC));
+  ok('RD3 never enlarged, and never larger than the original (except types a browser cannot show)', /withoutEnlargement: true/.test(SRC) && /if \(out\.length >= src\.length && img\.mime !== 'image\/heic'/.test(SRC));
+  ok('RD4 renditions are files beside the original, never database rows', /const renditionPath = \(uid, w\) => imagePath\(uid\) \+ `-w\$\{w\}\.webp`;/.test(SRC) && !/INSERT INTO image_renditions/.test(SRC));
+  ok('RD5 cards offer a srcset only for images the server owns', SRC.includes("const imgSet = (src, sizes = '(max-width: 52rem) 100vw, 480px') => (sharpLib && /^\\/i\\/[0-9a-f-]{36}$/i.test(String(src || '')))")
+     && SRC.includes('src="${esc(o.image)}"${imgSet(o.image)}') && SRC.includes('src="${esc(m.image)}"${imgSet(m.image)}'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

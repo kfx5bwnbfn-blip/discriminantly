@@ -1564,7 +1564,7 @@ if (process.argv.includes('--backup')) {
   process.exit(0);
 }
 const q = (sql) => db.prepare(sql);
-const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
+const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="" loading="lazy" decoding="async">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
 // Collections organise the member's OWN Notes. The delete is scoped to this
 // member's collections: the previous unscoped `DELETE ... WHERE object_id=?`
@@ -3045,24 +3045,24 @@ function readImage(file, cb) {
     e.preventDefault();
     link.dataset.busy = '1';
     var was = link.textContent; link.textContent = 'Loading…';
-    fetch(link.href, { headers: { 'X-Requested-With': 'fetch' } })
-      .then(function (r) { return r.text(); })
+    // v2.66.8: only the next page comes back (X-Append), so every load costs the
+    // same; the address is left as it was, so a reload is always the light first
+    // page; a failed load restores the link to try again instead of navigating.
+    fetch(link.href, { headers: { 'X-Requested-With': 'fetch', 'X-Append': '1' } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (html) {
         var doc = new DOMParser().parseFromString(html, 'text/html');
         var grid = document.getElementById('feed-grid');
         var next = doc.getElementById('feed-grid');
-        if (!grid || !next) { location.href = link.href; return; }
-
-        var existing = grid.__items ? grid.__items.length : grid.children.length;
-        Array.prototype.slice.call(next.children, existing).forEach(function (n) { grid.appendChild(n); });
+        if (!grid || !next) { link.textContent = was; delete link.dataset.busy; return; }
+        Array.prototype.slice.call(next.children).forEach(function (n) { grid.appendChild(n); });
         if (window.layoutFeed) window.layoutFeed();
         var nextMore = doc.querySelector('.more-link');
         var wrap = link.parentNode;
         if (nextMore) { link.href = nextMore.getAttribute('href'); link.textContent = was; delete link.dataset.busy; }
         else wrap.remove();
-        history.replaceState(null, '', link.href);
       })
-      .catch(function () { location.href = link.href; });
+      .catch(function () { link.textContent = was; delete link.dataset.busy; });
   });
 
   // Delete from an edit page
@@ -3946,6 +3946,46 @@ const imagePath = (uid) => {
 };
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 
+// ---- Image renditions (v2.67) ---------------------------------------------
+// Smaller WebP copies at fixed widths, made the first time each is asked for
+// (so existing images fill in on their own) and kept as files beside the
+// originals, never in the database. The original is always the fallback: if
+// sharp is missing, the type is not one it converts, or a conversion fails,
+// /i/<uid>?w= simply serves the original. Never enlarged.
+let sharpLib = null;
+if (process.env.RENDITIONS !== 'off') {
+  try { sharpLib = require('sharp'); sharpLib.concurrency(1); sharpLib.cache(false); }
+  catch { sharpLib = null; console.log('Image renditions: sharp is not installed; originals are served.'); }
+}
+const RENDITION_WIDTHS = [400, 800, 1200, 1600];
+const RENDITIONABLE = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/avif', 'image/tiff']);
+const renditionWidth = (w) => RENDITION_WIDTHS.find((x) => x >= w) || RENDITION_WIDTHS[RENDITION_WIDTHS.length - 1];
+const renditionPath = (uid, w) => imagePath(uid) + `-w${w}.webp`;
+const renditionJobs = new Map();
+function rendition(img, w) {
+  if (!sharpLib || !img || !RENDITIONABLE.has(img.mime) || !RENDITION_WIDTHS.includes(w)) return Promise.resolve(null);
+  let f; try { f = renditionPath(img.uid, w); } catch { return Promise.resolve(null); }
+  try { return Promise.resolve(fs.readFileSync(f)); } catch {}
+  const key = img.uid + ':' + w;
+  if (renditionJobs.has(key)) return renditionJobs.get(key);
+  const job = (async () => {
+    const src = imageBytes(img); if (!src) return null;
+    const out = await sharpLib(src, { failOn: 'none', limitInputPixels: 100e6 })
+      .rotate().resize({ width: w, withoutEnlargement: true }).webp({ quality: 78, effort: 4 }).toBuffer();
+    // a "smaller" copy that is not smaller is pointless, except for types a browser cannot show
+    if (out.length >= src.length && img.mime !== 'image/heic' && img.mime !== 'image/heif' && img.mime !== 'image/tiff') return null;
+    try { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f + '.tmp', out); fs.renameSync(f + '.tmp', f); } catch (e) { console.error(`rendition ${img.uid}@${w}: not kept (${e.message})`); }
+    return out;
+  })().catch((e) => { console.error(`rendition ${img.uid}@${w}: ${e.message}`); return null; })
+    .finally(() => renditionJobs.delete(key));
+  renditionJobs.set(key, job);
+  return job;
+}
+const removeRenditions = (uid) => { for (const w of RENDITION_WIDTHS) { try { fs.unlinkSync(renditionPath(uid, w)); } catch {} } };
+// srcset for an image the server owns; external URLs and anything else get none
+const imgSet = (src, sizes = '(max-width: 52rem) 100vw, 480px') => (sharpLib && /^\/i\/[0-9a-f-]{36}$/i.test(String(src || '')))
+  ? ` srcset="${RENDITION_WIDTHS.map((w) => `${src}?w=${w} ${w}w`).join(', ')}" sizes="${sizes}"` : '';
+
 // The bytes of an image row, wherever they are.
 function imageBytes(row) {
   if (!row) return null;
@@ -4048,6 +4088,7 @@ function storeImage(userId, value, actorCtx, source) {
   // background migration uses. If the move fails, the photo stays in the
   // database and works exactly as before.
   if (IMAGE_STORE === 'file') moveImageToFile(uid);
+  if (sharpLib) setImmediate(() => { const row = q('SELECT * FROM images WHERE uid=?').get(uid); rendition(row, 400).then(() => rendition(row, 800)).catch(() => {}); });
   recordProvenance('image', uid, 'created', actorCtx || webActor({ id: userId }), { source_kind: 'manual' });
   // Reference by uid, never by the sequential integer: the integer is
   // guessable and is meaningless outside this database.
@@ -4059,7 +4100,11 @@ function storeImage(userId, value, actorCtx, source) {
 const PAGE = 25;
 const pageOf = (rows, url) => {
   const off = Math.max(0, +url.searchParams.get('offset') || 0);
-  return { off, slice: rows.slice(0, off + PAGE), more: rows.length > off + PAGE, total: rows.length };
+  // v2.66.8: the Show more loader (X-Append: 1) gets only the next page; it
+  // used to receive every card from the first, so each load cost more than the
+  // last. A direct visit still renders from the first card.
+  const append = !!(CURRENT_REQ && CURRENT_REQ.headers && CURRENT_REQ.headers['x-append'] === '1');
+  return { off, slice: rows.slice(append ? off : 0, off + PAGE), more: rows.length > off + PAGE, total: rows.length };
 };
 const moreLink = (url, off, more) => {
   if (!more) return '';
@@ -4296,7 +4341,7 @@ function markCard(m, me, full = false) {
       <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
       ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
       <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
-      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img src="${esc(m.image)}" alt="${esc(m.name)}"></a>` : ''}
+      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img loading="lazy" decoding="async" src="${esc(m.image)}"${imgSet(m.image)} alt="${esc(m.name)}"></a>` : ''}
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
       ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
       ${full ? '' : '<div class="mark-more" aria-hidden="true"><div class="mark-more-inner">'}
@@ -6856,7 +6901,7 @@ function discardStoredImage(uid) {
   try {
     q("DELETE FROM provenance WHERE entity_type='image' AND entity_uid=?").run(uid);
     q('DELETE FROM images WHERE uid=?').run(uid);
-    removeImageFile(uid);
+    removeImageFile(uid); removeRenditions(uid);
   } catch { /* best effort: the caller is already failing the request */ }
 }
 
@@ -7200,7 +7245,7 @@ function objectCard(o, me, full = false) {
         return inner ? `<div class="noteit">${inner}</div>` : '';
       })()}
     </div>
-    ${o.image ? `<a class="figure" href="/o/${o.id}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></a>` : ''}
+    ${o.image ? `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image)} alt="${esc(o.name)}"></a>` : ''}
     ${(() => {
       // Owned is private evidence: rendered only for the member themselves,
       // and only where they actually have a relationship to the object.
@@ -12303,6 +12348,16 @@ async function handle(req, res) {
       : q('SELECT * FROM images WHERE uid=?').get(key);
     if (!img) return send(res, 'Not found', 404);
     if (!imageVisibleTo(img, me)) return send(res, 'Not found', 404);
+    // ?w=<width>: the nearest rendition at or above it, or the original
+    const want = +url.searchParams.get('w') || 0;
+    if (want > 0) {
+      const r = await rendition(img, renditionWidth(want));
+      if (r) {
+        res.writeHead(200, { 'Content-Type': 'image/webp', 'Content-Length': r.length,
+          'Cache-Control': imageIsPublic(img) ? 'public, max-age=31536000, immutable' : 'private, max-age=86400' });
+        return res.end(r);
+      }
+    }
     const buf = imageBytes(img);
     if (!buf) return send(res, 'Not found', 404);
     res.writeHead(200, { 'Content-Type': img.mime, 'Content-Length': buf.length,
