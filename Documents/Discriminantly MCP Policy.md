@@ -1,471 +1,228 @@
-# Discriminantly MCP Policy
+Discriminantly MCP Policy — Reconciled Recommendation & Adoption Model
 
-## Purpose
+Version: 0.2-reconciled
+Date: 2026-10-07
+Status: Machine-facing operational policy aligned to the reconciled Constitution.
 
-This policy defines how AI systems and MCP-compatible clients should interact with a user's Discriminantly taste record.
+1. Purpose
 
-It translates the principles of the Discriminantly Constitution into machine-consumable rules.
+This policy tells AI clients how to operate Discriminantly without collapsing Recommendation, Adoption, experience, ownership, endorsement, observation or inference.
 
-The central principle is:
+It applies to ChatGPT, Claude, Meta/Muse and future MCP/API clients.
 
-> **Discriminantly stores and stewards a user's taste. The user remains the authority over that taste.**
+The server remains authoritative for permissions, identity, privacy, provenance and invariants.
 
-An AI may read, interpret, and potentially modify the record only within the permissions and constraints established by the user and this policy.
+2. Core operating rules
 
----
+1. A member-scoped record may exist without Adoption.
+2. Recommendation and Adoption are independent assertions.
+3. A recommendation-only target may be fully materialized.
+4. A direct request to build a primary artifact may authorize its creation/adoption without a second generic confirmation.
+5. Optional editorial expansion remains recommendation-only unless adopted.
+6. Research candidates do not persist merely because they were considered.
+7. Resolution never implies Adoption.
+8. Adoption never implies experience, Ownership or Warrant.
+9. Every durable write preserves provenance.
+10. Private evidence never becomes public implicitly.
 
-# 1. Identity and Ownership
+3. Assertion classes
 
-### 1.1 User sovereignty
+Explicit / member-authorized
 
-The user's Discriminantly record belongs to the user.
+Use for member actions and clearly delegated execution.
 
-AI systems must treat the record as user-owned data.
+Examples: Adoption, Check-in, Ownership, Warrant, explicit comments, direct edits, construction of a primary itinerary explicitly requested by the member.
 
-Discriminantly is a steward and service provider, not the owner of the user's taste.
+Proposed / AI-generated
 
-### 1.2 No implied ownership
+Use for AI-selected content deliberately presented to the member.
 
-Access to a user's record does not confer ownership of the record or its contents.
+Examples: Recommendation, recommendation-only Note, recommendation-only Travel Mark, recommendation-only Itinerary, unresolved prospective proposition.
 
-AI systems must not represent the user's taste as belonging to the AI, application, model provider, or third party.
+Observed
 
----
+Use only for behavior actually observed by the system. Never relabel as explicit preference.
 
-# 2. Privacy and Authorization
+Derived / inferred
 
-### 2.1 Explicit authorization
+Use for system-computed interpretations. Never overwrite or impersonate explicit evidence.
 
-An AI may access a user's private Discriminantly content only when the user has authorized that access.
+4. Research candidate vs Recommendation vs Adoption
 
-Authorization should be treated as a permission boundary.
+Research candidate
 
-### 2.2 Private does not mean inaccessible to authorized AI
+Internal only. Do not persist merely because the model considered or researched it.
 
-A Note or Travel Mark marked private is shielded from public visibility.
+Recommendation
 
-If the user has explicitly authorized an AI to access their private Discriminantly record, the AI may use that information within the authorized scope.
+Persist only when a workflow deliberately selects and presents the thing/place/plan as a recommendation.
 
-### 2.3 No secondary disclosure
+A Recommendation may point to an existing adopted record, a recommendation-only record, a partially resolved record, or an unresolved proposition where supported.
 
-An AI must not disclose private Discriminantly information to another person or service unless the user has authorized that disclosure.
+Adoption
 
----
+Add only when the member explicitly Keeps something or has already delegated creation of the primary artifact under a workflow whose semantics include Adoption.
 
-# 3. Evidence Types
+Never infer Adoption from Recommendation.
 
-AI systems should preserve distinctions between different types of information.
+5. Primary itinerary authorization
 
-At minimum, the following categories should remain distinguishable:
+When the member asks to plan, build, make, organize, organise, fill or sequence an itinerary, treat that as authorization to construct the primary requested itinerary unless the member limits persistence.
 
-### Explicit
+Within that scope the AI may create the itinerary, create groups/days, create/reuse grounded Marks for selected Stops, attach Stops, arrange the sequence, adopt the primary itinerary and primary-plan Marks under current itinerary semantics, and record Recommendation provenance for AI-selected places.
 
-Information directly provided or actioned by the user.
+Do not require a second “keep it” or “save it” turn.
+
+Do not infer Check-in, booking, purchase, Ownership or Warrant.
+
+6. Optional recommendations
+
+Optional adjacent ideas are not automatically part of the primary authorization.
+
+Examples: For Another Time, optional destination objects, future trip directions and recommendation-orbit expansion.
+
+Persist these as Recommendation-only. Do not Adopt unless the member later Keeps them.
+
+7. Recommendation target mechanics
+
+A Recommendation is an assertion record and may have a target_uid.
+
+For itinerary recommendations:
+
+• the Recommendation UID identifies the recommendation assertion
+• the target_uid identifies the target Itinerary
+• use the target Itinerary UID for itinerary-structure operations
+• never pass the Recommendation UID where an Itinerary UID is required
+
+A recommended Itinerary may have Stops, recommendation-only Marks, unresolved Stops/propositions and prospective object context where supported.
+
+8. Keeping a recommendation
+
+When the member keeps a recommendation:
+
+• add Adoption to the existing target
+• preserve the Recommendation assertion/history
+• do not create a duplicate target merely to represent Keep
+• adopt resolved child records only according to current domain semantics
+• preserve unresolved Stops as unresolved
+• do not create Check-ins, Ownership, Warrants, bookings or purchases
+
+9. Existing adopted targets may be recommended
+
+Do not duplicate a kept record solely because it is recommended in a new context.
+
+Use the existing target where identity is exact and record the new Recommendation assertion/context.
+
+The same target may therefore be both adopted and recommended.
+
+10. Resolution policy
+
+Resolution and Adoption are independent.
+
+Allowed combinations include unresolved+recommended, partial+recommended, resolved+recommended, unresolved+adopted and resolved+adopted.
+
+> **Resolve aggressively. Preserve uncertainty. Never manufacture precision.**
+
+Only exact identity matches may be silently reused where the current matcher permits.
+
+11. Read projections
+
+“My Notes,” “My Marks,” and equivalent canonical corpus reads represent adopted projections.
+
+Do not assume every recommendation-only member record appears there.
+
+Use recommendation-specific reads to inspect prospective records.
+
+An adopted record may also appear in recommendation reads if it has a Recommendation assertion.
+
+12. Reaction semantics
+
+Treat not_this_trip, not_for_me and dismissed distinctly.
+
+Do not infer durable negative preference from not_this_trip or dismissed.
+
+Silence is not rejection.
+
+13. Evidence boundary table
+
+|From                   |Forbidden automatic inference                    |
+|-----------------------|-------------------------------------------------|
+|Recommendation         |Adoption, preference, visit, ownership, warrant  |
+|Adoption               |visit, ownership, warrant                        |
+|Ownership              |Adoption, preference, warrant                    |
+|Check-in               |Adoption, preference, warrant                    |
+|Warrant                |Adoption, visit, ownership                       |
+|Itinerary Stop         |Check-in, booking, visit                         |
+|Search/view            |preference, Adoption                             |
+|Recommendation reaction|broader taste inference unless explicitly modeled|
+
+Compound explicit acts are allowed only when the user’s wording truthfully supports them.
+
+14. Authorization phases
+
+Retrieve → Interpret → Propose → Execute are distinct semantic phases.
+
+They are not necessarily separate conversational turns.
+
+Ask:
+
+> Has the member already authorized this execution through the initiating request?
+
+If yes, execute within scope. If no, remain in retrieval/interpretation/proposal state.
+
+Ask only when identity or authorization is materially ambiguous.
+
+15. Provenance
+
+For every durable write preserve the acting user, direct user vs AI-on-behalf vs system/migration, AI client where applicable, assertion/evidence class where supported and recommendation context where applicable.
+
+Do not attribute AI research or rationale to the member.
+
+16. Privacy
+
+Never expose private member evidence because the member collaborates on an itinerary, another user adopted a shared itinerary, the AI recommended a record, or a public/shareable artifact references the same entity.
+
+Access to a shared artifact does not confer access to unrelated private corpus content.
+
+17. Failure behavior
+
+If a write cannot be completed:
+
+• do not claim persistence
+• preserve successful prior steps
+• retry only when idempotent/safe
+• surface ambiguity when required
+• never fabricate completion
+
+If a recommendation target exists but is unadopted, do not “fix” the state by Keeping it unless authorized.
+
+18. No-orphan rule
+
+A non-adopted member-scoped record must be explained by a modeled relationship such as Recommendation, pending composition, prospective itinerary relationship or another explicit legitimate domain relationship.
+
+Do not retain unexplained records merely because they were edited or researched.
+
+19. Tool-selection guidance
+
+Prefer the tool that directly expresses the semantic act.
 
 Examples:
 
-- a Note created by the user;
-- a Travel Mark created by the user;
-- a Check-in;
-- a Warrant;
-- a Collection created by the user.
+• simple “keep this place” → direct Mark creation/keep capability
+• grounded place for a primary delegated plan → canonical plan/Mark workflow
+• optional suggested place → Recommendation workflow
+• future recommended itinerary → Recommendation with target Itinerary
+• member keeps recommendation → recommendation keep / Adoption capability
+• explicit visit → Check-in
+• explicit ownership → Ownership
+• explicit endorsement → Warrant
 
-### Observed
+Do not route through another tool merely to force a desired state.
 
-Behavior recorded by the system.
+20. Cross-client rule
 
-Examples:
+All clients must preserve these semantics even if their native connector/platform vocabulary differs.
 
-- viewing;
-- re-noting;
-- following;
-- repeated interaction.
+Platform permissions and host approvals remain authoritative.
 
-### Derived
-
-Relationships calculated from observed or explicit information.
-
-Examples:
-
-- semantic similarity;
-- recurring topical affinity;
-- user-to-user taste overlap.
-
-### Inferred
-
-An interpretation produced by an AI or system.
-
-Examples:
-
-- "The user appears to have a strong affinity for contemporary Japanese architecture."
-
-### AI-generated
-
-A statement, object, or action created by an AI rather than directly by the user.
-
-These categories must not be silently collapsed.
-
----
-
-# 4. Provenance
-
-### 4.1 Preserve origin
-
-Where practical, meaningful taste signals should retain provenance.
-
-The system should be able to identify whether information originated from:
-
-- the user;
-- system observation;
-- algorithmic derivation;
-- or AI inference.
-
-### 4.2 No inference laundering
-
-An inferred preference must not be written back into the record in a way that makes it appear to have been explicitly expressed by the user.
-
-For example, an AI must not convert:
-
-> "The user appears to like minimalist Japanese design."
-
-into an apparently user-authored preference without preserving its inferred status.
-
----
-
-# 5. Read Access
-
-### 5.1 Authorized retrieval
-
-An AI may retrieve authorized portions of a user's Discriminantly record.
-
-### 5.2 Contextual retrieval
-
-AI systems should retrieve information relevant to the user's current task rather than indiscriminately exposing the entire record.
-
-### 5.3 Semantic retrieval
-
-Where available, AI systems may use semantic retrieval to identify relevant objects and relationships.
-
-Semantic relevance does not establish user endorsement.
-
----
-
-# 6. Write Access
-
-### 6.1 Read and write are separate permissions
-
-Authorization to read a taste record does not automatically authorize modification.
-
-Write operations should require appropriate authorization.
-
-### 6.2 Preserve user agency
-
-Where an operation materially changes the user's explicit taste record, the system should prefer explicit user confirmation unless the user has granted appropriate standing authorization.
-
-### 6.3 Provenance of AI actions
-
-Actions performed by an AI on behalf of a user must be distinguishable from actions performed directly by the user.
-
----
-
-# 7. Warrant
-
-## 7.1 Status
-
-Warrant is a future Discriminantly capability.
-
-It is not currently implemented.
-
-MCP implementations must not assume that a Warrant resource or operation exists in the current application.
-
-### 7.2 Meaning
-
-A Warrant represents an explicit act of endorsement:
-
-> **"I stand behind this."**
-
-A future Warrant may apply to:
-
-- Notes;
-- Travel Marks;
-- and other appropriate objects as defined by the product.
-
-### 7.3 Warrant is not equivalent to inference
-
-An AI inference that a user probably likes something must never automatically be represented as an explicit Warrant.
-
-### 7.4 Potential AI Warranting
-
-A future MCP implementation may permit an AI to Warrant on behalf of a user if:
-
-1. the user has granted the appropriate authority;
-2. the evidence supporting the action is sufficiently strong;
-3. the action satisfies the applicable policy;
-4. provenance identifies the action as AI-executed on the user's behalf;
-5. and any required confirmation or guardrail has been satisfied.
-
-The exact threshold remains a product decision.
-
----
-
-# 8. Evidence Weight
-
-AI systems should not treat all signals as equivalent.
-
-Illustratively:
-
-**Explicit Warrant**
-
-> Strong explicit endorsement.
-
-**Explicit user statement**
-
-> Strong direct evidence.
-
-**Check-in**
-
-> Evidence of experience, not necessarily endorsement.
-
-**Repeated re-noting**
-
-> Evidence of recurring interest or affinity.
-
-**Note**
-
-> Evidence that something was worth recording.
-
-**Single view or interaction**
-
-> Weak behavioral evidence.
-
-These are examples of an evidence hierarchy, not a universal numerical scoring system.
-
-Implementations should preserve the distinction rather than reducing every signal to a single opaque preference score.
-
----
-
-# 9. Network Signals
-
-### 9.1 User relationships
-
-Following and follower relationships should not automatically be interpreted as taste similarity.
-
-### 9.2 Repeated overlap
-
-Repeated re-noting or similar behavior may provide evidence of taste affinity between users.
-
-### 9.3 No popularity substitution
-
-Popularity must not automatically be treated as personal relevance.
-
-The objective is to identify:
-
-> **whose judgment repeatedly appears useful to whom**
-
-rather than:
-
-> **who is most popular.**
-
-### 9.4 Relationship inference
-
-A derived relationship such as:
-
-> User A → has recurring taste overlap with → User B
-
-must remain distinguishable from an explicit statement by either user.
-
----
-
-# 10. Semantic Relationships
-
-The system may eventually represent relationships including:
-
-- Note → belongs to → Collection
-- Travel Mark → checked-in by → User
-- User → re-noted → Note
-- User → follows → User
-- Note → semantically resembles → Note
-- Note → relates to → concept
-- User → demonstrates affinity for → concept
-- User A → demonstrates recurring overlap with → User B
-- Discriminantly object → potentially matches → external catalogue object
-
-These relationships may be:
-
-- explicit;
-- observed;
-- derived;
-- or inferred.
-
-Their provenance and confidence should be preserved where meaningful.
-
----
-
-# 11. External Catalogue Interpretation
-
-Discriminantly may eventually act as a portable taste layer that an authorized AI can use to interpret external catalogues.
-
-The conceptual model is:
-
-> **Discriminantly provides the user's taste record.**
->
-> **An external service provides its catalogue.**
->
-> **AI interprets the intersection.**
-
-External services remain responsible for the accuracy, availability, and governance of their own catalogues.
-
-Discriminantly should not unnecessarily recreate those catalogues.
-
-The objective is interoperability.
-
----
-
-# 12. Portability
-
-### 12.1 Portable by design
-
-The user's taste record should be representable in portable, machine-readable forms.
-
-### 12.2 No proprietary captivity
-
-AI systems and external services should not intentionally make the user's taste dependent upon an opaque representation that prevents reasonable extraction or reuse.
-
-### 12.3 AI portability
-
-A user should be able to authorize another compatible AI system to access their taste record without having to reconstruct years of preferences from scratch.
-
-The principle is:
-
-> **The AI changes. The taste record remains.**
-
----
-
-# 13. Semantic Search and Retrieval
-
-Semantic search may use:
-
-- embeddings;
-- vector retrieval;
-- metadata;
-- graph relationships;
-- entity resolution;
-- natural-language interpretation;
-- or combinations of these.
-
-However:
-
-> **semantic similarity is not endorsement.**
-
-A semantically similar object may be relevant to a user's taste without being something the user has expressed interest in.
-
-AI systems should preserve this distinction.
-
----
-
-# 14. AI Context and Interpretation
-
-When an AI uses Discriminantly information to personalize a response, it should prefer the strongest relevant evidence available.
-
-Where meaningful uncertainty exists, the AI should not present inference as fact.
-
-For example:
-
-**Preferred:**
-
-> "You've Warranted several restaurants with similar characteristics, so these may be relevant to you."
-
-**Not preferred:**
-
-> "You like this type of restaurant."
-
-unless the available evidence genuinely supports that level of certainty.
-
----
-
-# 15. Security
-
-AI systems must treat authorized Discriminantly data as sensitive user data.
-
-Access should be scoped to the minimum necessary context.
-
-Credentials, authorization tokens, private content, and other sensitive information must not be exposed unnecessarily.
-
----
-
-# 16. Agency and Guardrails
-
-The system should distinguish between:
-
-### Retrieve
-
-Read information.
-
-### Interpret
-
-Generate an inference or recommendation.
-
-### Propose
-
-Suggest a change to the user's record.
-
-### Execute
-
-Modify the user's record.
-
-Increasing levels of agency should require increasingly appropriate authorization.
-
----
-
-# 17. Core Machine Principle
-
-An MCP implementation should always be able to answer, where relevant:
-
-> **What do we know?**
->
-> **How do we know it?**
->
-> **Who asserted it?**
->
-> **Is it explicit or inferred?**
->
-> **What permission allows us to access it?**
->
-> **What permission allows us to act upon it?**
-
----
-
-# 18. The Constitutional Test
-
-When an implementation decision is ambiguous, prefer the interpretation that best preserves:
-
-1. user sovereignty;
-2. provenance;
-3. privacy;
-4. portability;
-5. reversibility;
-6. and earned trust.
-
-The goal is not to make AI powerless.
-
-The goal is to make AI **useful without allowing it to silently rewrite the user's relationship with their own taste.**
-
----
-
-# 19. North Star
-
-Discriminantly should provide an authorized AI with a durable, portable representation of a person's evolving taste.
-
-The AI should be able to:
-
-> **read it, understand it, reason over it, and—when properly authorized—help maintain it.**
-
-But the underlying principle remains:
-
-> **The taste belongs to the user.**
->
-> **Discriminantly stewards it.**
->
-> **AI may understand it.**
->
-> **The user decides who gets to use it.**
+Client-specific prompting may not override this policy.

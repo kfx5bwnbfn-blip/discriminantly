@@ -1,533 +1,418 @@
-# The Discriminantly Constitution
+Discriminantly Constitution — Reconciled Semantic Model
 
-## Preamble
+Version: 0.2-reconciled
+Date: 2026-10-07
+Status: Proposed authoritative replacement for stale recommendation/adoption language in earlier Constitution drafts.
 
-Discriminantly exists to help people capture, understand, preserve, and share the things they find meaningful.
+1. Purpose
 
-It is a record of taste.
+Discriminantly preserves a member-owned, portable semantic record of things, places, experiences, plans, judgments and prospective ideas.
 
-But it is more than a catalogue of things a person has liked.
+Its central duty is to preserve what kind of truth each record represents, who asserted it, and why it exists.
 
-Over time, the record should become a richer representation of a person’s preferences, experiences, judgments, curiosities, and affinities—a portable expression of how they see and choose the world.
+The system must never quietly replace:
 
-Discriminantly's role is to help the individual build and steward that record.
-
-It does not own the taste.
-
-It does not define the taste.
-
-It does not manufacture the taste.
-
-It helps the person preserve it, make it useful, and choose how it is shared.
-
----
-
-# I. Taste Sovereignty
-
-### 1. A person's taste belongs to the person.
-
-The fundamental object of Discriminantly is not the Note, the Travel Mark, the Collection, or even the database.
-
-It is the person's evolving record of taste.
-
-That record belongs to the person who creates it.
-
-Discriminantly is its steward.
-
----
-
-### 2. The user is the authority on their own taste.
-
-Discriminantly may observe patterns, identify relationships, and offer interpretations.
-
-It must distinguish those interpretations from what the user has explicitly expressed.
-
-The system should never quietly replace:
-
-> "The user said this."
+> **the member said or did this**
 
 with:
 
-> "The system thinks this."
+> **the system thinks or proposed this**
 
----
+The same durable target may accumulate multiple truthful assertions over time. Those assertions must remain distinguishable.
 
-### 3. Taste is allowed to evolve.
+2. The relationship is the record
 
-A person's taste is not static.
+A Note is a member-scoped relationship to a thing.
+A Travel Mark is a member-scoped relationship to a place.
+An Itinerary is a durable arrangement of travel intentions.
 
-A person may contradict themselves.
+Record existence does not necessarily imply member Adoption.
 
-They may change their mind.
+Historically, creation and Adoption often happened together, so the distinction was invisible. Recommendations introduce a second legitimate entry path.
 
-They may develop new interests.
+> **relationship existence ≠ member adoption**
 
-They may revisit old ones.
+A Note, Travel Mark or Itinerary may exist without being part of the adopted corpus when another truthful relationship explains its existence, including a Recommendation.
 
-Discriminantly should preserve this evolution rather than attempting to force the user into a fixed profile.
+A record must not exist as a neutral orphan. If it is not adopted, another explicit or system-valid relationship must explain why it is retained.
 
----
+3. Assertion classes
 
-# II. The Nature of the Record
+Discriminantly distinguishes assertion classes. These classes describe the relationship/evidence attached to a record, not necessarily mutually exclusive entity types.
 
-### 4. Different actions carry different meanings.
+3.1 Explicit / member-authorized
 
-Discriminantly should preserve distinctions between different types of evidence.
+Examples include:
 
-A thing being recorded does not necessarily mean it is liked.
+• Adoption / Keep
+• Check-in
+• Ownership
+• Warrant
+• explicit comments
+• direct edits
+• explicit artifact construction delegated by the member
 
-A thing being experienced does not necessarily mean it is endorsed.
+These assertions record something the member explicitly said, did, or authorized.
 
-A thing being endorsed does not necessarily mean it is recommended to everyone.
+3.2 Proposed / AI-generated
 
-The system should preserve these distinctions.
+Examples include:
 
----
+• Recommendation
+• recommendation-only Notes
+• recommendation-only Travel Marks
+• recommendation-only Itineraries
+• unresolved or partially resolved prospective propositions
 
-### 5. Notes
+A Recommendation means:
 
-A Note is fundamentally a way to record a physical object or thing of interest.
+> **The AI deliberately selected and presented this to the member as a recommendation.**
 
-A Note may represent curiosity, appreciation, aspiration, memory, or simply the desire to remember something.
+It does not mean:
 
-A Note should not automatically be interpreted as an endorsement.
+• the member likes it
+• the member intends it
+• the member adopted it
+• the member visited it
+• the member owns it
+• the member warrants it
 
----
+Recommendation targets may be durable, fully resolved records.
 
-### 6. Travel Marks
+3.3 Observed
 
-A Travel Mark is a way to record a place.
+Observed assertions record behavior the system actually observed, such as views or other captured actions.
 
-A Travel Mark may represent a place a person wants to visit, has visited, or simply wants to remember.
+Observed behavior must not be silently converted into explicit preference.
 
-The distinction between intention and experience should remain explicit.
+3.4 Derived / inferred
 
----
+Derived or inferred assertions are machine interpretations computed from other evidence.
 
-### 7. Check-ins
+They must retain provenance, evidence references where applicable, uncertainty/confidence where applicable, and a clear distinction from member-explicit evidence.
 
-A Check-in explicitly establishes that a user has experienced a Travel Mark.
+Derived meaning must never overwrite its source evidence.
 
-A Check-in therefore carries a different kind of evidence from merely marking a place.
+4. A record may carry multiple assertion classes
 
-A Check-in should not automatically imply endorsement.
-
----
-
-### 8. Collections
-
-Collections allow people to deliberately group Notes and Travel Marks.
-
-A Collection provides context.
-
-It may represent a theme, journey, idea, aspiration, category, or simply a personal grouping.
-
-The existence of a Collection should not be interpreted as proof that every item within it carries identical meaning or strength of preference.
-
----
-
-# III. Warrant
-
-### 9. Warrant is an act of standing behind something.
-
-Warrant is a future capability of Discriminantly.
-
-It is not currently implemented.
-
-The concept is inspired by the notion of a royal warrant: an explicit indication that someone stands behind a thing.
-
-Within Discriminantly:
-
-> **To Warrant something is to say, in effect: "I stand behind this."**
-
-A Warrant is intended to be lightweight to give, but semantically meaningful.
-
----
-
-### 10. Warrant applies to things, not merely products.
-
-A future Warrant may apply to:
-
-- Notes;
-- Travel Marks;
-- and other appropriate objects as the product evolves.
+A single Note, Travel Mark or Itinerary may accumulate multiple independent assertions.
 
 For example:
 
-> A Travel Mark says: "This restaurant is worth remembering."
+1. AI recommends a place.
+2. A recommendation-only Travel Mark is created.
+3. The member later Keeps it.
+4. The member later Checks in.
+5. The member later Warrants it.
 
-> A Check-in says: "I have experienced this restaurant."
+The correct model is not a destructive lifecycle that replaces one state with another. It is an accumulating history:
 
-> A Warrant says: "I stand behind this restaurant."
+> Recommendation + Adoption + Check-in + Warrant
 
-These are distinct signals.
+Each assertion remains independently meaningful and attributable.
 
----
+Existing adopted records may also later be recommended in a new context. Recommendation history remains valid.
 
-### 11. Warrant is not synonymous with recommendation.
+5. Recommendation is not Adoption
 
-A Warrant is an explicit statement about the user's own judgment.
+Recommendation and Adoption are independent assertions.
 
-It does not necessarily mean:
+A recommendation-only record is a real member-scoped relationship because the AI deliberately brought it into the member’s prospective semantic space.
 
-> "Everyone should try this."
+It is not merely a transient research candidate.
 
-Nor does it necessarily mean:
+> **research candidate ≠ Recommendation ≠ Adoption**
 
-> "This is my favorite."
+5.1 Research candidate
 
-It means that the user is willing to stand behind the thing.
+A thing/place/plan merely considered internally during research.
 
----
+It does not enter the member’s durable record.
 
-### 12. Explicit Warrant and inferred endorsement must remain distinct.
+5.2 Recommendation
 
-An explicit Warrant is a user action.
+A thing/place/plan deliberately selected and presented to the member.
 
-An AI inference that a user probably endorses something is an inference.
+It may be persisted durably, with a Recommendation assertion.
 
-The two must never be represented as equivalent.
+5.3 Adoption
 
----
+A member-authorized assertion that the target belongs in their adopted corpus.
 
-# IV. Evidence and Inference
+Adoption may happen:
 
-### 13. Discriminantly should preserve an evidence hierarchy.
+• directly, when the member explicitly keeps something
+• through an explicitly delegated artifact-construction request whose semantics include Adoption of the primary artifact and its grounded constituents
+• later, when the member keeps a prior recommendation
 
-At minimum, the system should distinguish between:
+Adoption does not erase Recommendation history.
 
-- what a user has recorded;
-- what a user has experienced;
-- what a user has explicitly endorsed;
-- what a user has repeatedly interacted with;
-- what patterns have been inferred from their behavior;
-- and what an AI believes may be true.
+6. Delegated artifact construction
 
-These are different epistemic states.
+User authorization is evaluated from the semantic trajectory of the conversation, not from a requirement for repetitive confirmation phrases.
 
----
+A direct request such as:
 
-### 14. Provenance matters.
+> “Plan me a day in Taipei.”
 
-Where practical, meaningful inferred relationships should retain information about why they exist.
+authorizes the assistant to construct the primary requested itinerary.
 
-The system should be able to distinguish:
+Within that authorized scope, the assistant may:
 
-> "The user explicitly said this."
+• create the itinerary
+• create its groups/days
+• select grounded Stops
+• persist the proposed sequence
+• create or reuse the corresponding primary-plan Travel Marks
+• adopt the primary itinerary and those grounded primary-plan records as required by the current itinerary model
+• record Recommendation provenance for AI-selected elements
 
-from:
+The assistant does not need a second generic “Shall I save this?” when the user’s original request already delegated construction.
 
-> "The user did this repeatedly."
+Authorization is bounded. It does not authorize:
 
-from:
+• Check-ins
+• Ownership
+• Warrants
+• bookings
+• purchases
+• publication
+• unrelated corpus changes
 
-> "The system inferred this from several signals."
+Material ambiguity about identity or intent still requires resolution.
 
-from:
+7. Optional editorial expansion remains prospective
 
-> "An AI interpreted this from the available record."
+Optional adjacent ideas are not part of the member-authorized primary artifact merely because they are generated in the same conversation.
 
----
+Examples include:
 
-### 15. Weak signals should not masquerade as strong signals.
+• For Another Time itineraries
+• optional destination objects
+• future-city extensions
+• additional recommendation-orbit content
 
-A single interaction should not automatically become a durable statement of taste.
+These remain Recommendation-only unless separately adopted.
 
-A follow should not necessarily imply similarity.
+The system may materialize these recommendations durably. Materialization does not mean Keep.
 
-A view should not necessarily imply interest.
+A recommended itinerary may therefore exist as:
 
-A bookmark should not necessarily imply endorsement.
+> Recommendation → target Itinerary → Stops → recommendation-only Marks / unresolved propositions
 
-A shared object should not necessarily imply meaningful affinity.
+This is valid prospective structure.
 
-Discriminantly should prefer evidence accumulation over false certainty.
+8. Recommended itineraries are real structural artifacts
 
----
+A Recommendation record is an assertion/provenance record.
 
-# V. Semantic Understanding
+An itinerary Recommendation points to a target Itinerary.
 
-### 16. Discriminantly should evolve from a catalogue into a semantic record.
+The Recommendation UID is not the Itinerary UID.
 
-The long-term ambition is not simply to store things.
+Therefore:
 
-It is to understand relationships between things.
+• recommendation metadata lives on the Recommendation assertion
+• itinerary structure lives on the target Itinerary
+• Stops belong to the target Itinerary
+• recommendation-only Marks or unresolved propositions may support those Stops
 
-The system should progressively become capable of identifying:
+When the member later keeps the recommendation:
 
-- similarities;
-- differences;
-- themes;
-- patterns;
-- affinities;
-- relationships between objects and places;
-- relationships between users;
-- and relationships between a user's taste and the wider world.
+• Adoption is added to the existing target
+• the target is not copied merely to become kept
+• Recommendation history remains
+• resolved recommendation-only Marks / attached Notes may be adopted according to itinerary keep semantics
+• unresolved Stops remain unresolved
+• no Check-in, Ownership, Warrant, reservation or purchase is inferred
 
----
+9. My corpus is an adopted projection
 
-### 17. Search should evolve toward meaning.
+“My Notes,” “My Marks,” and equivalent corpus views refer to the adopted corpus.
 
-Discriminantly should progress from conventional search toward semantic retrieval and eventually semantic inference.
+They must not silently include every member-scoped prospective record.
 
-These are distinct capabilities:
+Recommendation views may include recommendation-only targets and already-adopted records recommended again in a context.
 
-**Search**
+> **Recommended ≠ Kept**
 
-> Find what matches.
+10. Resolution is orthogonal to Adoption
 
-**Semantic search**
+Resolution answers:
 
-> Find what means something similar.
+> How confidently do we know what this thing/place is?
 
-**Semantic inference**
+Adoption answers:
 
-> Identify relationships that were not explicitly recorded.
+> Does this belong in the member’s adopted corpus?
 
-**Taste inference**
+These are independent.
 
-> Interpret those relationships as evidence about the user's evolving taste.
+A record may be:
 
-The latter should never erase the evidence from which it was derived.
+• unresolved + recommended
+• partially resolved + recommended
+• fully resolved + recommended
+• unresolved + adopted
+• fully resolved + adopted
 
----
+> **Resolve aggressively. Preserve uncertainty. Never manufacture precision.**
 
-# VI. The Social Graph
+Resolution enriches identity. It does not rewrite history or imply Adoption.
 
-### 18. Taste may be relational.
+11. Evidence boundaries
 
-Discriminantly's social network may reveal useful information about taste.
+The following implications are forbidden unless the member explicitly performs or authorizes the corresponding act:
 
-Repeatedly re-noting objects from another person's record, for example, may provide evidence of recurring taste overlap.
+• Recommended ⇒ Kept
+• Kept ⇒ Owned
+• Owned ⇒ Kept
+• Kept Mark ⇒ Visited
+• Check-in ⇒ Kept
+• Check-in ⇒ Warrant
+• Warrant ⇒ Kept
+• itinerary inclusion ⇒ Check-in
+• itinerary inclusion ⇒ booking
+• recommendation reaction ⇒ permanent preference unless explicitly represented as such
 
-But social relationships should not be reduced to popularity.
+Compound explicit actions are allowed when the member’s wording truthfully supports more than one assertion.
 
-A follower is not necessarily a tastemaker.
+12. Recommendation reactions remain distinct
 
-A person with many followers is not necessarily more compatible with an individual user's taste.
+At minimum:
 
----
+• not_this_trip = contextual deferral
+• not_for_me = explicit negative relation appropriate for durable interpretation if policy supports it
+• dismissed = removal from the current open recommendation surface without stronger taste meaning
 
-### 19. Taste affinity should emerge from repeated evidence.
+Silence is not rejection.
 
-Potential future relationships may include:
+No automatic taste derivation should be created merely from recommendation presentation or non-response.
 
-> User A → repeatedly overlaps with → User B
+13. Private evidence remains private
 
-Such relationships should be treated as evidence of possible affinity rather than absolute declarations of similarity.
+A Recommendation, shared artifact, itinerary, collaboration, or AI operating session must not expose unrelated private corpus evidence.
 
-The system should be cautious about converting network behavior into permanent assumptions.
+Privacy must be preserved independently from Adoption, Recommendation, sharing, collaboration, provenance and AI access.
 
----
+Private content may be read by an authorized AI only under the member’s permissions.
 
-# VII. AI and MCP
+14. Provenance is mandatory for durable writes
 
-### 20. AI should be able to access taste with permission.
+Every durable mutation must preserve enough provenance to distinguish:
 
-A user may authorize an AI to access their Discriminantly record, including private Notes and Travel Marks.
+• member acting directly
+• AI acting on behalf of the member
+• system/migration
+• Recommendation provenance
+• derived/inferred processing where applicable
 
-Privacy is primarily intended to govern **who else can see the record**, not to prevent the user's authorized AI from making legitimate use of it.
+AI-generated assertions must remain legible as AI-generated. Member-explicit assertions must remain legible as member-explicit.
 
-Authorization must remain explicit and governed.
+15. Confirmation resolves ambiguity; it does not duplicate intent
 
----
+> **Confirmation should resolve semantic ambiguity, not duplicate authorization already clearly expressed.**
 
-### 21. AI should understand the difference between reading and acting.
+Examples:
 
-An AI may be permitted to read a user's taste record without necessarily being permitted to modify it.
+• “Plan me a day in Florence.” → execute the primary itinerary.
+• “Give me ideas only; don’t save anything.” → do not persist.
+• “Keep this.” → adopt the identified target.
+• “I bought this.” → record Ownership; do not infer Keep unless the compound operation is explicitly authorized.
+• “Not this trip.” → contextual reaction; do not convert to permanent dislike.
 
-Read access, inference, recommendation, and write access should be treated as distinct permissions.
+16. Retrieve → Interpret → Propose → Execute
 
----
+These are distinct semantic phases. They must not be silently collapsed.
 
-### 22. AI agency should be possible, but governed.
+They do not necessarily require separate user turns.
 
-The long-term opportunity is not merely for AI to retrieve a user's taste.
+Retrieve
 
-It may eventually be able to help maintain it.
+Read existing evidence and context.
 
-For example, with sufficient evidence and appropriate authorization, an AI might identify a strong conversational signal and propose—or eventually execute—a Warrant.
+Interpret
 
-But AI agency must preserve the distinction between:
+Reason about what the evidence may mean. Interpretation is not itself new member evidence.
 
-> **what the user explicitly did**
+Propose
 
-and
+Select and present recommendations or candidate actions. Only deliberately presented recommendations enter the durable prospective corpus.
 
-> **what the AI did on the user's behalf.**
+Execute
 
----
+Perform authorized writes. Execution may already be authorized by the member’s initiating request.
 
-# VIII. Portability
+The assistant must evaluate authorization from the whole request trajectory.
 
-### 23. The user's taste can leave with the user.
+> **distinct phases ≠ mandatory repeated confirmation**
 
-A person's taste record should be portable from the moment it is created.
+17. No inference laundering
 
-Discriminantly should provide users with a practical means to take their taste record with them.
+Discriminantly must never present:
 
-This is not an exit strategy.
+• AI proposal as member adoption
+• machine inference as member assertion
+• observed behavior as explicit preference
+• another member’s evidence as this member’s evidence
+• shared artifact membership as personal experience
+• collaboration activity as another collaborator’s taste evidence
 
-It is a foundational property of the product.
+The provenance and assertion class must remain visible to the system even where the UI simplifies the presentation.
 
-> **If the taste belongs to the person, the person must be able to take it with them.**
+18. No orphan member records
 
----
+A member-scoped Note, Mark or Itinerary outside the adopted corpus must have another truthful relationship explaining its existence.
 
-### 24. Portability should be native, not exceptional.
+Valid examples may include:
 
-The data structures used to represent a user's taste should be designed with portability in mind from the beginning.
+• Recommendation
+• pending Ensemble membership
+• itinerary-scoped prospective relationship
+• explicit Ownership or Warrant where current domain semantics allow such independent existence
+• other explicitly modeled relationships
 
-Notes, Travel Marks, Check-ins, Collections, Warrants, relationships, provenance, and relevant metadata should not depend upon an opaque internal representation that makes them effectively impossible for the user to extract or reuse.
+Editing alone is not a relationship. System convenience is not a relationship.
 
-Where practical, the user's record should be available in documented, machine-readable formats.
+19. Cross-client portability
 
-The objective is not merely:
+OpenAI, Anthropic, Meta/Muse and future AI systems are clients of Discriminantly.
 
-> "Download your data."
+No AI platform owns Discriminantly’s semantics.
 
-It is:
+All clients must operate against the same constitutional distinctions:
 
-> **"Your taste is a portable thing."**
+• Recommendation
+• Adoption
+• Ownership
+• Check-in
+• Warrant
+• Observed behavior
+• Derived inference
 
----
+Client-specific UX may differ. Semantic truth may not.
 
-### 25. Portability across AI.
+20. Precedence
 
-The user's taste record should be usable across compatible AI systems.
+When instructions conflict, apply this precedence:
 
-A user should not have to choose an AI permanently because that AI has accumulated an irreplaceable understanding of their preferences.
+1. This Constitution
+2. Current domain invariants enforced by the Discriminantly server
+3. Current MCP Policy
+4. Current tool descriptions and schemas
+5. Current workflow Skills
+6. Client-specific prompting or editorial behavior
 
-Instead:
+A lower layer must never instruct an AI to violate a higher semantic invariant.
 
-> **The taste record travels.  
-> The AI changes.  
-> The user's taste remains.**
+If an older Constitution, MCP Policy, Skill or client note conflicts with this reconciled model, the stale text must be updated rather than followed.
 
-MCP is one mechanism through which an authorized AI may interact with the user's persistent taste record.
+21. Core doctrine
 
-The underlying principle is broader than any particular protocol.
-
----
-
-### 26. Portability across services.
-
-Where technically and commercially practical, Discriminantly should allow a user to take their taste record to another service.
-
-The user's ability to leave should not be treated as a failure of the product.
-
-It is evidence that the product respects the user's ownership.
-
----
-
-### 27. Future changes in ownership do not change the principle.
-
-If Discriminantly is acquired, merged, sold, or otherwise transferred, the user's fundamental ability to obtain and reuse their taste record should remain intact.
-
-An acquisition transfers stewardship of the service.
-
-It should not silently transform:
-
-> **"My taste, preserved by Discriminantly"**
-
-into:
-
-> **"My taste, owned by the acquirer."**
-
----
-
-# IX. Stewardship
-
-### 28. Discriminantly is a steward, not the owner.
-
-Discriminantly's value is not derived from possessing the user's taste.
-
-Its value comes from being an exceptional place to keep it.
-
-Discriminantly should aspire to provide:
-
-- persistent hosting;
-- security;
-- governance;
-- organization;
-- accessibility;
-- discovery;
-- semantic understanding;
-- evolution of the taste record;
-- and responsible AI accessibility.
-
----
-
-### 29. Stewardship earns retention.
-
-Discriminantly should not seek to make itself indispensable by making departure difficult.
-
-It should seek to make itself indispensable by being an exceptional steward of what the user entrusts to it.
-
-> **Portability protects the user's sovereignty.  
-> Stewardship earns their continued trust.**
-
----
-
-### 30. The ultimate test.
-
-Discriminantly should aspire to make itself:
-
-> **valuable enough that people want to stay, without making itself necessary for people to leave.**
-
-The user's trust should come from knowing:
-
-> **"This is my taste. I can use it here. I can take it somewhere else. And I can decide who gets to see or use it."**
-
----
-
-# X. The Business Philosophy
-
-### 31. The customer is the user, not the user's taste.
-
-The user's taste should not be treated as a commodity to be sold simply because it has commercial value.
-
-The economic relationship should be primarily between Discriminantly and the person using the service.
-
-The service earns revenue by providing value to the user.
-
----
-
-### 32. Monetization should follow value.
-
-Discriminantly should favor models that allow users to experience meaningful value before requiring payment.
-
-A subscription model may ultimately be appropriate, potentially at an accessible consumer price.
-
-However, monetization should not unnecessarily place the most valuable product primitives behind artificial restrictions that prevent users from discovering their value.
-
-As usage, storage, compute, and other real costs grow, those thresholds may provide a rational basis for monetization.
-
-The principle is:
-
-> **Charge for the service that stewards and makes useful the taste record—not for ownership of the taste itself.**
-
----
-
-# XI. The North Star
-
-Discriminantly should become a durable, portable layer between:
-
-**people and their taste**
-
-**people and AI**
-
-**people and the things they care about**
-
-and eventually:
-
-**people and the world's catalogues.**
-
-The ambition is not to know everything about everyone.
-
-It is to help each person build an increasingly useful record of themselves—and allow that record to travel with them.
-
-> **Your taste is yours.  
-> We steward it.  
-> AI can understand it.  
-> You decide who gets to use it.**
+> **The relationship is the record.**
+> **Relationship existence is not Adoption.**
+> **Recommendation is durable possibility, not member preference.**
+> **Adoption is a separate member-authorized assertion.**
+> **Resolution is orthogonal to Adoption.**
+> **Delegated creation may authorize execution without redundant confirmation.**
+> **The system preserves who asserted what, why it exists, and what it does not imply.**
