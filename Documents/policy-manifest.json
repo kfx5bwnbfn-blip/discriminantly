@@ -1,0 +1,29 @@
+{
+  "bundle_id": "discriminantly-semantic-governance",
+  "version": "0.2-reconciled",
+  "date": "2026-10-07",
+  "documents": [
+    {
+      "path": "discriminantly-constitution.md",
+      "role": "human_authoritative_constitution"
+    },
+    {
+      "path": "discriminantly-mcp-policy.md",
+      "role": "machine_operating_policy"
+    },
+    {
+      "path": "discriminantly-semantic-policy.json",
+      "role": "machine_readable_semantic_rules"
+    },
+    {
+      "path": "discriminantly-semantic-policy.yaml",
+      "role": "machine_readable_semantic_rules_yaml"
+    }
+  ],
+  "supersedes": [
+    "older Constitution language equating materialization with explicit/kept state",
+    "older MCP Policy language requiring separate confirmation for already-delegated primary artifact execution",
+    "client notes stating recommendations should never be materialized"
+  ],
+  "deployment_note": "Commit documentation now. If any of these rules are embedded in the currently reviewed OpenAI MCP server instructions, tool descriptions, or bundled Skills, defer runtime deployment of those specific changes until review completes or the review is intentionally reset."
+}

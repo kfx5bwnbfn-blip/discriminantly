@@ -1,0 +1,164 @@
+policy_id: discriminantly.semantic_policy
+version: 0.2-reconciled
+effective_date: '2026-10-07'
+status: proposed_authoritative
+principles:
+  relationship_is_record: true
+  relationship_existence_implies_adoption: false
+  recommendation_implies_adoption: false
+  resolution_implies_adoption: false
+  adoption_implies_visit: false
+  adoption_implies_ownership: false
+  adoption_implies_warrant: false
+  checkin_implies_adoption: false
+  ownership_implies_adoption: false
+  warrant_implies_adoption: false
+  silence_implies_rejection: false
+  delegated_primary_artifact_may_execute_without_redundant_confirmation: true
+assertion_classes:
+  explicit_member_authorized:
+    examples:
+    - adoption
+    - checkin
+    - ownership
+    - warrant
+    - explicit_comment
+    - direct_edit
+    - delegated_primary_artifact_execution
+  proposed_ai_generated:
+    examples:
+    - recommendation
+    - recommendation_only_note
+    - recommendation_only_mark
+    - recommendation_only_itinerary
+    - prospective_unresolved_proposition
+  observed:
+    examples:
+    - view
+    - observed_behavior
+  derived_inferred:
+    examples:
+    - derived_relation
+    - taste_hypothesis
+    - model_interpretation
+boundaries:
+  research_candidate:
+    durable: false
+    member_semantic_space: false
+    rule: Do not persist merely because the model considered or researched it.
+  recommendation:
+    durable: true
+    adopted: false
+    rule: Persist only when deliberately selected and presented as a recommendation.
+  adoption:
+    durable: true
+    rule: Separate member-authorized assertion; may coexist with recommendation.
+delegated_authorization:
+  primary_itinerary:
+    triggers:
+    - plan
+    - build
+    - make
+    - organize
+    - organise
+    - fill
+    - sequence
+    authorizes:
+    - create_primary_itinerary
+    - create_groups_days
+    - select_grounded_stops
+    - persist_sequence
+    - create_or_reuse_primary_plan_marks
+    - adopt_primary_itinerary
+    - adopt_primary_plan_marks
+    - record_ai_recommendation_provenance
+    does_not_authorize:
+    - checkin
+    - ownership
+    - warrant
+    - booking
+    - purchase
+    - publication
+    - unrelated_corpus_changes
+    redundant_generic_confirmation_required: false
+prospective_model:
+  optional_editorial_expansion_is_recommendation_only: true
+  recommendation_targets_may_be_materialized: true
+  recommended_itinerary_may_have_stops: true
+  recommended_itinerary_may_reference_recommendation_only_marks: true
+  recommended_itinerary_may_contain_unresolved_stops: true
+  keep_recommendation_adds_adoption_to_existing_target: true
+  keep_recommendation_duplicates_target: false
+recommendation_target_mechanics:
+  recommendation_uid_role: assertion_identity
+  target_uid_role: target_record_identity
+  itinerary_structure_operations_use: target_uid
+  forbidden:
+  - use_recommendation_uid_as_itinerary_uid
+projections:
+  my_notes: adopted_only
+  my_marks: adopted_only
+  recommendation_reads: recommendation_assertions_including_recommendation_only_and_already_adopted_targets
+resolution:
+  orthogonal_to_adoption: true
+  allowed_combinations:
+  - unresolved+recommended
+  - partial+recommended
+  - resolved+recommended
+  - unresolved+adopted
+  - resolved+adopted
+  rule: Resolve aggressively. Preserve uncertainty. Never manufacture precision.
+reaction_semantics:
+  not_this_trip: contextual_deferral
+  not_for_me: explicit_negative_relation
+  dismissed: remove_from_open_recommendation_surface_without_stronger_taste_meaning
+  silence: no_reaction
+forbidden_inferences:
+- recommendation=>adoption
+- recommendation=>preference
+- recommendation=>visit
+- recommendation=>ownership
+- recommendation=>warrant
+- adoption=>visit
+- adoption=>ownership
+- adoption=>warrant
+- ownership=>adoption
+- checkin=>adoption
+- checkin=>warrant
+- warrant=>adoption
+- itinerary_stop=>checkin
+- itinerary_stop=>booking
+- view=>preference
+- search=>preference
+authorization_phases:
+  phases:
+  - retrieve
+  - interpret
+  - propose
+  - execute
+  separate_semantic_phases: true
+  separate_user_turns_required: false
+  rule: Execute when the initiating request already authorizes the act; ask only when
+    material ambiguity remains.
+provenance:
+  required_for_durable_writes: true
+  actors:
+  - user
+  - ai_on_behalf
+  - system
+  - migration
+  must_distinguish_ai_proposal_from_member_assertion: true
+privacy:
+  private_evidence_never_public_implicitly: true
+  shared_artifact_access_does_not_grant_unrelated_private_corpus_access: true
+no_orphan_rule:
+  enabled: true
+  non_adopted_record_requires_explaining_relationship: true
+  editing_alone_is_explaining_relationship: false
+precedence:
+- constitution
+- server_domain_invariants
+- mcp_policy
+- tool_descriptions_and_schemas
+- workflow_skills
+- client_prompting
