@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
+// v2.69 Phase 0: the Muse capture origin. Self-contained (no database, no server
+// internals); inert unless MUSE_ORIGIN is set. See muse-capture.js.
+const museCapture = require('./muse-capture');
 
 const PORT = process.env.PORT || 3000;
 // The stylesheet is fingerprinted by content: a deploy changes the URL, so a
@@ -12898,6 +12901,9 @@ RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their c
 const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/welcome-shot-itin-dark.jpg': 'image/jpeg', '/welcome-shot-itin-light.jpg': 'image/jpeg', '/welcome-phone-ask.jpg': 'image/jpeg', '/welcome-phone-profile-light.jpg': 'image/jpeg', '/welcome-phone-profile-dark.jpg': 'image/jpeg', '/welcome-phone-chat.jpg': 'image/jpeg', '/welcome-phone-app-light.jpg': 'image/jpeg', '/welcome-phone-app-dark.jpg': 'image/jpeg', '/mark.png': 'image/png', '/mark@4x.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
 async function handle(req, res) {
+  // Muse capture origin first, before any cookie, session or route is read:
+  // an exact Host match on MUSE_ORIGIN, never taken when it is unset.
+  if (museCapture.matches(req)) return museCapture.handle(req, res, new URL(req.url, 'http://x'));
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   // HEAD is routed as GET, with the body suppressed — uptime checks and link

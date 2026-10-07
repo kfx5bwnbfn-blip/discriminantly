@@ -1557,6 +1557,23 @@ console.log('\nmcp trailing slash');
      i > 0 && j > i && j - i < 400 && /if \(\(mt = p\.match\(\/\^\\\/mcp\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\$\/\)\)\) return mcp\(req, res, mt\[1\]\);/.test(SRC.slice(i, j)));
 }
 
+// ---- Muse capture origin (v2.69 Phase 0) -----------------------------------
+console.log('\nmuse capture origin');
+{
+  const MC = fs.readFileSync(path.join(__dirname, '..', 'muse-capture.js'), 'utf8');
+  const code = MC.replace(/\/\/.*$/gm, '');
+  ok('MU1 the capture module requires nothing: no database, no server internals', !/require\(/.test(code));
+  ok('MU2 it issues nothing and stores nothing: no SQL, no code or token minting, no cookie or Authorization value read',
+     !/\b(INSERT|UPDATE|DELETE|SELECT)\b/.test(code) && !/oauthIssue|access_token|refresh_token"?\s*:/.test(code.replace(/\/(access_token\|refresh_token)\//, ''))
+     && !/headers\.cookie|headers\['cookie'\]/.test(code) && !/headers\.authorization\s*[^;]*\.(split|slice|match|replace)|authorization\]\s*\./.test(code));
+  ok('MU3 the dispatch is the first statement of handle(), an exact Host match, inert when MUSE_ORIGIN is unset',
+     /async function handle\(req, res\) \{\s*(\/\/[^\n]*\n\s*)*if \(museCapture\.matches\(req\)\) return museCapture\.handle\(req, res, new URL\(req\.url, 'http:\/\/x'\)\);/.test(SRC)
+     && /const matches = \(req\) => !!HOST && String\(req\.headers\.host \|\| ''\)\.toLowerCase\(\) === HOST;/.test(MC)
+     && /const ORIGIN = \(process\.env\.MUSE_ORIGIN \|\| ''\)/.test(MC));
+  ok('MU4 the placeholder client_id is accepted nowhere: no endpoint on either origin issues a code or token for it',
+     (SRC.match(/muse-capture-test-only/g) || []).length === 0 && /\/oauth\/token'\) \{[\s\S]{0,400}invalid_grant/.test(MC));
+}
+
 // ---- Welcome in All (v2.56) ------------------------------------------------
 console.log('\nwelcome');
 {
