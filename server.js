@@ -6540,7 +6540,9 @@ function recommendationsList(user, { context_itinerary_uid = null, workflow = nu
     const key = v.context ? v.context.itinerary_uid : 'for_another_time';
     let g = groups.find((x) => x.key === key);
     if (!g) groups.push(g = { key, itinerary_uid: v.context ? v.context.itinerary_uid : null,
-      title: v.context ? (v.context.itinerary_title || 'A trip') : 'For another time', items: [] });
+      // A null title means the plan was deleted after the recommendation was
+      // made (v2.69.1: say so, rather than the vague "A trip").
+      title: v.context ? (v.context.itinerary_title || 'A plan that has since been deleted') : 'For another time', items: [] });
     g.items.push(v);
   }
   return { total: rows.length, shown: top.length, groups: groups.map(({ key, ...g }) => g) };
@@ -6688,6 +6690,17 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
                                   group_uid = null, temporal = {}, position = null,
                                   new_place = null }, ctx) {
   const it = itinOwned(user, itinUid);
+  // v2.69.1: everything that can refuse is checked BEFORE a Mark is created,
+  // so a refused stop never leaves a stray Mark behind (a retry then made a
+  // second one). Same checks, same messages, earlier.
+  const t = { ...temporalOf({}), ...temporal };
+  const bad = temporalValidate(t); if (bad) throw new Error(bad);
+  let groupId = null;
+  if (group_uid) {
+    const { group } = groupOwned(user, group_uid);
+    if (group.itinerary_id !== it.id) throw new Error('That day belongs to another itinerary.');
+    groupId = group.id;
+  }
   // Accepting a sufficiently identified place into a plan creates its Travel
   // Mark, per the Mark boundary: added to the itinerary IS marked. The Mark's
   // own creation provenance carries where it came from, so corpus lineage is
@@ -6696,8 +6709,11 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
     const np = new_place;
     // In a recommended plan, a place the member already has a Mark for is
     // that Mark (it gains the plan's context), never a duplicate (decision C).
-    // A kept plan keeps its submitted behaviour.
-    const reuse = !isAdopted('itinerary', it.uid) ? findExistingMark(user.id, { place_name: np.name, locality: np.locality, country: np.country, address: np.address, lat: np.lat, lng: np.lng }) : null;
+    // In a kept plan (v2.69.1), a place the member already KEEPS a Mark for is
+    // that Mark too; anything else still gets a new kept Mark, as submitted.
+    const kept = isAdopted('itinerary', it.uid);
+    const found = findExistingMark(user.id, { place_name: np.name, locality: np.locality, country: np.country, address: np.address, lat: np.lat, lng: np.lng });
+    const reuse = found && (!kept || isAdopted('mark', found.uid)) ? found : null;
     if (reuse) mark_uid = reuse.uid;
     else mark_uid = markCreate(user, {
       name: np.name, locality: np.locality, country: np.country, address: np.address,
@@ -6707,15 +6723,6 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
       // added to an adopted plan IS marked (Kept); added to a recommended plan,
       // the plan's Recommendation explains it until the member keeps the plan
       adopt: isAdopted('itinerary', it.uid) }).uid;
-  }
-  const t = { ...temporalOf({}), ...temporal };
-  const bad = temporalValidate(t); if (bad) throw new Error(bad);
-
-  let groupId = null;
-  if (group_uid) {
-    const { group } = groupOwned(user, group_uid);
-    if (group.itinerary_id !== it.id) throw new Error('That day belongs to another itinerary.');
-    groupId = group.id;
   }
   let res = resolution, mUid = null;
   if (mark_uid) {
@@ -11315,6 +11322,50 @@ function findSimilarNote(userId, title, link = '') {
   return row ? { ...best, row, id: row.id, uid: row.uid, name: row.name } : { state: 'none', basis: [] };
 }
 
+// ---- ignored arguments (v2.69.1) ---------------------------------------------
+// Tool arguments are not validated against inputSchema, so a name a tool does
+// not accept (e.g. `time` on update_itinerary_stop) used to vanish while the
+// call still reported success. The call still runs exactly as before; the
+// result now also says, plainly, what was ignored. Only names are reported,
+// never values. Conforming calls are unaffected byte for byte.
+//
+// Names some handlers read without declaring them (legacy or internal) are
+// never reported; test/write-safety.js keeps this list in step with the code.
+const ARGS_READ_UNDECLARED = {
+  note_object: ['image_uid'], edit_note: ['image_uid'], finish_image_upload: ['sha'],
+  correct_note_ownership_mistake: ['subject_type', 'mark_id', 'place'], resolve_recommendation: ['items'],
+  set_stop_note: ['itinerary_uid'],
+};
+const TOOL_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
+function ignoredArgs(name, args) {
+  const t = TOOL_BY_NAME.get(name);
+  if (!t || !args || typeof args !== 'object' || Array.isArray(args)) return [];
+  const props = (t.inputSchema && t.inputSchema.properties) || {};
+  const extra = new Set(ARGS_READ_UNDECLARED[name] || []);
+  const out = [];
+  for (const k of Object.keys(args)) {
+    if (k.startsWith('_') || extra.has(k)) continue;
+    if (!(k in props)) { out.push(k); continue; }
+    // One level down: arrays of objects with declared item properties
+    // (e.g. add_itinerary_stops.stops[].time).
+    const ip = props[k] && props[k].type === 'array' && props[k].items && props[k].items.properties;
+    if (ip && Array.isArray(args[k])) {
+      const bad = new Set();
+      for (const it of args[k]) if (it && typeof it === 'object' && !Array.isArray(it)) for (const kk of Object.keys(it)) if (!kk.startsWith('_') && !(kk in ip)) bad.add(kk);
+      for (const kk of bad) out.push(`${k}[].${kk}`);
+    }
+  }
+  return out.slice(0, 20);
+}
+function ignoredArgsNotice(name, ignored) {
+  const list = ignored.map((k) => '`' + k + '`').join(', ');
+  const timeish = ignored.some((k) => /time|clock|hour|date|when|start|end|day/i.test(k.split('.').pop()))
+    && /itinerar|stop/.test(name) && name !== 'update_itinerary_temporal';
+  return `\n\nNOT APPLIED: ${name} does not accept ${list}, so ${ignored.length > 1 ? 'they were' : 'it was'} ignored and nothing was stored for ${ignored.length > 1 ? 'them' : 'it'}. `
+    + (timeish ? 'Dates and times are set with update_itinerary_temporal (target, uid, and e.g. clock "19:00" 24-hour, or year/month/day). ' : '')
+    + 'Tell the member what did not change; do not describe it as done.';
+}
+
 async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor = null) {
   // Every AI-originated write in this dispatcher attributes itself through the
   // connection that made the call. Shadowing the module-level helper keeps the
@@ -11859,8 +11910,15 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     const dn = visitDaysOf(vid).length;
     if (rec.repeated) return wr(`That visit to ${mk.name} (${prettyRange(start, end)}) was just recorded; nothing new was added — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
       'unchanged', 'visit', vid, uidOf('visits', vid), mk.name, `${n} total`);
-    return wr(`Logged a visit to ${mk.name}: ${prettyRange(start, end)}${dn ? ` with notes on ${dn} day${dn === 1 ? '' : 's'}` : ''} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
+    const out = wr(`Logged a visit to ${mk.name}: ${prettyRange(start, end)}${dn ? ` with notes on ${dn} day${dn === 1 ? '' : 's'}` : ''} — ${n} ${n === 1 ? 'visit' : 'visits'} total`,
       'created', 'visit', vid, uidOf('visits', vid), mk.name, `${n} total`);
+    // v2.69.1: a check-in overlapping one already on this mark is recorded as
+    // asked, but said out loud, so a retry with different words is noticed.
+    const near = q(`SELECT id, visited_on, ended_on FROM visits WHERE mark_id=? AND user_id=? AND id<>? AND date_known<>0
+      AND visited_on <= ? AND IFNULL(ended_on, visited_on) >= ? ORDER BY id LIMIT 3`).all(mk.id, user.id, vid, end || start, start);
+    if (near.length) out.text += `\n\nPOSSIBLE DUPLICATE: ${mk.name} already has ${near.length === 1 ? 'a check-in' : 'check-ins'} on overlapping dates `
+      + `(${near.map((v) => `#${v.id}, ${prettyRange(v.visited_on, v.ended_on)}`).join('; ')}). If this was the same visit, ask the member before removing one with delete_checkin.`;
+    return out;
   }
   if (name === 'list_checkins') {
     if (!a.mark_id) throw new Error('mark_id is required');
@@ -12478,15 +12536,29 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
           return { text: `Those ${last.length} stop(s) were just added to "${it0.title}"; nothing new was added.`, structured: { ok: true, itinerary_uid: it0.uid, stops: last.map((st) => stopView(st)) } };
       }
       const added = [];
-      for (const sp of a.stops || []) {
-        const st = stopAdd(user, a.itinerary_uid, {
-          label: sp.label, resolution: sp.kind || null, mark_uid: sp.mark_uid || null,
-          new_place: sp.new_place || null,
-          group_uid: sp.group_uid || null,
-          temporal: T_IN({ daypart: sp.daypart, clock: sp.clock }),
-        }, ctx);
-        added.push(stopView(st));
-      }
+      // v2.69.1: all or nothing. A stop refused part-way through no longer
+      // leaves the earlier stops (and any Marks they created) behind, so a
+      // corrected retry starts clean instead of duplicating them.
+      const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
+      try {
+        for (const [i, sp] of (a.stops || []).entries()) {
+          let st;
+          try {
+            st = stopAdd(user, a.itinerary_uid, {
+              label: sp.label, resolution: sp.kind || null, mark_uid: sp.mark_uid || null,
+              new_place: sp.new_place || null,
+              group_uid: sp.group_uid || null,
+              temporal: T_IN({ daypart: sp.daypart, clock: sp.clock }),
+            }, ctx);
+          } catch (e) {
+            if ((a.stops || []).length > 1 && e instanceof Error && e.message && !(e instanceof TypeError))
+              e.message = `Stop ${i + 1} ("${String(sp.label || '').slice(0, 60)}"): ${e.message} No stops were added.`;
+            throw e;
+          }
+          added.push(stopView(st));
+        }
+        if (tx) db.exec('COMMIT');
+      } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
       const it = itinOwned(user, a.itinerary_uid);
       return { text: `Added ${added.length} stop${added.length === 1 ? '' : 's'} to "${it.title}".`,
         structured: { ok: true, action: 'created', subject: 'itinerary_stop', stops: added,
@@ -12847,6 +12919,13 @@ RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their c
       // questions in the MCP Policy remain answerable inside the AI's context
       // rather than only inside our database.
       const payload = { content: [{ type: 'text', text: typeof out === 'string' ? out : out.text }] };
+      // v2.69.1: say what was ignored instead of reporting a silent success.
+      const ignored = ignoredArgs(params.name, params.arguments);
+      if (ignored.length) {
+        payload.content[0].text += ignoredArgsNotice(params.name, ignored);
+        payload._meta = { ...(payload._meta || {}), 'discriminantly/ignored_arguments': ignored };
+        console.log(`[tool-ignored-args] tool=${params.name} member=@${user.handle} args=[${ignored.join(',')}]`);
+      }
       // Some results are pictures. A path like /i/<uid> is useless to a model —
       // it is relative, and a private image needs this member's session — so
       // when a tool returns images we hand back the bytes as MCP image blocks,
