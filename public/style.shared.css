@@ -157,6 +157,19 @@
 .resurface-eyebrow a { color: inherit; text-decoration: none; }
 .resurface-eyebrow a:hover { text-decoration: underline; }
 
+/* v2.68 semantic-yield receipt: the resurfacing frame and eyebrow, with a
+   short list of truthful counts in place of a card. No scores, no badges. */
+.receipt-body { text-align: center; }
+.receipt-title { margin: .1rem 0 .7rem; font-size: 1.3rem; font-weight: 600; line-height: 1.25; }
+.receipt-counts { list-style: none; margin: 0 auto .8rem; padding: 0; display: inline-flex; flex-direction: column; gap: .3rem; text-align: left; font-size: .95rem; }
+.receipt-counts li::before { content: "\2022"; margin-right: .55rem; opacity: .45; }
+.receipt-names { margin: 0 0 .6rem; font-size: .85rem; line-height: 1.5; }
+.receipt-names a { color: inherit; }
+.receipt-note { margin: 0 0 .5rem; }
+.receipt-promise { margin: .2rem 0 .9rem; font-style: italic; opacity: .85; }
+.receipt-foot { display: flex; flex-direction: column; align-items: center; gap: .55rem; }
+.receipt-foot .fine { margin: 0; opacity: .6; }
+
 /* ---- Provenance colophon: structure only, so classic gets a sane stacked
    composition and modern paints it as a watermark. ---- */
 /* Every line sits on one rhythm. The gap is owned by the column, not by the
@@ -1138,6 +1151,9 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .welcome-card .wl-how li { margin-bottom: .35rem; }
 .welcome-card .wl-url { font-size: .82rem; overflow-wrap: anywhere; }
 .welcome-card .wl-prompts { display: flex; flex-direction: column; gap: .6rem; }
+.welcome-card .wl-direct { margin: .9rem 0 0; text-align: center; }
+.welcome-card .wl-direct a { color: inherit; }
+.welcome-compact .sbox-sub { margin-bottom: 1rem; }
 .welcome-card .wl-prompt { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.1rem; border-radius: 16px; }
 .welcome-card .wl-q { margin: 0; font-style: italic; font-size: 1.05rem; line-height: 1.4; }
 .welcome-card .wl-prompt .fine { margin: .3rem 0 0; }
@@ -1384,3 +1400,8 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 .admin-wide .admin-activity .act-line > span:last-child { text-transform: none; letter-spacing: normal; font-size: .98rem; font-weight: 400; }
 @media (max-width: 52rem) { .admin-wide .admin-activity .act-line { flex-direction: column; gap: .15rem; } .admin-wide .admin-activity .act-date { width: auto; } }
 @media (max-width: 52rem) { .admin-wide .admin-activity .act-date { flex: none; width: auto; } }
+
+/* v2.68 admin: the activation model's segment headings and limitations */
+.act-table .act-seg-head th { padding-top: 1rem; text-align: left; font-style: italic; }
+.act-limits { margin: .4rem 0 0; padding-left: 1.2rem; text-align: left; line-height: 1.55; }
+.act-limits li { margin: 0 0 .35rem; }

@@ -2023,13 +2023,18 @@ function todayPlanCard(t, me) {
     <div class="resurface-body">${itineraryPreview(t.it, me)}</div>
   </aside>`;
 }
-function resurfaceBanner(me, feed, searching) {
+function resurfaceBanner(me, feed, searching, receipt = null) {
   if (!me || feed !== 'all') return { html: '', skip: null };   // All feed only
   // A search is a question with an answer; an editorial resurfacing above it
   // would be an interruption pretending to be a result.
   if (searching) return { html: '', skip: null };
   const today = planToday(me);
   if (today) return { html: todayPlanCard(today, me), skip: 'itin:' + today.it.id };
+  // v2.68: what an AI session just produced takes the slot for 72 hours.
+  if (receipt) {
+    recordEvent(me.id, 'receipt_viewed', { surface: 'all', meta: { session: String(Math.floor(receipt.start / 1000)) }, dedupeMinutes: 4320 });
+    return { html: receiptCard(receipt, me), skip: null };
+  }
   const block = resurfaceCandidate(me);
   if (!block) return { html: '', skip: null };                  // nothing eligible: show nothing
   const rec = block.o ? ['note', block.o.id] : ['mark', block.m.id];
@@ -5562,7 +5567,7 @@ const whenUtc = (t) => {
 // private view on, as everywhere else.
 const EVENT_WORDS = { signup_started: 'Opened the sign-up form', signup_completed: 'Created their account', welcome_viewed: 'Saw the Welcome card',
   welcome_tab_viewed: 'Opened a Welcome step', starter_selected: 'Picked a starter', starter_copied: 'Copied a starter prompt', starter_launched: 'Opened a starter in Claude Desktop',
-  ai_connection_started: 'Began connecting an AI', empty_state_action: 'Used an empty-state action' };
+  ai_connection_started: 'Began connecting an AI', empty_state_action: 'Used an empty-state action', receipt_viewed: 'Saw what their AI had just added' };
 function memberActivity(u, me, n = 200) {
   const see = (row) => !row.private || adminOn(me);
   const name = (row, kind, href) => see(row) ? `<a href="${href}">${esc(row.name || row.title || 'untitled')}</a>` : `a private ${kind}`;
@@ -5635,12 +5640,492 @@ function activationReport() {
   return Object.values(by).sort((a, b) => b.signups - a.signups).map((g) => ({ source: g.source, signups: g.signups, activated: g.activated,
     rate: g.signups ? g.activated / g.signups : 0, in_window: g.in_window, median_hours: med(g.hours) }));
 }
+// ============================================================================
+// ACTIVATION MODEL (v2.68) — internal product analysis, derived on read
+// ----------------------------------------------------------------------------
+// Answers "did the member get value, come back, and did what they kept earlier
+// take part in something later?" from the canonical tables only: adoptions,
+// provenance (who acted, through which client, when), itinerary stops and
+// stop notes, recommendations, check-ins and ownership. Nothing here writes
+// corpus, provenance or adoption, and nothing is stored: every figure is
+// recomputed from the records, so retries, refreshes and deletions can never
+// leave a stale "first value" or a duplicated reuse row behind.
+//
+// Working session: a member's acts (provenance rows they are the actor of,
+// directly or through an AI) separated by pauses of more than 30 minutes.
+// It is a product-analysis boundary only. It is NOT the AI conversation: no
+// client sends a conversation id, so none is claimed.
+//
+// Prior evidence: a record counts as earlier evidence for a later act only if
+// it was kept before the working session of that act began. Something made
+// and used in the same session is never reuse. Full definitions and what each
+// measure does not prove: docs/product/activation-model.md.
+// ============================================================================
+const ACT_GAP_MS = 30 * 60e3;           // a pause longer than this starts a new working session
+const ACT_RETURN_MS = 12 * 3600e3;      // a return starts at least 12 hours after first value
+const RECEIPT_WINDOW_MS = 72 * 3600e3;  // how long a receipt stays at the top of All
+const tsMs = (s) => {
+  if (!s) return NaN;
+  const x = String(s).replace(' ', 'T');
+  return Date.parse(/[zZ]$|[+-]\d\d:?\d\d$/.test(x) ? x : x + 'Z');
+};
+const dayOf = (ms) => new Date(ms).toISOString().slice(0, 10);
+// The client that acted, as recorded in provenance (what the client declared
+// about itself). Never inferred from text.
+const clientOfAgent = (g) => g === 'chatgpt' ? 'ChatGPT' : (g === 'claude' || g === 'mcp:claude') ? 'Claude' : g === 'web' ? 'Discriminantly' : 'your AI';
+const clientKindOfConn = (c) => /chatgpt|openai/i.test(`${c.client_name || ''} ${c.client_label || ''}`) ? 'chatgpt'
+  : /claude|anthropic/i.test(`${c.client_name || ''} ${c.client_label || ''}`) ? 'claude' : 'other';
+
+function memberActs(userId, sinceIso = null) {
+  return q(`SELECT entity_type t, entity_uid u, action a, actor_type k, agent g, source_kind sk, source_ref sr, fields f, created_at c
+      FROM provenance WHERE actor_user_id=? ${sinceIso ? 'AND created_at >= ?' : ''} AND entity_type NOT IN ('user', 'follow')
+      ORDER BY created_at, id`).all(...(sinceIso ? [userId, sinceIso] : [userId]))
+    .map((r) => ({ ...r, ms: tsMs(r.c) })).filter((r) => r.ms === r.ms);
+}
+function sessionsOf(acts) {
+  const out = []; let cur = null;
+  for (const r of acts) {
+    if (!cur || r.ms - cur.end > ACT_GAP_MS) { cur = { start: r.ms, end: r.ms, acts: [] }; out.push(cur); }
+    cur.end = Math.max(cur.end, r.ms); cur.acts.push(r);
+  }
+  return out;
+}
+// The session an instant belongs to (a session runs from its first act to 30
+// minutes after its last); null when the instant falls in no session.
+function sessionAt(sessions, ms) {
+  let lo = 0, hi = sessions.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1, s = sessions[mid];
+    if (ms < s.start - 120e3) hi = mid - 1; else if (ms > s.end + ACT_GAP_MS) lo = mid + 1; else return s;
+  }
+  return null;
+}
+const sessionStartAt = (sessions, ms) => { const s = sessionAt(sessions, ms); return s ? s.start : ms; };
+// When each record first became part of the member's corpus (Adoption).
+function keptTimes(userId) {
+  const m = new Map();
+  for (const r of q("SELECT subject_type t, subject_uid u, MIN(created_at) c FROM adoptions WHERE user_id=? AND state='adopted' GROUP BY subject_type, subject_uid").all(userId)) m.set(`${r.t}:${r.u}`, tsMs(r.c));
+  return m;
+}
+// Gap clustering for instants that have no provenance session (backfilled adoptions).
+function clusters(times) {
+  const out = []; let cur = null;
+  for (const t of [...times].filter((x) => x === x).sort((a, b) => a - b)) {
+    if (!cur || t - cur.end > ACT_GAP_MS) { cur = { start: t, end: t, n: 0, times: [] }; out.push(cur); }
+    cur.end = t; cur.n++; cur.times.push(t);
+  }
+  return out;
+}
+
+// Everything the derivations below read about one member, loaded once.
+function activationSubstrate(userId) {
+  const acts = memberActs(userId);
+  const sessions = sessionsOf(acts);
+  const kept = keptTimes(userId);
+  const adoptedItins = new Map(q('SELECT id, uid, title FROM adopted_itineraries WHERE user_id=?').all(userId).map((r) => [r.uid, r]));
+  const stops = q(`SELECT s.id, s.uid, s.mark_uid, s.created_at, s.itinerary_id, i.uid iu FROM itinerary_stops s JOIN itineraries i ON i.id = s.itinerary_id
+      WHERE i.user_id=? ORDER BY s.created_at, s.id`).all(userId);
+  // When a stop was linked to its Mark: the last act that set mark_uid, else its creation.
+  const linkAct = new Map(), firstAct = new Map();
+  for (const r of acts) {
+    const key = `${r.t}:${r.u}`;
+    if (!firstAct.has(key) && (r.a === 'created' || r.a === 'adopted')) firstAct.set(key, r);
+    if (r.t === 'itinerary_stop' && (r.a === 'created' || /mark_uid/.test(r.f || ''))) linkAct.set(r.u, r);
+  }
+  for (const s of stops) {
+    const la = linkAct.get(s.uid);
+    s.linkMs = la && la.ms >= tsMs(s.created_at) - 1000 ? la.ms : tsMs(s.created_at);
+    s.agent = la ? la.g : null;
+  }
+  return { userId, acts, sessions, kept, adoptedItins, stops, firstAct };
+}
+
+// Prior-evidence reuse and intention -> experience, from durable relationships
+// only. A search, a read or a mention is never evidence of use.
+function reuseEvidence(sub) {
+  const { userId, sessions, kept, adoptedItins, stops, firstAct } = sub;
+  const out = [], seen = new Set();
+  const push = (e) => { const k = `${e.basis}|${e.later_uid}|${e.earlier_uid}`; if (seen.has(k)) return; seen.add(k); out.push(e); };
+  const stopsByMark = new Map();
+  for (const s of stops) if (s.mark_uid) (stopsByMark.get(s.mark_uid) || stopsByMark.set(s.mark_uid, []).get(s.mark_uid)).push(s);
+  // 1. A Mark kept in an earlier session becomes a stop in a kept plan.
+  for (const s of stops) {
+    if (!s.mark_uid) continue;
+    const it = adoptedItins.get(s.iu); if (!it) continue;
+    const k = kept.get('mark:' + s.mark_uid);
+    const st = sessionStartAt(sessions, s.linkMs);
+    if (!(k < st)) continue;
+    const across = (stopsByMark.get(s.mark_uid) || []).some((o) => o.iu !== s.iu && adoptedItins.has(o.iu) && o.linkMs < st);
+    const at = Math.max(s.linkMs, kept.get('itinerary:' + s.iu) || 0);
+    push({ kind: 'reuse', basis: across ? 'existing_mark_reused_across_plans' : 'existing_mark_used_in_new_itinerary',
+      at, later_type: 'itinerary', later_uid: s.iu, earlier_type: 'mark', earlier_uid: s.mark_uid, agent: s.agent });
+  }
+  // 2. A Note kept in an earlier session is placed under a stop of a kept plan.
+  for (const n of q(`SELECT sn.uid, sn.created_at, o.uid nu, i.uid iu FROM itinerary_stop_notes sn JOIN itinerary_stops s ON s.id = sn.stop_id
+      JOIN itineraries i ON i.id = s.itinerary_id JOIN objects o ON o.id = sn.note_id WHERE i.user_id=?`).all(userId)) {
+    if (!adoptedItins.has(n.iu)) continue;
+    const ms = tsMs(n.created_at), k = kept.get('object:' + n.nu);
+    if (!(k < sessionStartAt(sessions, ms))) continue;
+    const a = firstAct.get('itinerary_stop_note:' + n.uid);
+    push({ kind: 'reuse', basis: 'existing_note_attached_to_new_plan', at: Math.max(ms, kept.get('itinerary:' + n.iu) || 0),
+      later_type: 'itinerary', later_uid: n.iu, earlier_type: 'object', earlier_uid: n.nu, agent: a ? a.g : null });
+  }
+  // 3. A recommendation made in an earlier session is kept later.
+  const recAt = new Map(q('SELECT uid, created_at FROM recommendations WHERE user_id=?').all(userId).map((r) => [r.uid, tsMs(r.created_at)]));
+  for (const r of sub.acts) {
+    if (r.t !== 'adoption' || r.sk !== 'recommendation' || !r.sr) continue;
+    const made = recAt.get(r.sr); if (!(made < sessionStartAt(sessions, r.ms))) continue;
+    const [lt, lu] = String(r.f || '').split(':');
+    push({ kind: 'reuse', basis: 'recommendation_adopted_later', at: r.ms, later_type: lt || 'record', later_uid: r.sr,
+      earlier_type: 'recommendation', earlier_uid: r.sr, subject: lu || null, agent: r.g });
+  }
+  // 4. Intention -> experience: a check-in on a planned or kept place, made in
+  //    a later session, for a visit on or after the day it was planned or kept
+  //    (a visit logged from before the place was kept is history, not experience).
+  for (const v of q(`SELECT v.uid, v.created_at, v.visited_on, v.date_known, m.uid mu FROM visits v JOIN marks m ON m.id = v.mark_id WHERE v.user_id=?`).all(userId)) {
+    if (!v.date_known || !/^\d{4}-\d\d-\d\d/.test(v.visited_on || '')) continue;
+    const ms = tsMs(v.created_at), st = sessionStartAt(sessions, ms), on = String(v.visited_on).slice(0, 10);
+    const a = firstAct.get('visit:' + v.uid);
+    const planned = (stopsByMark.get(v.mu) || []).filter((s) => adoptedItins.has(s.iu) && s.linkMs < st && on >= dayOf(s.linkMs));
+    if (planned.length) { push({ kind: 'experience', basis: 'planned_mark_checked_in_later', at: ms, later_type: 'visit', later_uid: v.uid, earlier_type: 'mark', earlier_uid: v.mu, agent: a ? a.g : null }); continue; }
+    const k = kept.get('mark:' + v.mu);
+    if (k < st && on >= dayOf(k)) push({ kind: 'experience', basis: 'kept_mark_checked_in_later', at: ms, later_type: 'visit', later_uid: v.uid, earlier_type: 'mark', earlier_uid: v.mu, agent: a ? a.g : null });
+  }
+  // 5. Intention -> experience: something placed in a plan is later marked owned.
+  const planNotes = new Map();
+  for (const n of q(`SELECT o.uid nu, MIN(sn.created_at) c FROM itinerary_stop_notes sn JOIN objects o ON o.id = sn.note_id WHERE sn.user_id=? GROUP BY o.uid`).all(userId)) planNotes.set(n.nu, tsMs(n.c));
+  for (const o of q(`SELECT a.uid, a.created_at, o.uid nu FROM ownership_assertions a JOIN objects o ON o.id = a.object_id WHERE a.user_id=? AND a.state='owned'`).all(userId)) {
+    const ms = tsMs(o.created_at), p = planNotes.get(o.nu);
+    if (p < sessionStartAt(sessions, ms)) push({ kind: 'experience', basis: 'planned_note_owned_later', at: ms, later_type: 'ownership', later_uid: o.uid, earlier_type: 'object', earlier_uid: o.nu, agent: null });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+// The member's own acts change only when provenance is written for them, so
+// the two per-render derivations (has this member reused, and the receipt)
+// are cached against the newest of their acts. Nothing is stored on disk.
+const ACT_CACHE = new Map();
+function actStamp(userId) {
+  const r = q('SELECT MAX(id) m, MAX(created_at) c FROM provenance WHERE actor_user_id=?').get(userId);
+  return `${r.m || 0}|${r.c || ''}`;
+}
+function actCached(userId, key, ttlMs, fn) {
+  const stamp = actStamp(userId), now = Date.now(), slot = ACT_CACHE.get(userId) || {};
+  const hit = slot[key];
+  if (hit && hit.stamp === stamp && now - hit.at < ttlMs) return hit.value;
+  const value = fn();
+  if (ACT_CACHE.size > 2000) ACT_CACHE.clear();
+  ACT_CACHE.set(userId, { ...slot, [key]: { stamp, at: now, value } });
+  return value;
+}
+// For the Welcome card: has this member ever reused prior evidence?
+function hasReused(userId) {
+  return actCached(userId, 'reused', 6 * 3600e3, () => reuseEvidence(activationSubstrate(userId)).some((e) => e.kind === 'reuse'));
+}
+
+// What one working session produced: a vector of truthful counts, never a score.
+function sessionYield(sub, s) {
+  const { kept } = sub;
+  const from = s.start - 120e3, to = s.end + ACT_GAP_MS;
+  const inWin = (t) => t >= from && t <= to;
+  const y = { start: s.start, end: s.end, agents: new Set(), aiActs: 0, plans_kept: [], plans_suggested: 0, marks_kept: [], marks_suggested: 0,
+    notes_kept: [], notes_suggested: 0, places_reused: new Set(), things_reused: new Set(), things_new_under_stops: 0, recs: new Set(), recs_another_time: new Set(),
+    recs_kept: new Set(), checkins: 0, updated: new Set() };
+  const created = { itinerary: [], mark: [], object: [] };
+  for (const r of s.acts) {
+    if (r.k === 'ai_on_behalf') { y.aiActs++; y.agents.add(clientOfAgent(r.g)); } else if (r.g === 'web' && r.a !== 'edited') y.agents.add('Discriminantly');
+    if (r.a === 'created' && created[r.t]) created[r.t].push(r.u);
+    else if (r.t === 'recommendation' && r.a === 'created') { y.recs.add(r.u); if (r.sk === 'for_another_time') y.recs_another_time.add(r.u); }
+    else if (r.t === 'adoption' && r.sk === 'recommendation' && r.sr) y.recs_kept.add(r.sr);
+    else if (r.t === 'visit' && r.a === 'created') y.checkins++;
+    else if (r.t === 'itinerary_stop' && (r.a === 'created' || /mark_uid/.test(r.f || ''))) {
+      const st = sub.stops.find((x) => x.uid === r.u);
+      if (st && st.mark_uid && kept.get('mark:' + st.mark_uid) < from) y.places_reused.add(st.mark_uid);
+    } else if (r.t === 'itinerary_stop_note' && r.a === 'created') {
+      if (r.sk === 'existing_note' && r.sr && kept.get('object:' + r.sr) < from) y.things_reused.add(r.sr); else y.things_new_under_stops++;
+    } else if (['edited', 'enriched', 'corrected'].includes(r.a) && r.k === 'ai_on_behalf' && ['object', 'mark', 'itinerary'].includes(r.t)) {
+      const k = kept.get(`${r.t}:${r.u}`); if (k < from) y.updated.add(`${r.t}:${r.u}`);
+    }
+  }
+  const recTargets = new Set(created.itinerary.length || created.mark.length || created.object.length
+    ? q("SELECT target_uid FROM recommendations WHERE user_id=? AND target_uid IS NOT NULL").all(sub.userId).map((r) => r.target_uid) : []);
+  const keptNow = (t, u) => inWin(kept.get(`${t}:${u}`));
+  for (const u of new Set(created.itinerary)) {
+    const it = q('SELECT id, uid, title, (SELECT COUNT(*) FROM itinerary_stops s WHERE s.itinerary_id = itineraries.id) n FROM itineraries WHERE uid=?').get(u);
+    if (!it) continue;
+    if (sub.adoptedItins.has(u) && keptNow('itinerary', u)) y.plans_kept.push(it); else if (recTargets.has(u)) y.plans_suggested++;
+  }
+  for (const u of new Set(created.mark)) {
+    const x = q('SELECT id, uid, name FROM adopted_marks WHERE uid=?').get(u);
+    if (x && keptNow('mark', u)) y.marks_kept.push(x); else if (recTargets.has(u)) y.marks_suggested++;
+  }
+  for (const u of new Set(created.object)) {
+    const x = q('SELECT id, uid, name FROM adopted_objects WHERE uid=?').get(u);
+    if (x && keptNow('object', u)) y.notes_kept.push(x); else if (recTargets.has(u)) y.notes_suggested++;
+  }
+  // a suggestion that was also kept in this session is counted as kept, not suggested
+  for (const r of y.recs_kept) { y.recs.delete(r); y.recs_another_time.delete(r); }
+  y.meaningful = y.plans_kept.some((p) => p.n > 0) || y.marks_kept.length + y.notes_kept.length >= 1 || y.places_reused.size + y.things_reused.size >= 1
+    || y.things_new_under_stops >= 1 || y.recs.size >= 2 || y.recs_kept.size >= 1 || y.checkins >= 1;
+  return y;
+}
+const yieldVector = (y) => y && ({ itineraries: y.plans_kept.length, marks_new: y.marks_kept.length, marks_reused: y.places_reused.size,
+  notes_new: y.notes_kept.length, notes_reused: y.things_reused.size, recommendations: y.recs.size, recommendations_kept: y.recs_kept.size,
+  unresolved_suggested: y.marks_suggested + y.notes_suggested + y.plans_suggested, checkins: y.checkins });
+
+// Declared intent: the first starter the member chose (copied, opened, or
+// picked before connecting), or a direct-app action from the Welcome card.
+// Product evidence only; never a preference, never taste evidence.
+const INTENT_OF = { plan: 'trip_planning', place: 'keep_place', thing: 'keep_thing', show: 'retrieve_existing', resume: 'retrieve_existing',
+  recall: 'retrieve_existing', again: 'plan_from_kept', build: 'plan_from_kept',
+  direct_note: 'direct_app', direct_mark: 'direct_app', direct_plan: 'direct_app', add_place: 'direct_app', start_plan: 'direct_app' };
+function initialIntent(userId) {
+  for (const e of q(`SELECT event, meta, created_at FROM product_events WHERE user_id=? AND event IN ('starter_selected','starter_copied','starter_launched','empty_state_action') ORDER BY id LIMIT 40`).all(userId)) {
+    let m = {}; try { m = JSON.parse(e.meta || '{}'); } catch {}
+    const key = INTENT_OF[m.starter || m.action];
+    if (key) return { key, at: tsMs(e.created_at) };
+  }
+  return null;
+}
+const cohortOf = (u) => u.is_admin ? 'internal' : u.research_flag === 'founder_assisted' ? 'founder_assisted' : u.research_flag === 'test' ? 'test' : 'organic';
+
+// One member's activation profile: the analysis stages, with timestamps (ms).
+function activationProfile(u) {
+  const sub = activationSubstrate(u.id);
+  const { kept, sessions, stops, adoptedItins } = sub;
+  const joined = tsMs(u.created_at);
+  const conns = q('SELECT client_name, client_label, created_at FROM connections WHERE user_id=? ORDER BY created_at, id').all(u.id);
+  const firstConn = conns.length ? tsMs(conns[0].created_at) : null;
+  const intent = initialIntent(u.id);
+  // Stage 2a, first semantic value: the first kept Note or Mark, or the first
+  // kept plan once it has a stop (an empty plan is not a result).
+  const cands = [];
+  for (const [k, t] of kept) { const [ty] = k.split(':'); if (ty === 'object') cands.push({ at: t, type: 'note' }); if (ty === 'mark') cands.push({ at: t, type: 'mark' }); }
+  const byItin = new Map(); for (const s of stops) (byItin.get(s.iu) || byItin.set(s.iu, []).get(s.iu)).push(s);
+  const subst = [];
+  for (const [iu, list] of byItin) {
+    const k = kept.get('itinerary:' + iu); if (!(k === k) || !adoptedItins.has(iu)) continue;
+    const sorted = [...list].sort((a, b) => tsMs(a.created_at) - tsMs(b.created_at));
+    cands.push({ at: Math.max(k, tsMs(sorted[0].created_at)), type: 'itinerary' });
+    // Stage 2b (plan): a kept plan with at least two stops, one of them a real place (a linked Mark).
+    let n = 0, linked = false;
+    for (const s of sorted) { n++; linked = linked || !!s.mark_uid; if (n >= 2 && linked) { subst.push({ at: Math.max(k, tsMs(s.created_at)), type: 'itinerary', uid: iu }); break; } }
+  }
+  cands.sort((a, b) => a.at - b.at);
+  const firstValue = cands[0] || null;
+  // Stage 2b (records): one stretch of work that kept three or more Notes or Marks.
+  const recClusters = clusters([...kept].filter(([k]) => /^(object|mark):/.test(k)).map(([, t]) => t));
+  for (const c of recClusters) if (c.n >= 3) subst.push({ at: c.times[2], type: 'multi_record' });
+  subst.sort((a, b) => a.at - b.at);
+  const substantive = subst[0] || null;
+  // Stage 3, accumulating: kept records from at least two separate stretches of work.
+  const allKept = clusters([...kept].filter(([k]) => /^(object|mark|itinerary):/.test(k)).map(([, t]) => t));
+  const accumulatingAt = allKept.length >= 2 ? allKept[1].start : null;
+  const evidenceTypes = ['adopted_objects', 'adopted_marks'].filter((v) => q(`SELECT 1 FROM ${v} WHERE user_id=? LIMIT 1`).get(u.id)).length
+    + (subst.some((x) => x.type === 'itinerary') || cands.some((c) => c.type === 'itinerary') ? 1 : 0)
+    + ['visits', 'ownership_assertions', 'warrants', 'recommendations'].filter((t) => q(`SELECT 1 FROM ${t} WHERE user_id=? LIMIT 1`).get(u.id)).length;
+  // Stage 4, returned: a semantic act in a working session that starts at least
+  // 12 hours after first value. Signing in again is reported separately.
+  let returnedAt = null, signedInAgainAt = null;
+  if (firstValue) {
+    const s = sessions.find((x) => x.start >= firstValue.at + ACT_RETURN_MS && x.acts.some((r) => r.a !== 'deleted'));
+    returnedAt = s ? s.start : null;
+    const si = q("SELECT MIN(created_at) c FROM sessions WHERE user_id=? AND created_at >= ?").get(u.id, new Date(firstValue.at + ACT_RETURN_MS).toISOString().replace('T', ' ').slice(0, 19));
+    signedInAgainAt = si && si.c ? tsMs(si.c) : null;
+  }
+  // Stages 5-7.
+  const ev = reuseEvidence(sub);
+  const reuse = ev.filter((e) => e.kind === 'reuse'), experience = ev.filter((e) => e.kind === 'experience');
+  const firstReuse = reuse[0] || null;
+  const fs = firstReuse ? sessionStartAt(sessions, firstReuse.at) : null;
+  const further = firstReuse ? reuse.find((e) => sessionStartAt(sessions, e.at) > fs + ACT_GAP_MS) || null : null;
+  const secondSubstantive = subst.find((x) => substantive && x.at > substantive.at + ACT_GAP_MS) || null;
+  // The first substantive interaction's yield: the working session it happened in.
+  const ss = substantive ? sessionAt(sessions, substantive.at) : null;
+  const firstYield = ss ? sessionYield(sub, ss) : null;
+  const d = (a, b) => (a !== null && a !== undefined && b !== null && b !== undefined && a === a && b === b && a >= b ? a - b : null);
+  const p = {
+    id: u.id, handle: u.handle, cohort: cohortOf(u), source: u.signup_source || 'unknown',
+    client: conns.length ? clientKindOfConn(conns[0]) : 'none', intent: intent ? intent.key : null,
+    joined, connectedAt: firstConn, intentAt: intent ? intent.at : null,
+    firstValueAt: firstValue ? firstValue.at : null, firstValueType: firstValue ? firstValue.type : null,
+    substantiveAt: substantive ? substantive.at : null, substantiveType: substantive ? substantive.type : null,
+    secondSubstantiveAt: secondSubstantive ? secondSubstantive.at : null,
+    accumulatingAt, evidenceTypes, returnedAt, signedInAgainAt,
+    firstReuseAt: firstReuse ? firstReuse.at : null, firstReuseBasis: firstReuse ? firstReuse.basis : null,
+    furtherReuseAt: further ? further.at : null, firstExperienceAt: experience[0] ? experience[0].at : null,
+    reuse, experience, firstYield: firstYield ? yieldVector(firstYield) : null,
+  };
+  p.ttfv = { account: d(p.firstValueAt, joined), connection: d(p.firstValueAt, firstConn), starter: d(p.firstValueAt, p.intentAt),
+    substantive: d(p.substantiveAt, joined), toReuse: d(p.firstReuseAt, p.firstValueAt) };
+  p.stage = p.furtherReuseAt ? 7 : p.firstExperienceAt && p.firstReuseAt ? 6 : p.firstReuseAt ? 5 : p.returnedAt ? 4 : p.accumulatingAt ? 3 : p.firstValueAt ? 2 : firstConn ? 1 : 0;
+  return p;
+}
+const STAGE_NAMES = ['Account created', 'AI connected', 'First semantic value', 'Accumulating', 'Returned', 'Prior evidence reused', 'Intention became experience', 'Further reuse'];
+
+// ---- The semantic-yield receipt -----------------------------------------
+// After an AI-mediated working session keeps or changes something durable,
+// the top of All says what it produced, privately, for 72 hours or until a
+// newer one. Derived on every render, so a refresh shows the same receipt and
+// a tiny edit (a typo, a dinner time, an image) never makes a new one.
+function latestReceipt(me) { return actCached(me.id, 'receipt', 60e3, () => computeReceipt(me)); }
+function computeReceipt(me) {
+  const since = new Date(Date.now() - RECEIPT_WINDOW_MS - 6 * 3600e3).toISOString().replace('T', ' ').slice(0, 19);
+  const acts = memberActs(me.id, since);
+  if (!acts.length) return null;
+  const sessions = sessionsOf(acts);
+  const sub = { userId: me.id, acts, sessions, kept: keptTimes(me.id),
+    adoptedItins: new Map(q('SELECT id, uid, title FROM adopted_itineraries WHERE user_id=?').all(me.id).map((r) => [r.uid, r])),
+    stops: q(`SELECT s.uid, s.mark_uid FROM itinerary_stops s JOIN itineraries i ON i.id = s.itinerary_id WHERE i.user_id=? AND s.created_at >= ?`).all(me.id, since) };
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const s = sessions[i];
+    if (Date.now() - s.end > RECEIPT_WINDOW_MS) break;
+    const y = sessionYield(sub, s);
+    if (y.aiActs && y.meaningful) return y;
+  }
+  return null;
+}
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+function receiptCard(y, me) {
+  const ai = [...y.agents].filter((a) => a !== 'Discriminantly');
+  const by = `Added through ${ai.join(' and ') || 'your AI'}${y.agents.has('Discriminantly') ? ' and directly in Discriminantly' : ''}`;
+  const plan = y.plans_kept.length === 1 ? y.plans_kept[0] : null;
+  const lines = [];
+  if (y.plans_kept.length) lines.push(plural(y.plans_kept.length, 'plan kept', 'plans kept'));
+  if (y.marks_kept.length) lines.push(plural(y.marks_kept.length, 'place kept', 'places kept'));
+  if (y.places_reused.size) lines.push(`${plural(y.places_reused.size, 'place', 'places')} you’d already kept, ${plan ? 'used in this plan' : 'used again'}`);
+  if (y.notes_kept.length) lines.push(plural(y.notes_kept.length, 'thing kept', 'things kept'));
+  if (y.things_reused.size) lines.push(`${plural(y.things_reused.size, 'thing', 'things')} you’d already kept, placed in ${plan ? 'this plan' : 'a plan'}`);
+  if (y.recs_kept.size) lines.push(plural(y.recs_kept.size, 'suggestion you kept', 'suggestions you kept'));
+  if (y.checkins) lines.push(plural(y.checkins, 'check-in', 'check-ins'));
+  const later = y.recs_another_time.size, sugg = y.recs.size - later;
+  if (sugg > 0) lines.push(`${plural(sugg, 'suggestion', 'suggestions')}, not yet kept`);
+  if (later > 0) lines.push(plural(later, 'idea for another time', 'ideas for another time'));
+  if (y.updated.size) lines.push(`${plural(y.updated.size, 'of your records', 'of your records')} updated`);
+  const keptAny = y.plans_kept.length + y.marks_kept.length + y.notes_kept.length + y.recs_kept.size > 0 || y.places_reused.size + y.things_reused.size > 0;
+  const named = [...y.marks_kept.map((x) => [`/m/${x.id}`, x.name]), ...y.notes_kept.map((x) => [`/o/${x.id}`, x.name])].slice(0, 6);
+  const primary = plan ? `<a class="btn3d" href="/t/${plan.id}">View plan</a>`
+    : y.marks_kept.length ? `<a class="btn3d" href="/u/${esc(me.handle)}?tab=marks">View your places</a>`
+    : y.notes_kept.length ? `<a class="btn3d" href="/u/${esc(me.handle)}?tab=notes">View your notes</a>` : '';
+  return `<aside class="resurface receipt" data-kind="receipt" aria-label="What your AI just added">
+    <p class="resurface-eyebrow">${esc(by)}<span class="fact">${esc(timeAgo(new Date(y.end).toISOString().slice(0, 19).replace('T', ' ')))}</span></p>
+    <div class="receipt-body">
+      <p class="receipt-title">${esc(plan ? plan.title || 'Untitled plan' : 'Just added')}</p>
+      <ul class="receipt-counts">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
+      ${named.length ? `<p class="receipt-names">${named.map(([h, n]) => `<a href="${h}">${esc(n)}</a>`).join(' · ')}</p>` : ''}
+      ${sugg + later > 0 ? '<p class="fine receipt-note">Suggested by your AI — not yet kept.</p>' : ''}
+      ${keptAny ? '<p class="receipt-promise">Next time you plan, your AI can start from what you’ve kept.</p>' : ''}
+      <div class="receipt-foot">${primary}<span class="fine">Only you see this.</span></div>
+    </div>
+  </aside>`;
+}
+
+// v2.68: the activation model, for the admin. Computed on request (never on
+// a member's page), one profile per account, then filtered by cohort.
+const ACT_COHORTS = [['organic', 'Organic'], ['founder_assisted', 'Founder-assisted'], ['test', 'Test'], ['internal', 'Internal (admin)'], ['all', 'Everyone']];
+const REUSE_WORDS = {
+  existing_mark_used_in_new_itinerary: 'A place kept earlier became a stop in a plan',
+  existing_mark_reused_across_plans: 'A place already in one plan was used in another',
+  existing_note_attached_to_new_plan: 'A thing kept earlier was placed under a stop',
+  recommendation_adopted_later: 'A suggestion was kept in a later session',
+  planned_mark_checked_in_later: 'A planned place later got a check-in',
+  kept_mark_checked_in_later: 'A kept place later got a check-in (visit on or after keeping it)',
+  planned_note_owned_later: 'Something placed in a plan was later marked owned',
+};
+function activationAnalysisHtml(cohort) {
+  const users = q('SELECT id, handle, created_at, signup_source, research_flag, is_admin FROM users ORDER BY id').all();
+  const all = users.map((u) => { try { return activationProfile(u); } catch (e) { return null; } }).filter(Boolean);
+  const P = cohort === 'all' ? all : all.filter((p) => p.cohort === cohort);
+  const n = P.length;
+  const med = (a) => { const s = a.filter((x) => x !== null && x === x).sort((x, y) => x - y); if (!s.length) return null; const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const dur = (ms) => ms === null || ms === undefined ? '—' : ms < 60e3 ? '< 1 minute' : ms < 3600e3 ? `${Math.round(ms / 60e3)} minutes` : ms < 48 * 3600e3 ? `${(ms / 3600e3).toFixed(1)} hours` : `${(ms / 864e5).toFixed(1)} days`;
+  // Small denominators: counts only below ten, so nobody reads 1 of 2 as 50%.
+  const share = (k, of) => of >= 10 ? `${k} of ${of} (${Math.round(100 * k / of)}%)` : `${k} of ${of}`;
+  const reached = (k) => P.filter((p) => p[k] !== null && p[k] !== undefined);
+  const funnel = [
+    ['Signed up', null, 'joined'], ['AI connected (setup, not value)', 'connectedAt'], ['First semantic value', 'firstValueAt'],
+    ['First substantive artifact', 'substantiveAt'], ['Accumulating (kept in two or more separate sessions)', 'accumulatingAt'],
+    ['Returned and acted again (12 h or more after first value)', 'returnedAt'], ['Signed in again after first value (weaker)', 'signedInAgainAt'],
+    ['Second substantive artifact', 'secondSubstantiveAt'], ['Prior evidence reused', 'firstReuseAt'],
+    ['Intention became experience', 'firstExperienceAt'], ['Further reuse (a later session again)', 'furtherReuseAt']];
+  const fRows = funnel.map(([label, k]) => {
+    const got = k ? reached(k) : P;
+    return `<tr><td>${esc(label)}</td><td>${k ? share(got.length, n) : n}</td><td>${k ? dur(med(got.map((p) => p[k] - p.joined))) : '—'}</td></tr>`;
+  }).join('');
+  const tt = [['Account → first value', 'account'], ['AI connection → first value (connection came first)', 'connection'],
+    ['Starter chosen → first value (starter came first)', 'starter'], ['Account → first substantive artifact', 'substantive'],
+    ['First value → first prior-evidence reuse', 'toReuse']].map(([label, k]) => {
+    const xs = P.map((p) => p.ttfv[k]).filter((x) => x !== null);
+    return `<tr><td>${esc(label)}</td><td>${xs.length}</td><td>${dur(med(xs))}</td><td>${xs.length ? `${dur(Math.min(...xs))} – ${dur(Math.max(...xs))}` : '—'}</td></tr>`;
+  }).join('');
+  const tally = (list, f) => { const o = {}; for (const x of list) { const k = f(x); if (k) o[k] = (o[k] || 0) + 1; } return Object.entries(o).sort((a, b) => b[1] - a[1]); };
+  const fvTypes = tally(P, (p) => p.firstValueType), subTypes = tally(P, (p) => p.substantiveType);
+  const Y = P.map((p) => p.firstYield).filter(Boolean);
+  const yRows = [['Plans kept', 'itineraries'], ['New places kept', 'marks_new'], ['Places already kept, reused', 'marks_reused'], ['New things kept', 'notes_new'],
+    ['Things already kept, reused', 'notes_reused'], ['Suggestions made (not kept)', 'recommendations'], ['Suggestions kept', 'recommendations_kept'],
+    ['Suggested records left unkept', 'unresolved_suggested'], ['Check-ins', 'checkins']]
+    .map(([label, k]) => { const xs = Y.map((y) => y[k]); return `<tr><td>${esc(label)}</td><td>${xs.length ? med(xs) : '—'}</td><td>${xs.reduce((a, b) => a + b, 0)}</td></tr>`; }).join('');
+  const basisRows = (kind) => {
+    const ev = P.flatMap((p) => p[kind].map((e) => ({ ...e, who: p.id })));
+    return tally(ev, (e) => e.basis).map(([b, c]) => `<tr><td>${esc(REUSE_WORDS[b] || b)}<br><span class="fine">${esc(b)}</span></td><td>${c}</td><td>${new Set(ev.filter((e) => e.basis === b).map((e) => e.who)).size}</td></tr>`).join('')
+      || '<tr><td colspan="3">None yet</td></tr>';
+  };
+  const seg = (label, f) => {
+    const groups = {}; for (const p of P) (groups[f(p) || 'none'] = groups[f(p) || 'none'] || []).push(p);
+    return `<tr class="act-seg-head"><th colspan="6">${esc(label)}</th></tr>` + Object.entries(groups).sort((a, b) => b[1].length - a[1].length).map(([k, list]) =>
+      `<tr><td>${esc(k)}</td><td>${list.length}</td><td>${share(list.filter((p) => p.firstValueAt !== null).length, list.length)}</td><td>${share(list.filter((p) => p.substantiveAt !== null).length, list.length)}</td><td>${share(list.filter((p) => p.firstReuseAt !== null).length, list.length)}</td><td>${dur(med(list.map((p) => p.ttfv.account)))}</td></tr>`).join('');
+  };
+  const people = P.slice().sort((a, b) => b.joined - a.joined).slice(0, 60).map((p) => `<tr><td><a href="/admin/members/${esc(p.handle)}">@${esc(p.handle)}</a></td><td>${esc(p.cohort.replace('_', '-'))}</td><td>${esc(p.source)}</td><td>${esc(p.client)}</td><td>${esc(p.intent || '—')}</td><td>${esc(STAGE_NAMES[p.stage])}</td><td>${esc(p.firstValueType || '—')}</td><td>${dur(p.ttfv.account)}</td><td>${p.reuse.length}</td><td>${p.experience.length}</td></tr>`).join('');
+  const chips = ACT_COHORTS.map(([k, l]) => `<a class="link caps${k === cohort ? ' on' : ''}" href="/admin/activation?cohort=${k}">${l} (${k === 'all' ? all.length : all.filter((p) => p.cohort === k).length})</a>`).join(' · ');
+  const wrap = (head, rows) => `<div class="act-table-wrap"><table class="act-table"><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<div class="wcell wcell-wide" id="model">
+  <p class="sbox-title">Activation model</p>
+  <p class="sbox-sub">Derived from the records on each load (nothing stored). Cohort: ${chips}. Founder-assisted, test and admin accounts are kept out of Organic so assistance doesn’t contaminate it. Percentages appear only when ten or more members are counted.</p>
+  ${wrap(['Stage', 'Members', 'Median time from sign-up'], fRows)}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">Time to first value</p>
+  <p class="sbox-sub">Only members who reached value; connection and starter timings only where those came first.</p>
+  ${wrap(['Measure', 'Members', 'Median', 'Range'], tt)}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">What first value was</p>
+  ${wrap(['First semantic value', 'Members'], fvTypes.map(([k, c]) => `<tr><td>${esc(k)}</td><td>${c}</td></tr>`).join('') || '<tr><td colspan="2">None yet</td></tr>')}
+  ${wrap(['First substantive artifact', 'Members'], subTypes.map(([k, c]) => `<tr><td>${esc(k === 'multi_record' ? 'three or more records kept in one session' : 'a kept plan with stops')}</td><td>${c}</td></tr>`).join('') || '<tr><td colspan="2">None yet</td></tr>')}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">Semantic yield of the first substantive session</p>
+  <p class="sbox-sub">Counts from the working session that produced each member’s first substantive artifact (${Y.length} with a recorded session). A vector of counts, not a score.</p>
+  ${wrap(['Produced', 'Median per member', 'Total'], yRows)}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">Compounding: prior evidence reused</p>
+  <p class="sbox-sub">Only durable relationships count, and the earlier record must have been kept before the later session began. A search, a read or a mention never counts.</p>
+  ${wrap(['Basis', 'Events', 'Members'], basisRows('reuse'))}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">Intention → experience</p>
+  <p class="sbox-sub">Explicit acts only: a check-in recorded later, ownership marked later. Never inferred.</p>
+  ${wrap(['Basis', 'Events', 'Members'], basisRows('experience'))}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">By segment</p>
+  ${wrap(['Segment', 'Members', 'First value', 'Substantive', 'Reused', 'Median account → value'], seg('Arrived by', (p) => p.source) + seg('First AI client', (p) => p.client) + seg('Initial intent (first starter)', (p) => p.intent))}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">Members</p>
+  ${wrap(['Member', 'Cohort', 'Arrived by', 'AI client', 'Intent', 'Furthest stage', 'First value', 'Account → value', 'Reuse', 'Experience'], people || '<tr><td colspan="10">None</td></tr>')}
+</div><div class="wcell wcell-wide">
+  <p class="sbox-title">What these measures do not prove</p>
+  <ul class="fine act-limits">
+    <li>Reuse proves an earlier record became part of a later one. It does not prove the AI chose it because of the member’s taste, or that it made the plan better.</li>
+    <li>A search or a retrieval never counts; there is no durable trace of what an AI read or considered.</li>
+    <li>A first plan proves something was kept, not that the member was satisfied.</li>
+    <li>A check-in proves a visit was recorded, not that the place was liked. Keeping a suggestion does not mean it was experienced.</li>
+    <li>A working session is a 30-minute-gap grouping of the member’s acts. It is not the AI conversation; no client sends a conversation identifier.</li>
+    <li>None of these is personalization success, taste accuracy or recommendation quality.</li>
+  </ul>
+</div>`;
+}
+
 // ---- Activation (v2.65): events, source context, starters ---------------
 // Product events: private operational evidence of the first-run journey,
 // never taste evidence. Bounded, sanitised values only: no prompts, corpus
 // text, tokens or connector URLs. Deleted with the account (FK cascade).
 const EVENT_TYPES = new Set(['signed_in', 'signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
-  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action']);
+  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action', 'receipt_viewed']);
 const CLIENT_EVENTS = new Set(['welcome_tab_viewed', 'starter_selected', 'starter_copied', 'starter_launched', 'empty_state_action']);
 const clip = (v, n = 64) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9._:-]/g, '').slice(0, n);
 function recordEvent(userId, event, { anon = '', surface = '', meta = {}, dedupeMinutes = 0 } = {}) {
@@ -5695,6 +6180,10 @@ const STARTERS = {
   thing: ['There\u2019s something I want to remember: [thing]. Keep it in my Discriminantly notes.', 'Something you noticed, kept with a picture and a link.'],
   show: ['Show me what I\u2019ve kept in Discriminantly so far.', 'See what you have, and what your AI can do with it.'],
   resume: ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.'],
+  // v2.68: second acts, for a member who has kept something but not yet used it
+  again: ['Plan a trip to [destination], starting from the places I\u2019ve already kept in Discriminantly.', 'A new plan that begins with what you\u2019ve kept.'],
+  recall: ['What have I kept in Discriminantly for [city]?', 'Find what you kept before you need it.'],
+  build: ['Build a day around the places I\u2019ve kept in [city].', 'A day planned from your own places.'],
 };
 // Actions for one starter, by what the member has connected. Claude Desktop
 // documents a prefilled-prompt link (claude://claude.ai/new?q=); ChatGPT and
@@ -8310,6 +8799,31 @@ function welcomeState(me) {
   const kept = q('SELECT (SELECT COUNT(*) FROM adopted_objects WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_marks WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_itineraries WHERE user_id=?) n').get(me.id, me.id, me.id).n;
   return { chatgpt, claude, other, viaChatGPT, kept, joined };
 }
+// v2.68: the app works without an AI; the Welcome card says so, briefly.
+const WL_DIRECT = `<p class="fine wl-direct">Or add one yourself: <a href="/new" data-ev-action="direct_note" data-ev-surface="welcome">a note</a> \u00b7 <a href="/marks/new" data-ev-action="direct_mark" data-ev-surface="welcome">a place</a> \u00b7 <a href="/t" data-ev-action="direct_plan" data-ev-surface="welcome">a plan</a></p>`;
+// v2.68: which Welcome a member sees, from durable state alone (no
+// "onboarding complete" flag). Nothing kept: the full card. Something kept,
+// nothing yet reused: a compact next-use card. Prior evidence reused: none;
+// the member has been through the loop. ?welcome=1 shows the full card on
+// demand (the Connect links point there).
+function welcomeMode(me, st, url) {
+  if (url && url.searchParams.get('welcome') === '1') return 'full';
+  if (!st.kept) return 'full';
+  return hasReused(me.id) ? 'none' : 'compact';
+}
+function welcomeCompact(me, st, fresh) {
+  const any = st.chatgpt || st.claude || st.other;
+  const keys = ['again', 'recall', 'build'];
+  return `<article class="card welcome-card welcome-compact" id="welcome" aria-label="Use what you\u2019ve kept">
+  <p class="caps wl-since">${fresh ? 'Just kept' : 'Welcome back'}</p>
+  <p class="sbox-title">${fresh ? 'That\u2019s kept.' : 'Use what you\u2019ve kept.'}</p>
+  <p class="sbox-sub">${fresh ? 'Next time you plan, your AI can start from what you\u2019ve kept.' : 'Your AI can build on the places and things you\u2019ve already kept.'}</p>
+  <div class="wl-prompts">${keys.map((k, n) => `<div class="wl-prompt wl-starter${n === 0 ? ' is-lead' : ''}" data-starter="${k}"><div><p class="wl-q">\u201c${STARTERS[k][0]}\u201d</p><p class="fine">${STARTERS[k][1]}</p></div>${any ? starterActions(k, st, 'welcome_compact') : `<span class="wl-acts-wrap"><span class="wl-acts"><button type="button" class="link caps wl-copy" data-wl-copy="${esc(STARTERS[k][0])}" data-ev-starter="${k}" data-ev-surface="welcome_compact">Copy</button></span></span>`}</div>`).join('')}</div>
+  ${any ? '' : '<p class="fine wl-direct"><a href="/?welcome=1#connect" data-ev-action="connect" data-ev-surface="welcome_compact">Connect your AI</a> and it can start from what you\u2019ve kept.</p>'}
+  ${WL_DIRECT.replace(/data-ev-surface="welcome"/g, 'data-ev-surface="welcome_compact"')}
+  ${STARTER_JS}
+</article>`;
+}
 function welcomeCard(me) {
   const st = welcomeState(me);
   const any = st.chatgpt || st.claude || st.other;
@@ -8368,6 +8882,7 @@ function welcomeCard(me) {
     <p class="sbox-title">${st.viaChatGPT && st.kept ? 'Pick up where you left off.' : 'Start with something real.'}</p>
     <p class="sbox-sub">${any ? (st.claude ? 'Copy one into ' + (st.chatgpt ? 'ChatGPT, or open it in Claude Desktop' : 'Claude, or open it in Claude Desktop') : 'Copy one into ChatGPT') + ', and make it yours.' : 'Pick one, then connect your AI to begin.'}</p>
     <div class="wl-prompts">${keys.map((k, n) => `<div class="wl-prompt wl-starter${n === 0 ? ' is-lead' : ''}" data-starter="${k}"><div><p class="wl-q">\u201c${STARTERS[k][0]}\u201d</p><p class="fine">${STARTERS[k][1]}</p></div>${starterActions(k, st, 'welcome')}</div>`).join('')}</div>
+    ${WL_DIRECT}
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
   </div>`;
   return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
@@ -8422,12 +8937,23 @@ const pages = {
     // members' activity. It sits directly under their oldest record in the
     // feed (all of theirs are newer than it), and at the top when they have
     // none; never pinned, never dismissed.
+    // v2.68: the receipt (what an AI session just produced) and the Welcome
+    // mode are both derived from durable state, once per render.
+    const receipt = me && feed === 'all' && !s && !tag ? latestReceipt(me) : null;
     if (me && feed === 'all' && !s && !tag) {
-      const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all', dedupeMinutes: 30 }); return welcomeCard(me); }, me.id);
-      let last = -1; entries.forEach((e, i) => { if (e.owner === me.id) last = i; });
-      entries.splice(last + 1, 0, w);
+      const st = welcomeState(me), mode = welcomeMode(me, st, url);
+      if (mode === 'full') {
+        const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all', dedupeMinutes: 30 }); return welcomeCard(me); }, me.id);
+        let last = -1; entries.forEach((e, i) => { if (e.owner === me.id) last = i; });
+        entries.splice(url.searchParams.get('welcome') === '1' ? 0 : last + 1, 0, w);   // asked for: at the top
+      } else if (mode === 'compact') {
+        // under the member's own records, but never deeper than their fifth
+        const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all_compact', dedupeMinutes: 30 }); return welcomeCompact(me, st, !!receipt); }, me.id);
+        let last = -1, own = 0; for (let i = 0; i < entries.length && own < 5; i++) if (entries[i].owner === me.id) { last = i; own++; }
+        entries.splice(last + 1, 0, w);
+      }
     }
-    const banner = resurfaceBanner(me, feed, !!(s || tag));
+    const banner = resurfaceBanner(me, feed, !!(s || tag), receipt);
     const shown = banner.skip;
     const page = pageOf(shown ? entries.filter((e) => e.key !== shown) : entries, url);
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
@@ -9327,6 +9853,15 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <p class="fine center">The ${log.length === 200 ? '200 most recent' : log.length} things they have done, newest first. Times in Eastern.${adminOn(me) ? '' : ' Private items are named only with your private view on.'}</p>
       <p class="center"><a class="btn3d" href="/u/${esc(u.handle)}">Open their profile</a></p>
     </div>
+    ${(() => {
+      // v2.68: where this member is in the activation model (derived, nothing stored)
+      const pr = activationProfile(u);
+      const at = (ms) => ms === null || ms === undefined ? '\u2014' : esc(whenUtc(new Date(ms).toISOString().slice(0, 19).replace('T', ' ')));
+      const row = (l, v) => `<div class="act-line"><span class="act-date">${l}</span><span>${v}</span></div>`;
+      return `<div class="wcell wcell-wide"><p class="sbox-title">Activation</p>
+      <p class="sbox-sub">Furthest stage: ${esc(STAGE_NAMES[pr.stage])}. Cohort: ${esc(pr.cohort.replace('_', '-'))}. Initial intent: ${esc(pr.intent || 'none chosen')}.</p>
+      <div class="admin-activity">${row('AI connected', at(pr.connectedAt))}${row('First semantic value', `${at(pr.firstValueAt)}${pr.firstValueType ? ' \u00b7 ' + esc(pr.firstValueType) : ''}`)}${row('First substantive artifact', `${at(pr.substantiveAt)}${pr.substantiveType ? ' \u00b7 ' + esc(pr.substantiveType.replace('_', ' ')) : ''}`)}${row('Returned and acted', at(pr.returnedAt))}${row('First reuse', `${at(pr.firstReuseAt)}${pr.firstReuseBasis ? ' \u00b7 ' + esc(REUSE_WORDS[pr.firstReuseBasis] || pr.firstReuseBasis) : ''}`)}${row('Intention \u2192 experience', at(pr.firstExperienceAt))}${row('Reuse events', String(pr.reuse.length))}${row('Experience events', String(pr.experience.length))}</div></div>`;
+    })()}
     <div class="wcell wcell-wide">
       <div class="admin-activity">${log.map((a) => `<div class="act-line"><span class="act-date">${esc(whenUtc(a.at))}</span><span>${a.html}</span></div>`).join('') || '<p class="empty pad">Nothing yet.</p>'}</div>
     </div>
@@ -12436,6 +12971,11 @@ async function handle(req, res) {
   }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
+  // v2.68.1: a trailing slash reaches the same endpoint, served in place rather
+  // than redirected (many MCP clients will not follow a redirect on POST).
+  // Outside the frozen routing block below, which is unchanged.
+  if (p === '/mcp/') return mcp(req, res, null);
+  if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)\/$/))) return mcp(req, res, mt[1]);
   if ((mt = p.match(/^\/mcp\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);
   // The modern entry point: same dispatcher, same domain functions, same
   // privacy rules. Only how the caller proved its authority differs.
@@ -12523,8 +13063,9 @@ async function handle(req, res) {
     const evs = q(`SELECT event, COUNT(*) n, COUNT(DISTINCT COALESCE(CAST(user_id AS TEXT), anon)) who FROM product_events WHERE created_at >= datetime('now', '-30 days') GROUP BY event ORDER BY n DESC`).all();
     const flagForm = (a) => `<form method="post" action="/admin/activation/flag" class="act-flag"><input type="hidden" name="user_id" value="${a.id}"><select name="flag" onchange="this.form.submit()">${[['', 'organic'], ['founder_assisted', 'founder-assisted'], ['test', 'test']].map(([v, l]) => `<option value="${v}"${a.flag === v ? ' selected' : ''}>${l}</option>`).join('')}</select></form>`;
     const firstAct = (a) => ['note', 'mark', 'itinerary', 'recommendation', 'checkin'].filter((k) => a[k]).join(', ') || '\u2014';
+    const cohort = ACT_COHORTS.some(([k]) => k === url.searchParams.get('cohort')) ? url.searchParams.get('cohort') : 'organic';
     const body = `<h3 class="strip dark-strip">Activation</h3>
-<div class="settings admin-wide"><div class="wtable settings-table"><div class="wcell wcell-wide">
+<div class="settings admin-wide"><div class="wtable settings-table">${activationAnalysisHtml(cohort)}<div class="wcell wcell-wide">
   <p class="sbox-title">By arrival route</p>
   <p class="sbox-sub">From the domain tables (canonical): accounts, AI connections, first kept records, recommendations, check-ins, return sign-ins. The activation event is a first kept itinerary within 7 days of joining. Founder-assisted and test accounts are counted separately.</p>
   <div class="act-table-wrap"><table class="act-table"><thead><tr><th>Arrived by</th><th>Joined</th><th>Kept itinerary \u2264 7 days</th><th>Rate</th><th>AI connected</th><th>First note</th><th>First mark</th><th>First itinerary</th><th>Recommendation</th><th>Check-in</th><th>Returned after day 1</th><th>Median time to first kept itinerary</th></tr></thead><tbody>${trs}</tbody></table></div>

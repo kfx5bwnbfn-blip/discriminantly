@@ -1,6 +1,6 @@
 // Sign-in return and sign-up from an AI's authorization (v2.62), and the
 // activation report. Needs a server started with a stubbed client document:
-//   CID=https://chatgpt.test/oauth/client.json RURI=http://127.0.0.1:6274/oauth/callback
+//   CID=https://chatgpt.com/oauth/client.json RURI=http://127.0.0.1:6274/oauth/callback
 //   CIMD_STUB='{"<CID>":{"client_id":"<CID>","client_name":"ChatGPT (test)","redirect_uris":["<RURI>"],"token_endpoint_auth_method":"none"}}'
 //   PUBLIC_ORIGIN=http://localhost:3000 SEED=1 ADMIN_PASSWORD=prototype1 node server.js
 // then: CID=... RURI=... DB_PATH=data/discriminantly.db node test/oauth-signup.js

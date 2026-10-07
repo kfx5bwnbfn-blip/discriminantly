@@ -1199,6 +1199,8 @@ console.log('\nadmin private view');
   const allowed = [/is_admin INTEGER DEFAULT 0/, /^const adminOn = \(me\) => !!\(me && me\.is_admin && me\.adminPrivateView === true\);$/,
     /if \(u && u\.is_admin && u\.admin_private_view\) u\.adminPrivateView = true;/, /^const isAdminUi = \(me\) => !!\(me && me\.is_admin\);$/, /\$\{me\.is_admin \? `<div class="wtable settings-table settings-admin" id="admin">/,
     /if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/, /INSERT INTO users\(handle,name,email,pass,is_admin,avatar,ui_skin\)/,
+    // v2.68: the activation cohort (analysis only: admin accounts are kept out of organic figures; grants and shows nothing)
+    /^const cohortOf = \(u\) => u\.is_admin \? 'internal'/, /SELECT id, handle, created_at, signup_source, research_flag, is_admin FROM users ORDER BY id/,
 ];
   ok('AV1 no visibility or ownership check uses is_admin directly; the one exception is adminOn',
      adminLines.every(([, l]) => allowed.some((r) => r.test(l))));
@@ -1547,12 +1549,35 @@ console.log('\nMCP compatibility-critical regions');
     ok('MF frozen: ' + k, want[k] && have[k] === want[k]);
 }
 
+// ---- MCP address with a trailing slash (v2.68.1) ---------------------------
+console.log('\nmcp trailing slash');
+{
+  const i = SRC.indexOf("if (p === '/mcp/') return mcp(req, res, null);"), j = SRC.indexOf('if ((mt = p.match(/^\\/mcp\\/([A-Za-z0-9_-]+)$/))) return mcp(req, res, mt[1]);');
+  ok('SL1 /mcp/ and /mcp/<token>/ reach the same dispatcher, served in place (no redirect), just before the frozen routes',
+     i > 0 && j > i && j - i < 400 && /if \(\(mt = p\.match\(\/\^\\\/mcp\\\/\(\[A-Za-z0-9_-\]\+\)\\\/\$\/\)\)\) return mcp\(req, res, mt\[1\]\);/.test(SRC.slice(i, j)));
+}
+
 // ---- Welcome in All (v2.56) ------------------------------------------------
 console.log('\nwelcome');
 {
+  // v2.68: the card is chosen by durable state (full / compact / none); the full card keeps its v2.64 placement
   ok('WL1 Welcome is a feed entry on All only (signed in, unfiltered), placed under the member\u2019s own oldest record, never pinned',
-     /if \(me && feed === 'all' && !s && !tag\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => \{ recordEvent\(me\.id, 'welcome_viewed', \{ surface: 'all', dedupeMinutes: 30 \}\); return welcomeCard\(me\); \}, me\.id\);/.test(SRC)
-     && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);\s*entries\.splice\(last \+ 1, 0, w\);/.test(SRC));
+     /if \(me && feed === 'all' && !s && !tag\) \{\s*const st = welcomeState\(me\), mode = welcomeMode\(me, st, url\);\s*if \(mode === 'full'\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => \{ recordEvent\(me\.id, 'welcome_viewed', \{ surface: 'all', dedupeMinutes: 30 \}\); return welcomeCard\(me\); \}, me\.id\);/.test(SRC)
+     && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);\s*entries\.splice\(url\.searchParams\.get\('welcome'\) === '1' \? 0 : last \+ 1, 0, w\);/.test(SRC));
+  {
+    const wm = SRC.slice(SRC.indexOf('function welcomeMode('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeMode(')));
+    ok('WL5 the Welcome mode is derived from state: nothing kept -> full; reused -> none; otherwise compact (no stored onboarding flag)',
+       /if \(!st\.kept\) return 'full';/.test(wm) && /return hasReused\(me\.id\) \? 'none' : 'compact';/.test(wm) && !/UPDATE|INSERT/.test(wm));
+    const act = SRC.slice(SRC.indexOf('// ACTIVATION MODEL (v2.68)'), SRC.indexOf('// ---- Activation (v2.65): events'));
+    ok('AM1 the activation model writes nothing: no INSERT, UPDATE or DELETE, and no provenance or adoption calls',
+       act.length > 1000 && !/INSERT |UPDATE |DELETE /.test(act) && !/recordProvenance\(|recordAdoption\(|withdrawAdoption\(/.test(act));
+    ok('AM2 reuse requires the earlier record to be kept before the later act\u2019s working session began',
+       (act.match(/< sessionStartAt\(sessions, /g) || []).length >= 3 && /if \(!\(k < st\)\) continue;/.test(act));
+    ok('AM3 the receipt is AI-mediated and meaningful only (a tiny edit never makes one)',
+       /if \(y\.aiActs && y\.meaningful\) return y;/.test(act) && !/y\.meaningful = [^;]*updated/.test(act));
+    ok('AM4 the receipt is computed only for the signed-in member, on All, unfiltered',
+       /const receipt = me && feed === 'all' && !s && !tag \? latestReceipt\(me\) : null;/.test(SRC));
+  }
   const f = SRC.slice(SRC.indexOf('function welcomeCard('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeCard(')));
   ok('WL2 no dismiss or completion mechanics', !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '')));
   ok('WL3 connection state comes from the member\u2019s live connections, per AI',
