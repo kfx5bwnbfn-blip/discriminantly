@@ -13,6 +13,10 @@
 //   - the client_id it returns from /oauth/register is a fixed placeholder
 //     that is not stored and that nothing on either origin accepts.
 //
+// Phase 1a adds one static document, the Muse client metadata document. It is
+// the only thing here that www relies on: it lets Muse complete www's own,
+// unchanged OAuth flow (the member still signs in and approves on www).
+//
 // What it records (one JSON line per request, prefixed "muse-capture"):
 // method, path, user agent, and the non-secret shape of registration and
 // authorization requests. Never: state, authorization codes, PKCE challenge or
@@ -29,6 +33,20 @@ try { if (/^https?:\/\//i.test(ORIGIN)) HOST = new URL(ORIGIN).host.toLowerCase(
 
 const SCOPES = ['discriminantly.read', 'discriminantly.write'];
 const PLACEHOLDER_CLIENT_ID = 'muse-capture-test-only';
+
+// Meta Muse's OAuth client, described for www's CIMD check (see handle()).
+// Scope is www's single scope ('discriminantly', OAUTH_SCOPE in server.js).
+const MUSE_CLIENT_PATH = '/.well-known/meta-muse-client.json';
+const MUSE_REDIRECT = 'https://agent.meta.ai/api/hatch/oauth/callback';
+const museClient = () => ({
+  client_id: ORIGIN + MUSE_CLIENT_PATH,     // must equal this URL: cimdValidate checks it
+  client_name: 'Muse',
+  redirect_uris: [MUSE_REDIRECT],
+  grant_types: ['authorization_code', 'refresh_token'],
+  response_types: ['code'],
+  token_endpoint_auth_method: 'none',
+  scope: 'discriminantly',
+});
 
 // Exact host match only; any port in the Host header must match the origin's.
 const matches = (req) => !!HOST && String(req.headers.host || '').toLowerCase() === HOST;
@@ -65,7 +83,8 @@ function authShape(params) {
 
 // A path can carry a secret (a personal connector address is /mcp/<token>), so
 // any long token-like segment is recorded only by its length.
-const safePath = (p) => String(p || '').split('/').map((seg) => (/^[A-Za-z0-9_.~%-]{16,}$/.test(seg) ? `<redacted:${seg.length}>` : seg)).join('/');
+// Public /.well-known/ names (e.g. meta-muse-client.json) are kept as they are.
+const safePath = (p) => /^\/\.well-known\/[A-Za-z0-9._/-]+$/.test(String(p || '')) ? String(p) : String(p || '').split('/').map((seg) => (/^[A-Za-z0-9_.~%-]{16,}$/.test(seg) ? `<redacted:${seg.length}>` : seg)).join('/');
 function record(req, path, extra = {}) {
   const line = {
     at: new Date().toISOString(), method: req.method, path: str(safePath(path)), ua: str(req.headers['user-agent']),
@@ -130,6 +149,18 @@ async function handle(req, res, url) {
     record(req, p); return json(res, 200, asMeta());
   }
 
+  // Phase 1a (approved 2026-10-07): a client metadata document for Meta Muse,
+  // hosted here rather than on www so the frozen www OAuth code is untouched.
+  // Its URL is the client_id Muse is given; www's existing cimdValidate fetches
+  // it, requires client_id to equal that URL and the redirect_uri to be Meta's
+  // callback, then runs the unchanged www consent, code and token flow.
+  // Rollback: unset MUSE_ORIGIN -> this 404s -> www refuses new Muse
+  // authorizations (already-issued tokens are revoked in Settings).
+  if (m === 'GET' && p === MUSE_CLIENT_PATH) {
+    record(req, p);
+    return json(res, 200, museClient(), { 'Cache-Control': 'public, max-age=300' });
+  }
+
   if (p === '/oauth/register') {
     if (m !== 'POST') { record(req, p); return json(res, 405, { error: 'invalid_request', error_description: 'POST a client registration.' }); }
     const { text, over } = await readBody(req);
@@ -188,4 +219,4 @@ async function handle(req, res, url) {
   return json(res, 404, { error: 'not_found' });
 }
 
-module.exports = { matches, handle, ORIGIN, HOST, PLACEHOLDER_CLIENT_ID };
+module.exports = { matches, handle, ORIGIN, HOST, PLACEHOLDER_CLIENT_ID, MUSE_CLIENT_PATH, MUSE_REDIRECT };
