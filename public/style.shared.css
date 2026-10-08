@@ -1343,10 +1343,11 @@ body[data-skin] .welcome-card .wl-kind .wl-term, body[data-skin] .welcome-card .
 /* the rail's .steps styles every span in a step; only the number is a circle here */
 .welcome-card ol.steps.wl-how li > div span { width: auto; height: auto; border-radius: 0; background: none; color: inherit; display: inline; font-size: inherit; font-weight: inherit; place-items: initial; }
 .welcome-card ol.steps.wl-how li > div .wl-addr { display: flex; align-items: center; gap: .7rem; margin-top: .35rem; }
-.welcome-card .wl-ais { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.welcome-card .wl-ais { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .welcome-card ol.steps.wl-how li > div .wl-addr { flex-wrap: wrap; gap: .4rem; }
 .welcome-card ol.steps.wl-how li > div .wl-addr .wl-url { flex: 1 1 100%; white-space: nowrap; overflow-x: auto; }
-@media (max-width: 52rem) { .welcome-card .wl-ais { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 52rem) { .welcome-card .wl-ais { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 30rem) { .welcome-card .wl-ais { grid-template-columns: minmax(0, 1fr); } }
 body[data-skin] .welcome-card ol.steps.wl-how .wl-addr .wl-url { font-size: .7rem; letter-spacing: -.01em; padding: .3rem .45rem; }
 body[data-skin] .welcome-card ol.steps.wl-how .wl-addr .wl-url { white-space: normal; overflow-wrap: normal; word-break: keep-all; overflow-x: visible; font-size: .78rem; }
 
@@ -1354,17 +1355,19 @@ body[data-skin] .welcome-card ol.steps.wl-how .wl-addr .wl-url { white-space: no
 .welcome-card .wl-ais-wrap { position: relative; }
 .welcome-card .wl-ai { cursor: pointer; }
 .welcome-card .wl-ai-panel { display: none; position: relative; margin: 1.1rem 0 .2rem; padding: 1.4rem 1.2rem 1.2rem; border-radius: 16px; background: rgba(0,0,0,.035); }
-.welcome-card .wl-ai-panel::before { content: ""; position: absolute; top: -11px; left: calc((var(--wl-col) + .5) * 100% / 3); transform: translateX(-50%); border: 11px solid transparent; border-top: 0; border-bottom-color: rgba(0,0,0,.035); }
+.welcome-card .wl-ai-panel::before { content: ""; position: absolute; top: -11px; left: calc((var(--wl-col) + .5) * 100% / 4); transform: translateX(-50%); border: 11px solid transparent; border-top: 0; border-bottom-color: rgba(0,0,0,.035); }
 .welcome-card #wl-ai-chatgpt-0:checked ~ .wl-ai-panel[data-for="chatgpt"] { display: block; }
 .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ai-panel[data-for="chatgpt"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ai-panel[data-for="other"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-muse-"]:checked ~ .wl-ai-panel[data-for="muse"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ai-panel[data-for="claude"] { display: block; }
 .welcome-card .wl-ai-panel-in { max-width: 34rem; margin: 0 auto; text-align: center; }
 .welcome-card .wl-ai-panel-in ol.steps.wl-how { display: inline-block; text-align: left; margin: 0 auto .4rem; }
 .welcome-card .wl-ai-panel-in .wl-note, .welcome-card .wl-ai-panel-in .wl-soon { text-align: center; margin: .6rem 0 0; }
 .welcome-card .wl-ai-panel-in .wl-soon { margin: 0 0 .8rem; }
 .welcome-card .wl-ai-panel-in .steps li > div { max-width: 28rem; }
-@media (max-width: 52rem) { .welcome-card .wl-ai-panel::before { left: 50%; } }
+@media (max-width: 52rem) { .welcome-card .wl-ai-panel::before { left: calc((var(--wl-col2) + .5) * 50%); } }
+@media (max-width: 30rem) { .welcome-card .wl-ai-panel::before { left: 50%; } }
 body[data-skin] .welcome-card input.wl-ai-toggle { display: none !important; }
 .welcome-card label.wl-ai { margin: 0; font-weight: inherit; text-transform: none; letter-spacing: normal; }
 .welcome-card .wl-ai-toggle:checked + .wl-ai-toggle, .welcome-card .wl-ai-toggle { position: absolute; }
@@ -1454,8 +1457,12 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 .itin-share-row { display: flex; flex-direction: column; align-items: center; gap: .35rem; margin: .4rem 0 .2rem; }
 .itin-share-row .itin-share { margin: 0; }
 .itin-share-menu { margin: 0; width: 100%; max-width: 30rem; }
-.itin-share-menu > summary { display: inline-block; text-align: center; opacity: 1; }
-.itin-share-btn { display: inline-block; padding: .35rem .9rem; }
+/* The summary is the glass button token (.btn3d); undo the stop-menu's
+   quiet-summary defaults so the token reads as it does elsewhere. */
+.itin-share-menu > summary.itin-share-btn { display: inline-block; text-align: center; opacity: 1; min-width: 12rem; padding: .95rem 1.4rem; font-size: .72rem; letter-spacing: .2em; list-style: none; }
+.itin-share-menu > summary.itin-share-btn::-webkit-details-marker { display: none; }
+.itin-share-menu[open] > summary.itin-share-btn { opacity: 1; }
+body[data-skin="modern"] .itin-share-menu > summary.itin-share-btn { color: var(--m-ink); }
 .itin-share-sheet { display: grid; gap: .6rem; text-align: left; }
 .share-opt { display: block; padding: .8rem .95rem; border-radius: 14px; text-decoration: none; color: inherit; background: rgba(127,127,127,.08); border: 0; width: 100%; font: inherit; cursor: pointer; }
 .share-opt:hover { background: rgba(127,127,127,.14); text-decoration: none; }
@@ -1463,8 +1470,6 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 .share-opt-d { display: block; font-size: .84rem; line-height: 1.4; opacity: .78; margin: .15rem 0 .3rem; }
 .share-opt-go { display: block; font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; font-weight: 700; }
 .share-opt-btn { text-align: left; }
-.itin-share-btn { background: none; border: 0; cursor: pointer; font-family: var(--slab); font-weight: 700; font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; line-height: 1; color: inherit; }
-.itin-share-btn:hover { text-decoration: underline; }
 .itin-head .share-opt, .itin-head .share-opt:hover, .itin-head .share-opt-h, .itin-head .share-opt-d { color: inherit; }
 .itin-head .share-opt-go { color: inherit; opacity: .85; }
 body[data-skin="modern"] .itin-head .share-opt { color: var(--m-ink); }

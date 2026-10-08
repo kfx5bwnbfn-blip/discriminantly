@@ -6417,6 +6417,9 @@ const STARTERS = {
   thing: ['There\u2019s something I want to remember: [thing]. Keep it in my Discriminantly notes.', 'Something you noticed, kept with a picture and a link.'],
   show: ['Show me what I\u2019ve kept in Discriminantly so far.', 'See what you have, and what your AI can do with it.'],
   resume: ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.'],
+  // v2.72: arrivals through a shared plan start from that plan
+  joined: ['Show me the plan I was invited to on Discriminantly, and what\u2019s near its stops.', 'Starts from the plan you joined.'],
+  copied: ['Show me the plan I just took from Discriminantly. Help me make it my own.', 'Starts from the plan you copied.'],
   // v2.68: second acts, for a member who has kept something but not yet used it
   again: ['Plan a trip to [destination], starting from the places I\u2019ve already kept in Discriminantly.', 'A new plan that begins with what you\u2019ve kept.'],
   recall: ['What have I kept in Discriminantly for [city]?', 'Find what you kept before you need it.'],
@@ -6427,11 +6430,12 @@ const STARTERS = {
 // Claude on the web document none, so those copy.
 function starterActions(key, st, surface) {
   const [text] = STARTERS[key];
-  const any = st.chatgpt || st.claude || st.other;
+  const any = st.chatgpt || st.claude || st.muse || st.other;
   const copy = `<button type="button" class="link caps wl-copy" data-wl-copy="${esc(text)}" data-ev-starter="${key}" data-ev-surface="${surface}">Copy</button>`;
   const launch = st.claude ? `<a class="link caps wl-launch" href="claude://claude.ai/new?q=${encodeURIComponent(text)}" data-ev-launch="${key}" data-ev-surface="${surface}">Open in Claude Desktop</a>` : '';
   const first = any ? '' : `<button type="button" class="link caps wl-pick" data-wl-pick="${key}" data-ev-surface="${surface}">Connect first</button>`;
-  const hint = `<span class="wl-copied-hint" hidden>Copied. Paste it into ${st.chatgpt && st.claude ? 'ChatGPT or Claude' : st.chatgpt ? 'ChatGPT' : st.claude ? 'Claude' : 'your AI'} and send.</span>`;
+  const into = [st.chatgpt && 'ChatGPT', st.claude && 'Claude', st.muse && 'Muse'].filter(Boolean);
+  const hint = `<span class="wl-copied-hint" hidden>Copied. Paste it into ${into.length ? into.join(' or ') : 'your AI'} and send.</span>`;
   return `<span class="wl-acts-wrap"><span class="wl-acts">${copy}${launch}${first}</span>${hint}</span>`;
 }
 // One small script for starters anywhere: copy with a visible state, the
@@ -9610,14 +9614,26 @@ function welcomeState(me) {
   const live = conns.filter((c) => !c.revoked_at);
   const chatgpt = live.some((c) => is(c, /chatgpt|openai/i));
   const claude = live.some((c) => is(c, /claude|anthropic/i));
-  const other = live.some((c) => !is(c, /chatgpt|openai|claude|anthropic/i));
+  const muse = live.some((c) => is(c, /\bmuse\b|meta\.ai|\bmeta\b/i));
+  const other = live.some((c) => !is(c, /chatgpt|openai|claude|anthropic|\bmuse\b|meta\.ai|\bmeta\b/i));
   // Made through ChatGPT: the account's first ChatGPT connection came within
   // half an hour of the account itself (the plugin signs you up, then asks).
   const joined = Date.parse(String(me.created_at).replace(' ', 'T') + 'Z');
   const viaChatGPT = conns.some((c) => is(c, /chatgpt|openai/i)
     && Math.abs(Date.parse(String(c.created_at).replace(' ', 'T') + 'Z') - joined) < 30 * 60 * 1000);
   const kept = q('SELECT (SELECT COUNT(*) FROM adopted_objects WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_marks WHERE user_id=?) + (SELECT COUNT(*) FROM adopted_itineraries WHERE user_id=?) n').get(me.id, me.id, me.id).n;
-  return { chatgpt, claude, other, viaChatGPT, kept, joined };
+  // v2.72: arrived through a shared plan. The account's first membership
+  // (an invitation) or first copied plan (a share link) came within half an
+  // hour of the account itself: the plan is what they came for.
+  const within = (at) => at && Math.abs(Date.parse(String(at).replace(' ', 'T') + 'Z') - joined) < 30 * 60 * 1000;
+  let arrived = null;
+  const mem = q('SELECT i.uid, i.title, m.joined_at at FROM itinerary_members m JOIN itineraries i ON i.id=m.itinerary_id WHERE m.user_id=? ORDER BY m.id LIMIT 1').get(me.id);
+  if (mem && within(mem.at)) arrived = { kind: 'invite', uid: mem.uid, title: mem.title };
+  if (!arrived) {
+    const cp = q("SELECT i.uid, i.title, p.created_at at FROM provenance p JOIN itineraries i ON i.uid=p.entity_uid WHERE p.entity_type='itinerary' AND p.action='created' AND p.source_kind='shared_itinerary' AND i.user_id=? ORDER BY p.id LIMIT 1").get(me.id);
+    if (cp && within(cp.at)) arrived = { kind: 'share', uid: cp.uid, title: cp.title };
+  }
+  return { chatgpt, claude, muse, other, viaChatGPT, arrived, kept, joined };
 }
 // v2.68: the app works without an AI; the Welcome card says so, briefly.
 const WL_DIRECT = `<p class="fine wl-direct">Or add one yourself: <a href="/new" data-ev-action="direct_note" data-ev-surface="welcome">a note</a> \u00b7 <a href="/marks/new" data-ev-action="direct_mark" data-ev-surface="welcome">a place</a> \u00b7 <a href="/t" data-ev-action="direct_plan" data-ev-surface="welcome">a plan</a></p>`;
@@ -9646,10 +9662,13 @@ function welcomeCompact(me, st, fresh) {
 }
 function welcomeCard(me) {
   const st = welcomeState(me);
-  const any = st.chatgpt || st.claude || st.other;
-  const open = any || st.viaChatGPT ? 3 : 1;
+  const any = st.chatgpt || st.claude || st.muse || st.other;
+  // Arrived through a shared plan: they have seen what a plan is, so open on
+  // connecting; Orientation stays one tab away.
+  const open = any || st.viaChatGPT ? 3 : st.arrived ? 2 : 1;
   const since = new Date(st.joined).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  const right = st.viaChatGPT ? 'You arrived from ChatGPT' : `Since ${since}`;
+  const right = st.viaChatGPT ? 'You arrived from ChatGPT' : st.arrived ? 'You arrived through a shared plan' : `Since ${since}`;
+  const arrivedLink = st.arrived ? `<a class="link" href="/t/${esc(st.arrived.uid)}">${esc(st.arrived.title || 'the plan')}</a>` : '';
   const pluginUrl = (process.env.CHATGPT_PLUGIN_URL || '').trim();
   const mcpUrl = BASE_URL() + '/mcp';
   const next = (n, label) => `<label for="wl-s${n}" class="link caps wl-next">${label}</label>`;
@@ -9677,6 +9696,9 @@ function welcomeCard(me) {
     : `<p class="lbl wl-soon">Coming to ChatGPT\u2019s plugin directory</p>${steps(['In ChatGPT, open <b>Plugins</b>.', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b>, and sign in to Discriminantly.'])}`;
   const claudeSteps = `${steps(['In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.', `Name it <b>Discriminantly</b> and paste this address: ${addr}`, 'Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.', 'In a chat, turn it on under <b>+ \u203a Connectors</b>.'])}<p class="fine wl-note">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
   const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
+  // v2.72: Muse (Meta AI). Meta's sign-in for custom connectors is not working
+  // yet, so Muse connects with a connection address made in Settings instead.
+  const museSteps = `${steps(['In <a class="link" href="/settings#connector">Settings \u203a Connect to your AI</a>, name a connection <b>Muse</b> and choose <b>Create a connection</b>. Copy the address it shows: it appears once.', 'In Muse, open <b>Secure credentials store</b> and choose <b>Add custom connector</b>.', 'Name it <b>Discriminantly</b>, set the host to <b>www.discriminantly.com</b>, and paste the address as the connector URL.', 'In a conversation, ask Muse to use Discriminantly.'])}<p class="fine wl-note">The address stands in for a sign-in, so treat it like a password. Revoke it any time in Settings.</p>`;
   const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
     : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
   const step2 = `<div class="wl-panel wl-p2">
@@ -9688,19 +9710,22 @@ function welcomeCard(me) {
       const ais = [
         ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiEyebrow(st.chatgpt, st.viaChatGPT), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
         ['claude', 'Claude', 'MCP connector', st.claude, aiEyebrow(st.claude), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
+        ['muse', 'Muse', 'Meta AI connector', st.muse, aiEyebrow(st.muse), st.muse ? '<p class="fine wl-note">Ask Muse to use Discriminantly, then say what you\u2019d like to keep, find or plan.</p>' : museSteps],
         ['other', 'Other', 'Any MCP client', st.other, aiEyebrow(st.other), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
       return `<div class="wl-ais-wrap">
       ${ais.map(([k]) => `<input type="radio" name="wl-ai-${me.id}" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
       <div class="wl-ais">${ais.map(([k, name, kind, on, eb]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${eb}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
-      ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
+      ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n};--wl-col2:${n % 2}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
     </div>`;
     })()}
     <div class="wl-nav">${next(1, '\u2190 Orientation')}${nextBtn(3, 'Next: get started')}</div>
   </div>`;
-  const keys = [st.viaChatGPT && st.kept ? 'resume' : 'plan', 'place', 'thing', 'show'];
+  const keys = [st.viaChatGPT && st.kept ? 'resume' : st.arrived ? (st.arrived.kind === 'invite' ? 'joined' : 'copied') : 'plan', 'place', 'thing', 'show'];
+  const intoNames = [st.chatgpt && 'ChatGPT', st.muse && 'Muse', st.claude && 'Claude'].filter(Boolean);
+  const copyInto = intoNames.length ? 'Copy one into ' + intoNames.join(' or ') + (st.claude ? ', or open it in Claude Desktop' : '') : 'Copy one into your AI';
   const step3 = `<div class="wl-panel wl-p3">
-    <p class="sbox-title">${st.viaChatGPT && st.kept ? 'Pick up where you left off.' : 'Start with something real.'}</p>
-    <p class="sbox-sub">${any ? (st.claude ? 'Copy one into ' + (st.chatgpt ? 'ChatGPT, or open it in Claude Desktop' : 'Claude, or open it in Claude Desktop') : 'Copy one into ChatGPT') + ', and make it yours.' : 'Pick one, then connect your AI to begin.'}</p>
+    <p class="sbox-title">${st.viaChatGPT && st.kept ? 'Pick up where you left off.' : st.arrived ? 'Start with the plan you came for.' : 'Start with something real.'}</p>
+    <p class="sbox-sub">${any ? copyInto + ', and make it yours.' : 'Pick one, then connect your AI to begin.'}${st.arrived ? ` Or go back to ${arrivedLink}.` : ''}</p>
     <div class="wl-prompts">${keys.map((k, n) => `<div class="wl-prompt wl-starter${n === 0 ? ' is-lead' : ''}" data-starter="${k}"><div><p class="wl-q">\u201c${STARTERS[k][0]}\u201d</p><p class="fine">${STARTERS[k][1]}</p></div>${starterActions(k, st, 'welcome')}</div>`).join('')}</div>
     ${WL_DIRECT}
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
@@ -9983,7 +10008,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
       links ? `${links} ${links === 1 ? 'link' : 'links'} out for others to use` : ''].filter(Boolean).join(' · ');
     const shareLine = !role || proposed ? '' : `<div class="itin-share-row">
       ${status ? `<p class="itin-share">${status}${members.length || removedN ? ` · <a class="link" href="${base}/members">Members</a>` : ''}${removedN ? ` · <a class="link" href="${base}/removed">Removed (${removedN})</a>` : ''}</p>` : ''}
-      ${shareable ? `<details class="stop-menu itin-share-menu"><summary class="share-mark itin-share-btn">Share</summary>
+      ${shareable ? `<details class="stop-menu itin-share-menu"><summary class="btn3d itin-share-btn">Share</summary>
         <div class="stop-sheet itin-share-sheet">
           <a class="share-opt" href="${base}/members#invite"><span class="share-opt-h">Plan together</span><span class="share-opt-d">Invite people into this plan. Everyone can change it; each person's own places, notes and visits stay their own.</span><span class="share-opt-go">Invite someone →</span></a>
           <a class="share-opt" href="${base}/members#share"><span class="share-opt-h">Let others use it</span><span class="share-opt-d">Anyone with a link can see the plan and make their own copy to change as they like. They don't join yours.</span><span class="share-opt-go">Make a link →</span></a>
@@ -10841,7 +10866,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               e.preventDefault(); var f = a.closest('form'); f.elements.mode.value = a.dataset.mode; f.submit(); }); });</script>` : ''}
           </div>
         </div>
-        <div class="wtable settings-table settings-connector">
+        <div class="wtable settings-table settings-connector" id="connector">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Connect to your AI</p>
             <p class="sbox-sub">Connect ChatGPT or Claude to your Discriminantly memory and work with your Notes, Marks, Collections, Ensembles, and more from any conversation.</p>

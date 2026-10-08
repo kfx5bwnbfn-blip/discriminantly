@@ -343,6 +343,27 @@ const anon = (p) => reqRaw('GET', p);
     const jm = await call('jane', 'my_itineraries', {});
     ok('SL14 the copy is an ordinary single-owner plan in MCP (no sharing note)', /A day in Wellington/.test(jm.text) && !/A day in Wellington[^\n]*shared/.test(jm.text));
 
+    // ---- Welcome for arrivals through a shared plan; the Muse tile (v2.72) -------------------
+    console.log('welcome');
+    const newcomer = (handle) => { const id = run("INSERT INTO users(handle,name,email,pass,ui_skin) VALUES(?,?,?,?,'modern')", handle, handle, `${handle}@example.com`, admin.pass).lastInsertRowid;
+      const sid = crypto.randomBytes(16).toString('hex'); run('INSERT INTO sessions(token,user_id) VALUES(?,?)', sid, id); people[handle] = { id: Number(id), tok: '', sid, handle }; return handle; };
+    const lee = newcomer('lee');
+    const invL = await web('brian', 'POST', `/t/${gpid}/invite`, { role: 'editor', confirm_private: '1' });
+    await web(lee, 'POST', `/j/${(invL.body.match(/\/j\/([A-Za-z0-9_-]{20,100})/) || [])[1]}/accept`, {});
+    const wl = (await web(lee, 'GET', '/?welcome=1')).body;
+    ok('WA1 an invited newcomer’s Welcome says they arrived through a shared plan, opens on Connect, and leads with the plan they joined',
+      /You arrived through a shared plan/.test(wl) && /id="wl-s2" class="wl-radio" checked/.test(wl) && /data-starter="joined"/.test(wl) && /Start with the plan you came for/.test(wl) && wl.includes(`/t/${one('SELECT uid FROM itineraries WHERE id=?', gpid).uid}`));
+    const mo = newcomer('mo');
+    await web(mo, 'POST', `/s/${tokA}/mine`, {});
+    const wm = (await web(mo, 'GET', '/?welcome=1')).body;
+    ok('WA2 a newcomer who copied a shared plan leads with that plan', /You arrived through a shared plan/.test(wm) && /data-starter="copied"/.test(wm));
+    const wj = (await web('brian', 'GET', '/?welcome=1')).body;
+    ok('WA3 an established member’s Welcome is unchanged', !/arrived through a shared plan/.test(wj));
+    ok('WA4 Muse is offered beside ChatGPT, Claude and Other, with its steps', /data-ai="muse"/.test(wl) && /Secure credentials store/.test(wl) && /\/settings#connector/.test(wl) && (wl.match(/class="wl-ai[ "]/g) || []).length === 4);
+    await web(mo, 'POST', '/settings/connections', { label: 'Muse' });
+    const wm2 = (await web(mo, 'GET', '/?welcome=1')).body;
+    ok('WA5 a connection named Muse lights the Muse tile and names Muse in the paste hint', /data-ai="muse"[^>]*>(?:(?!<\/label>).)*Connected/.test(wm2.replace(/\n/g, ' ')) && /Paste it into Muse and send/.test(wm2) && /Copy one into Muse/.test(wm2));
+
     // ---- recommended plans can't be shared (C5) -------------------------------------------
     const rec = await call('brian', 'record_recommendations', { items: [{ kind: 'itinerary', label: 'Unkept idea', workflow: 'for_another_time' }] });
     const recTarget = JSON.stringify(rec.s).match(/"target":\{"type":"itinerary","uid":"([0-9a-f-]{36})"/);
