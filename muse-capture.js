@@ -25,6 +25,10 @@
 //
 // Rollback: unset MUSE_ORIGIN. The dispatch in server.js is then never taken
 // and this file is not called at all.
+//
+// Phase 1 (v2.73): when MUSE_WRAPPER=1, the OAuth routes and /mcp on this
+// origin are served by muse-wrapper.js instead (a real authorization server,
+// see that file). Everything above still holds while MUSE_WRAPPER is unset.
 'use strict';
 
 const ORIGIN = (process.env.MUSE_ORIGIN || '').trim().replace(/\/+$/, '');
@@ -132,14 +136,20 @@ const asMeta = () => ({
   token_endpoint_auth_methods_supported: ['none'],
   // Advertised so the capture shows which registration path Muse prefers when
   // both are on offer (MCP clients SHOULD prefer CIMD when it is advertised).
-  client_id_metadata_document_supported: true,
-  authorization_response_iss_parameter_supported: true,
+  client_id_metadata_document_supported: !(wrapperOn() && process.env.MUSE_ADVERTISE_CIMD === '0'),
+  authorization_response_iss_parameter_supported: !(wrapperOn() && process.env.MUSE_SEND_ISS === '0'),
   scopes_supported: SCOPES,
 });
+
+// ---- Phase 1 wrapper (off unless MUSE_WRAPPER=1) -----------------------------
+let wrapper = null;
+const attach = (w) => { wrapper = w; };
+const wrapperOn = () => !!(wrapper && wrapper.enabled());
 
 // ---- the capture origin -------------------------------------------------------
 async function handle(req, res, url) {
   const p = url.pathname, m = req.method === 'HEAD' ? 'GET' : req.method;
+  if (wrapperOn() && await wrapper.handle(req, res, url, { ORIGIN, MUSE_CLIENT_PATH, MUSE_REDIRECT, record, json, page, readBody, dcrShape, authShape, str })) return;
 
   if (m === 'GET' && (p === '/.well-known/oauth-protected-resource' || p === '/.well-known/oauth-protected-resource/mcp')) {
     record(req, p); return json(res, 200, prm());
@@ -219,4 +229,4 @@ async function handle(req, res, url) {
   return json(res, 404, { error: 'not_found' });
 }
 
-module.exports = { matches, handle, ORIGIN, HOST, PLACEHOLDER_CLIENT_ID, MUSE_CLIENT_PATH, MUSE_REDIRECT };
+module.exports = { matches, handle, attach, ORIGIN, HOST, PLACEHOLDER_CLIENT_ID, MUSE_CLIENT_PATH, MUSE_REDIRECT };

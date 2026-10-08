@@ -8,6 +8,10 @@ const { DatabaseSync } = require('node:sqlite');
 // v2.69 Phase 0: the Muse capture origin. Self-contained (no database, no server
 // internals); inert unless MUSE_ORIGIN is set. See muse-capture.js.
 const museCapture = require('./muse-capture');
+// Phase 1 (v2.73): the Muse OAuth wrapper, on the Muse origin only and off
+// unless MUSE_WRAPPER=1. It is handed www's own functions lazily, at request
+// time; none of www's OAuth or MCP code changes (see muse-wrapper.js).
+museCapture.attach(require('./muse-wrapper').create(() => ({ q, checkPass, loginBlocked, loginFailed, loginSucceeded, connectionCreate, connectionFor, mcp })));
 
 const PORT = process.env.PORT || 3000;
 // The stylesheet is fingerprinted by content: a deploy changes the URL, so a
