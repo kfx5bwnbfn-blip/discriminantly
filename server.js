@@ -1515,7 +1515,117 @@ const MIGRATIONS = [
   ['061-display-alias', () => {
     if (!hasColumn('users', 'display_alias')) db.exec("ALTER TABLE users ADD COLUMN display_alias TEXT DEFAULT ''");
   }],
+  // Shared itineraries (v2.70). Everything is additive; a plan with no
+  // membership rows behaves exactly as before.
+  //  - The creator stays itineraries.user_id and is always the owner: no row.
+  //  - A stop owns its place identity (identity fields only, never why, tags
+  //    or images), so it survives any participant's Mark lifecycle. External
+  //    ids are stored as one "provider:id" string, as on marks, so provider
+  //    and id always travel together.
+  //  - The owner's link stays itinerary_stops.mark_uid; every other
+  //    participant's link to THEIR OWN Mark lives in itinerary_stop_marks.
+  //  - Removed stops and days (shared plans) move to itinerary_removed with a
+  //    full snapshot, so no reader of the plan can ever see them by accident,
+  //    and restore brings back the same uid.
+  ['062-shared-itineraries', () => {
+    const add = (c, ddl) => { if (!hasColumn('itinerary_stops', c)) db.exec(`ALTER TABLE itinerary_stops ADD COLUMN ${c} ${ddl}`); };
+    add('place_name', "TEXT DEFAULT ''"); add('place_address', "TEXT DEFAULT ''");
+    add('place_lat', 'REAL'); add('place_lng', 'REAL'); add('place_url', "TEXT DEFAULT ''");
+    add('place_external_id', "TEXT DEFAULT ''"); add('place_identity_basis', "TEXT DEFAULT ''");
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_members (
+      id INTEGER PRIMARY KEY,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('editor','viewer')),
+      state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','left','removed')),
+      invited_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      joined_at TEXT DEFAULT CURRENT_TIMESTAMP, ended_at TEXT, ended_by INTEGER,
+      UNIQUE (itinerary_id, user_id))`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_members_user ON itinerary_members(user_id, state)');
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_invitations (
+      id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK (role IN ('editor','viewer')),
+      token_hash TEXT NOT NULL UNIQUE,
+      invited_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      email TEXT DEFAULT '',
+      state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','accepted','declined','revoked','expired')),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, expires_at TEXT,
+      responded_at TEXT, responded_by INTEGER)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_invites_itin ON itinerary_invitations(itinerary_id, state)');
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_stop_marks (
+      stop_id INTEGER NOT NULL REFERENCES itinerary_stops(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      mark_uid TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (stop_id, user_id))`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_stop_marks_mark ON itinerary_stop_marks(mark_uid)');
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_removed (
+      id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL CHECK (kind IN ('stop','day')),
+      subject_uid TEXT NOT NULL, snapshot TEXT NOT NULL,
+      removed_at TEXT DEFAULT CURRENT_TIMESTAMP, removed_by INTEGER,
+      state TEXT NOT NULL DEFAULT 'removed' CHECK (state IN ('removed','restored')),
+      restored_at TEXT, restored_by INTEGER)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_removed ON itinerary_removed(itinerary_id, state)');
+    // A participant deleting their own Mark ends only THEIR link; the stop,
+    // its place identity and everyone else's links are untouched.
+    const cols = 'entity_type, entity_uid, action, assertion, actor_type, actor_user_id, agent, auth_method, connection_uid, source_kind, source_ref, fields';
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_mark_delete_ends_member_links BEFORE DELETE ON marks BEGIN
+      INSERT INTO provenance (${cols})
+        SELECT 'itinerary_stop', s.uid, 'unlinked', 'derived', 'system', NULL, 'system', 'system', NULL, 'cascade', OLD.uid, 'member_link'
+        FROM itinerary_stop_marks l JOIN itinerary_stops s ON s.id = l.stop_id WHERE l.mark_uid = OLD.uid AND s.uid IS NOT NULL;
+      DELETE FROM itinerary_stop_marks WHERE mark_uid = OLD.uid;
+    END`);
+    // Linking fills the stop's place identity from the Mark: identity fields
+    // only, and only those still empty, so one member's later edit to their
+    // own Mark never rewrites the place a shared plan relies on.
+    const fill = (src) => `UPDATE itinerary_stops SET
+        place_name = CASE WHEN COALESCE(place_name,'') = '' THEN COALESCE((SELECT name FROM marks WHERE uid = ${src}), '') ELSE place_name END,
+        place_address = CASE WHEN COALESCE(place_address,'') = '' THEN COALESCE((SELECT address FROM marks WHERE uid = ${src}), '') ELSE place_address END,
+        place_lat = CASE WHEN place_lat IS NULL OR place_lng IS NULL THEN (SELECT lat FROM marks WHERE uid = ${src}) ELSE place_lat END,
+        place_lng = CASE WHEN place_lat IS NULL OR place_lng IS NULL THEN (SELECT lng FROM marks WHERE uid = ${src}) ELSE place_lng END,
+        place_url = CASE WHEN COALESCE(place_url,'') = '' THEN COALESCE((SELECT url FROM marks WHERE uid = ${src}), '') ELSE place_url END,
+        place_external_id = CASE WHEN COALESCE(place_external_id,'') = '' THEN COALESCE((SELECT external_id FROM marks WHERE uid = ${src}), '') ELSE place_external_id END,
+        place_identity_basis = CASE WHEN COALESCE(place_identity_basis,'') = '' THEN COALESCE((SELECT identity_basis FROM marks WHERE uid = ${src}), '') ELSE place_identity_basis END,
+        place_locality = CASE WHEN COALESCE(place_locality,'') = '' THEN COALESCE((SELECT locality FROM marks WHERE uid = ${src}), '') ELSE place_locality END,
+        place_country = CASE WHEN COALESCE(place_country,'') = '' THEN COALESCE((SELECT country FROM marks WHERE uid = ${src}), '') ELSE place_country END`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_place_identity_ins AFTER INSERT ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL BEGIN ${fill('NEW.mark_uid')} WHERE id = NEW.id; END`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_place_identity_upd AFTER UPDATE OF mark_uid ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL BEGIN ${fill('NEW.mark_uid')} WHERE id = NEW.id; END`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS trg_stop_place_identity_member AFTER INSERT ON itinerary_stop_marks BEGIN ${fill('NEW.mark_uid')} WHERE id = NEW.stop_id; END`);
+    // 058's snapshot triggers refresh city and country on every link. Kept for
+    // single-owner plans (unchanged behaviour); in a shared plan the place is
+    // the plan's, so only the fill-empty triggers above apply there.
+    const set058 = `UPDATE itinerary_stops SET place_locality = COALESCE((SELECT locality FROM marks WHERE uid = NEW.mark_uid), place_locality),
+      place_country = COALESCE((SELECT country FROM marks WHERE uid = NEW.mark_uid), place_country) WHERE id = NEW.id;`;
+    const solo = `NOT EXISTS (SELECT 1 FROM itinerary_members WHERE itinerary_id = NEW.itinerary_id AND state = 'active')`;
+    db.exec('DROP TRIGGER IF EXISTS trg_stop_place_snapshot_ins');
+    db.exec('DROP TRIGGER IF EXISTS trg_stop_place_snapshot_upd');
+    db.exec(`CREATE TRIGGER trg_stop_place_snapshot_ins AFTER INSERT ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL AND ${solo} BEGIN ${set058} END`);
+    db.exec(`CREATE TRIGGER trg_stop_place_snapshot_upd AFTER UPDATE OF mark_uid ON itinerary_stops WHEN NEW.mark_uid IS NOT NULL AND ${solo} BEGIN ${set058} END`);
+    // Backfill: identity fields of each linked stop's current Mark, empty
+    // fields only. Idempotent (a second run changes nothing).
+    const r = stopPlaceBackfill();
+    if (r.stops) console.log(`Place identity backfilled on ${r.stops} linked stop(s) (${r.fields} field(s)); nothing personal copied.`);
+  }],
+  // Share links (v2.71): "let others use it". A link anyone can open to see
+  // a plan's structure and make their own copy; separate from invitations,
+  // which grant membership. Only the token's hash is stored.
+  ['063-itinerary-shares', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS itinerary_shares (
+      id INTEGER PRIMARY KEY, uid TEXT NOT NULL UNIQUE,
+      itinerary_id INTEGER NOT NULL REFERENCES itineraries(id) ON DELETE CASCADE,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      show_author INTEGER NOT NULL DEFAULT 1,
+      state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','revoked')),
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP, revoked_at TEXT, revoked_by INTEGER,
+      adopted_count INTEGER NOT NULL DEFAULT 0)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_itin_shares_itin ON itinerary_shares(itinerary_id, state)');
+  }],
 ];
+
 
 function backupTo(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -1558,6 +1668,9 @@ function runMigrations() {
   }
 }
 runMigrations();
+// v2.70: `node server.js --place-backfill-report` prints what the stop place
+// backfill would still change (a dry run; 0 after the migration) and exits.
+if (process.argv.includes('--place-backfill-report')) { console.log(JSON.stringify(stopPlaceBackfill({ dryRun: true }))); process.exit(0); }
 
 // `node server.js --backup [file]` for an on-demand snapshot
 if (process.argv.includes('--backup')) {
@@ -1783,6 +1896,13 @@ function temporalChronoKey(t) {
 
 function recordProvenance(entity_type, entity_uid, action, ctx, extra = {}) {
   if (!entity_uid) return;                       // nothing to attach history to
+  // v2.70: a stop's or a day's history names its plan, so a shared plan's
+  // history is one query. Only when the caller gave no other reference.
+  if (!extra.source_ref && (entity_type === 'itinerary_stop' || entity_type === 'itinerary_group')) {
+    const r = q(`SELECT i.uid FROM ${entity_type === 'itinerary_stop' ? 'itinerary_stops' : 'itinerary_groups'} x
+                 JOIN itineraries i ON i.id = x.itinerary_id WHERE x.uid=?`).get(entity_uid);
+    if (r) extra = { ...extra, source_ref: r.uid };
+  }
   q(`INSERT INTO provenance
       (entity_type, entity_uid, action, assertion, actor_type, actor_user_id,
        agent, auth_method, connection_uid, source_kind, source_ref, fields)
@@ -2389,8 +2509,8 @@ function independentRelationship(subjectType, row) {
 // member's corpus is private to that member, always, whatever its own flag
 // says (and the admin's private view does not reach it either). Corpus lists
 // read the Adopted projection instead and need only canSee.
-const canView = (subjectType, row, me) => (isAdopted(subjectType, row.uid)
-  ? canSee(row, me) : !!(me && me.id === row.user_id));
+const canView = (subjectType, row, me) => (subjectType === 'itinerary' && me && itinRole(row, me) ? true   // v2.70: participants
+  : isAdopted(subjectType, row.uid) ? canSee(row, me) : !!(me && me.id === row.user_id));
 // Rejects strings that merely look like YYYY-MM-DD but aren't a real calendar
 // date (2026-02-30, month 13, non-leap Feb 29). Date's own constructor is too
 // forgiving for this — it silently rolls 2026-02-30 into March 2 — so validity
@@ -4856,6 +4976,35 @@ const ensCanSee = (e, me) => (e.status === 'pending_review')
 // caller.
 // ============================================================================
 
+// Fills empty place-identity fields on linked stops from their linked Mark.
+// Identity fields only. dryRun reports what would change without writing.
+function stopPlaceBackfill({ dryRun = false } = {}) {
+  const STOP_PLACE_FIELDS = [['place_name', 'name'], ['place_address', 'address'], ['place_url', 'url'],
+    ['place_external_id', 'external_id'], ['place_identity_basis', 'identity_basis'], ['place_locality', 'locality'], ['place_country', 'country']];
+  const rows = db.prepare(`SELECT s.id, s.place_name, s.place_address, s.place_url, s.place_external_id, s.place_identity_basis,
+      s.place_locality, s.place_country, s.place_lat, s.place_lng,
+      m.name, m.address, m.url, m.external_id, m.identity_basis, m.locality, m.country, m.lat, m.lng
+    FROM itinerary_stops s JOIN marks m ON m.uid = s.mark_uid`).all();
+  let stops = 0, fields = 0;
+  const upd = db.prepare(`UPDATE itinerary_stops SET place_name=?, place_address=?, place_url=?, place_external_id=?, place_identity_basis=?,
+    place_locality=?, place_country=?, place_lat=?, place_lng=? WHERE id=?`);
+  for (const r of rows) {
+    const v = {}; let n = 0;
+    for (const [sk, mk] of STOP_PLACE_FIELDS) {
+      const cur = String(r[sk] || ''), src = String(r[mk] || '');
+      v[sk] = cur || src; if (!cur && src) n++;
+    }
+    const hasCoords = r.place_lat !== null && r.place_lng !== null;
+    const takeCoords = !hasCoords && r.lat !== null && r.lng !== null;
+    v.place_lat = takeCoords ? r.lat : r.place_lat; v.place_lng = takeCoords ? r.lng : r.place_lng; if (takeCoords) n++;
+    if (!n) continue;
+    stops++; fields += n;
+    if (!dryRun) upd.run(v.place_name, v.place_address, v.place_url, v.place_external_id, v.place_identity_basis,
+      v.place_locality, v.place_country, v.place_lat, v.place_lng, r.id);
+  }
+  return { stops, fields, dryRun };
+}
+
 const itinById   = (id) => q('SELECT * FROM itineraries WHERE id=?').get(id);
 const itinByUid  = (uid) => q('SELECT * FROM itineraries WHERE uid=?').get(uid);
 const groupByUid = (uid) => q('SELECT * FROM itinerary_groups WHERE uid=?').get(uid);
@@ -4864,11 +5013,78 @@ const stopByUid  = (uid) => q('SELECT * FROM itinerary_stops WHERE uid=?').get(u
 // UID is the durable external identity: MCP and any API speak uid, never rowid.
 // Resolution happens AFTER the ownership check, so a uid probe cannot be used to
 // discover whether a row exists.
-function itinOwned(user, uid) {
+// ---- Shared itineraries: access (v2.70) -------------------------------------
+// One rule for every itinerary, day and stop. The creator (itineraries.user_id)
+// is the owner and has no membership row; an ACTIVE itinerary_members row makes
+// someone an editor or a viewer. With no rows this is exactly the old
+// single-owner check. Anyone without access gets the same "No such ..." as for
+// a uid that does not exist, so access can never be used to probe existence.
+//   read   owner, editor, viewer
+//   write  owner, editor            (content: stops, days, order, dates, labels)
+//   govern owner                    (members, invitations, publish, delete)
+const ITIN_NEED = { read: ['owner', 'editor', 'viewer'], write: ['owner', 'editor'], govern: ['owner'] };
+function itinRole(it, user) {
+  if (!it || !user) return null;
+  if (it.user_id === user.id) return 'owner';
+  const m = q("SELECT role FROM itinerary_members WHERE itinerary_id=? AND user_id=? AND state='active'").get(it.id, user.id);
+  return m ? m.role : null;
+}
+// Shared = at least one active participant besides the owner.
+const itinShared = (it) => !!(it && q("SELECT 1 FROM itinerary_members WHERE itinerary_id=? AND state='active' LIMIT 1").get(it.id));
+// ...or about to be: an invitation still open. Publishing waits for both.
+const itinInvitesOpen = (it) => !!(it && q(`SELECT 1 FROM itinerary_invitations WHERE itinerary_id=? AND state='pending'
+  AND (expires_at IS NULL OR expires_at > datetime('now')) LIMIT 1`).get(it.id));
+function itinAccess(user, it, need = 'write', notFound = 'No such itinerary.') {
+  const role = itinRole(it, user);
+  if (!role) throw new Error(notFound);
+  if (!ITIN_NEED[need].includes(role)) {
+    if (need === 'govern') throw new Error('Only the person who created this plan can do that.');
+    throw new Error('You can view this plan but not change it.');
+  }
+  return role;
+}
+function itinOwned(user, uid, need = 'write') {
   const it = itinByUid(uid);
-  if (!it || it.user_id !== user.id) throw new Error('No such itinerary.');
+  itinAccess(user, it, need, 'No such itinerary.');
   return it;
 }
+// Active participants other than the owner, with their handles.
+const itinMembers = (itId) => q(`SELECT m.*, u.handle, u.name FROM itinerary_members m JOIN users u ON u.id=m.user_id
+  WHERE m.itinerary_id=? AND m.state='active' ORDER BY m.id`).all(itId);
+// One line for the model reading a shared plan (text only; no structured
+// field changes). Empty for a plan nobody else is planning.
+function itinSharingNote(it, user) {
+  const ms = itinMembers(it.id);
+  if (!ms.length) return '';
+  const role = itinRole(it, user);
+  if (role === 'owner') return ` · shared with ${ms.map((m) => `@${m.handle} (${m.role})`).join(', ')}`;
+  const owner = q('SELECT handle FROM users WHERE id=?').get(it.user_id);
+  return ` · shared with you by @${owner ? owner.handle : 'someone'} (you can ${role === 'editor' ? 'edit' : 'only view'})`;
+}
+
+// ---- Shared itineraries: the caller-relative stop (v2.70) -------------------
+// A stop belongs to the itinerary. Each participant's relationship to its place
+// is their own: the owner's link is itinerary_stops.mark_uid (as it always
+// was), anyone else's is a row in itinerary_stop_marks. Every reader that hands
+// a stop to someone goes through stopFor, so `mark_uid` ALWAYS means the
+// viewer's own Mark for that stop, or null -- never another participant's.
+function stopMarkFor(st, it, viewer) {
+  if (!viewer || !st) return null;
+  if (viewer.id === it.user_id) return st.mark_uid || null;
+  const l = q('SELECT mark_uid FROM itinerary_stop_marks WHERE stop_id=? AND user_id=?').get(st.id, viewer.id);
+  return l ? l.mark_uid : null;
+}
+function stopFor(st, it, viewer) {
+  const mine = stopMarkFor(st, it, viewer);
+  return { ...st, mark_uid: mine, resolution: mine ? 'linked' : st.resolution === 'linked' ? 'particular' : st.resolution };
+}
+// Enough of a place to find it again in anyone's own catalogue: where it is,
+// plus an address, a position or a stable id (the same bar a Mark's identity
+// meets to count as resolved).
+const stopPlaceSufficient = (st) => !!(String(st.place_name || st.label || '').trim()
+  && (String(st.place_locality || '').trim() || String(st.place_country || '').trim())
+  && (String(st.place_address || '').trim() || (st.place_lat !== null && st.place_lat !== undefined && st.place_lng !== null && st.place_lng !== undefined)
+      || String(st.place_external_id || '').trim()));
 // ---- Stop → Note (v2.54) ----------------------------------------------------
 // Only the member's own Notes, on the member's own Stops: a Note is part of
 // their corpus, and the attachment explains why it matters in this plan. A
@@ -4893,7 +5109,9 @@ function stopNoteAttach(user, stopUid, noteUid, ctx, { origin = 'existing' } = {
 }
 function stopNoteDetach(user, stopUid, noteUid, ctx) {
   const { stop } = stopOwned(user, stopUid);
-  const row = q('SELECT a.id, a.uid FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? AND o.uid=?').get(stop.id, String(noteUid || ''));
+  // Only the attacher's own attachment (v2.70): in a shared plan each
+  // participant's notes at a stop are theirs, as their Marks are.
+  const row = q('SELECT a.id, a.uid FROM itinerary_stop_notes a JOIN objects o ON o.id=a.note_id WHERE a.stop_id=? AND o.uid=? AND a.user_id=?').get(stop.id, String(noteUid || ''), user.id);
   if (!row) return { action: 'unchanged' };
   recordProvenance('itinerary_stop_note', row.uid, 'deleted', ctx, { source_ref: stop.uid });
   q('DELETE FROM itinerary_stop_notes WHERE id=?').run(row.id);
@@ -4905,18 +5123,18 @@ function stopNotesVisible(stopId, me) {
     .all(stopId).filter((o) => canView('object', o, me));
 }
 
-function stopOwned(user, uid) {
+function stopOwned(user, uid, need = 'write') {
   const st = stopByUid(uid);
   if (!st) throw new Error('No such stop.');
   const it = itinById(st.itinerary_id);
-  if (!it || it.user_id !== user.id) throw new Error('No such stop.');
+  itinAccess(user, it, need, 'No such stop.');
   return { stop: st, itin: it };
 }
-function groupOwned(user, uid) {
+function groupOwned(user, uid, need = 'write') {
   const g = groupByUid(uid);
   if (!g) throw new Error('No such day.');
   const it = itinById(g.itinerary_id);
-  if (!it || it.user_id !== user.id) throw new Error('No such day.');
+  itinAccess(user, it, need, 'No such day.');
   return { group: g, itin: it };
 }
 
@@ -5016,8 +5234,12 @@ function itineraryPublishConflicts(itineraryId) {
             WHERE s.itinerary_id=? AND s.visibility='visible' AND m.private=1`).all(itineraryId);
 }
 function itineraryPublish(user, uid, ctx) {
-  const it = itinOwned(user, uid);
+  const it = itinOwned(user, uid, 'govern');
   assertEditable('itinerary', it);
+  // A shared plan is never public (v2.70): who it would appear as, and whose
+  // profile it would sit on, are not settled, and a link does the job.
+  if (itinShared(it) || itinInvitesOpen(it))
+    throw new Error('This plan is shared with other people, so it stays private. It can be made public once nobody else is planning it and no invitation is open.');
   const conflicts = itineraryPublishConflicts(it.id);
   if (conflicts.length) {
     const err = new Error('This itinerary references private travel marks: ' +
@@ -5032,14 +5254,14 @@ function itineraryPublish(user, uid, ctx) {
   return itinById(it.id);
 }
 function itineraryUnpublish(user, uid, ctx) {
-  const it = itinOwned(user, uid);
+  const it = itinOwned(user, uid, 'govern');
   if (it.private) return it;
   q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
   recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private' });
   return itinById(it.id);
 }
 function itineraryDelete(user, uid, ctx) {
-  const it = itinOwned(user, uid);
+  const it = itinOwned(user, uid, 'govern');
   // The records at its stops, named in the deletion's own history so the
   // member can review them afterwards. Nothing here deletes any of them.
   const kids = isAdopted('itinerary', it.uid) ? [
@@ -5105,13 +5327,14 @@ function groupSetPosition(user, uid, wanted, ctx) {
 // rather than merely correct.
 function groupDelete(user, uid, ctx) {
   const { group, itin } = groupOwned(user, uid);
+  if (itinShared(itin)) return itinRemoveDay(user, group, itin, ctx);
   const affected = q('SELECT uid FROM itinerary_stops WHERE group_id=?').all(group.id);
   q('UPDATE itinerary_stops SET group_id=NULL, position=NULL, updated_at=CURRENT_TIMESTAMP WHERE group_id=?').run(group.id);
   q('DELETE FROM itinerary_groups WHERE id=?').run(group.id);
   reindexScope('itinerary_groups', 'itinerary_id=?', [itin.id],
     q('SELECT id FROM itinerary_groups WHERE itinerary_id=? AND position IS NOT NULL ORDER BY position')
       .all(itin.id).map((r) => r.id));
-  recordProvenance('itinerary_group', group.uid, 'deleted', ctx, {});
+  recordProvenance('itinerary_group', group.uid, 'deleted', ctx, { source_ref: itin.uid });
   for (const a of affected) recordProvenance('itinerary_stop', a.uid, 'edited', ctx, { fields: 'group_id,position' });
   return true;
 }
@@ -5163,12 +5386,14 @@ function recEvidence(user, uids) {
 }
 function recContext(user, itinUid, stopUid) {
   let it = null, st = null;
-  if (itinUid) { it = itinByUid(String(itinUid)); if (!it || it.user_id !== user.id) throw new Error('No such itinerary.'); }
+  // Read access is enough (v2.70): a participant's recommendations about a
+  // shared plan are their own and stay in their own orbit.
+  if (itinUid) { it = itinByUid(String(itinUid)); if (!itinRole(it, user)) throw new Error('No such itinerary.'); }
   if (stopUid) {
     st = stopByUid(String(stopUid));
     if (!st) throw new Error('No such stop.');
     const sit = itinById(st.itinerary_id);
-    if (!sit || sit.user_id !== user.id) throw new Error('No such stop.');
+    if (!itinRole(sit, user)) throw new Error('No such stop.');
     if (it && sit.id !== it.id) throw new Error('That stop belongs to another itinerary.');
     it = it || sit;
   }
@@ -5355,9 +5580,15 @@ function resolveTravelMark(user, a, ctx) {
 // A read-only integrity view of one of the member's plans. Returns the exact
 // stop and mark uids that need attention; never changes anything.
 function auditItinerary(user, uid, expect = {}) {
-  const it = itinOwned(user, uid);
-  const stops = q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id);
-  const unresolved = stops.filter((st) => st.resolution === 'particular' && !st.mark_uid).map((st) => ({ stop_uid: st.uid, label: st.label }));
+  const it = itinOwned(user, uid, 'read');
+  // Judged from the caller's side (v2.70): links are the caller's own. In a
+  // shared plan a stop that carries enough of its place's identity is
+  // resolved as it stands -- nobody needs to keep it for the plan to be
+  // complete, so no audit ever asks an AI to make a Mark for someone.
+  const shared = itinShared(it);
+  const stops = q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id).map((st) => stopFor(st, it, user));
+  const unresolved = stops.filter((st) => st.resolution === 'particular' && !st.mark_uid && !(shared && stopPlaceSufficient(st)))
+    .map((st) => ({ stop_uid: st.uid, label: st.label }));
   const groups = q('SELECT COUNT(*) n FROM itinerary_groups WHERE itinerary_id=?').get(it.id).n;
   const unplaced = groups ? stops.filter((st) => !st.group_id).map((st) => ({ stop_uid: st.uid, label: st.label })) : [];
   const conflicts = [], missing = [], seen = new Map();
@@ -5412,7 +5643,7 @@ function saveFieldStatus(uid, unavailable = []) {
 // For another time, checked: one origin plan's three proposals (same city,
 // similar, different). Read-only; never creates a missing one.
 function auditRecommendationExpansion(user, originUid) {
-  const origin = itinOwned(user, originUid);
+  const origin = itinOwned(user, originUid, 'read');
   const recs = q('SELECT * FROM recommendations WHERE user_id=? AND origin_itinerary_uid=? ORDER BY id').all(user.id, origin.uid);
   const rel = { same_city: [], similar: [], different: [] }, malformed = [];
   for (const r of recs) {
@@ -5531,6 +5762,9 @@ function prospectiveLeftovers(user) {
 // the authorization. Only this server's own /oauth/authorize is ever a return
 // target, so neither page can be used to redirect elsewhere.
 const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authorize\?[^\r\n]*$/.test(v) ? v : ''; };
+// v2.70: an itinerary invitation is the only other place sign-in or sign-up
+// may return to. Internal path, token characters only; no host, no scheme.
+const inviteNext = (n) => { const v = String(n || ''); return /^\/[js]\/[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ''; };
 const signupSourceFor = (next) => {
   // v2.65: from the host of the client's metadata document (its client_id),
   // not words anywhere in it. The real ChatGPT client_id is not yet observed:
@@ -6128,7 +6362,7 @@ function activationAnalysisHtml(cohort) {
 // never taste evidence. Bounded, sanitised values only: no prompts, corpus
 // text, tokens or connector URLs. Deleted with the account (FK cascade).
 const EVENT_TYPES = new Set(['signed_in', 'signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
-  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action', 'receipt_viewed']);
+  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action', 'receipt_viewed', 'share_viewed', 'share_adopted']);
 const CLIENT_EVENTS = new Set(['welcome_tab_viewed', 'starter_selected', 'starter_copied', 'starter_launched', 'empty_state_action']);
 const clip = (v, n = 64) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9._:-]/g, '').slice(0, n);
 function recordEvent(userId, event, { anon = '', surface = '', meta = {}, dedupeMinutes = 0 } = {}) {
@@ -6382,7 +6616,7 @@ function recOrigin(user, originUid, relation) {
   }
   if (originUid) {
     const it = itinByUid(String(originUid));
-    if (!it || it.user_id !== user.id) throw new Error('origin_itinerary_uid: no such itinerary of this member.');
+    if (!itinRole(it, user)) throw new Error('origin_itinerary_uid: no such itinerary of this member.');
     out.itinerary_uid = it.uid;
   }
   return out;
@@ -6701,6 +6935,10 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
     if (group.itinerary_id !== it.id) throw new Error('That day belongs to another itinerary.');
     groupId = group.id;
   }
+  // A shared plan (v2.70): the stop belongs to the plan. Adding a place keeps
+  // it for nobody (decision C1) -- the stop carries the place's identity, and
+  // anyone keeps it later, for themselves, by linking their own Mark.
+  if (itinShared(it)) return stopAddShared(user, it, { label, mark_uid, resolution, groupId, t, position, new_place }, ctx);
   // Accepting a sufficiently identified place into a plan creates its Travel
   // Mark, per the Mark boundary: added to the itinerary IS marked. The Mark's
   // own creation provenance carries where it came from, so corpus lineage is
@@ -6740,11 +6978,51 @@ function stopAdd(user, itinUid, { label = '', mark_uid = null, resolution = null
                VALUES(?,?,?,?,?,?,'visible',${T_COLS.map(() => '?').join(',')})`)
     .run(it.id, groupId, String(label).trim(), mUid, res, position ?? null, ...T_COLS.map((k) => t[k]));
   const uid = uidOf('itinerary_stops', r.lastInsertRowid);
-  recordProvenance('itinerary_stop', uid, 'created', ctx, { source_kind: 'manual', fields: res });
+  recordProvenance('itinerary_stop', uid, 'created', ctx, { source_kind: 'manual', fields: res, source_ref: it.uid });
 
   // Privacy propagates upward: linking a private mark to a public itinerary
   // makes the itinerary private rather than disclosing the mark.
   if (mUid) markPrivacyGuard(it.id, mUid, ctx);
+  return stopByUid(uid);
+}
+
+// The identity fields of a place a stop names (never why, tags or images).
+function stopPlaceFromNewPlace(np) {
+  const num = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  const lat = num(np.lat), lng = num(np.lng);
+  const ext = np.external_id && typeof np.external_id === 'object' && np.external_id.provider && np.external_id.id
+    ? `${String(np.external_id.provider).trim().toLowerCase()}:${String(np.external_id.id).trim()}` : String(np.external_id || '').trim();
+  return { place_name: String(np.name || '').trim(), place_locality: String(np.locality || '').trim(), place_country: String(np.country || '').trim(),
+    place_address: String(np.address || '').trim(), place_lat: lat !== null && lng !== null ? lat : null, place_lng: lat !== null && lng !== null ? lng : null,
+    place_url: /^https?:\/\//i.test(String(np.url || '')) ? String(np.url).trim() : '', place_external_id: ext,
+    place_identity_basis: ext ? 'stable_external_id' : '' };
+}
+// Adding to a shared plan. Every check refuses before anything is written.
+//  - new_place: the stop is a particular place carrying the place's identity;
+//    no Mark is created for anyone, the adder included (C1).
+//  - mark_uid: must be the caller's own kept Mark; it becomes ONLY the
+//    caller's link (the owner's in stops.mark_uid, anyone else's in
+//    itinerary_stop_marks), and fills the stop's place identity.
+function stopAddShared(user, it, { label, mark_uid, resolution, groupId, t, position, new_place }, ctx) {
+  let mk = null;
+  if (mark_uid) {
+    mk = q('SELECT * FROM marks WHERE uid=?').get(mark_uid);
+    if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
+    assertKeptChild(true, 'mark', mk.uid);
+  }
+  const owner = user.id === it.user_id;
+  const place = !mk && new_place && String(new_place.name || '').trim() ? stopPlaceFromNewPlace(new_place) : null;
+  let res = mk ? (owner ? 'linked' : 'particular') : place ? 'particular' : (resolution && resolution !== 'linked' ? resolution : 'experiential');
+  if (!['linked', 'particular', 'experiential', 'allocation'].includes(res)) throw new Error('Unknown stop kind.');
+  const cols = T_COLS.join(',');
+  const r = q(`INSERT INTO itinerary_stops(itinerary_id,group_id,label,mark_uid,resolution,position,visibility,${cols})
+               VALUES(?,?,?,?,?,?,'visible',${T_COLS.map(() => '?').join(',')})`)
+    .run(it.id, groupId, String(label || (place && place.place_name) || '').trim(), mk && owner ? mk.uid : null, res, position ?? null, ...T_COLS.map((k) => t[k]));
+  const id = r.lastInsertRowid, uid = uidOf('itinerary_stops', id);
+  if (place) q(`UPDATE itinerary_stops SET ${Object.keys(place).map((k) => k + '=?').join(',')} WHERE id=?`).run(...Object.values(place), id);
+  if (mk && !owner) q('INSERT INTO itinerary_stop_marks(stop_id,user_id,mark_uid) VALUES(?,?,?)').run(id, user.id, mk.uid);
+  recordProvenance('itinerary_stop', uid, 'created', ctx, { source_kind: 'manual', source_ref: it.uid,
+    fields: [res, place ? 'place' : null, mk ? (owner ? 'mark_uid' : 'member_link') : null].filter(Boolean).join(',') });
   return stopByUid(uid);
 }
 
@@ -6764,11 +7042,33 @@ function stopEdit(user, uid, { label }, ctx) {
 // label is never cleared -- it is what the member actually said, and what the
 // interface shows as the intention the mark answered.
 function stopResolveToMark(user, uid, markUid, intent, ctx) {
-  const { stop, itin } = stopOwned(user, uid);
+  // Linking one's OWN Mark to a shared plan's stop is a personal keep, not an
+  // edit of the plan, so a viewer may do it too; everything else needs write.
+  let { stop, itin } = stopOwned(user, uid, 'read');
+  if (!(itinShared(itin) && user.id !== itin.user_id)) ({ stop, itin } = stopOwned(user, uid));
   const mk = q('SELECT * FROM marks WHERE uid=?').get(markUid);
   if (!mk || mk.user_id !== user.id) throw new Error('No such travel mark.');
   assertKeptChild(isAdopted('itinerary', itin.uid), 'mark', mk.uid);
   const action = intent === 'refine' ? 'enriched' : intent === 'correct' ? 'corrected' : 'edited';
+  // A shared plan (v2.70): this links the CALLER's own Mark as the caller's
+  // own relationship to the stop's place -- the explicit personal keep. It
+  // never touches another participant's link, and only fills place identity
+  // the stop does not already have.
+  if (itinShared(itin)) {
+    if (user.id === itin.user_id) {
+      q(`UPDATE itinerary_stops SET mark_uid=?, resolution='linked', updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(mk.uid, stop.id);
+      recordProvenance('itinerary_stop', stop.uid, action, ctx, { fields: 'mark_uid,resolution' });
+    } else {
+      q('DELETE FROM itinerary_stop_marks WHERE stop_id=? AND user_id=?').run(stop.id, user.id);
+      q('INSERT INTO itinerary_stop_marks(stop_id,user_id,mark_uid) VALUES(?,?,?)').run(stop.id, user.id, mk.uid);
+      recordProvenance('itinerary_stop', stop.uid, action, ctx, { fields: 'member_link' });
+    }
+    return stopByUid(uid);
+  }
+  // A single-owner plan: the stop becomes that Mark's place, so its identity
+  // is refilled from the Mark it now points at.
+  if (stop.mark_uid !== mk.uid)
+    q(`UPDATE itinerary_stops SET place_name='', place_address='', place_lat=NULL, place_lng=NULL, place_url='', place_external_id='', place_identity_basis='' WHERE id=?`).run(stop.id);
   q(`UPDATE itinerary_stops SET mark_uid=?, resolution='linked', updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .run(mk.uid, stop.id);
   recordProvenance('itinerary_stop', stop.uid, action, ctx, { fields: 'mark_uid,resolution' });
@@ -6777,7 +7077,18 @@ function stopResolveToMark(user, uid, markUid, intent, ctx) {
 }
 
 function stopUnresolve(user, uid, resolution, ctx) {
-  const { stop } = stopOwned(user, uid);
+  let { stop, itin } = stopOwned(user, uid, 'read');
+  if (!(itinShared(itin) && user.id !== itin.user_id)) ({ stop, itin } = stopOwned(user, uid));
+  // A shared plan: unlinking ends only the caller's own link; the stop, its
+  // place and everyone else's links stay exactly as they are.
+  if (itinShared(itin) && user.id !== itin.user_id) {
+    const had = q('SELECT 1 FROM itinerary_stop_marks WHERE stop_id=? AND user_id=?').get(stop.id, user.id);
+    if (had) {
+      q('DELETE FROM itinerary_stop_marks WHERE stop_id=? AND user_id=?').run(stop.id, user.id);
+      recordProvenance('itinerary_stop', stop.uid, 'corrected', ctx, { fields: 'member_link' });
+    }
+    return stopByUid(uid);
+  }
   const res = ['particular', 'experiential', 'allocation'].includes(resolution) ? resolution : 'particular';
   q(`UPDATE itinerary_stops SET mark_uid=NULL, resolution=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .run(res, stop.id);
@@ -6786,7 +7097,8 @@ function stopUnresolve(user, uid, resolution, ctx) {
 }
 
 function stopSetResolution(user, uid, resolution, ctx) {
-  const { stop } = stopOwned(user, uid);
+  const { stop, itin } = stopOwned(user, uid);
+  if (stop.mark_uid && user.id !== itin.user_id) throw new Error('This stop is a particular place on the plan, so its kind stays as it is.');
   if (stop.mark_uid) throw new Error('This stop is linked to a travel mark; unlink it first.');
   if (!['particular', 'experiential', 'allocation'].includes(resolution)) throw new Error('Unknown stop kind.');
   if (resolution === stop.resolution) return stop;
@@ -6891,14 +7203,474 @@ function stopRestore(user, uid, ctx) {
 }
 
 function stopDelete(user, uid, ctx) {
-  const { stop } = stopOwned(user, uid);
+  const { stop, itin } = stopOwned(user, uid);
+  // A shared plan (v2.70, decision C3): removal is recoverable, attributed,
+  // and never touches anyone's Mark. A single-owner plan deletes as before.
+  if (itinShared(itin)) return itinRemoveStop(user, stop, itin, ctx);
   const scope = stopScope(stop);
   q('DELETE FROM itinerary_stops WHERE id=?').run(stop.id);
   reindexScope('itinerary_stops', scope.sql, scope.args,
     q(`SELECT id FROM itinerary_stops WHERE ${scope.sql} AND position IS NOT NULL ORDER BY position`)
       .all(...scope.args).map((r) => r.id));
-  recordProvenance('itinerary_stop', stop.uid, 'deleted', ctx, {});
+  recordProvenance('itinerary_stop', stop.uid, 'deleted', ctx, { source_ref: itin.uid });
   return true;
+}
+
+// ---- Removed (v2.70, decision C3) -------------------------------------------
+// In a shared plan, removing a stop or a day moves it, whole, into
+// itinerary_removed: a snapshot of the row and everything hanging off it (the
+// stop's notes and participants' links; the day's stops and their order).
+// Nothing that reads the plan can see it there by accident, no Mark or Note is
+// touched, and Restore brings back the same uid. Attribution is provenance:
+// 'removed' and 'restored', with the plan as source_ref.
+const tableCols = (t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name).filter((c) => c !== 'id');
+function insertRow(table, row) {
+  const cols = tableCols(table).filter((c) => c in row);
+  return q(`INSERT INTO ${table}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`).run(...cols.map((c) => row[c])).lastInsertRowid;
+}
+// Put an existing row at `pos` (1-based) in an ordered scope, or at the end.
+function placeInScope(table, scope, id, pos) {
+  const ids = q(`SELECT id FROM ${table} WHERE ${scope.sql} AND position IS NOT NULL AND id<>? ORDER BY position`).all(...scope.args, id).map((r) => r.id);
+  const at = pos ? Math.max(1, Math.min(Number(pos), ids.length + 1)) : ids.length + 1;
+  ids.splice(at - 1, 0, id);
+  reindexScope(table, scope.sql, scope.args, ids);
+}
+function txn(fn) {
+  const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
+  try { const out = fn(); if (tx) db.exec('COMMIT'); return out; } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+}
+function itinRemoveStop(user, stop, itin, ctx) {
+  return txn(() => {
+    const g = stop.group_id ? q('SELECT uid FROM itinerary_groups WHERE id=?').get(stop.group_id) : null;
+    const snap = { stop, group_uid: g ? g.uid : null,
+      notes: q('SELECT uid, note_id, user_id, created_at FROM itinerary_stop_notes WHERE stop_id=?').all(stop.id),
+      links: q('SELECT user_id, mark_uid, created_at FROM itinerary_stop_marks WHERE stop_id=?').all(stop.id) };
+    q('INSERT INTO itinerary_removed(uid,itinerary_id,kind,subject_uid,snapshot,removed_by) VALUES(?,?,?,?,?,?)')
+      .run(crypto.randomUUID(), itin.id, 'stop', stop.uid, JSON.stringify(snap), user.id);
+    const scope = stopScope(stop);
+    q('DELETE FROM itinerary_stops WHERE id=?').run(stop.id);
+    reindexScope('itinerary_stops', scope.sql, scope.args,
+      q(`SELECT id FROM itinerary_stops WHERE ${scope.sql} AND position IS NOT NULL ORDER BY position`).all(...scope.args).map((r) => r.id));
+    recordProvenance('itinerary_stop', stop.uid, 'removed', ctx, { source_ref: itin.uid, fields: g ? 'group_id,position' : 'position' });
+    return 'removed';
+  });
+}
+function itinRemoveDay(user, group, itin, ctx) {
+  return txn(() => {
+    const stops = q('SELECT uid, position FROM itinerary_stops WHERE group_id=? ORDER BY position IS NULL, position, id').all(group.id);
+    q('INSERT INTO itinerary_removed(uid,itinerary_id,kind,subject_uid,snapshot,removed_by) VALUES(?,?,?,?,?,?)')
+      .run(crypto.randomUUID(), itin.id, 'day', group.uid, JSON.stringify({ group, stops }), user.id);
+    // As for any deleted day: its stops stay in the plan, unplaced.
+    q('UPDATE itinerary_stops SET group_id=NULL, position=NULL, updated_at=CURRENT_TIMESTAMP WHERE group_id=?').run(group.id);
+    q('DELETE FROM itinerary_groups WHERE id=?').run(group.id);
+    reindexScope('itinerary_groups', 'itinerary_id=?', [itin.id],
+      q('SELECT id FROM itinerary_groups WHERE itinerary_id=? AND position IS NOT NULL ORDER BY position').all(itin.id).map((r) => r.id));
+    recordProvenance('itinerary_group', group.uid, 'removed', ctx, { source_ref: itin.uid });
+    for (const st of stops) recordProvenance('itinerary_stop', st.uid, 'edited', ctx, { source_ref: itin.uid, fields: 'group_id,position' });
+    return 'removed';
+  });
+}
+// What a plan's Removed section lists, newest first, with who removed it.
+const itinRemovedList = (itId) => q(`SELECT r.*, u.handle AS removed_handle FROM itinerary_removed r LEFT JOIN users u ON u.id=r.removed_by
+  WHERE r.itinerary_id=? AND r.state='removed' ORDER BY r.id DESC`).all(itId);
+// Restore: the same uid comes back. A stop returns to its day at its old
+// place when that day still exists, otherwise unplaced (and says so); a day
+// returns at its old position and takes back those of its stops that are
+// still unplaced. Links come back only for Marks and people still there.
+function itinRestore(user, itUid, removedUid, ctx) {
+  const it = itinOwned(user, itUid, 'write');
+  const rm = q("SELECT * FROM itinerary_removed WHERE uid=? AND itinerary_id=? AND state='removed'").get(String(removedUid || ''), it.id);
+  if (!rm) throw new Error('Nothing to restore there.');
+  const snap = JSON.parse(rm.snapshot);
+  return txn(() => {
+    let note = '';
+    if (rm.kind === 'stop') {
+      const st = { ...snap.stop };
+      const g = snap.group_uid ? q('SELECT * FROM itinerary_groups WHERE uid=? AND itinerary_id=?').get(snap.group_uid, it.id) : null;
+      if (st.mark_uid && !q('SELECT 1 FROM marks WHERE uid=?').get(st.mark_uid)) { st.mark_uid = null; st.resolution = 'particular'; }
+      st.group_id = g ? g.id : null; const pos = st.position; st.position = null;
+      if (snap.group_uid && !g) note = 'its day is gone, so it is back unplaced';
+      const id = insertRow('itinerary_stops', st);
+      if (pos !== null && pos !== undefined) placeInScope('itinerary_stops', stopScope({ itinerary_id: it.id, group_id: st.group_id }), id, pos);
+      for (const n of snap.notes || []) if (q('SELECT 1 FROM objects WHERE id=?').get(n.note_id))
+        q('INSERT INTO itinerary_stop_notes(uid, stop_id, note_id, user_id, created_at) VALUES(?,?,?,?,?)').run(n.uid, id, n.note_id, n.user_id, n.created_at);
+      for (const l of snap.links || []) if (q('SELECT 1 FROM marks WHERE uid=? AND user_id=?').get(l.mark_uid, l.user_id) && itinRole(it, { id: l.user_id }))
+        q('INSERT OR IGNORE INTO itinerary_stop_marks(stop_id,user_id,mark_uid,created_at) VALUES(?,?,?,?)').run(id, l.user_id, l.mark_uid, l.created_at);
+      recordProvenance('itinerary_stop', st.uid, 'restored', ctx, { source_ref: it.uid });
+    } else {
+      const g = { ...snap.group }; const pos = g.position; g.position = null;
+      const id = insertRow('itinerary_groups', g);
+      if (pos !== null && pos !== undefined) placeInScope('itinerary_groups', { sql: 'itinerary_id=?', args: [it.id] }, id, pos);
+      let back = 0;
+      for (const s0 of snap.stops || []) {
+        const st = q('SELECT * FROM itinerary_stops WHERE uid=? AND itinerary_id=? AND group_id IS NULL').get(s0.uid, it.id);
+        if (!st) continue;
+        q('UPDATE itinerary_stops SET group_id=?, position=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(id, st.id);
+        if (s0.position !== null && s0.position !== undefined) placeInScope('itinerary_stops', { sql: 'group_id=?', args: [id] }, st.id, s0.position);
+        recordProvenance('itinerary_stop', st.uid, 'edited', ctx, { source_ref: it.uid, fields: 'group_id,position' });
+        back++;
+      }
+      recordProvenance('itinerary_group', g.uid, 'restored', ctx, { source_ref: it.uid, fields: back ? `stops:${back}` : null });
+    }
+    q("UPDATE itinerary_removed SET state='restored', restored_at=CURRENT_TIMESTAMP, restored_by=? WHERE id=?").run(user.id, rm.id);
+    return { kind: rm.kind, uid: rm.subject_uid, note };
+  });
+}
+
+// ---- Membership and invitations (v2.70; web only, decision C6) --------------
+// The owner invites; an invitation is single-use, its token is stored only as
+// a hash, and it grants nothing until a signed-in person explicitly accepts it
+// on the web. Membership never makes anyone's records anyone else's: what is
+// shared is the plan, never a participant's catalogue.
+const INVITE_TTL_DAYS = 14, INVITES_OPEN_MAX = 20;
+// Stops whose place comes from one of the owner's PRIVATE Marks: inviting
+// shows those places' identity (name, address) to participants, never the
+// owner's notes about them. Listed before any invitation is made.
+const itinPrivatePlaces = (it) => q(`SELECT s.uid, s.label, m.name FROM itinerary_stops s JOIN marks m ON m.uid = s.mark_uid
+  WHERE s.itinerary_id=? AND m.private=1 ORDER BY s.id`).all(it.id);
+function inviteCreate(user, itUid, { role, email = '', confirmPrivate = false }, ctx) {
+  const it = itinOwned(user, itUid, 'govern');
+  if (!isAdopted('itinerary', it.uid)) throw new Error('This plan was recommended to you and isn’t yours yet. Keep it first; only your own plans can be shared.');
+  if (!it.private) throw new Error('This plan is public. Make it private first: a plan you plan together with others stays private.');
+  if (!['editor', 'viewer'].includes(role)) throw new Error('Choose whether they can edit the plan or only view it.');
+  const em = String(email || '').toLowerCase().trim();
+  if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) throw new Error('That email address doesn’t look right. Leave it empty to make a link anyone you give it to can accept.');
+  if (q(`SELECT COUNT(*) n FROM itinerary_invitations WHERE itinerary_id=? AND state='pending' AND (expires_at IS NULL OR expires_at > datetime('now'))`).get(it.id).n >= INVITES_OPEN_MAX)
+    throw new Error('This plan has too many open invitations. Revoke some before making more.');
+  if (itinPrivatePlaces(it).length && !confirmPrivate) { const e = new Error('Confirm what people you invite will see first.'); e.code = 'disclosure'; throw e; }
+  const tok = token(32), uid = crypto.randomUUID();
+  q(`INSERT INTO itinerary_invitations(uid,itinerary_id,role,token_hash,invited_by,email,expires_at) VALUES(?,?,?,?,?,?,datetime('now', ?))`)
+    .run(uid, it.id, role, tokenHash(tok), user.id, em, `+${INVITE_TTL_DAYS} days`);
+  recordProvenance('itinerary_invitation', uid, 'created', ctx, { source_ref: it.uid, fields: `role:${role}${em ? ',email' : ''}` });
+  return { token: tok, uid, it };
+}
+// The invitation behind a token, with its effective state. Unknown, revoked,
+// expired, used and declined all look the same to the person holding it.
+function inviteByToken(tok) {
+  const inv = /^[A-Za-z0-9_-]{20,100}$/.test(String(tok || '')) ? q('SELECT * FROM itinerary_invitations WHERE token_hash=?').get(tokenHash(tok)) : null;
+  if (!inv) return null;
+  const expired = inv.state === 'pending' && inv.expires_at && q("SELECT ? <= datetime('now') x").get(inv.expires_at).x;
+  const it = itinById(inv.itinerary_id);
+  return it ? { ...inv, state: expired ? 'expired' : inv.state, it } : null;
+}
+function inviteRespond(user, tok, accept, ctx) {
+  const inv = inviteByToken(tok);
+  if (!inv || inv.state !== 'pending') throw new Error('This invitation isn’t active.');
+  const it = inv.it;
+  if (itinRole(it, user)) return { it, already: true };          // already planning it: nothing consumed
+  if (inv.email && inv.email !== String(user.email || '').toLowerCase())
+    throw new Error('This invitation was made for a different email address. Sign in with that account to accept it.');
+  return txn(() => {
+    if (accept) {
+      if (!it.private) throw new Error('This invitation isn’t active.');
+      const prior = q('SELECT id FROM itinerary_members WHERE itinerary_id=? AND user_id=?').get(it.id, user.id);
+      if (prior) q("UPDATE itinerary_members SET role=?, state='active', invited_by=?, joined_at=CURRENT_TIMESTAMP, ended_at=NULL, ended_by=NULL WHERE id=?").run(inv.role, inv.invited_by, prior.id);
+      else q('INSERT INTO itinerary_members(itinerary_id,user_id,role,invited_by) VALUES(?,?,?,?)').run(it.id, user.id, inv.role, inv.invited_by);
+      recordProvenance('itinerary_membership', it.uid, 'joined', ctx, { source_ref: inv.uid, fields: `user:${user.id},role:${inv.role}` });
+    }
+    q('UPDATE itinerary_invitations SET state=?, responded_at=CURRENT_TIMESTAMP, responded_by=? WHERE id=?').run(accept ? 'accepted' : 'declined', user.id, inv.id);
+    recordProvenance('itinerary_invitation', inv.uid, accept ? 'accepted' : 'declined', ctx, { source_ref: it.uid });
+    return { it, already: false };
+  });
+}
+function inviteRevoke(user, itUid, invUid, ctx) {
+  const it = itinOwned(user, itUid, 'govern');
+  const r = q("UPDATE itinerary_invitations SET state='revoked', responded_at=CURRENT_TIMESTAMP, responded_by=? WHERE uid=? AND itinerary_id=? AND state='pending'").run(user.id, String(invUid || ''), it.id);
+  if (r.changes) recordProvenance('itinerary_invitation', String(invUid), 'revoked', ctx, { source_ref: it.uid });
+  return it;
+}
+function memberSetRole(user, itUid, memberUserId, role, ctx) {
+  const it = itinOwned(user, itUid, 'govern');
+  if (!['editor', 'viewer'].includes(role)) throw new Error('Choose edit or view.');
+  const r = q("UPDATE itinerary_members SET role=? WHERE itinerary_id=? AND user_id=? AND state='active' AND role<>?").run(role, it.id, +memberUserId, role);
+  if (r.changes) recordProvenance('itinerary_membership', it.uid, 'role_changed', ctx, { fields: `user:${+memberUserId},role:${role}` });
+  return it;
+}
+// Leaving (oneself) or being removed (by the owner). The person's own links
+// and note attachments on this plan go with them; their Marks and Notes are
+// theirs and are untouched. The plan's stops are untouched.
+function memberEnd(user, itUid, memberUserId, ctx) {
+  const self = +memberUserId === user.id;
+  const it = itinOwned(user, itUid, self ? 'read' : 'govern');
+  if (it.user_id === +memberUserId) throw new Error('The person who created a plan can’t leave it; they can delete it.');
+  return txn(() => {
+    const r = q(`UPDATE itinerary_members SET state=?, ended_at=CURRENT_TIMESTAMP, ended_by=? WHERE itinerary_id=? AND user_id=? AND state='active'`)
+      .run(self ? 'left' : 'removed', user.id, it.id, +memberUserId);
+    if (!r.changes) return it;
+    q('DELETE FROM itinerary_stop_marks WHERE user_id=? AND stop_id IN (SELECT id FROM itinerary_stops WHERE itinerary_id=?)').run(+memberUserId, it.id);
+    q('DELETE FROM itinerary_stop_notes WHERE user_id=? AND stop_id IN (SELECT id FROM itinerary_stops WHERE itinerary_id=?)').run(+memberUserId, it.id);
+    recordProvenance('itinerary_membership', it.uid, self ? 'left' : 'removed', ctx, { fields: `user:${+memberUserId}` });
+    return it;
+  });
+}
+// ---- Share links (v2.71; web only) ------------------------------------------
+// "Let others use it": a multi-use link that shows the plan's structure (days,
+// stops, places by name and city) to anyone holding it, and offers "Make this
+// mine" -- a copy into the recipient's own catalogue. It never grants
+// membership, never changes the source, and copies structure only.
+const SHARES_MAX = 10;
+function shareCreate(user, itUid, { showAuthor = true, confirmPrivate = false }, ctx) {
+  const it = itinOwned(user, itUid, 'govern');
+  if (!isAdopted('itinerary', it.uid)) throw new Error('This plan was recommended to you and isn\u2019t yours yet. Keep it first.');
+  if (q(`SELECT COUNT(*) n FROM itinerary_shares WHERE itinerary_id=? AND state='active'`).get(it.id).n >= SHARES_MAX)
+    throw new Error('This plan already has as many links as it can. Revoke one first.');
+  if (itinPrivatePlaces(it).length && !confirmPrivate) { const e = new Error('Confirm what people with the link will see first.'); e.code = 'disclosure'; throw e; }
+  const tok = token(32), uid = crypto.randomUUID();
+  q('INSERT INTO itinerary_shares(uid,itinerary_id,created_by,token_hash,show_author) VALUES(?,?,?,?,?)').run(uid, it.id, user.id, tokenHash(tok), showAuthor ? 1 : 0);
+  recordProvenance('itinerary_share', uid, 'created', ctx, { source_ref: it.uid, fields: showAuthor ? 'show_author' : null });
+  return { token: tok, uid, it };
+}
+function shareByToken(tok) {
+  const sh = /^[A-Za-z0-9_-]{20,100}$/.test(String(tok || '')) ? q("SELECT * FROM itinerary_shares WHERE token_hash=? AND state='active'").get(tokenHash(tok)) : null;
+  if (!sh) return null;
+  const it = itinById(sh.itinerary_id);
+  return it ? { ...sh, it } : null;
+}
+function shareRevoke(user, itUid, shareUid, ctx) {
+  const it = itinOwned(user, itUid, 'govern');
+  const r = q("UPDATE itinerary_shares SET state='revoked', revoked_at=CURRENT_TIMESTAMP, revoked_by=? WHERE uid=? AND itinerary_id=? AND state='active'").run(user.id, String(shareUid || ''), it.id);
+  if (r.changes) recordProvenance('itinerary_share', String(shareUid), 'revoked', ctx, { source_ref: it.uid });
+  return it;
+}
+// "Make this mine": a new plan of the recipient's, kept, with the source's
+// days and stops. Places are resolved against the RECIPIENT's own catalogue
+// (an exact match reuses their Mark; otherwise a new kept Mark from identity
+// fields only). Nothing of the sharer's -- reasons, visits, notes, their
+// suggestions -- comes across, and the copy has no live tie to the source.
+function shareAdopt(user, tok, ctx) {
+  const sh = shareByToken(tok);
+  if (!sh) throw new Error('This link isn\u2019t active.');
+  const src = sh.it;
+  if (src.user_id === user.id || itinRole(src, user)) { const e = new Error('You already have this plan.'); e.it = src; throw e; }
+  const prior = q(`SELECT i.* FROM provenance p JOIN itineraries i ON i.uid=p.entity_uid WHERE p.entity_type='itinerary' AND p.action='created'
+    AND p.source_kind='shared_itinerary' AND p.source_ref=? AND i.user_id=? ORDER BY p.id DESC LIMIT 1`).get(sh.uid, user.id);
+  return txn(() => {
+    const it = itineraryCreate(user, { title: src.title, context: src.context, temporal: temporalOf(src), private: 1 }, ctx);
+    q("UPDATE provenance SET source_kind='shared_itinerary', source_ref=? WHERE entity_type='itinerary' AND entity_uid=? AND action='created'").run(sh.uid, it.uid);
+    const yields = { stops: 0, marks_reused: 0, marks_new: 0 };
+    const copyStop = (st, groupUid) => {
+      let mark_uid = null;
+      if (stopPlaceSufficient(st)) {
+        const pid = { place_name: st.place_name || st.label, locality: st.place_locality, country: st.place_country, address: st.place_address, lat: st.place_lat, lng: st.place_lng };
+        const found = findExistingMark(user.id, pid);
+        if (found && isAdopted('mark', found.uid)) { mark_uid = found.uid; yields.marks_reused++; }
+        else if (!found) {
+          const mk = markCreate(user, { name: pid.place_name, locality: pid.locality, country: pid.country, address: pid.address, lat: pid.lat, lng: pid.lng, url: st.place_url || '', private: true },
+            ctx, { source_kind: 'itinerary', source_ref: it.uid, adopt: true });   // born with this plan, which carries the share lineage
+          if (st.place_external_id) q('UPDATE marks SET external_id=?, identity_basis=? WHERE uid=?').run(st.place_external_id, st.place_identity_basis || 'stable_external_id', mk.uid);
+          mark_uid = mk.uid; yields.marks_new++;
+        }
+      }
+      const res = mark_uid ? null : (st.resolution === 'linked' ? 'particular' : st.resolution);
+      stopAdd(user, it.uid, { label: st.label, mark_uid, resolution: res, group_uid: groupUid, temporal: temporalOf(st), position: st.position }, ctx);
+      yields.stops++;
+    };
+    for (const g of groupOrder(src.id)) {
+      const ng = groupCreate(user, it.uid, { label: g.label, temporal: temporalOf(g), position: g.position }, ctx);
+      for (const st of itineraryStops(src.id, g.id)) copyStop(st, ng.uid);
+    }
+    for (const st of itineraryStops(src.id, null)) copyStop(st, null);
+    q('UPDATE itinerary_shares SET adopted_count = adopted_count + 1 WHERE id=?').run(sh.id);
+    recordEvent(user.id, 'share_adopted', { surface: 'web', meta: { share: sh.uid } });
+    return { it, yields, prior, share: sh };
+  });
+}
+// The colophon line for a plan made from a share: who shared it, if they let
+// their name show; otherwise just that it was shared.
+function shareLineage(it) {
+  const p = q("SELECT source_ref, created_at FROM provenance WHERE entity_type='itinerary' AND entity_uid=? AND action='created' AND source_kind='shared_itinerary'").get(it.uid);
+  if (!p) return null;
+  const sh = q('SELECT * FROM itinerary_shares WHERE uid=?').get(p.source_ref);
+  const who = sh && sh.show_author && sh.created_by ? q('SELECT handle FROM users WHERE id=?').get(sh.created_by) : null;
+  return { who: who ? who.handle : null, at: p.created_at };
+}
+
+// Keep this place (web): the explicit personal keep of a shared stop's place.
+// Resolved against the keeper's OWN catalogue: an exact match is reused,
+// otherwise a new kept Mark is made from the stop's identity fields only.
+// Then linked as the keeper's own relationship. Nobody else is affected.
+function stopKeepPlace(user, stopUid, ctx) {
+  const { stop, itin } = stopOwned(user, stopUid, 'read');
+  if (!itinShared(itin)) throw new Error('Nothing to keep here.');
+  if (stopMarkFor(stop, itin, user)) return stop;
+  if (!stopPlaceSufficient(stop)) throw new Error('This stop doesn’t say exactly where it is yet, so it can’t be kept as a place.');
+  const pid = { place_name: stop.place_name || stop.label, locality: stop.place_locality, country: stop.place_country, address: stop.place_address,
+    lat: stop.place_lat, lng: stop.place_lng };
+  return txn(() => {
+    let mk = findExistingMark(user.id, pid);
+    if (mk && !isAdopted('mark', mk.uid)) keepRecord(user, 'mark', mk.uid, ctx);
+    if (!mk) {
+      mk = markCreate(user, { name: pid.place_name, locality: pid.locality, country: pid.country, address: pid.address,
+        lat: pid.lat, lng: pid.lng, url: stop.place_url || '', private: true }, ctx, { source_kind: 'itinerary', source_ref: itin.uid, adopt: true });
+      if (stop.place_external_id) q('UPDATE marks SET external_id=?, identity_basis=? WHERE uid=?').run(stop.place_external_id, stop.place_identity_basis || 'stable_external_id', mk.uid);
+    }
+    if (user.id === itin.user_id) {
+      q(`UPDATE itinerary_stops SET mark_uid=?, resolution='linked', updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(mk.uid, stop.id);
+      recordProvenance('itinerary_stop', stop.uid, 'enriched', ctx, { fields: 'mark_uid,resolution' });
+    } else {
+      q('INSERT OR REPLACE INTO itinerary_stop_marks(stop_id,user_id,mark_uid) VALUES(?,?,?)').run(stop.id, user.id, mk.uid);
+      recordProvenance('itinerary_stop', stop.uid, 'enriched', ctx, { fields: 'member_link' });
+    }
+    return stopByUid(stopUid);
+  });
+}
+
+// ---- Shared itinerary pages (v2.70) -------------------------------------------
+function itinPageShell(req, res, me, it, title, inner, status = 200) {
+  const body = `<section class="feed itin-collab"><h3 class="strip"><a class="crumb" href="/t/${it.id}">${esc(it.title || 'Itinerary')}</a> › <span>${esc(title)}</span></h3>
+  <div class="settings collab-box">${inner}</div></section>`;
+  return send(res, layout({ title: `${title} · ${it.title || 'Itinerary'}`, body, me, req }), status);
+}
+function itinMembersPage(req, res, me, it, { flash = '', link = '', disclose = false, role = 'editor', email = '', shareLink = '', discloseShare = false, showAuthor = true } = {}, status = 200) {
+  const myRole = itinRole(it, me), owner = myRole === 'owner', base = `/t/${it.id}`;
+  const author = q('SELECT handle FROM users WHERE id=?').get(it.user_id);
+  const members = itinMembers(it.id);
+  const row = (handle, what, acts = '', at = '@') => `<li class="collab-row"><span><b>${at}${esc(handle)}</b> <span class="fine">${what}</span></span>${acts}</li>`;
+  const people = [row(author.handle, 'created this plan'), ...members.map((m2) => row(m2.handle, m2.role === 'editor' ? 'can edit' : 'can view',
+    owner ? `<span class="collab-acts"><form method="post" action="${base}/members/${m2.user_id}/role"><input type="hidden" name="role" value="${m2.role === 'editor' ? 'viewer' : 'editor'}"><button class="link caps">${m2.role === 'editor' ? 'Make view only' : 'Let them edit'}</button></form>
+      <form method="post" action="${base}/members/${m2.user_id}/remove" onsubmit="return confirm('Remove @${esc(m2.handle)} from this plan? Their own places and notes stay theirs.')"><button class="link caps">Remove</button></form></span>` : ''))];
+  const invites = owner ? q(`SELECT * FROM itinerary_invitations WHERE itinerary_id=? AND state='pending' AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY id DESC`).all(it.id) : [];
+  const priv = owner ? itinPrivatePlaces(it) : [];
+  const kept = isAdopted('itinerary', it.uid);
+  const inviteForm = !owner ? '' : !kept ? '<p class="about">This plan was recommended to you and isn’t yours yet. Keep it first; only your own plans can be shared.</p>'
+    : !it.private ? '<p class="about">This plan is public. Make it private first: a plan you plan together with others stays private.</p>'
+    : `<form method="post" action="${base}/invite" class="nf nf-compact collab-invite"><div class="nf-box"><div class="nf-stack">
+        <select class="nf-field" name="role" aria-label="What they can do"><option value="editor" ${role === 'editor' ? 'selected' : ''}>THEY CAN EDIT THE PLAN</option><option value="viewer" ${role === 'viewer' ? 'selected' : ''}>THEY CAN ONLY VIEW IT</option></select>
+        <input class="nf-field" name="email" type="email" value="${esc(email)}" placeholder="THEIR EMAIL (OPTIONAL — ONLY THAT ACCOUNT CAN ACCEPT)">
+        </div>
+        ${priv.length ? `<div class="collab-disclose${disclose ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
+          <p>People you invite will see ${priv.length === 1 ? 'its' : 'their'} name and address, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
+          <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
+        <button class="nf-post">Make an invitation link</button>
+        <p class="fine">Anyone you give the link to can join once, after signing in. It works for ${INVITE_TTL_DAYS} days and you can revoke it. Everyone planning it can change the plan if they can edit; each person’s own places, notes and visits stay their own.</p>
+      </div></form>`;
+  // "Let others use it" (v2.71): links that show the plan and offer a copy.
+  const shares = owner ? q("SELECT * FROM itinerary_shares WHERE itinerary_id=? AND state='active' ORDER BY id DESC").all(it.id) : [];
+  const adopted = shares.reduce((n, x) => n + x.adopted_count, 0);
+  const shareForm = !owner || !kept ? '' : `<form method="post" action="${base}/share" class="nf nf-compact collab-invite"><div class="nf-box">
+      <p class="fine collab-lead">Anyone with the link can see the plan — its days, stops and places — and make their own copy to change as they like. They don’t join your plan, and nothing of yours but the plan itself comes across.</p>
+      <label class="collab-confirm"><input type="checkbox" name="show_author" value="1" ${showAuthor ? 'checked' : ''}><span>Show my name on copies (“from a plan shared by @${esc(me.handle)}”, in the copy’s provenance only)</span></label>
+      ${priv.length ? `<div class="collab-disclose${discloseShare ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
+        <p>Anyone with the link will see ${priv.length === 1 ? 'its' : 'their'} name and where ${priv.length === 1 ? 'it is' : 'they are'}, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
+        <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
+      <button class="nf-post">Make a link</button>
+    </div></form>`;
+  const inner = `${flash ? `<p class="err">${esc(flash)}</p>` : ''}
+    ${link ? `<div class="collab-link"><p><b>Your invitation link</b> — copy it now; it won’t be shown again.</p><input class="nf-field" readonly value="${esc(link)}" onfocus="this.select()"></div>` : ''}
+    ${shareLink ? `<div class="collab-link"><p><b>Your link</b> — copy it now; it won’t be shown again.</p><input class="nf-field" readonly value="${esc(shareLink)}" onfocus="this.select()"></div>` : ''}
+    <h4 class="collab-h">Planning this</h4><ul class="collab-list">${people.join('')}</ul>
+    ${invites.length ? `<h4 class="collab-h">Open invitations</h4><ul class="collab-list">${invites.map((v) => row(v.email || 'anyone with the link', `${v.role === 'editor' ? 'can edit' : 'can view'} · until ${esc(String(v.expires_at || '').slice(0, 10))}`,
+      `<form method="post" action="${base}/invitations/${v.uid}/revoke"><button class="link caps">Revoke</button></form>`, '')).join('')}</ul>` : ''}
+    ${owner ? `<h4 class="collab-h" id="invite">Plan together</h4>${inviteForm}
+    <h4 class="collab-h" id="share">Let others use it</h4>
+    ${shares.length ? `<ul class="collab-list">${shares.map((x) => row(`link made ${esc(String(x.created_at).slice(0, 10))}`, `${x.show_author ? 'with your name' : 'anonymous'}${x.adopted_count ? ` · made theirs by ${x.adopted_count}` : ''}`,
+      `<form method="post" action="${base}/shares/${x.uid}/revoke"><button class="link caps">Revoke</button></form>`, '')).join('')}</ul>${adopted ? `<p class="fine">Made theirs by ${adopted} ${adopted === 1 ? 'person' : 'people'} in all. Only you see this.</p>` : ''}` : ''}
+    ${shareForm}` : `<form method="post" action="${base}/leave" onsubmit="return confirm('Leave this plan? It will no longer be in your itineraries. Your own places and notes stay yours.')"><button class="btn">Leave this plan</button></form>`}`;
+  return itinPageShell(req, res, me, it, 'Members', inner, status);
+}
+function itinRemovedPage(req, res, me, it) {
+  const role = itinRole(it, me), writer = role === 'owner' || role === 'editor', base = `/t/${it.id}`;
+  const items = itinRemovedList(it.id);
+  const inner = items.length ? `<p class="about">Removed from the plan. ${writer ? 'Restoring brings each back where it was, if that day still exists.' : ''}</p><ul class="collab-list">${items.map((r) => {
+      const snap = JSON.parse(r.snapshot);
+      const label = r.kind === 'stop' ? (snap.stop.label || snap.stop.place_name || 'A stop') : (snap.group.label || 'A day');
+      return `<li class="collab-row"><span><b>${esc(label)}</b> <span class="fine">${r.kind === 'day' ? 'day · ' : ''}removed by @${esc(r.removed_handle || 'someone')} · ${esc(String(r.removed_at).slice(0, 10))}</span></span>${writer ? `<form method="post" action="${base}/removed/${r.uid}/restore"><button class="link caps">Restore</button></form>` : ''}</li>`;
+    }).join('')}</ul>` : '<p class="about">Nothing has been removed from this plan.</p>';
+  return itinPageShell(req, res, me, it, 'Removed', inner);
+}
+// A read-only glimpse of the plan for the person holding an invitation: its
+// days and stops by name and city, from the plan's own place identities
+// (addresses and everything personal wait until they join). The same
+// day/stop vocabulary as the plan page, so it reads as the real thing.
+function invitePreview(it, limit = 6) {
+  const tf = (row) => temporalFormat(temporalOf(row));
+  const groups = groupOrder(it.id);
+  let left = limit, total = 0, shown = 0;
+  const where = (st) => [st.place_locality, st.place_country].filter(Boolean).join(', ');
+  const stopRow = (st) => {
+    total++; if (left <= 0) return ''; left--; shown++;
+    const when = tf(st);
+    const name = st.place_name && st.place_name !== st.label ? st.place_name : '';
+    const cls = st.resolution === 'allocation' ? 'is-open' : (st.resolution === 'linked' || st.resolution === 'particular') ? 'is-mark' : 'is-loose';
+    return `<li class="stop ${st.position !== null ? 'is-seq' : ''} ${cls}"><div class="stop-head">${when ? `<span class="stop-when">${esc(when)}</span>` : ''}</div>
+      <div class="card stop-card invite-stop"><span class="stop-eb">${esc(where(st) || (st.resolution === 'allocation' ? 'Open time' : 'Intended'))}</span>
+      <span class="stop-label">${esc(st.label || st.place_name || 'A stop')}</span>${name ? `<span class="stop-from">${esc(name)}</span>` : ''}</div></li>`;
+  };
+  const day = (g) => { const rows = itineraryStops(it.id, g.id).map(stopRow).join('');
+    return `<section class="itin-group"><h4 class="itin-day"><b>${esc(g.label || tf(g) || 'A day')}</b>${g.label && tf(g) ? `<span>${esc(tf(g))}</span>` : ''}<span class="rule"></span></h4>${rows ? `<ol class="itin-tl">${rows}</ol>` : ''}</section>`; };
+  const html = groups.map(day).join('') + (() => { const rows = itineraryStops(it.id, null).map(stopRow).join(''); return rows ? `<section class="itin-group itin-group-loose">${groups.length ? '<h4 class="itin-day itin-day-loose"><b>Not yet on a day</b><span class="rule"></span></h4>' : ''}<ol class="itin-tl">${rows}</ol></section>` : ''; })();
+  return { html, total, shown };
+}
+// The plan, offered to anyone with a share link (v2.71): the same card as an
+// invitation, but the action is a copy, and no account is needed to look.
+function sharePage(req, res, me, tok, err = '') {
+  const sh = shareByToken(tok);
+  res.setHeader('X-Robots-Tag', 'noindex');
+  const shell = (inner, status = 200) => send(res, layout({ title: 'A shared plan', me, req, body: `<section class="feed invite-page">${inner}</section>` }), status);
+  if (!sh) return shell(`<article class="itin-shell invite-card"><div class="ens-head itin-head invite-hero">
+      <p class="who">Shared plan</p><h1 class="ens-title">This link isn’t active</h1>
+      <p class="itin-ctx">It may have been revoked. Ask the person who sent it for a new one.</p></div></article>`, 404);
+  const it = sh.it;
+  const from = sh.show_author && sh.created_by ? q('SELECT * FROM users WHERE id=?').get(sh.created_by) : null;
+  const mine = me && (it.user_id === me.id || itinRole(it, me));
+  const pv = invitePreview(it, 8);
+  const when = temporalFormat(temporalOf(it));
+  const next = encodeURIComponent('/s/' + tok);
+  recordEvent(me ? me.id : null, 'share_viewed', { anon: anonId(req), surface: 'web', meta: { share: sh.uid }, dedupeMinutes: 30 });
+  const acts = mine ? `<a class="nf-post invite-go" href="/t/${it.id}">This is your plan — open it</a>`
+    : me ? `<form method="post" action="/s/${esc(tok)}/mine"><button class="nf-post invite-go">Make this mine</button></form>`
+    : `<a class="nf-post invite-go" href="/join?next=${next}">Create an account to make it yours</a>
+       <a class="btn3d invite-join" href="/login?next=${next}">Already a member? Sign in</a>`;
+  const facts = ['You get your own copy, kept in your itineraries, to change as you like. The original stays as it is.',
+    'Its places become yours too — ones you already keep are used again, not duplicated.',
+    `${from ? `@${esc(from.handle)}’s` : 'The sharer’s'} notes, visits and suggestions don’t come across. Only the plan.`];
+  return shell(`<article class="itin-shell invite-card">
+    <div class="ens-head itin-head invite-hero">
+      ${from ? `<a class="invite-avatar" href="/u/${esc(from.handle)}">${avatar(from)}</a><p class="who"><a href="/u/${esc(from.handle)}">${esc(from.handle)}</a> shared this plan with you</p>` : '<p class="who">A plan shared with you</p>'}
+      <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
+      ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}
+    </div>
+    ${err ? `<p class="err invite-err">${esc(err)}</p>` : ''}
+    <div class="invite-acts">${acts}</div>
+    ${pv.html ? `<div class="invite-preview ${pv.total > pv.shown ? 'has-more' : ''}">${pv.html}</div>
+      ${pv.total > pv.shown ? `<p class="itp-more">${pv.total - pv.shown} more ${pv.total - pv.shown === 1 ? 'stop' : 'stops'} in your copy</p>` : ''}` : '<p class="invite-empty">Nothing in it yet.</p>'}
+    <ul class="receipt-counts invite-facts">${facts.map((f) => `<li>${f}</li>`).join('')}</ul>
+  </article>`);
+}
+function inviteLandingPage(req, res, me, tok, err = '') {
+  const inv = inviteByToken(tok);
+  res.setHeader('X-Robots-Tag', 'noindex');
+  const shell = (inner, status = 200) => send(res, layout({ title: 'Invitation', me, req, body: `<section class="feed invite-page">${inner}</section>` }), status);
+  if (!inv || inv.state !== 'pending') return shell(`<article class="itin-shell invite-card"><div class="ens-head itin-head invite-hero">
+      <p class="who">Invitation</p><h1 class="ens-title">This link isn’t active</h1>
+      <p class="itin-ctx">It may have been used, revoked, or have run out. Ask the person who sent it for a new one.</p></div></article>`, 404);
+  const it = inv.it;
+  const from = q('SELECT * FROM users WHERE id=?').get(inv.invited_by) || { handle: 'someone' };
+  const already = me && itinRole(it, me);
+  const pv = invitePreview(it);
+  const when = temporalFormat(temporalOf(it));
+  const next = encodeURIComponent('/j/' + tok);
+  const facts = inv.role === 'editor'
+    ? ['You can add, change and remove things in it, and so can they.', 'Your own places, notes and visits stay yours, and private.', 'Nothing of yours goes into the plan unless you add it. Leave whenever you like.']
+    : ['You’ll see the plan as it changes.', 'Your own places, notes and visits stay yours, and private.', 'Keep any of its places as your own, if you want to. Leave whenever you like.'];
+  const acts = already ? `<a class="nf-post invite-go" href="/t/${it.id}">You’re already planning this — open it</a>`
+    : me ? `<form method="post" action="/j/${esc(tok)}/accept"><button class="nf-post invite-go">Accept and start planning</button></form>
+            <form method="post" action="/j/${esc(tok)}/decline"><button class="nf-link-btn">No thanks</button></form>`
+    : `<a class="nf-post invite-go" href="/join?next=${next}">Create an account to accept</a>
+       <a class="btn3d invite-join" href="/login?next=${next}">Already a member? Sign in</a>`;
+  return shell(`<article class="itin-shell invite-card">
+    <div class="ens-head itin-head invite-hero">
+      <a class="invite-avatar" href="/u/${esc(from.handle)}">${avatar(from)}</a>
+      <p class="who"><a href="/u/${esc(from.handle)}">${esc(from.handle)}</a> invited you to ${inv.role === 'editor' ? 'plan this together' : 'follow along with this plan'}</p>
+      <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
+      ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}
+    </div>
+    ${err ? `<p class="err invite-err">${esc(err)}</p>` : ''}
+    <div class="invite-acts">${acts}</div>
+    ${pv.html ? `<div class="invite-preview ${pv.total > pv.shown ? 'has-more' : ''}">${pv.html}</div>
+      ${pv.total > pv.shown ? `<p class="itp-more">${pv.total - pv.shown} more ${pv.total - pv.shown === 1 ? 'stop' : 'stops'} once you join</p>` : ''}` : '<p class="invite-empty">Nothing in it yet — you’d be starting it together.</p>'}
+    <ul class="receipt-counts invite-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+  </article>`);
 }
 
 // ---- privacy ----------------------------------------------------------------
@@ -6906,7 +7678,7 @@ function stopDelete(user, uid, ctx) {
 // so this only ever makes a parent private.
 function markPrivacyGuard(itineraryId, markUid, ctx) {
   const it = itinById(itineraryId);
-  if (!it || it.private) return;
+  if (!it || it.private || itinShared(it)) return;
   const mk = q('SELECT private FROM marks WHERE uid=?').get(markUid);
   if (!mk || !mk.private) return;
   q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
@@ -6918,9 +7690,12 @@ function markPrivacyGuard(itineraryId, markUid, ctx) {
 // suspension would preserve publicity the member never asked to keep.
 function markPrivacyChanged(markUid, nowPrivate, ctx) {
   if (!nowPrivate || !markUid) return [];
+  // A shared plan is never public, and one participant's Mark never changes
+  // a shared plan's publicity (v2.70); the explicit exclusion keeps it so.
   const affected = q(`SELECT DISTINCT i.id, i.uid FROM itineraries i
                       JOIN itinerary_stops s ON s.itinerary_id = i.id
-                      WHERE s.mark_uid=? AND s.visibility='visible' AND i.private=0`).all(markUid);
+                      WHERE s.mark_uid=? AND s.visibility='visible' AND i.private=0
+                        AND NOT EXISTS (SELECT 1 FROM itinerary_members m WHERE m.itinerary_id = i.id AND m.state='active')`).all(markUid);
   for (const it of affected) {
     q('UPDATE itineraries SET private=1, updated_at=CURRENT_TIMESTAMP WHERE id=?').run(it.id);
     recordProvenance('itinerary', it.uid, 'edited', ctx, { fields: 'private', source_kind: 'mark_privacy' });
@@ -6937,6 +7712,14 @@ function markPrivacyChanged(markUid, nowPrivate, ctx) {
 // child information through a public parent, which is the one thing the privacy
 // rule forbids. A deleted mark is different -- there is no private information
 // left to protect, so the retained label stands on its own.
+// A participant in a shared plan (v2.70) who is not its owner sees every
+// stop. `sv` is the stop already seen from the participant's side (stopFor),
+// so the only Mark that can appear is the viewer's own: another
+// participant's Mark, private or public, never surfaces through the plan.
+function canSeeSharedStop(sv) {
+  const mk = sv.mark_uid ? q(MARK_SQL + ' WHERE m.uid=?').get(sv.mark_uid) : null;
+  return { see: true, owner: true, mark: mk || null, dangling: false };
+}
 function canSeeStop(stop, itin, me) {
   if (me && (me.id === itin.user_id || adminOn(me))) {
     const mk = stop.mark_uid ? q(MARK_SQL + ' WHERE m.uid=?').get(stop.mark_uid) : null;
@@ -7905,7 +8688,8 @@ function stopRecRow(r) {
 // The plans proposed "for another time" beside this one, in their bounded
 // order: the same city, somewhere similar, a different direction.
 function itineraryProposals(it, me) {
-  if (!me || me.id !== it.user_id) return [];
+  // Each participant's own proposals around the plan (v2.70); never anyone else's.
+  if (!me || !itinRole(it, me)) return [];
   return q(`SELECT * FROM recommendations WHERE user_id=? AND kind='itinerary' AND origin_itinerary_uid=? AND target_uid IS NOT NULL AND target_uid<>? ORDER BY id`)
     .all(me.id, it.uid, it.uid)
     .map((r) => ({ r, plan: itinByUid(r.target_uid) })).filter((x) => x.plan)
@@ -8036,8 +8820,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   // owner's controls render. A preview is the owner's own view minus controls.
   // Controls are the real owner's alone; the admin's view (when on) only sees.
   const isOwner = !!(me && me.id === it.user_id);
-  const owner = isOwner || adminOn(me);
-  const ctl = interactive && isOwner;
+  // v2.70: in a shared plan editors get the content controls too; viewers see.
+  const role = itinRole(it, me), shared = itinShared(it);
+  const owner = isOwner || adminOn(me) || !!role;
+  const ctl = interactive && (role === 'owner' || role === 'editor');
   const groups = groupOrder(it.id);
   const base = `/t/${it.id}`;
   // Notes attached to a Stop: things worth noticing there. Rows in the
@@ -8046,7 +8832,8 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
   const myNotes = ctl ? q('SELECT uid, name FROM adopted_objects WHERE user_id=? ORDER BY lower(name)').all(me.id) : [];
   // Things proposed for a particular stop (Increment 4): the owner's own
   // recommendations with this plan and stop as their context, not yet answered.
-  const stopRecs = isOwner ? q(`SELECT * FROM recommendations WHERE user_id=? AND context_itinerary_uid=? AND context_stop_uid IS NOT NULL
+  // Each participant sees only their own proposals (v2.70).
+  const stopRecs = role ? q(`SELECT * FROM recommendations WHERE user_id=? AND context_itinerary_uid=? AND context_stop_uid IS NOT NULL
       AND reaction IS NULL ORDER BY id`).all(me.id, it.uid) : [];
   const noteKids = (st) => {
     const ns = stopNotesVisible(st.id, me);
@@ -8082,7 +8869,9 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
     // itinerary-specific actions so the mark card's own actions (Directions,
     // Check in) stay exactly what they are everywhere else.
     const stopRow = (st, inGroup) => {
-      const vis = canSeeStop(st, it, me);
+      // A shared plan's stop, seen from this participant's side (v2.70).
+      if (shared && role) st = stopFor(st, it, me);
+      const vis = shared && role && role !== 'owner' ? canSeeSharedStop(st) : canSeeStop(st, it, me);
       if (!vis.see) return '';
       const when = tf(st);
       const withheld = owner && st.visibility === 'suspended';
@@ -8120,9 +8909,9 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
           <div class="stop-links">
             ${seqd ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="position" value=""><button class="link caps">Take out of the order</button></form>` : ''}
             ${st.mark_uid ? `<form method="post" action="${base}/stops/${st.uid}"><input type="hidden" name="unlink" value="1"><button class="link caps">Unlink the mark</button></form>` : ''}
-            <form method="post" action="${base}/stops/${st.uid}/${withheld ? 'restore' : 'suspend'}"><button class="link caps">${withheld ? 'Show publicly again' : 'Withhold from public view'}</button></form>
+            ${shared ? '' : `<form method="post" action="${base}/stops/${st.uid}/${withheld ? 'restore' : 'suspend'}"><button class="link caps">${withheld ? 'Show publicly again' : 'Withhold from public view'}</button></form>`}
             ${attachForm(st)}
-            <form method="post" action="${base}/stops/${st.uid}/delete" onsubmit="return confirm('Remove this stop from the itinerary? The travel mark, if any, is untouched.')"><button class="link caps stop-del">Remove</button></form>
+            <form method="post" action="${base}/stops/${st.uid}/delete" onsubmit="return confirm('${shared ? 'Remove this stop from the plan? It goes to Removed, where anyone planning this can restore it. Nobody\\u2019s travel marks are touched.' : 'Remove this stop from the itinerary? The travel mark, if any, is untouched.'}')"><button class="link caps stop-del">Remove</button></form>
           </div>
         </div></details>` : '';
       // Title case, italic: it reads as a note about the stop rather than a label
@@ -8158,7 +8947,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
           <span class="stop-eb">${eb}</span>
           <span class="stop-label">${esc(st.label || 'Unnamed stop')}</span>
           ${vis.dangling ? '<span class="stop-from">The travel mark this pointed at no longer exists</span>' : ''}
-          ${st.resolution === 'particular' && ctl ? '<span class="stop-note">A place to identify \u2014 your AI can help find it</span>' : ''}
+          ${shared && st.place_address ? `<span class="stop-from">${esc(st.place_address)}</span>` : ''}
+          ${shared && role && st.resolution === 'particular' && stopPlaceSufficient(st)
+            ? `<form method="post" action="${base}/stops/${st.uid}/keep" class="stop-keep"><button class="link caps">Keep this place</button><span class="stop-note">On this plan for everyone; keeping it makes it one of your places</span></form>`
+            : st.resolution === 'particular' && ctl ? '<span class="stop-note">A place to identify \u2014 your AI can help find it</span>' : ''}
         </div>${noteKids(st)}</li>`;
     };
 
@@ -8257,6 +9049,10 @@ function itineraryBody(it, me, { interactive = true, limit = Infinity } = {}) {
 // The linked marks that carry coordinates. Everything below is derived from
 // these at read time; nothing is stored.
 function itineraryGeo(it, me) {
+  // A shared plan's map (v2.70) is drawn from the plan's own place identities,
+  // never from any participant's Marks.
+  if (itinShared(it)) return itinRole(it, me) ? q(`SELECT uid stop_uid, label, position, group_id, place_lat lat, place_lng lng,
+      COALESCE(NULLIF(place_name, ''), label) name FROM itinerary_stops WHERE itinerary_id=? AND place_lat IS NOT NULL AND place_lng IS NOT NULL`).all(it.id) : [];
   const rows = q(`SELECT s.uid stop_uid, s.label, s.position, s.group_id, m.* FROM itinerary_stops s
                   JOIN marks m ON m.uid = s.mark_uid
                   WHERE s.itinerary_id=? AND m.lat IS NOT NULL AND m.lng IS NOT NULL`).all(it.id)
@@ -8672,12 +9468,26 @@ function itineraryColophonEntries(it, me) {
 
   // ---- Tier 1: authorship ---------------------------------------------------
   out.push(['Started', monthYear(it.created_at)]);
+  const lin = shareLineage(it);
+  if (lin) out.push(['From a plan shared by', lin.who ? `@${lin.who}` : 'a member']);
   // An AI line is earned only by actions the member authorised: every row in
   // this ledger is a canonical write that already happened. Unaccepted
   // suggestions are never written, so they cannot appear here.
   const aiRows = rows.filter((r) => r.actor_type === 'ai_on_behalf' && r.assertion === 'explicit');
   const aiAgent = aiRows.length ? agentName(aiRows[0].agent) : null;
-  if (aiAgent) {
+  // A shared plan (v2.70): each person who worked on it, with the AI that
+  // acted for them, if any -- attribution, never evidence. Lineage counts are
+  // about one person's catalogue, so they are left out.
+  const sharedPlan = itinShared(it);
+  if (sharedPlan) {
+    const by = new Map();
+    for (const r of rows) if (r.actor_user_id && r.actor_type !== 'system') {
+      const e = by.get(r.actor_user_id) || new Set(); if (r.actor_type === 'ai_on_behalf' && agentName(r.agent)) e.add(agentName(r.agent)); by.set(r.actor_user_id, e);
+    }
+    const names = [...by.entries()].map(([uid, ais]) => { const u = q('SELECT handle FROM users WHERE id=?').get(uid);
+      return u ? `@${u.handle}${ais.size ? ` with ${[...ais].join(' and ')}` : ''}` : null; }).filter(Boolean);
+    if (names.length) out.push(['Planned by', names.join(' \u00b7 ')]);
+  } else if (aiAgent) {
     const createdByAi = rows.some((r) => r.entity_type === 'itinerary' && r.action === 'created' && r.actor_type === 'ai_on_behalf');
     // "refined" only when the AI kept working on it after the plan existed
     const refined = aiRows.filter((r) => r.action !== 'created').length >= 3;
@@ -8689,7 +9499,7 @@ function itineraryColophonEntries(it, me) {
   // its own creation provenance says it came from this itinerary. Marks the
   // viewer cannot see are excluded from both counts, so a count can never
   // reveal a record ordinary rendering would withhold.
-  const linked = stops.filter((st) => st.mark_uid && st.visibility === 'visible');
+  const linked = sharedPlan ? [] : stops.filter((st) => st.mark_uid && st.visibility === 'visible');
   const visible = linked.filter((st) => {
     const mk = q('SELECT private, user_id FROM marks WHERE uid=?').get(st.mark_uid);
     return mk && (owner || !mk.private);
@@ -9085,6 +9895,12 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     const own = !!(me && me.id === subject.id);
     const rows = q('SELECT * FROM adopted_itineraries WHERE user_id=?' + (own ? '' : ' AND private=0') + ' ORDER BY id DESC').all(subject.id);
     const tf = (row) => temporalFormat(temporalOf(row));
+    // Plans other people shared with this member (v2.70): theirs to plan, never
+    // listed as this member's own on anyone's profile. Own view only.
+    const sharedRows = own ? q(`SELECT i.* FROM itineraries i JOIN itinerary_members m ON m.itinerary_id=i.id
+      WHERE m.user_id=? AND m.state='active' ORDER BY i.id DESC`).all(me.id) : [];
+    const sharedBlock = sharedRows.length ? `<h4 class="collab-h itin-shared-h">Shared with you</h4>
+    <div class="grid">${sharedRows.map((it) => itineraryPreview(it, me)).join('')}</div>` : '';
 
     // Each itinerary is the article page's own rendering -- the day containers,
     // the mark cards, the intention cards -- cut off after a few stops and
@@ -9121,7 +9937,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
 
     ${create}
     ${rows.length ? `<div class="grid" id="feed-grid">${rows.map(preview).join('')}</div>` : ''}
-    ${rows.length ? '' : own ? emptyState(me, 'itineraries') : emptyState(me, 'itineraries', subject)}`;
+    ${rows.length ? '' : own ? emptyState(me, 'itineraries') : emptyState(me, 'itineraries', subject)}${sharedBlock}`;
     const body = `<div class="cols profile-cols">${profileRail(subject, me, 'itineraries')}
   <section class="feed profile-feed itin-list">${main}</section>
 </div>`;
@@ -9131,8 +9947,12 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
   itinerary(req, res, me, url, id) {
     const it = q('SELECT * FROM itineraries WHERE id=?').get(id);
     if (!it || !canView('itinerary', it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
-    // Editing controls and the owner's script: the real owner only.
+    // Editing controls and the owner's script: the real owner only -- and, in
+    // a shared plan (v2.70), editors for the plan's content (never its
+    // publicity, membership or deletion).
     const owner = !!(me && me.id === it.user_id);
+    const role = itinRole(it, me), shared = itinShared(it);
+    const writer = role === 'owner' || role === 'editor';
     const author = q('SELECT * FROM users WHERE id=?').get(it.user_id);
     const groups = groupOrder(it.id);
     const base = `/t/${it.id}`;
@@ -9142,7 +9962,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     // proposed material, with Keep and the reactions in place of Edit, and no
     // member editing controls; its places carry their own Keep.
     const proposed = owner ? prospectiveOf('itinerary', it) : null;
-    const conflicts = owner && !proposed ? groupConflicts(it.id) : [];
+    const conflicts = writer && !proposed ? groupConflicts(it.id) : [];
     const rendered = itineraryBody(it, me, proposed ? { interactive: false } : {});
     const dayBlocks = rendered.html, looseBlock = '';
 
@@ -9150,7 +9970,26 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
 
     const when = tf(it);
     // the byline and edit affordance every first-class object carries
-    const bylineRow = `<div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(it.created_at)}</span>${owner && !proposed ? `<label class="card-edit" for="itin-edit-${it.id}">Edit</label>` : ''}</div>`;
+    const bylineRow = `<div class="byline"><span class="byline-who"><a href="/u/${esc(author.handle)}">${avatar({ handle: author.handle, avatar: author.avatar })}</a>${stackDate(it.created_at)}</span>${writer && !proposed ? `<label class="card-edit" for="itin-edit-${it.id}">Edit</label>` : ''}</div>`;
+    // Who is planning it, for the people planning it (v2.70).
+    const members = role ? itinMembers(it.id) : [];
+    const removedN = role && writer ? itinRemovedList(it.id).length : 0;
+    // Share (v2.71): one control in the register of the mark card's Share, under
+    // the plan's head. Opened, a sheet offers the two ways to share -- plan
+    // together, or let others use it -- and shows what is already going on.
+    const links = owner ? q("SELECT COUNT(*) n FROM itinerary_shares WHERE itinerary_id=? AND state='active'").get(it.id).n : 0;
+    const shareable = owner && isAdopted('itinerary', it.uid);
+    const status = [members.length ? `Planning together with ${[author, ...members].filter((x) => !me || (x.user_id || x.id) !== me.id).map((x) => '@' + esc(x.handle)).join(', ')}${role !== 'owner' ? ` · you can ${role === 'editor' ? 'edit' : 'view'}` : ''}` : '',
+      links ? `${links} ${links === 1 ? 'link' : 'links'} out for others to use` : ''].filter(Boolean).join(' · ');
+    const shareLine = !role || proposed ? '' : `<div class="itin-share-row">
+      ${status ? `<p class="itin-share">${status}${members.length || removedN ? ` · <a class="link" href="${base}/members">Members</a>` : ''}${removedN ? ` · <a class="link" href="${base}/removed">Removed (${removedN})</a>` : ''}</p>` : ''}
+      ${shareable ? `<details class="stop-menu itin-share-menu"><summary class="share-mark itin-share-btn">Share</summary>
+        <div class="stop-sheet itin-share-sheet">
+          <a class="share-opt" href="${base}/members#invite"><span class="share-opt-h">Plan together</span><span class="share-opt-d">Invite people into this plan. Everyone can change it; each person's own places, notes and visits stay their own.</span><span class="share-opt-go">Invite someone →</span></a>
+          <a class="share-opt" href="${base}/members#share"><span class="share-opt-h">Let others use it</span><span class="share-opt-d">Anyone with a link can see the plan and make their own copy to change as they like. They don't join yours.</span><span class="share-opt-go">Make a link →</span></a>
+          ${!it.private ? `<button type="button" class="share-opt share-opt-btn share-mark" data-share="/t/${it.id}" data-title="${esc(it.title || 'Itinerary')}"><span class="share-opt-h">Send the page</span><span class="share-opt-d">This plan is public, so its page can be sent as it is.</span></button>` : ''}
+        </div></details>` : role && role !== 'owner' && !status ? '' : ''}
+    </div>`;
     const propRec = proposed && proposed.kind === 'recommendation' ? proposed.rec : null;
     const propOrigin = propRec && propRec.origin_itinerary_uid ? itinByUid(propRec.origin_itinerary_uid) : null;
     const titleBlock = proposed ? `<div class="ens-head itin-head">
@@ -9162,10 +10001,10 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
       : `<div class="ens-head itin-head">
         <p class="who"><a href="/u/${esc(author.handle)}">${esc(author.handle)}</a> ${it.private ? '<span class="who-private">privately planned</span>' : 'planned'}</p>
         <h1 class="ens-title">${esc(it.title || 'Untitled')}</h1>
-        ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}</div>`;
-    const head = owner && !proposed ? `<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-read">${titleBlock}</div><div class="itin-head-edit">
+        ${when ? `<p class="itin-when">${esc(when)}</p>` : ''}${it.context ? `<p class="itin-ctx">${esc(it.context)}</p>` : ''}${shareLine}</div>`;
+    const head = writer && !proposed ? `<input type="checkbox" id="itin-edit-${it.id}" class="itin-edit-toggle" hidden><div class="itin-head-read">${titleBlock}</div><div class="itin-head-edit">
       <form method="post" action="${base}" class="nf nf-compact itin-new itin-edit-form"><div class="nf-box">
-        <div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${it.private ? 'checked' : ''}><span></span></label></div>
+        ${owner && !shared ? `<div class="nf-top"><span class="nf-lbl">Private?</span><label class="switch"><input type="checkbox" name="private" value="1" ${it.private ? 'checked' : ''}><span></span></label></div>` : ''}
         <div class="nf-stack">
         <input class="nf-field" name="title" value="${esc(it.title)}" placeholder="WHERE (REQUIRED)" maxlength="120">
         <textarea class="nf-field" name="context" rows="4" maxlength="1000" placeholder="OVERVIEW">${esc(it.context)}</textarea>
@@ -9177,7 +10016,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
         </div>
         <button class="nf-post itin-start">Save</button>
         <div class="nf-foot nf-foot-3">
-          <button type="button" class="nf-link-btn nf-del" data-del="${base}/delete" data-kind="itinerary" data-title="${esc(it.title || 'Untitled')}" data-copy="The plan, its days and its stops go. The places and things you kept with it stay in your catalogue; you can review them next.">Delete</button>
+          ${owner ? `<button type="button" class="nf-link-btn nf-del" data-del="${base}/delete" data-kind="itinerary" data-title="${esc(it.title || 'Untitled')}" data-copy="${members.length ? `The plan goes for everyone planning it: ${esc(members.map((m2) => '@' + m2.handle).join(', '))} will lose it too. ` : ''}The plan, its days and its stops go. The places and things you kept with it stay in your catalogue; you can review them next.">Delete</button>` : '<span></span>'}
           <span></span>
           <button type="button" class="nf-link-btn" data-itin-cancel>Cancel</button>
         </div></div></form></div>`
@@ -9199,12 +10038,13 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
     <div class="itin-cols${recsCol ? ' has-recs' : ''}">
       <div class="itin-main"><article class="note itin-note${proposed ? ' is-proposed' : ''}">${bylineRow}<div class="itin-shell">${head}
+      ${owner && url.searchParams.get('mine') && shareLineage(it) ? `<p class="itin-share itin-mine">This itinerary is now yours. Change anything; the original stays as it was.</p>` : ''}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
       ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
       ${sideMap || sideSugg || colo ? `<aside class="itin-side">${sideMap}${sideSugg}${colo}</aside>` : ''}${recsCol ? `
       <aside class="itin-recs" aria-label="For another time">${recsCol}</aside>` : ''}
     </div>
-    ${owner && !proposed ? `<script>${ITIN_JS}</script>` : ''}`;
+    ${writer && !proposed ? `<script>${ITIN_JS}</script>` : ''}`;
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>
 </div>`;
@@ -12507,10 +13347,18 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       for (const c of a.clear || []) { const k = 't_' + c.replace(/^t_/, ''); if (T_COLS.includes(k)) t[k] = null; }
       return t;
     };
-    const stopView = (st) => ({ ...(st.place_locality || st.place_country ? { place: { locality: st.place_locality || '', country: st.place_country || '' } } : {}),
-      uid: st.uid, label: st.label, kind: st.resolution, mark_uid: st.mark_uid,
-      position: st.position, visibility: st.visibility, when: temporalFormat(temporalOf(st)) || null,
-    });
+    // Every stop handed back goes through stopFor (v2.70): mark_uid is the
+    // caller's own Mark for the stop, or null -- never another participant's.
+    // For a single-owner plan the caller is the owner and nothing changes.
+    const itinCache = new Map();
+    const stopView = (st0) => {
+      const it0 = itinCache.get(st0.itinerary_id) || itinById(st0.itinerary_id); itinCache.set(st0.itinerary_id, it0);
+      const st = stopFor(st0, it0, user);
+      return { ...(st.place_locality || st.place_country ? { place: { locality: st.place_locality || '', country: st.place_country || '' } } : {}),
+        uid: st.uid, label: st.label, kind: st.resolution, mark_uid: st.mark_uid,
+        position: st.position, visibility: st.visibility, when: temporalFormat(temporalOf(st)) || null,
+      };
+    };
 
     if (name === 'create_itinerary') {
       // title is required by the schema; an untitled plan was being created.
@@ -12532,7 +13380,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         const it0 = itinOwned(user, a.itinerary_uid), want = (a.stops || []).map((sp) => [String(sp.label || '').trim(), sp.mark_uid || null]);
         const last = want.length ? q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id DESC LIMIT ?').all(it0.id, want.length).reverse() : [];
         const recent = last.length === want.length && last.every((st) => q("SELECT 1 FROM provenance WHERE entity_uid=? AND action='created' AND created_at >= datetime('now', '-120 seconds')").get(st.uid));
-        if (recent && last.every((st, i) => st.label === want[i][0] && (want[i][1] === null || st.mark_uid === want[i][1])))
+        if (recent && last.every((st, i) => st.label === want[i][0] && (want[i][1] === null || stopMarkFor(st, it0, user) === want[i][1])))
           return { text: `Those ${last.length} stop(s) were just added to "${it0.title}"; nothing new was added.`, structured: { ok: true, itinerary_uid: it0.uid, stops: last.map((st) => stopView(st)) } };
       }
       const added = [];
@@ -12560,7 +13408,11 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         if (tx) db.exec('COMMIT');
       } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
       const it = itinOwned(user, a.itinerary_uid);
-      return { text: `Added ${added.length} stop${added.length === 1 ? '' : 's'} to "${it.title}".`,
+      // v2.70: on a shared plan a new place is kept for nobody, so a `why`
+      // (a personal note) has nowhere to go; say so rather than drop it quietly.
+      const sharedNote = itinShared(it) && (a.stops || []).some((sp) => sp.new_place && !sp.mark_uid)
+        ? ` On a plan shared with others a new place is on the plan for everyone and kept for nobody${(a.stops || []).some((sp) => sp.new_place && sp.new_place.why) ? ', so the note about why was not saved' : ''}; anyone who wants it as one of their own places keeps it with resolve_travel_mark and resolve_itinerary_stop.` : '';
+      return { text: `Added ${added.length} stop${added.length === 1 ? '' : 's'} to "${it.title}".${sharedNote}`,
         structured: { ok: true, action: 'created', subject: 'itinerary_stop', stops: added,
           itinerary_private: !!it.private } };
     }
@@ -12645,15 +13497,24 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
 
     if (name === 'delete_itinerary_entity') {
       const ctx = mcpActor(user);
-      if (a.kind === 'itinerary') { itineraryDelete(user, a.uid, ctx); return wr('Itinerary deleted.', 'deleted', 'itinerary', null, a.uid, null); }
-      if (a.kind === 'day') { groupDelete(user, a.uid, ctx); return wr('Day deleted; its stops remain, unplaced.', 'deleted', 'itinerary_group', null, a.uid, null); }
-      stopDelete(user, a.uid, ctx);
-      return wr('Stop deleted.', 'deleted', 'itinerary_stop', null, a.uid, null);
+      if (a.kind === 'itinerary') {
+        // A plan other people are planning is deleted only by its owner, on
+        // the web, after seeing who would lose it (v2.70, decision C4).
+        const it0 = itinOwned(user, a.uid, 'read');
+        if (itinShared(it0) || itinInvitesOpen(it0))
+          throw new Error('This plan is shared with other people, so it can\u2019t be deleted from here. Its owner can delete it on the Discriminantly website, where they will see who else would lose it. Nothing was deleted.');
+        itineraryDelete(user, a.uid, ctx); return wr('Itinerary deleted.', 'deleted', 'itinerary', null, a.uid, null);
+      }
+      // In a shared plan these are recoverable removals (decision C3).
+      if (a.kind === 'day') { const r = groupDelete(user, a.uid, ctx);
+        return wr(r === 'removed' ? 'Day removed from the shared plan; its stops remain, unplaced. Anyone planning it can restore the day on the Discriminantly website.' : 'Day deleted; its stops remain, unplaced.', 'deleted', 'itinerary_group', null, a.uid, null); }
+      const r = stopDelete(user, a.uid, ctx);
+      return wr(r === 'removed' ? 'Stop removed from the shared plan. Anyone planning it can restore it on the Discriminantly website; nobody\u2019s travel marks were touched.' : 'Stop deleted.', 'deleted', 'itinerary_stop', null, a.uid, null);
     }
 
     if (name === 'my_itineraries') {
       if (a.uid) {
-        const it = itinOwned(user, a.uid);
+        const it = itinOwned(user, a.uid, 'read');
         const days = groupOrder(it.id).map((g) => ({ uid: g.uid, label: g.label,
           when: temporalFormat(temporalOf(g)) || null, position: g.position,
           stops: itineraryStops(it.id, g.id).map(stopView) }));
@@ -12663,7 +13524,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         const stopLine = (s) => `    \u2022 ${s.label}${s.when ? ' \u00b7 ' + s.when : ''}`
           + `${s.mark_uid ? ' \u00b7 linked' : ' \u00b7 ' + s.kind} \u00b7 stop uid: ${s.uid}`;
         const when = temporalFormat(temporalOf(it));
-        const lines = [`"${it.title}"${when ? ' \u00b7 ' + when : ''} \u00b7 itinerary uid: ${it.uid}`];
+        const lines = [`"${it.title}"${when ? ' \u00b7 ' + when : ''}${itinSharingNote(it, user)} \u00b7 itinerary uid: ${it.uid}`];
         for (const d of days) {
           lines.push(`  ${d.label || 'Untitled day'}${d.when ? ' \u00b7 ' + d.when : ''} \u00b7 day uid: ${d.uid}`);
           if (d.stops.length) for (const s of d.stops) lines.push(stopLine(s));
@@ -12681,8 +13542,13 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
             unplaced,
             conflicts: groupConflicts(it.id) } };
       }
-      const rows = q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?')
-        .all(user.id, Math.min(a.limit || 20, 50));
+      const lim = Math.min(a.limit || 20, 50);
+      // Plans shared with the caller are theirs to plan too (v2.70). The
+      // structured items keep their shape; who else is planning is in the text.
+      const rows = [...q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC LIMIT ?').all(user.id, lim),
+        ...q(`SELECT i.* FROM itineraries i JOIN itinerary_members m ON m.itinerary_id=i.id
+              WHERE m.user_id=? AND m.state='active' ORDER BY i.id DESC LIMIT ?`).all(user.id, lim)]
+        .sort((x, y) => y.id - x.id).slice(0, lim);
       // Each line carries its uid: this list is where every other itinerary
       // tool gets one from. Day and stop counts tell similar plans apart.
       const counts = (r) => ({
@@ -12693,7 +13559,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       return { text: rows.length ? rows.map((r) => {
           const w = temporalFormat(temporalOf(r)), c = counts(r);
           return `${r.title}${w ? ' \u00b7 ' + w : ''} \u00b7 ${plural(c.days, 'day')} \u00b7 ${plural(c.stops, 'stop')}`
-            + `${r.private ? ' \u00b7 private' : ''} \u00b7 uid: ${r.uid}`;
+            + `${r.private ? ' \u00b7 private' : ''}${itinSharingNote(r, user)} \u00b7 uid: ${r.uid}`;
         }).join('\n') : 'No itineraries yet.',
         structured: { ok: true, items: rows.map((r) => ({ uid: r.uid, title: r.title,
           when: temporalFormat(temporalOf(r)) || null, private: !!r.private,
@@ -12802,7 +13668,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       if (a.attached === false) stopNoteDetach(user, a.stop_uid, a.note_uid, ctx);
       else stopNoteAttach(user, a.stop_uid, a.note_uid, ctx, { origin: 'existing' });
       it = itinById(stopByUid(a.stop_uid).itinerary_id);
-    } else it = itinOwned(user, a.itinerary_uid);
+    } else it = itinOwned(user, a.itinerary_uid, 'read');
     const stops = q('SELECT id, uid, label FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id).map((st) => ({
       stop_uid: st.uid, label: st.label,
       notes: stopNotesVisible(st.id, user).map((o) => ({ uid: o.uid, id: o.id, name: o.name, kept: isAdopted('object', o.uid), image_uid: imageUidOf(o) })) }));
@@ -13428,16 +14294,16 @@ async function handle(req, res) {
 
   if (p === '/login') {
     if (m === 'GET') {
-      const nx = oauthNext(url.searchParams.get('next')); if (me && nx) return redirect(res, nx);
+      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')); if (me && (nx || jx)) return redirect(res, nx || jx);
       const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
       if (nx) recordEvent(null, 'ai_connection_started', { anon: anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : ''), surface: 'signin', meta: { client_host: clientHostOf(nx) }, dedupeMinutes: 30 });
-      return pages.login(req, res, me, '', nx);
+      return pages.login(req, res, me, '', nx || jx);
     }
     const b = await readBody(req); const em = (b.email || '').toLowerCase().trim();
     // Throttled before the password is checked, with the same message whether or not the account exists.
-    if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next));
+    if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next) || inviteNext(b.next));
     const u = q('SELECT * FROM users WHERE email=?').get(em);
-    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next)); }
+    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next) || inviteNext(b.next)); }
     loginSucceeded(req, em);
     recordEvent(u.id, 'signed_in', { surface: oauthNext(b.next) ? 'oauth' : 'web' });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
@@ -13445,7 +14311,7 @@ async function handle(req, res) {
     // they meet next (logout, a second tab) do not snap to a different theme
     const lookCookies = [`skin=${skinOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${modeOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`];
     // back to the authorization that sent them here, if any; otherwise home
-    return redirect(res, oauthNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
+    return redirect(res, oauthNext(b.next) || inviteNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
   }
   // Private product events from the first-run surfaces (v2.65): allow-listed
   // types, bounded values, signed-in members only; dropped silently otherwise.
@@ -13459,25 +14325,25 @@ async function handle(req, res) {
   if (p === '/join') {
     // Open to everyone (v2.63). An invite link still works and credits the invite.
     if (m === 'GET') {
-      const nx = oauthNext(url.searchParams.get('next')); if (me) return redirect(res, nx || '/');
+      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')); if (me) return redirect(res, nx || jx || '/');
       const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
       const aid = anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : '');
       recordEvent(null, 'signup_started', { anon: aid, surface: nx ? 'oauth' : 'web', meta: nx ? { client_host: clientHostOf(nx) } : {}, dedupeMinutes: 30 });
-      return pages.join(req, res, me, url.searchParams.get('code') || '', '', nx);
+      return pages.join(req, res, me, url.searchParams.get('code') || '', '', nx || jx);
     }
-    const b = await readBody(req); const nx = oauthNext(b.next), code = String(b.code || '').trim();
+    const b = await readBody(req); const nx = oauthNext(b.next), jx = inviteNext(b.next), code = String(b.code || '').trim();
     const inv = code ? q('SELECT * FROM invites WHERE code=? AND used_by IS NULL').get(code) : null;
     const email = (b.email || '').toLowerCase().trim(), name = String(b.name || '').trim().slice(0, 80);
-    const again = (err) => pages.join(req, res, me, inv ? code : '', err, nx, { name, email, terms: b.terms === '1' });
+    const again = (err) => pages.join(req, res, me, inv ? code : '', err, nx || jx, { name, email, terms: b.terms === '1' });
     if (!name) return again('Please add your name.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Please enter a valid email address.');
-    if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again(`An account with that email already exists. <a href="/login${nx ? `?next=${encodeURIComponent(nx)}` : ''}">Sign in instead</a>.`);
+    if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again(`An account with that email already exists. <a href="/login${nx || jx ? `?next=${encodeURIComponent(nx || jx)}` : ''}">Sign in instead</a>.`);
     if ((b.password || '').length < 8) return again('Password needs at least 8 characters.');
     if (b.terms !== '1') return again('Please agree to the Terms and Privacy policy to create your account.');
     if (!inv && !signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
     const wanted = String(b.handle || '').trim() ? slug(b.handle) : ''; // slug('') is 'member', so only when one was given
     const handle = wanted.length >= 2 && !q('SELECT 1 FROM users WHERE handle=?').get(wanted) ? wanted : uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
-    const source = inv ? 'invite' : nx ? signupSourceFor(nx) : 'web';
+    const source = inv ? 'invite' : nx ? signupSourceFor(nx) : jx ? 'itinerary_invitation' : 'web';
     const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source,terms_accepted_at,terms_version) VALUES(?,?,?,?,'modern',?,CURRENT_TIMESTAMP,?)").run(handle, name, email, hashPass(b.password), source, TERMS_VERSION());
     if (inv) q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
     const sc = sourceFromCookie(req);
@@ -13486,7 +14352,7 @@ async function handle(req, res) {
     recordEvent(r.lastInsertRowid, 'signup_completed', { surface: nx ? 'oauth' : 'web', meta: { source } });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
     // back to the AI's authorization if they came from one; otherwise All, where Welcome is
-    return redirect(res, nx || '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
+    return redirect(res, nx || jx || '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
   }
 
   if (p === '/marks/new') {
@@ -13583,10 +14449,14 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/t\/(\d+)\/marks$/)) && m === 'GET') {
     if (!me) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
     const it = q('SELECT * FROM itineraries WHERE id=?').get(+mt[1]);
-    if (!it || it.user_id !== me.id) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
+    // v2.70: a shared plan's editors look up THEIR OWN marks the same way.
+    const lr = itinRole(it, me);
+    if (!it || !(lr === 'owner' || lr === 'editor')) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
     const term = String(url.searchParams.get('q') || '').trim().toLowerCase();
     if (term.length < 2) return send(res, '[]', 200, { 'Content-Type': 'application/json' });
-    const inPlan = new Set(q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id).map((r) => r.mark_uid));
+    const inPlan = new Set((lr === 'owner'
+      ? q('SELECT mark_uid FROM itinerary_stops WHERE itinerary_id=? AND mark_uid IS NOT NULL').all(it.id)
+      : q('SELECT l.mark_uid FROM itinerary_stop_marks l JOIN itinerary_stops s ON s.id=l.stop_id WHERE s.itinerary_id=? AND l.user_id=?').all(it.id, me.id)).map((r) => r.mark_uid));
     const rows = q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(me.id)
       .filter((mk) => !inPlan.has(mk.uid))
       .filter((mk) => `${mk.name} ${mk.locality || ''} ${mk.country || ''}`.toLowerCase().includes(term))
@@ -13758,6 +14628,77 @@ async function handle(req, res) {
       }
     } catch (e) { return send(res, esc(e.message), 400); }
     return redirect(res, `/t/${mt[1]}`);
+  }
+
+  // ---- Shared itineraries (v2.70): web only ---------------------------------
+  // Membership, invitations and Removed live here and nowhere in MCP. Every
+  // handler goes through the same access rule as the plan itself.
+  if ((mt = p.match(/^\/t\/(\d+)\/stops\/([a-f0-9-]+)\/keep$/)) && m === 'POST') {
+    if (!me) return need();
+    try { stopKeepPlace(me, mt[2], webActor(me)); } catch (e) { return send(res, esc(e.message), 400); }
+    return redirect(res, `/t/${mt[1]}#stop-${mt[2]}`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/(members|removed)$/)) && m === 'GET') {
+    if (!me) return need();
+    const it = itinById(+mt[1]);
+    if (!it || !itinRole(it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
+    return mt[2] === 'members' ? itinMembersPage(req, res, me, it) : itinRemovedPage(req, res, me, it);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/(share|shares\/([0-9a-f-]{36})\/revoke)$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = itinById(+mt[1]);
+    if (!it || !itinRole(it, me)) return send(res, 'Not found', 404);
+    const b = await readBody(req), ctx = webActor(me);
+    try {
+      if (mt[2] === 'share') {
+        const r = shareCreate(me, it.uid, { showAuthor: b.show_author !== '0', confirmPrivate: b.confirm_private === '1' }, ctx);
+        return itinMembersPage(req, res, me, it, { shareLink: `${BASE_URL()}/s/${r.token}` });
+      }
+      shareRevoke(me, it.uid, mt[3], ctx);
+    } catch (e) {
+      if (e.code === 'disclosure') return itinMembersPage(req, res, me, it, { discloseShare: true, showAuthor: b.show_author !== '0' });
+      return itinMembersPage(req, res, me, it, { flash: e.message }, 400);
+    }
+    return redirect(res, `/t/${it.id}/members`);
+  }
+  if ((mt = p.match(/^\/s\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return sharePage(req, res, me, mt[1]);
+  if ((mt = p.match(/^\/s\/([A-Za-z0-9_-]{20,100})\/mine$/)) && m === 'POST') {
+    if (!me) return redirect(res, `/join?next=${encodeURIComponent('/s/' + mt[1])}`);
+    let r;
+    try { r = shareAdopt(me, mt[1], webActor(me)); }
+    catch (e) { if (e.it) return redirect(res, `/t/${e.it.id}`); return sharePage(req, res, me, mt[1], e.message); }
+    return redirect(res, `/t/${r.it.id}?mine=1`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/(invite|leave|members\/(\d+)\/(role|remove)|invitations\/([0-9a-f-]{36})\/revoke|removed\/([0-9a-f-]{36})\/restore)$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = itinById(+mt[1]);
+    if (!it || !itinRole(it, me)) return send(res, 'Not found', 404);
+    const b = await readBody(req), ctx = webActor(me);
+    try {
+      if (mt[2] === 'invite') {
+        const r = inviteCreate(me, it.uid, { role: b.role, email: b.email, confirmPrivate: b.confirm_private === '1' }, ctx);
+        return itinMembersPage(req, res, me, it, { link: `${BASE_URL()}/j/${r.token}`, role: b.role, email: String(b.email || '').trim() });
+      }
+      if (mt[2] === 'leave') { memberEnd(me, it.uid, me.id, ctx); return redirect(res, '/t'); }
+      if (mt[4] === 'role') memberSetRole(me, it.uid, +mt[3], b.role, ctx);
+      else if (mt[4] === 'remove') memberEnd(me, it.uid, +mt[3], ctx);
+      else if (mt[5]) inviteRevoke(me, it.uid, mt[5], ctx);
+      else if (mt[6]) { itinRestore(me, it.uid, mt[6], ctx); return redirect(res, `/t/${it.id}/removed`); }
+    } catch (e) {
+      if (e.code === 'disclosure') return itinMembersPage(req, res, me, it, { disclose: true, role: b.role, email: String(b.email || '').trim() });
+      return itinMembersPage(req, res, me, it, { flash: e.message }, 400);
+    }
+    return redirect(res, `/t/${it.id}/members`);
+  }
+  // An invitation: what it is, from whom, and an explicit Accept. Signed out,
+  // sign in or create an account and come straight back here.
+  if ((mt = p.match(/^\/j\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return inviteLandingPage(req, res, me, mt[1]);
+  if ((mt = p.match(/^\/j\/([A-Za-z0-9_-]{20,100})\/(accept|decline)$/)) && m === 'POST') {
+    if (!me) return redirect(res, `/login?next=${encodeURIComponent('/j/' + mt[1])}`);
+    let r;
+    try { r = inviteRespond(me, mt[1], mt[2] === 'accept', webActor(me)); }
+    catch (e) { return inviteLandingPage(req, res, me, mt[1], e.message); }
+    return redirect(res, mt[2] === 'accept' || r.already ? `/t/${r.it.id}` : '/t');
   }
 
   if (p === '/e') return pages.ensembles(req, res, me);

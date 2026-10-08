@@ -484,8 +484,9 @@ console.log('\ncolophon contracts');
 console.log('\nmark lookup contracts');
 {
   const route = SRC.slice(SRC.indexOf("p.match(/^\\/t\\/(\\d+)\\/marks$/)"), SRC.indexOf('if (p === \'/t/new\''));
-  ok('L1 only the itinerary owner may look up marks',
-     /it\.user_id !== me\.id/.test(route));
+  // v2.70: the owner or a shared plan's editor -- each looks up only their own marks (L2).
+  ok('L1 only someone who can write the itinerary may look up marks (the owner, or a shared plan\u2019s editor)',
+     /const lr = itinRole\(it, me\);\s*if \(!it \|\| !\(lr === 'owner' \|\| lr === 'editor'\)\)/.test(route));
   ok('L2 only the member\u2019s own marks are searched',
      /m\.user_id=\?/.test(route));
   ok('L3 marks already in the plan are excluded',
@@ -1215,9 +1216,12 @@ console.log('\nadmin private view');
   ok('AV4 the setting has its own migration, off by default',
      /\['048-admin-private-view', \(\) => \{\s*if \(!hasColumn\('users', 'admin_private_view'\)\) db\.exec\('ALTER TABLE users ADD COLUMN admin_private_view INTEGER NOT NULL DEFAULT 0'\);/.test(SRC)
      && !/\['038-ui-skin'[\s\S]{0,400}admin_private_view/.test(SRC));
-  ok('AV5 itinerary controls stay with the real owner, even with the admin view on',
-     /const isOwner = !!\(me && me\.id === it\.user_id\);\s*const owner = isOwner \|\| adminOn\(me\);\s*const ctl = interactive && isOwner;/.test(SRC)
-     && /\/\/ Editing controls and the owner's script: the real owner only\.\s*const owner = !!\(me && me\.id === it\.user_id\);/.test(SRC));
+  // v2.70: content controls are the owner's and a shared plan's editors'
+  // (itinRole, which never reads adminOn); the admin view still only sees.
+  ok('AV5 itinerary controls stay with the real owner (and v2.70 editors), never the admin view',
+     /const isOwner = !!\(me && me\.id === it\.user_id\);[\s\S]{0,200}const role = itinRole\(it, me\), shared = itinShared\(it\);\s*const owner = isOwner \|\| adminOn\(me\) \|\| !!role;\s*const ctl = interactive && \(role === 'owner' \|\| role === 'editor'\);/.test(SRC)
+     && /const owner = !!\(me && me\.id === it\.user_id\);\s*const role = itinRole\(it, me\), shared = itinShared\(it\);\s*const writer = role === 'owner' \|\| role === 'editor';/.test(SRC)
+     && !/adminOn/.test(SRC.slice(SRC.indexOf('function itinRole('), SRC.indexOf('function itinOwned('))));
   ok('AV6 only an admin can change the setting, and every page shows a notice while it is on',
      /if \(p === '\/settings\/admin-view' && m === 'POST'\) \{\s*if \(!me \|\| !me\.is_admin\) return send\(res, 'Not allowed', 403\);/.test(SRC)
      && /if \(adminOn\(me\)\) body = `<p class="admin-view-note">/.test(SRC));
@@ -1352,8 +1356,9 @@ console.log('\nadoption');
 
   // K3: single records reached by id are shown through canView, which keeps a
   // record outside the corpus private to its member
+  // v2.70: a shared itinerary's participants also see it (itinRole).
   ok('K3 canView: a record outside the corpus is its member’s alone, whatever its flag',
-     /const canView = \(subjectType, row, me\) => \(isAdopted\(subjectType, row\.uid\)\s*\? canSee\(row, me\) : !!\(me && me\.id === row\.user_id\)\);/.test(SRC));
+     /const canView = \(subjectType, row, me\) => \(subjectType === 'itinerary' && me && itinRole\(row, me\) \? true[^\n]*\n\s*: isAdopted\(subjectType, row\.uid\) \? canSee\(row, me\) : !!\(me && me\.id === row\.user_id\)\);/.test(SRC));
   ok('K3b the note, mark and itinerary pages use canView',
      /!canView\('object', o, me\)\) return send\(res, layout\(\{ title: 'Not found', body: '<p>No such note\./.test(SRC)
      && /!canView\('mark', m, me\)\) return send\(res, layout\(\{ title: 'Not found', body: '<p>No such mark\./.test(SRC)
@@ -1468,7 +1473,8 @@ console.log('\nlifecycle invariants (source)');
   const nsd = SRC.slice(SRC.indexOf('function notesSafeToDiscard('), SRC.indexOf('function dropPendingEnsembleNotes('));
   ok('LC4 discarding an Ensemble drops only never-kept notes of a PENDING composition; an adopted note is always kept back',
      /if \(ens\.status === 'pending_review' && !isAdopted\('object', n\.uid\)\)/.test(nsd) && /keep\.push\(\{ \.\.\.n, reasons: \['in their notes'\] \}\);\s*\}\s*return/.test(nsd));
-  ok('LC5 a kept parent takes only kept children at every explicit link site', (SRC.match(/assertKeptChild\(/g) || []).length === 5 && /if \(e\.status === 'saved'\) \{\s*const n = findExistingNote\(/.test(SRC));
+  // v2.70 adds one explicit link site: a Mark linked into a shared plan (stopAddShared).
+  ok('LC5 a kept parent takes only kept children at every explicit link site', (SRC.match(/assertKeptChild\(/g) || []).length === 6 && /assertKeptChild\(true, 'mark', mk\.uid\)/.test(SRC) && /if \(e\.status === 'saved'\) \{\s*const n = findExistingNote\(/.test(SRC));
 }
 
 // ---- MCP contract guard: generated tool definitions vs the v2.55 snapshot ------

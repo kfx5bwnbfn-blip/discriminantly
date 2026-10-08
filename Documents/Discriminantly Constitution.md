@@ -1,8 +1,8 @@
 Discriminantly Constitution — Reconciled Semantic Model
 
-Version: 0.2-reconciled
+Version: 0.3-shared-itineraries
 Date: 2026-10-07
-Status: Proposed authoritative replacement for stale recommendation/adoption language in earlier Constitution drafts.
+Status: Proposed authoritative replacement for stale recommendation/adoption language in earlier Constitution drafts. 0.3 adds shared itineraries (§22) and scopes the sections they touch; nothing in 0.2 is reversed.
 
 1. Purpose
 
@@ -25,6 +25,8 @@ The same durable target may accumulate multiple truthful assertions over time. T
 A Note is a member-scoped relationship to a thing.
 A Travel Mark is a member-scoped relationship to a place.
 An Itinerary is a durable arrangement of travel intentions.
+
+A Stop belongs to its Itinerary, not to any member’s Travel Mark. In a shared Itinerary, each participant’s relationship to a Stop’s place is that participant’s own Travel Mark, which the Stop does not depend on (§22).
 
 Record existence does not necessarily imply member Adoption.
 
@@ -53,6 +55,8 @@ Examples include:
 • explicit artifact construction delegated by the member
 
 These assertions record something the member explicitly said, did, or authorized.
+
+A direct edit to a shared Itinerary is an attributed action on a shared artifact. It is not a taste assertion by the editor or by anyone else (§22).
 
 3.2 Proposed / AI-generated
 
@@ -163,9 +167,11 @@ Within that authorized scope, the assistant may:
 • create its groups/days
 • select grounded Stops
 • persist the proposed sequence
-• create or reuse the corresponding primary-plan Travel Marks
+• create or reuse the corresponding primary-plan Travel Marks of the requesting member
 • adopt the primary itinerary and those grounded primary-plan records as required by the current itinerary model
 • record Recommendation provenance for AI-selected elements
+
+These cascades apply only to the requesting member’s own records. Delegated construction on a shared itinerary never creates, adopts or changes another participant’s records, and adding a place to a shared itinerary creates no Travel Mark for anyone, the requesting member included (§22).
 
 The assistant does not need a second generic “Shall I save this?” when the user’s original request already delegated construction.
 
@@ -222,7 +228,7 @@ When the member later keeps the recommendation:
 • Adoption is added to the existing target
 • the target is not copied merely to become kept
 • Recommendation history remains
-• resolved recommendation-only Marks / attached Notes may be adopted according to itinerary keep semantics
+• resolved recommendation-only Marks / attached Notes may be adopted according to itinerary keep semantics — the keeping member’s own records only. A recommended itinerary cannot be shared until it is kept, so this cascade never reaches a shared itinerary (§22).
 • unresolved Stops remain unresolved
 • no Check-in, Ownership, Warrant, reservation or purchase is inferred
 
@@ -273,6 +279,8 @@ The following implications are forbidden unless the member explicitly performs o
 • Warrant ⇒ Kept
 • itinerary inclusion ⇒ Check-in
 • itinerary inclusion ⇒ booking
+• shared itinerary presence ⇒ any participant’s Travel Mark, Adoption, endorsement or preference
+• shared itinerary edit ⇒ taste evidence for anyone, the editor included
 • recommendation reaction ⇒ permanent preference unless explicitly represented as such
 
 Compound explicit actions are allowed when the member’s wording truthfully supports more than one assertion.
@@ -356,7 +364,7 @@ Discriminantly must never present:
 • observed behavior as explicit preference
 • another member’s evidence as this member’s evidence
 • shared artifact membership as personal experience
-• collaboration activity as another collaborator’s taste evidence
+• collaboration activity as any participant’s taste evidence, the acting participant’s own included
 
 The provenance and assertion class must remain visible to the system even where the UI simplifies the presentation.
 
@@ -373,6 +381,8 @@ Valid examples may include:
 • other explicitly modeled relationships
 
 Editing alone is not a relationship. System convenience is not a relationship.
+
+A shared itinerary referencing a place never justifies creating or retaining any participant’s personal record. When a participant removes their own record, only that participant’s relationship ends; the shared Stop, its place and other participants’ relationships remain (§22).
 
 19. Cross-client portability
 
@@ -416,3 +426,36 @@ If an older Constitution, MCP Policy, Skill or client note conflicts with this r
 > **Resolution is orthogonal to Adoption.**
 > **Delegated creation may authorize execution without redundant confirmation.**
 > **The system preserves who asserted what, why it exists, and what it does not imply.**
+> **A shared Stop belongs to the itinerary; each participant’s relationship to its place is their own.**
+
+22. Shared itineraries
+
+A member may invite others into one of their own kept itineraries. The creator remains its owner; each invited participant is an editor or a viewer. Participants edit the one canonical itinerary directly. There are no proposals, votes, approvals or consensus states; people agree among themselves.
+
+22.1 The Stop belongs to the itinerary
+
+A Stop on a shared itinerary carries the identity of its place — name, locality, country, address, position, link, stable external id and how that identity was established. It carries nothing personal: no reasons, tags, images, visits or judgments.
+
+Each participant may separately hold a relationship to that place: their own Travel Mark, linked to the Stop as theirs. That link is visible only to them. Another participant’s Mark, private or public, is never exposed through the shared itinerary.
+
+22.2 Personal adoption is independent
+
+Adding a place to a shared itinerary creates no Travel Mark and no Adoption for anyone, the adder included. A participant who wants the place as their own keeps it explicitly, which creates or reuses only their own Mark.
+
+Removing their own Mark ends only their own relationship. The Stop, its place identity and other participants’ relationships remain. Removing the Stop never removes anyone’s Mark.
+
+22.3 Edits are attributed, not evidence
+
+Every change to a shared itinerary records who made it, through which surface and on whose behalf (the member directly, or an AI acting for that member), when, and which itinerary it belongs to. Attribution comes from how the request authenticated, never from what a caller supplies.
+
+Shared-itinerary activity is never taste evidence. It feeds no Adoption, preference inference, reuse or yield measure, or recommendation evidence for anyone, the acting participant included. Only a separate, explicit personal act — keeping, checking in, owning, warranting — creates personal evidence.
+
+22.4 Removal is recoverable
+
+A participant who can edit may remove Stops and days. Removal is recoverable and attributed; restoring brings back the same element. Removal never touches any participant’s personal records.
+
+22.5 Governance and privacy
+
+Only the owner invites, removes participants, changes roles or deletes the itinerary. A shared itinerary is never public. Before inviting, the owner is told which places come from their private Marks: participants will see those places’ identity, never the owner’s notes about them.
+
+Each participant’s recommendations around a shared itinerary remain their own.

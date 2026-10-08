@@ -1,6 +1,6 @@
 {
   "policy_id": "discriminantly.semantic_policy",
-  "version": "0.2-reconciled",
+  "version": "0.3-shared-itineraries",
   "effective_date": "2026-10-07",
   "status": "proposed_authoritative",
   "principles": {
@@ -15,7 +15,10 @@
     "ownership_implies_adoption": false,
     "warrant_implies_adoption": false,
     "silence_implies_rejection": false,
-    "delegated_primary_artifact_may_execute_without_redundant_confirmation": true
+    "delegated_primary_artifact_may_execute_without_redundant_confirmation": true,
+    "shared_itinerary_stop_belongs_to_itinerary": true,
+    "shared_itinerary_presence_implies_participant_mark": false,
+    "shared_itinerary_edit_is_taste_evidence": false
   },
   "assertion_classes": {
     "explicit_member_authorized": {
@@ -98,7 +101,9 @@
         "publication",
         "unrelated_corpus_changes"
       ],
-      "redundant_generic_confirmation_required": false
+      "redundant_generic_confirmation_required": false,
+      "scope": "requesting_member_records_only",
+      "on_shared_itinerary_new_places_create_marks_for": "nobody"
     }
   },
   "prospective_model": {
@@ -155,6 +160,11 @@
     "warrant=>adoption",
     "itinerary_stop=>checkin",
     "itinerary_stop=>booking",
+    "shared_itinerary_stop=>participant_mark",
+    "shared_itinerary_stop=>participant_adoption",
+    "shared_itinerary_stop=>participant_preference",
+    "shared_itinerary_edit=>taste_evidence",
+    "collaboration_activity=>any_participant_taste_evidence",
     "view=>preference",
     "search=>preference"
   ],
@@ -177,16 +187,52 @@
       "system",
       "migration"
     ],
-    "must_distinguish_ai_proposal_from_member_assertion": true
+    "must_distinguish_ai_proposal_from_member_assertion": true,
+    "actor_derived_from_authenticated_context": true,
+    "caller_supplied_actor_accepted": false,
+    "shared_itinerary_stop_and_day_events_reference_itinerary": true
   },
   "privacy": {
     "private_evidence_never_public_implicitly": true,
-    "shared_artifact_access_does_not_grant_unrelated_private_corpus_access": true
+    "shared_artifact_access_does_not_grant_unrelated_private_corpus_access": true,
+    "shared_itinerary_mark_uid_is_caller_own_or_null": true,
+    "shared_itinerary_is_never_public": true
   },
   "no_orphan_rule": {
     "enabled": true,
     "non_adopted_record_requires_explaining_relationship": true,
-    "editing_alone_is_explaining_relationship": false
+    "editing_alone_is_explaining_relationship": false,
+    "shared_itinerary_reference_is_explaining_relationship": false
+  },
+  "shared_itineraries": {
+    "roles": [
+      "owner",
+      "editor",
+      "viewer"
+    ],
+    "owner_is_creator": true,
+    "editing_model": "direct_on_canonical_itinerary",
+    "proposals_votes_approval_consensus": false,
+    "stop_place_identity_fields": [
+      "name",
+      "locality",
+      "country",
+      "address",
+      "lat",
+      "lng",
+      "url",
+      "external_id",
+      "identity_basis"
+    ],
+    "stop_place_identity_personal_fields": false,
+    "personal_adoption": "explicit_and_per_participant",
+    "personal_record_removal_ends": "own_relationship_only",
+    "stop_removal_deletes_marks": false,
+    "stop_and_day_removal": "recoverable",
+    "governance": "owner_only",
+    "membership_management_surface": "web_only",
+    "recommended_itinerary_shareable": false,
+    "recommendations_per_participant": true
   },
   "precedence": [
     "constitution",

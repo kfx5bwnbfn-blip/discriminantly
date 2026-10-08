@@ -1,6 +1,6 @@
 Discriminantly MCP Policy — Reconciled Recommendation & Adoption Model
 
-Version: 0.2-reconciled
+Version: 0.3-shared-itineraries
 Date: 2026-10-07
 Status: Machine-facing operational policy aligned to the reconciled Constitution.
 
@@ -24,6 +24,8 @@ The server remains authoritative for permissions, identity, privacy, provenance 
 8. Adoption never implies experience, Ownership or Warrant.
 9. Every durable write preserves provenance.
 10. Private evidence never becomes public implicitly.
+11. A shared itinerary’s Stops belong to the itinerary; presence on one is never anyone’s Mark, Adoption or preference.
+12. Shared-itinerary edits are attributed actions, never taste evidence — the acting member’s own included.
 
 3. Assertion classes
 
@@ -71,6 +73,8 @@ When the member asks to plan, build, make, organize, organise, fill or sequence 
 
 Within that scope the AI may create the itinerary, create groups/days, create/reuse grounded Marks for selected Stops, attach Stops, arrange the sequence, adopt the primary itinerary and primary-plan Marks under current itinerary semantics, and record Recommendation provenance for AI-selected places.
 
+These Marks and Adoptions are the requesting member’s own. On a shared itinerary, adding places creates no Mark for anyone (§21).
+
 Do not require a second “keep it” or “save it” turn.
 
 Do not infer Check-in, booking, purchase, Ownership or Warrant.
@@ -103,7 +107,7 @@ When the member keeps a recommendation:
 • add Adoption to the existing target
 • preserve the Recommendation assertion/history
 • do not create a duplicate target merely to represent Keep
-• adopt resolved child records only according to current domain semantics
+• adopt resolved child records only according to current domain semantics, and only the keeping member’s own (a recommended itinerary cannot be shared until kept)
 • preserve unresolved Stops as unresolved
 • do not create Check-ins, Ownership, Warrants, bookings or purchases
 
@@ -153,6 +157,8 @@ Silence is not rejection.
 |Check-in               |Adoption, preference, warrant                    |
 |Warrant                |Adoption, visit, ownership                       |
 |Itinerary Stop         |Check-in, booking, visit                         |
+|Shared itinerary Stop  |any participant’s Mark, Adoption, preference     |
+|Shared itinerary edit  |taste evidence for anyone, the editor included   |
 |Search/view            |preference, Adoption                             |
 |Recommendation reaction|broader taste inference unless explicitly modeled|
 
@@ -176,11 +182,13 @@ Ask only when identity or authorization is materially ambiguous.
 
 For every durable write preserve the acting user, direct user vs AI-on-behalf vs system/migration, AI client where applicable, assertion/evidence class where supported and recommendation context where applicable.
 
+On a shared itinerary the acting participant is whoever the authenticated connection or session belongs to. No tool takes an actor or participant argument, and none should be invented. Each Stop and day change also names its itinerary.
+
 Do not attribute AI research or rationale to the member.
 
 16. Privacy
 
-Never expose private member evidence because the member collaborates on an itinerary, another user adopted a shared itinerary, the AI recommended a record, or a public/shareable artifact references the same entity.
+Never expose private member evidence because the member collaborates on an itinerary, another participant plans a shared itinerary, the AI recommended a record, or a public/shareable artifact references the same entity.
 
 Access to a shared artifact does not confer access to unrelated private corpus content.
 
@@ -201,6 +209,8 @@ If a recommendation target exists but is unadopted, do not “fix” the state b
 A non-adopted member-scoped record must be explained by a modeled relationship such as Recommendation, pending composition, prospective itinerary relationship or another explicit legitimate domain relationship.
 
 Do not retain unexplained records merely because they were edited or researched.
+
+A shared itinerary referencing a place never justifies creating or retaining any participant’s record. Removing one’s own record ends only one’s own relationship to a shared Stop.
 
 19. Tool-selection guidance
 
@@ -226,3 +236,16 @@ All clients must preserve these semantics even if their native connector/platfor
 Platform permissions and host approvals remain authoritative.
 
 Client-specific prompting may not override this policy.
+
+21. Shared itineraries
+
+A member’s itineraries may include ones others shared with them (my_itineraries says so in its text, with the caller’s role). The existing tools work on them unchanged:
+
+• `mark_uid` on any stop is always the caller’s own Mark for that stop, or null. A stop with no Mark of the caller’s is shown as a particular place. It is not unfinished and needs no repair.
+• Editors may add, change, arrange and remove stops and days. Viewers read; a write is refused with a plain message.
+• Adding a place (`new_place`) puts it on the plan for everyone and keeps it for nobody, the caller included. Do not create or link the member’s Mark for it unless the member asks to keep it.
+• Keeping a place for the member is the explicit personal path: `resolve_travel_mark` (their own Mark), then `resolve_itinerary_stop` (links it as theirs only). Viewers may do this too; it is not an edit of the plan.
+• `audit_itinerary` counts a shared stop with a full place identity as resolved. Never “complete” a shared plan by creating Marks.
+• Removing a stop or a day on a shared plan is recoverable on the website. Nobody’s Marks are touched.
+• A shared plan cannot be deleted or made public through MCP. Inviting, removing participants and changing roles happen only on the website.
+• Recommendations about a shared plan remain the caller’s own.
