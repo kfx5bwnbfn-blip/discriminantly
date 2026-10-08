@@ -6412,18 +6412,18 @@ function loginSucceeded(req, email) { LOGIN_FAILS.delete(loginKeys(req, email)[1
 const TERMS_VERSION = () => `terms:${POLICY_DATE}|privacy:${PRIVACY_UPDATED}`;
 // Starters: one set of first acts, used by Welcome and the empty states.
 const STARTERS = {
-  plan: ['I\u2019m planning a trip to [destination]. Help me build an itinerary based on what I like.', 'A plan for you, and your first places, in one conversation.'],
-  place: ['There\u2019s a place I want to remember: [place, city]. Keep it in my Discriminantly marks.', 'A place worth returning to, kept with its details.'],
-  thing: ['There\u2019s something I want to remember: [thing]. Keep it in my Discriminantly notes.', 'Something you noticed, kept with a picture and a link.'],
-  show: ['Show me what I\u2019ve kept in Discriminantly so far.', 'See what you have, and what your AI can do with it.'],
-  resume: ['Let\u2019s keep going with what we started. Show me what I\u2019ve kept so far.', 'Picks up your ChatGPT conversation where it left off.'],
+  plan: ['Help me plan an upcoming trip to [destination] in Discriminantly that I can collaborate on with friends: a plan by day, with places we can each add to.', 'A plan you and your friends change together, in one conversation.'],
+  place: ['Keep [restaurant or shop] in [city] in my Discriminantly marks, with its address, what it is, and a line on why it\u2019s worth going back to.', 'A place worth returning to, kept with its details.'],
+  thing: ['Keep [the thing] in my Discriminantly notes: what it is, why it\u2019s worth remembering, a picture, and a link to where it\u2019s sold.', 'Something you noticed, kept with a picture and a link.'],
+  show: ['Show me everything I\u2019ve kept in Discriminantly, grouped by city, and tell me what I could plan from it.', 'See what you have, and what your AI can do with it.'],
+  resume: ['Pick up the Discriminantly plan we started in our last conversation: show me its stops so far and what\u2019s still missing.', 'Picks up your ChatGPT conversation where it left off.'],
   // v2.72: arrivals through a shared plan start from that plan
-  joined: ['Show me the plan I was invited to on Discriminantly, and what\u2019s near its stops.', 'Starts from the plan you joined.'],
-  copied: ['Show me the plan I just took from Discriminantly. Help me make it my own.', 'Starts from the plan you copied.'],
+  joined: ['Open the plan I was invited to on Discriminantly, walk me through its stops, and suggest two places near them that fit.', 'Starts from the plan you joined.'],
+  copied: ['Open the plan I copied from Discriminantly and help me rework it around my own dates, pace and tastes.', 'Starts from the plan you copied.'],
   // v2.68: second acts, for a member who has kept something but not yet used it
-  again: ['Plan a trip to [destination], starting from the places I\u2019ve already kept in Discriminantly.', 'A new plan that begins with what you\u2019ve kept.'],
-  recall: ['What have I kept in Discriminantly for [city]?', 'Find what you kept before you need it.'],
-  build: ['Build a day around the places I\u2019ve kept in [city].', 'A day planned from your own places.'],
+  again: ['Plan a trip to [destination] in Discriminantly that starts from the places I\u2019ve already kept there, and fill the gaps between them.', 'A new plan that begins with what you\u2019ve kept.'],
+  recall: ['What have I kept in Discriminantly for [city]? Group it by neighbourhood and remind me why I kept each one.', 'Find what you kept before you need it.'],
+  build: ['Build a day in [city] in Discriminantly around the places I\u2019ve kept there, in a sensible walking order with a lunch stop.', 'A day planned from your own places.'],
 };
 // Actions for one starter, by what the member has connected. Claude Desktop
 // documents a prefilled-prompt link (claude://claude.ai/new?q=); ChatGPT and
@@ -9608,6 +9608,17 @@ const WL_ICON = {
   // and the base bars), scaled into the lens frame; no ring, no ribbon
   warrant: `<svg viewBox="0 0 44 48" aria-hidden="true"><g transform="translate(0.4 -2) scale(0.34)" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"><path d="M64 20 C57 20 52 25 52 31 C52 37 57 41 60 45 C55 42 50 38 48 33 C46 38 47 44 52 48 C48 47 44 45 41 42 C42 50 47 55 53 59 C57 62 60 67 61 73 L64 86 L67 73 C68 67 71 62 75 59 C81 55 86 50 87 42 C84 45 80 47 76 48 C81 44 82 38 80 33 C78 38 73 42 68 45 C71 41 76 37 76 31 C76 25 71 20 64 20 Z"/><path d="M34 41 C26 41 21 46 21 53 C21 59 25 63 31 66 C27 66 23 65 20 62 C21 68 25 73 31 76 C36 79 42 83 46 89 L52 96 L55 91 C52 80 47 69 42 61 C39 56 37 49 34 41 Z"/><path d="M94 41 C102 41 107 46 107 53 C107 59 103 63 97 66 C101 66 105 65 108 62 C107 68 103 73 97 76 C92 79 86 83 82 89 L76 96 L73 91 C76 80 81 69 86 61 C89 56 91 49 94 41 Z"/><rect x="49" y="102" width="30" height="6.5" rx="3.25"/><rect x="49" y="111" width="30" height="6.5" rx="3.25"/></g></svg>`,
 };
+// v2.72: the platform's mark above its name. Each brand's own logo is served
+// from public/ai-logos/<key>.svg when that file is present (the brands' press
+// kits supply them; none are drawn here). Until then, a monogram in the lens
+// family's frame stands in, so the tiles keep one height either way.
+const AI_LOGO_DIR = path.join(__dirname, 'public', 'ai-logos');
+const aiLogoFile = (k) => { try { return fs.existsSync(path.join(AI_LOGO_DIR, k + '.svg')); } catch { return false; } };
+const AI_MONOGRAM = { chatgpt: 'G', claude: 'C', muse: 'M', other: '\u00b7\u00b7\u00b7' };
+function aiLogo(k) {
+  if (aiLogoFile(k)) return `<span class="wl-ai-logo"><img src="/ai-logos/${k}.svg?v=${assetHash('ai-logos/' + k + '.svg')}" alt="" width="40" height="40"></span>`;
+  return `<span class="wl-ai-logo wl-ai-mono"><svg viewBox="0 0 44 44" aria-hidden="true">${wlGlare('wl-g-ai-' + k)}<circle cx="22" cy="22" r="19" fill="url(#wl-g-ai-${k})"/><circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" stroke-width="2.4"/><text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="${k === 'other' ? 16 : 19}" font-weight="300" fill="currentColor" font-family="inherit">${AI_MONOGRAM[k]}</text></svg></span>`;
+}
 function welcomeState(me) {
   const conns = q('SELECT client_name, client_label, created_at, revoked_at FROM connections WHERE user_id=?').all(me.id);
   const is = (c, re) => re.test(`${c.client_name || ''} ${c.client_label || ''}`);
@@ -9684,9 +9695,8 @@ function welcomeCard(me) {
     <div class="wl-warrant"><span class="wl-ico wl-ico-sm">${WL_ICON.warrant}</span><span class="wl-warrant-name">Stand behind what you genuinely endorse</span><a class="wl-term" href="/u/${esc(me.handle)}?tab=warrants">Warrants</a></div>
     <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
   </div>`;
-  // Connected: an eyebrow above the name (the caps label token); not connected: the Connect state beneath
-  const aiEyebrow = (on, since) => on ? `<span class="lbl wl-ai-eb">${since ? 'Connected since your first conversation' : 'Connected'}</span>` : '';
-  const aiState = (on) => on ? '' : '<span class="wl-ai-state">Connect</span>';
+  // The state line sits in the same place either way (v2.72): Connect, or Connected.
+  const aiState = (on) => on ? '<span class="wl-ai-state is-on">Connected</span>' : '<span class="wl-ai-state">Connect</span>';
   // Steps use the rail's numbered-circle list (ol.steps), one helper for all three.
   const steps = (items) => `<ol class="steps wl-how">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
   // the address may break only after the scheme, never mid-word; Copy copies it whole
@@ -9708,13 +9718,13 @@ function welcomeCard(me) {
       // Tiles toggle one shared instruction container beneath the row (the
       // resurfacing tint), with a small triangle pointing at the open tile.
       const ais = [
-        ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiEyebrow(st.chatgpt, st.viaChatGPT), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
-        ['claude', 'Claude', 'MCP connector', st.claude, aiEyebrow(st.claude), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
-        ['muse', 'Muse', 'Meta AI connector', st.muse, aiEyebrow(st.muse), st.muse ? '<p class="fine wl-note">Ask Muse to use Discriminantly, then say what you\u2019d like to keep, find or plan.</p>' : museSteps],
-        ['other', 'Other', 'Any MCP client', st.other, aiEyebrow(st.other), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
+        ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiLogo('chatgpt'), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
+        ['claude', 'Claude', 'MCP connector', st.claude, aiLogo('claude'), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
+        ['muse', 'Muse', 'Meta AI connector', st.muse, aiLogo('muse'), st.muse ? '<p class="fine wl-note">Ask Muse to use Discriminantly, then say what you\u2019d like to keep, find or plan.</p>' : museSteps],
+        ['other', 'Other', 'Any MCP client', st.other, aiLogo('other'), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
       return `<div class="wl-ais-wrap">
       ${ais.map(([k]) => `<input type="radio" name="wl-ai-${me.id}" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
-      <div class="wl-ais">${ais.map(([k, name, kind, on, eb]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${eb}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
+      <div class="wl-ais">${ais.map(([k, name, kind, on, logo]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${logo}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
       ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n};--wl-col2:${n % 2}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
     </div>`;
     })()}

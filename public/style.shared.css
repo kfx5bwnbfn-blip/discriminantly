@@ -1145,7 +1145,14 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .welcome-card .wl-ais { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
 .welcome-card .wl-ai summary, .welcome-card label.wl-ai { list-style: none; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: .45rem; padding: 1.5rem 1rem; border-radius: 18px; text-align: center; }
 .welcome-card .wl-ai summary::-webkit-details-marker { display: none; }
-.welcome-card .wl-ai-name { font-size: 1.7rem; font-weight: 300; line-height: 1; }
+.welcome-card .wl-ai-name { font-size: 1.25rem; font-weight: 400; line-height: 1; }
+.welcome-card .wl-ai-logo { display: inline-flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; margin-bottom: .15rem; }
+.welcome-card .wl-ai-logo img, .welcome-card .wl-ai-logo svg { width: 2.5rem; height: 2.5rem; display: block; }
+.welcome-card .wl-ai-mono svg text { font-family: var(--slab); }
+.welcome-card .wl-ais { align-items: stretch; }
+.welcome-card label.wl-ai { height: 100%; box-sizing: border-box; justify-content: flex-start; }
+.welcome-card .wl-ai .caps { flex: 1 0 auto; }
+.welcome-card .wl-ai-state { margin-top: auto; padding-top: .3rem; }
 .welcome-card .wl-ai-state { font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; margin-top: .3rem; }
 .welcome-card .wl-how { margin: .9rem .4rem .4rem; padding-left: 1.2rem; line-height: 1.6; font-size: .95rem; }
 .welcome-card .wl-how li { margin-bottom: .35rem; }
