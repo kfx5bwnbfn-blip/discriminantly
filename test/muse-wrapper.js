@@ -88,6 +88,8 @@ async function consent(s, q, form) {
     const den = await consent(S, authQ({ code_challenge: k0.c }), { action: 'deny' });
     ok('W11 Cancel returns access_denied to Meta with state and iss', den.loc && den.loc.origin + den.loc.pathname === RURI && den.loc.searchParams.get('error') === 'access_denied' && /^st-/.test(den.loc.searchParams.get('state')) && den.loc.searchParams.get('iss') === ORIGIN);
 
+    const order = wrong.g.body.indexOf('value="allow"') < wrong.g.body.indexOf('value="deny"');
+    ok('W11b Allow is the form’s first button, so Enter or an autofill submit never cancels', order);
     // DCR client, full flow
     const k = pkce(), st = 'st-dcr-' + crypto.randomBytes(4).toString('hex');
     const go = await consent(S, authQ({ client_id: dcrId, code_challenge: k.c, state: st }), { action: 'allow', email: em, password: PW });

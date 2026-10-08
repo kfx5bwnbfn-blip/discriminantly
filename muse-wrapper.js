@@ -53,7 +53,7 @@ function create(depsFn) {
     res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Connect Muse to Discriminantly</title>
 <style>body{margin:0;font:16px/1.55 Georgia,serif;background:#f6f4ef;color:#222}main{max-width:26rem;margin:9vh auto;padding:0 1.25rem}h1{font-size:1.4rem;font-weight:600;margin:0 0 .4rem}p{opacity:.85;margin:.4rem 0 1rem}
 label{display:block;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;margin:.9rem 0 .3rem}input{width:100%;box-sizing:border-box;font:inherit;padding:.75rem .9rem;border:1px solid #ccc;border-radius:12px;background:#fff}
-.row{display:flex;gap:.6rem;margin-top:1.3rem}button{flex:1;font:600 .74rem Georgia,serif;letter-spacing:.16em;text-transform:uppercase;padding:.95rem;border-radius:999px;border:0;cursor:pointer}
+.row{display:flex;flex-direction:row-reverse;gap:.6rem;margin-top:1.3rem}button{flex:1;font:600 .74rem Georgia,serif;letter-spacing:.16em;text-transform:uppercase;padding:.95rem;border-radius:999px;border:0;cursor:pointer}
 .go{background:#222;color:#f6f4ef}.no{background:#e7e3da;color:#222}.err{color:#a33;opacity:1}.fine{font-size:.85rem;opacity:.7}</style></head>
 <body><main><h1>Connect Muse to Discriminantly</h1>
 <p>Muse, Meta's AI, is asking to read and change what you keep in Discriminantly on your behalf: your notes, places, plans and check-ins, private ones included.</p>
@@ -61,7 +61,7 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
 <form method="post" action="/oauth/authorize"><input type="hidden" name="pid" value="${esc(pid)}">
 <label for="em">Email</label><input id="em" name="email" type="email" autocomplete="username" value="${esc(email)}" required>
 <label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password">
-<div class="row"><button class="no" name="action" value="deny" formnovalidate>Cancel</button><button class="go" name="action" value="allow">Allow</button></div></form>
+<div class="row"><button class="go" name="action" value="allow">Allow</button><button class="no" name="action" value="deny" formnovalidate>Cancel</button></div></form>
 <p class="fine">You can disconnect Muse at any time in Settings on www.discriminantly.com.</p></main></body></html>`);
   }
 
@@ -129,7 +129,7 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
         stage('authorize_expired');
         ctx.page(res, 400, 'This request has expired', ['Start connecting again from Muse.']); return true;
       }
-      if (f.get('action') !== 'allow') {
+      if (f.get('action') === 'deny') {   // Enter/autofill submits carry no action or 'allow'
         pending.delete(f.get('pid'));
         stage('authorize_denied');
         toClient(ctx, res, pr.redirectUri, { error: 'access_denied', error_description: 'The member declined.', state: pr.state }); return true;
