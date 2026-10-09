@@ -2062,7 +2062,7 @@ function resurfaceCandidate(me) {
 
   // 1. ON THIS DAY — a check-in on this calendar date in an earlier year.
   const visitDay = q(`SELECT v.visited_on, m.id mark_id FROM visits v JOIN adopted_marks m ON m.id=v.mark_id
-    WHERE v.user_id=? AND v.visited_on IS NOT NULL AND v.visited_on <> ''
+    WHERE v.user_id=? AND v.date_known <> 0 AND v.visited_on IS NOT NULL AND v.visited_on <> ''
       AND strftime('%m-%d', v.visited_on)=? AND v.visited_on < date('now','-1 year')`).all(me.id, md);
   const vd = seededPick(seed('visit-day'), visitDay);
   if (vd) { const m = q(MARK_SQL + ' WHERE m.id=?').get(vd.mark_id);
@@ -4910,6 +4910,22 @@ function datesInVisit(start, end) {
 // "Feb 24" — for a day INSIDE a visit whose range already states the year
 const prettyDayShort = (d) => new Date(d + 'T00:00:00Z').toLocaleString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const UNDATED_LABEL = 'Date unknown';
+// v2.78: the one-line count used in tool text. An undated visit's visited_on
+// is a storage date (the day it was logged), so only date_known rows ever
+// supply a date, and an undated visit is said to be undated. With both kinds,
+// the date shown is the latest *dated* visit, labelled as such, because the
+// undated ones may have been later. Dates are the visit's own first day, as
+// before; nothing is inferred from notes or from record timestamps.
+function visitSummary(vs) {
+  const n = vs.length, word = n === 1 ? 'visit' : 'visits';
+  if (!n) return '0 visits';
+  const dated = vs.filter((v) => v.date_known !== 0 && /^\d{4}-\d\d-\d\d/.test(v.visited_on || ''))
+    .sort((a, b) => (a.visited_on < b.visited_on ? 1 : a.visited_on > b.visited_on ? -1 : 0));
+  const undated = n - dated.length;
+  if (!dated.length) return `${n} ${word}, ${n === 1 ? 'date' : 'dates'} unknown`;
+  if (!undated) return `${n} ${word}, last ${dated[0].visited_on}`;
+  return `${n} ${word}, latest dated visit ${dated[0].visited_on}; ${undated} without a date`;
+}
 // "Feb 24 – 29, 2024" / "Feb 28 – Mar 2, 2025" / "Dec 30, 2024 – Jan 2, 2025"
 function prettyRange(start, end) {
   if (!end) return prettyDay(start);
@@ -13055,7 +13071,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     if (v.mark_owner !== user.id) throw new Error(`Check-in #${a.id} does not belong to this member`);
     recordProvenance('visit', v.uid, 'deleted', mcpActor(user));
     q('DELETE FROM visits WHERE id=?').run(v.id);
-    return wr(`Deleted check-in #${v.id}`, 'deleted', 'visit', v.id, v.uid, String(v.visited_on || ''));
+    return wr(`Deleted check-in #${v.id}`, 'deleted', 'visit', v.id, v.uid, v.date_known === 0 ? UNDATED_LABEL : String(v.visited_on || ''));
   }
   if (name === 'my_travel_marks') {
     const lim = Math.min(+a.limit || 20, 50); const k = (a.query || '').trim().toLowerCase();
@@ -13063,8 +13079,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     if (k) rows = rows.filter((x) => (x.name + ' ' + x.why + ' ' + x.tags + ' ' + x.locality + ' ' + x.country).toLowerCase().includes(k));
     const top = rows.slice(0, lim);
     return { text: top.map((x) => {
-        const vs = markVisits(x.id);
-        return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${vs.length} ${vs.length === 1 ? 'visit' : 'visits'}${vs[0] ? ', last ' + vs[0].visited_on : ''}]`;
+        return `#${x.id} ${x.name}${placeLine(x) ? ' — ' + placeLine(x) : ''}${x.why ? ` — ${x.why}` : ''} [${visitSummary(markVisits(x.id))}]`;
       }).join('\n') || 'No travel marks yet.',
       structured: { items: top.map((x) => ({ type: 'mark', uid: x.uid, id: x.id, name: x.name, locality: x.locality,
         country: x.country, why: x.why, tags: x.tags, private: !!x.private, verified: !!x.verified, place_identity: placeIdentityOf(x), location: locationOf(x),
