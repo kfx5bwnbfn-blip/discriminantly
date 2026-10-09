@@ -1432,7 +1432,7 @@ body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-c
 .collab-acts form, .collab-row form { margin: 0; }
 .collab-link { margin: 0 0 1rem; }
 .collab-link input { width: 100%; }
-.collab-link-field { font-size: .9rem; }
+.collab-link-field { font-size: .9rem; text-transform: none; letter-spacing: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .collab-link-acts { display: flex; gap: .6rem; margin-top: .6rem; }
 .collab-link-acts .btn3d { flex: 1 1 0; }
 .collab-disclose { margin: .8rem 0; padding: .7rem .9rem; border-radius: 10px; background: rgba(127,127,127,.08); font-size: .86rem; }
