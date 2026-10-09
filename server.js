@@ -6944,14 +6944,15 @@ function geocodeSoon(id) {
 // been tried (errors are retried after an hour).
 function geocodeSweep(limit = 60) {
   if (GEO_OFF()) return 0;
-  const rows = q(`SELECT m.id FROM marks m LEFT JOIN geocode_attempts g ON g.mark_id = m.id
-    WHERE m.lat IS NULL AND m.lng IS NULL AND (m.address <> '' OR m.locality <> '')
-      AND (g.mark_id IS NULL OR (g.outcome = 'error' AND g.attempted_at < datetime('now', '-1 hour')) OR g.outcome <> 'placed')
-    ORDER BY m.id DESC LIMIT ?`).all(limit);
-  let n = 0;
-  for (const r of rows) { const m = q('SELECT * FROM marks WHERE id=?').get(r.id), g = q('SELECT * FROM geocode_attempts WHERE mark_id=?').get(r.id);
-    if (g && g.fingerprint === geoFingerprint(m) && g.outcome !== 'error') continue; geocodeSoon(r.id); n++; }
-  return n;
+  // Every candidate is filtered here (the fingerprint is computed, not
+  // stored on the mark), and only then capped, so marks already tried for
+  // their current address never crowd out the ones still waiting.
+  const rows = q(`SELECT m.*, g.fingerprint g_fp, g.outcome g_out, g.attempted_at g_at FROM marks m LEFT JOIN geocode_attempts g ON g.mark_id = m.id
+    WHERE m.lat IS NULL AND m.lng IS NULL AND (m.address <> '' OR m.locality <> '') ORDER BY m.id DESC`).all();
+  const hourAgo = q("SELECT datetime('now', '-1 hour') t").get().t;
+  const due = rows.filter((m) => !m.g_fp || m.g_fp !== geoFingerprint(m) || (m.g_out === 'error' && m.g_at < hourAgo)).slice(0, limit);
+  for (const m of due) geocodeSoon(m.id);
+  return due.length;
 }
 
 function markCreate(user, {
