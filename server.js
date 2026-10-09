@@ -2876,6 +2876,25 @@ function applyAliases(html) {
 // place that must show the real one: the admin's own setting).
 const realHandle = (h) => `&#${String(h).charCodeAt(0)};${esc(String(h).slice(1))}`;
 function layout(opts) { return applyAliases(layoutPage(opts)); }
+// v2.76: acknowledgements after an action. A redirect carries ?done=<key>;
+// only keys in this map are shown (never text from the URL), as a toast that
+// fades, and the key is then removed from the address so a reload is quiet.
+const DONE = {
+  joined: 'You’ve joined this plan.',
+  declined: 'Invitation declined.',
+  left: 'You’ve left the plan. Your own places, notes and visits stay yours.',
+  'invite-revoked': 'Invitation revoked. Its link no longer works.',
+  'link-revoked': 'Link revoked. It no longer opens the plan; copies already made stay with the people who made them.',
+  'role-changed': 'Role changed.',
+  'member-removed': 'Removed from the plan. Their own places and notes stay theirs.',
+  restored: 'Restored to the plan.',
+  kept: 'Kept in your travel marks.',
+  published: 'This plan is now public.',
+  unpublished: 'This plan is now private.',
+  saved: 'Saved.',
+};
+const doneKey = (req) => { try { const k = new URL(req.url, 'http://x').searchParams.get('done'); return k && DONE[k] ? k : ''; } catch { return ''; } };
+const withDone = (path, key) => { const i = path.indexOf('#'); const h = i < 0 ? '' : path.slice(i), b = i < 0 ? path : path.slice(0, i); return `${b}${b.includes('?') ? '&' : '?'}done=${key}${h}`; };
 function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null }) {
   req = req || CURRENT_REQ;
   if (adminOn(me)) body = `<p class="admin-view-note">Admin view is on: you can see members’ private content. <a href="/settings#admin">Turn it off</a></p>` + body;
@@ -3717,7 +3736,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>` : ''}
-${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}
+${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}${req && doneKey(req) ? `<div class="flash-done" role="status">${esc(DONE[doneKey(req)])}</div><script>(function(){try{var u=new URL(location.href);u.searchParams.delete('done');history.replaceState(null,'',u.pathname+u.search+u.hash);}catch(e){}})();</script>` : ''}
 <main class="wrap">${body}</main>
 <script>
 document.addEventListener('click', function (e) {
@@ -7568,7 +7587,7 @@ function collabForms(me, it, { disclose = false, role = 'editor', email = '', di
 // The link, shown once, with Copy and (where the device has a share sheet)
 // Send; the field stays for anyone who prefers to select it.
 function linkBox(label, href, title, text) {
-  return `<div class="collab-link"><p><b>${esc(label)}</b> — it won’t be shown again.</p>
+  return `<div class="collab-link" role="status"><p class="collab-made"><b>${esc(label)}</b> Copy or send it now — it won’t be shown again.</p>
     <input class="nf-field collab-link-field" readonly value="${esc(href)}" onfocus="this.select()">
     <div class="collab-link-acts"><button type="button" class="btn3d collab-copy" data-copy="${esc(href)}">Copy link</button><button type="button" class="btn3d collab-send" data-send="${esc(href)}" data-title="${esc(title)}" data-text="${esc(text)}" hidden>Send…</button></div>
     <script>(function(){var s=document.currentScript.parentNode,c=s.querySelector('.collab-copy'),d=s.querySelector('.collab-send');
@@ -7595,8 +7614,8 @@ function itinMembersPage(req, res, me, it, { flash = '', link = '', disclose = f
   const adopted = shares.reduce((n, x) => n + x.adopted_count, 0);
   const { inviteForm, shareForm } = collabForms(me, it, { disclose, role, email, discloseShare, showAuthor });
   const inner = `${flash ? `<p class="err">${esc(flash)}</p>` : ''}
-    ${link ? linkBox('Your invitation link', link, it.title || 'Itinerary', 'Come plan this with me') : ''}
-    ${shareLink ? linkBox('Your link', shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}
+    ${link ? linkBox('Invitation link made.', link, it.title || 'Itinerary', 'Come plan this with me') : ''}
+    ${shareLink ? linkBox('Link made.', shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}
     <h4 class="collab-h">Planning this</h4><ul class="collab-list">${people.join('')}</ul>
     ${invites.length ? `<h4 class="collab-h">Open invitations</h4><ul class="collab-list">${invites.map((v) => row(v.email || 'anyone with the link', `${v.role === 'editor' ? 'can edit' : 'can view'} · until ${esc(String(v.expires_at || '').slice(0, 10))}`,
       `<form method="post" action="${base}/invitations/${v.uid}/revoke"><button class="link caps">Revoke</button></form>`, '')).join('')}</ul>` : ''}
@@ -10067,9 +10086,9 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
         <div class="stop-sheet itin-share-sheet">
           ${c.flash ? `<p class="err">${esc(c.flash)}</p>` : ''}
           <details class="share-opt share-opt-x"${openInv ? ' open' : ''}><summary><span class="share-opt-h">Plan together</span><span class="share-opt-d">Invite people into this plan. Everyone can change it; each person's own places, notes and visits stay their own.</span><span class="share-opt-go">Invite someone →</span></summary>
-            <div class="share-opt-body">${c.link ? linkBox('Your invitation link', c.link, it.title || 'Itinerary', 'Come plan this with me') : ''}${inviteForm}</div></details>
+            <div class="share-opt-body">${c.link ? linkBox('Invitation link made.', c.link, it.title || 'Itinerary', 'Come plan this with me') : ''}${inviteForm}</div></details>
           <details class="share-opt share-opt-x"${openSh ? ' open' : ''}><summary><span class="share-opt-h">Let others use it</span><span class="share-opt-d">Anyone with a link can see the plan and make their own copy to change as they like. They don't join yours.</span><span class="share-opt-go">Make a link →</span></summary>
-            <div class="share-opt-body">${c.shareLink ? linkBox('Your link', c.shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}${shareForm}</div></details>
+            <div class="share-opt-body">${c.shareLink ? linkBox('Link made.', c.shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}${shareForm}</div></details>
           ${!it.private ? `<button type="button" class="share-opt share-opt-btn share-mark" data-share="/t/${it.id}" data-title="${esc(it.title || 'Itinerary')}"><span class="share-opt-h">Send the page</span><span class="share-opt-d">This plan is public, so its page can be sent as it is.</span></button>` : ''}
           <a class="fine itin-share-more link" href="${base}/members">Members, open invitations and links →</a>
         </div></details>`; })() : ''}
@@ -14575,7 +14594,7 @@ async function handle(req, res) {
       if (b.title !== undefined || b.context !== undefined) itineraryEdit(me, it.uid, b, webActor(me));
       if (hasTemporalForm(b)) itineraryUpdateTemporal(me, it.uid, temporalFromForm(b), b.intent || null, webActor(me));
     } catch (e) { return send(res, esc(e.message), 400); }
-    return redirect(res, `/t/${it.id}`);
+    return redirect(res, withDone(`/t/${it.id}`, 'saved'));
   }
   if ((mt = p.match(/^\/t\/(\d+)\/(publish|unpublish)$/)) && m === 'POST') {
     if (!me) return need();
@@ -14589,7 +14608,7 @@ async function handle(req, res) {
         body: `<section class="feed"><h3 class="strip">Not published</h3><p class="about">${esc(e.message)}</p>
         <p class="about"><a class="link" href="/t/${it.id}">Back to the itinerary</a></p></section>` }), 409);
     }
-    return redirect(res, `/t/${it.id}`);
+    return redirect(res, withDone(`/t/${it.id}`, mt[2] === 'publish' ? 'published' : 'unpublished'));
   }
 
   // ---- Increment 4: keeping and answering proposals on the web ----------------
@@ -14729,7 +14748,7 @@ async function handle(req, res) {
   if ((mt = p.match(/^\/t\/(\d+)\/stops\/([a-f0-9-]+)\/keep$/)) && m === 'POST') {
     if (!me) return need();
     try { stopKeepPlace(me, mt[2], webActor(me)); } catch (e) { return send(res, esc(e.message), 400); }
-    return redirect(res, `/t/${mt[1]}#stop-${mt[2]}`);
+    return redirect(res, withDone(`/t/${mt[1]}#stop-${mt[2]}`, 'kept'));
   }
   if ((mt = p.match(/^\/t\/(\d+)\/(members|removed)$/)) && m === 'GET') {
     if (!me) return need();
@@ -14749,6 +14768,8 @@ async function handle(req, res) {
         return itinMembersPage(req, res, me, it, { shareLink: `${BASE_URL()}/s/${r.token}` });
       }
       shareRevoke(me, it.uid, mt[3], ctx);
+      if (b.from === 'plan') return redirect(res, withDone(`/t/${it.id}`, 'link-revoked'));
+      return redirect(res, withDone(`/t/${it.id}/members`, 'link-revoked'));
     } catch (e) {
       if (e.code === 'disclosure') {
         if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'share', discloseShare: true, showAuthor: b.show_author !== '0' });
@@ -14778,11 +14799,11 @@ async function handle(req, res) {
         if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'invite', link: `${BASE_URL()}/j/${r.token}`, role: b.role, email: String(b.email || '').trim() });
         return itinMembersPage(req, res, me, it, { link: `${BASE_URL()}/j/${r.token}`, role: b.role, email: String(b.email || '').trim() });
       }
-      if (mt[2] === 'leave') { memberEnd(me, it.uid, me.id, ctx); return redirect(res, '/t'); }
-      if (mt[4] === 'role') memberSetRole(me, it.uid, +mt[3], b.role, ctx);
-      else if (mt[4] === 'remove') memberEnd(me, it.uid, +mt[3], ctx);
-      else if (mt[5]) inviteRevoke(me, it.uid, mt[5], ctx);
-      else if (mt[6]) { itinRestore(me, it.uid, mt[6], ctx); return redirect(res, `/t/${it.id}/removed`); }
+      if (mt[2] === 'leave') { memberEnd(me, it.uid, me.id, ctx); return redirect(res, withDone('/t', 'left')); }
+      if (mt[4] === 'role') { memberSetRole(me, it.uid, +mt[3], b.role, ctx); return redirect(res, withDone(`/t/${it.id}/members`, 'role-changed')); }
+      if (mt[4] === 'remove') { memberEnd(me, it.uid, +mt[3], ctx); return redirect(res, withDone(`/t/${it.id}/members`, 'member-removed')); }
+      if (mt[5]) { inviteRevoke(me, it.uid, mt[5], ctx); return redirect(res, withDone(`/t/${it.id}/members`, 'invite-revoked')); }
+      if (mt[6]) { itinRestore(me, it.uid, mt[6], ctx); return redirect(res, withDone(`/t/${it.id}/removed`, 'restored')); }
     } catch (e) {
       if (e.code === 'disclosure') {
         if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'invite', disclose: true, role: b.role, email: String(b.email || '').trim() });
@@ -14801,7 +14822,7 @@ async function handle(req, res) {
     let r;
     try { r = inviteRespond(me, mt[1], mt[2] === 'accept', webActor(me)); }
     catch (e) { return inviteLandingPage(req, res, me, mt[1], e.message); }
-    return redirect(res, mt[2] === 'accept' || r.already ? `/t/${r.it.id}` : '/t');
+    return redirect(res, mt[2] === 'accept' || r.already ? withDone(`/t/${r.it.id}`, 'joined') : withDone('/t', 'declined'));
   }
 
   if (p === '/e') return pages.ensembles(req, res, me);

@@ -385,10 +385,21 @@ const anon = (p) => reqRaw('GET', p);
     const planPg = (await web('brian', 'GET', `/t/${gpid}`)).body;
     ok('CL6 the plan page’s Share sheet holds both forms, marked as from the plan', (planPg.match(/<details class="share-opt share-opt-x"/g) || []).length === 2 && /name="from" value="plan"/.test(planPg) && /action="\/t\/\d+\/invite"/.test(planPg) && /action="\/t\/\d+\/share"/.test(planPg));
     const fromPlan = await web('brian', 'POST', `/t/${gpid}/share`, { show_author: '1', confirm_private: '1', from: 'plan' });
-    ok('CL7 making a link from the plan page comes back to the plan page with the sheet open and the link in it', fromPlan.status === 200 && /class="itin-tl"|itin-head/.test(fromPlan.body) && /<details class="stop-menu itin-share-menu" open>/.test(fromPlan.body) && /Your link<\/b>/.test(fromPlan.body) && /\/s\/[a-z0-9]{28}/.test(fromPlan.body));
+    ok('CL7 making a link from the plan page comes back to the plan page with the sheet open and the link in it', fromPlan.status === 200 && /class="itin-tl"|itin-head/.test(fromPlan.body) && /<details class="stop-menu itin-share-menu" open>/.test(fromPlan.body) && /Link made\.<\/b>/.test(fromPlan.body) && /\/s\/[a-z0-9]{28}/.test(fromPlan.body));
     const fromMembers = await web('brian', 'POST', `/t/${gpid}/share`, { show_author: '1', confirm_private: '1' });
-    ok('CL8 the Members page route is unchanged', fromMembers.status === 200 && /Planning this/.test(fromMembers.body) && /Your link<\/b>/.test(fromMembers.body));
+    ok('CL8 the Members page route is unchanged', fromMembers.status === 200 && /Planning this/.test(fromMembers.body) && /Link made\.<\/b>/.test(fromMembers.body));
     for (const sh of all("SELECT uid FROM itinerary_shares WHERE itinerary_id=? AND state='active' ORDER BY id DESC LIMIT 2", gpid)) await web('brian', 'POST', `/t/${gpid}/shares/${sh.uid}/revoke`, {});
+
+    // ---- acknowledgements (v2.76) ----------------------------------------------------------
+    const akInv = await web('brian', 'POST', `/t/${gpid}/invite`, { role: 'viewer', confirm_private: '1' });
+    ok('AK1 making an invitation says so', /Invitation link made\./.test(akInv.body));
+    const openInv = one("SELECT uid FROM itinerary_invitations WHERE itinerary_id=? AND state='pending' ORDER BY id DESC LIMIT 1", gpid);
+    const rv = await web('brian', 'POST', `/t/${gpid}/invitations/${openInv.uid}/revoke`, {});
+    ok('AK2 revoking an invitation redirects with an acknowledgement', rv.status === 303 && /\/members\?done=invite-revoked$/.test(rv.headers.location));
+    const shown = (await web('brian', 'GET', rv.headers.location)).body;
+    ok('AK3 the acknowledgement is shown once as a status toast', /<div class="flash-done" role="status">Invitation revoked\. Its link no longer works\.<\/div>/.test(shown));
+    const bogus = (await web('brian', 'GET', `/t/${gpid}/members?done=%3Cscript%3E`)).body;
+    ok('AK4 only known acknowledgements are shown, never text from the address', !/flash-done/.test(bogus));
 
     // ---- recommended plans can't be shared (C5) -------------------------------------------
     const rec = await call('brian', 'record_recommendations', { items: [{ kind: 'itinerary', label: 'Unkept idea', workflow: 'for_another_time' }] });

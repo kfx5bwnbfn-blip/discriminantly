@@ -1503,3 +1503,12 @@ details.share-opt-x[open] > summary .share-opt-go::after { content: " (close)"; 
 .share-opt-body .collab-link { margin-bottom: .8rem; }
 .itin-share-more { display: block; text-align: center; margin-top: .2rem; }
 .itin-share-sheet .err { margin: 0 0 .4rem; }
+
+/* v2.76: acknowledgement toast after an action (?done=) */
+.flash-done { position: fixed; top: .9rem; left: 50%; transform: translateX(-50%); z-index: 200; width: max-content; max-width: min(30rem, calc(100vw - 2rem)); box-sizing: border-box;
+  padding: .7rem 1.1rem; border-radius: 16px; background: #222; color: #f6f4ef; font-size: .9rem; line-height: 1.4; text-align: center;
+  box-shadow: 0 10px 28px -10px rgba(0,0,0,.5); animation: flash-done 4.6s ease forwards; pointer-events: none; }
+@keyframes flash-done { 0% { opacity: 0; transform: translate(-50%, -8px); } 8%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -8px); visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .flash-done { animation: none; } }
+body[data-skin="modern"] .flash-done { background: var(--m-ink); color: var(--m-bg); }
+.collab-made b { margin-right: .25rem; }
