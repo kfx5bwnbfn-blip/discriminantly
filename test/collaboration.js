@@ -364,6 +364,23 @@ const anon = (p) => reqRaw('GET', p);
     const wm2 = (await web(mo, 'GET', '/?welcome=1')).body;
     ok('WA5 a connection named Muse lights the Muse tile and names Muse in the paste hint', /data-ai="muse"[^>]*>(?:(?!<\/label>).)*Connected/.test(wm2.replace(/\n/g, ' ')) && /Paste it into Muse and send/.test(wm2) && /Copy one into Muse/.test(wm2));
 
+    // ---- links survive capitalisation (v2.74) ----------------------------------------------
+    console.log('links');
+    const capInv = await web('brian', 'POST', `/t/${gpid}/invite`, { role: 'viewer', confirm_private: '1' });
+    const capTok = (capInv.body.match(/\/j\/([A-Za-z0-9_-]{20,100})/) || [])[1];
+    ok('CL1 new link tokens are lowercase letters and digits only', /^[a-z0-9]{28}$/.test(capTok || ''), capTok);
+    ok('CL2 the invitation link comes with Copy and Send buttons', /class="btn3d collab-copy" data-copy="[^"]*\/j\//.test(capInv.body) && /class="btn3d collab-send"/.test(capInv.body));
+    const upper = await anon(`/J/${capTok.toUpperCase()}`);
+    ok('CL3 a link capitalised in transit (/J/TOKEN) still opens the invitation', upper.status === 200 && /invite-card/.test(upper.body) && !/does not exist/.test(upper.body), upper.status + ' ' + upper.body.slice(0, 200));
+    const capAcc = await web('eve', 'POST', `/J/${capTok.toUpperCase()}/accept`, {});
+    ok('CL4 and can be accepted from that capitalised address', capAcc.status === 303 && !!one("SELECT 1 FROM itinerary_members WHERE itinerary_id=? AND user_id=? AND state='active'", gpid, people.eve.id));
+    await web('brian', 'POST', `/t/${gpid}/members/${people.eve.id}/remove`, {}).catch(() => {});
+    // a link issued before v2.74 (mixed case) still works as given, and its lowercased form does not
+    const oldTok = 'AbC' + crypto.randomBytes(12).toString('hex') + 'XyZ';
+    run("INSERT INTO itinerary_shares(uid,itinerary_id,created_by,token_hash,show_author) VALUES(?,?,?,?,1)", crypto.randomUUID(), gpid, people.brian.id, crypto.createHash('sha256').update(oldTok).digest('hex'));
+    const oldOk = await anon(`/s/${oldTok}`), oldLower = await anon(`/s/${oldTok.toLowerCase()}`);
+    ok('CL5 a pre-v2.74 mixed-case link still works exactly as issued', oldOk.status === 200 && oldLower.status === 404, `${oldOk.status}/${oldLower.status}`);
+
     // ---- recommended plans can't be shared (C5) -------------------------------------------
     const rec = await call('brian', 'record_recommendations', { items: [{ kind: 'itinerary', label: 'Unkept idea', workflow: 'for_another_time' }] });
     const recTarget = JSON.stringify(rec.s).match(/"target":\{"type":"itinerary","uid":"([0-9a-f-]{36})"/);

@@ -5768,7 +5768,7 @@ function prospectiveLeftovers(user) {
 const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authorize\?[^\r\n]*$/.test(v) ? v : ''; };
 // v2.70: an itinerary invitation is the only other place sign-in or sign-up
 // may return to. Internal path, token characters only; no host, no scheme.
-const inviteNext = (n) => { const v = String(n || ''); return /^\/[js]\/[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ''; };
+const inviteNext = (n) => { const v = String(n || ''); return /^\/[jsJS]\/[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ''; };
 const signupSourceFor = (next) => {
   // v2.65: from the host of the client's metadata document (its client_id),
   // not words anywhere in it. The real ChatGPT client_id is not yet observed:
@@ -7336,6 +7336,12 @@ const INVITE_TTL_DAYS = 14, INVITES_OPEN_MAX = 20;
 // owner's notes about them. Listed before any invitation is made.
 const itinPrivatePlaces = (it) => q(`SELECT s.uid, s.label, m.name FROM itinerary_stops s JOIN marks m ON m.uid = s.mark_uid
   WHERE s.itinerary_id=? AND m.private=1 ORDER BY s.id`).all(it.id);
+// v2.74: links travel through messaging apps and get retyped, and iOS was seen
+// capitalising a whole link (/J/2QFAF-XTQ9…), so link tokens are lowercase-only
+// and any capitalisation is accepted on the way in. Lookups try the token as
+// given first (links issued before v2.74 are mixed-case), then lowercased.
+const linkToken = () => { const a = 'abcdefghijklmnopqrstuvwxyz0123456789'; const b = crypto.randomBytes(28); let t = ''; for (const x of b) t += a[x % 36]; return t; };
+const linkLookup = (sql, tok) => { const t = String(tok || ''); if (!/^[A-Za-z0-9_-]{20,100}$/.test(t)) return null; return q(sql).get(tokenHash(t)) || (t !== t.toLowerCase() ? q(sql).get(tokenHash(t.toLowerCase())) : null) || null; };
 function inviteCreate(user, itUid, { role, email = '', confirmPrivate = false }, ctx) {
   const it = itinOwned(user, itUid, 'govern');
   if (!isAdopted('itinerary', it.uid)) throw new Error('This plan was recommended to you and isn’t yours yet. Keep it first; only your own plans can be shared.');
@@ -7346,7 +7352,7 @@ function inviteCreate(user, itUid, { role, email = '', confirmPrivate = false },
   if (q(`SELECT COUNT(*) n FROM itinerary_invitations WHERE itinerary_id=? AND state='pending' AND (expires_at IS NULL OR expires_at > datetime('now'))`).get(it.id).n >= INVITES_OPEN_MAX)
     throw new Error('This plan has too many open invitations. Revoke some before making more.');
   if (itinPrivatePlaces(it).length && !confirmPrivate) { const e = new Error('Confirm what people you invite will see first.'); e.code = 'disclosure'; throw e; }
-  const tok = token(32), uid = crypto.randomUUID();
+  const tok = linkToken(), uid = crypto.randomUUID();
   q(`INSERT INTO itinerary_invitations(uid,itinerary_id,role,token_hash,invited_by,email,expires_at) VALUES(?,?,?,?,?,?,datetime('now', ?))`)
     .run(uid, it.id, role, tokenHash(tok), user.id, em, `+${INVITE_TTL_DAYS} days`);
   recordProvenance('itinerary_invitation', uid, 'created', ctx, { source_ref: it.uid, fields: `role:${role}${em ? ',email' : ''}` });
@@ -7355,7 +7361,7 @@ function inviteCreate(user, itUid, { role, email = '', confirmPrivate = false },
 // The invitation behind a token, with its effective state. Unknown, revoked,
 // expired, used and declined all look the same to the person holding it.
 function inviteByToken(tok) {
-  const inv = /^[A-Za-z0-9_-]{20,100}$/.test(String(tok || '')) ? q('SELECT * FROM itinerary_invitations WHERE token_hash=?').get(tokenHash(tok)) : null;
+  const inv = linkLookup('SELECT * FROM itinerary_invitations WHERE token_hash=?', tok);
   if (!inv) return null;
   const expired = inv.state === 'pending' && inv.expires_at && q("SELECT ? <= datetime('now') x").get(inv.expires_at).x;
   const it = itinById(inv.itinerary_id);
@@ -7423,13 +7429,13 @@ function shareCreate(user, itUid, { showAuthor = true, confirmPrivate = false },
   if (q(`SELECT COUNT(*) n FROM itinerary_shares WHERE itinerary_id=? AND state='active'`).get(it.id).n >= SHARES_MAX)
     throw new Error('This plan already has as many links as it can. Revoke one first.');
   if (itinPrivatePlaces(it).length && !confirmPrivate) { const e = new Error('Confirm what people with the link will see first.'); e.code = 'disclosure'; throw e; }
-  const tok = token(32), uid = crypto.randomUUID();
+  const tok = linkToken(), uid = crypto.randomUUID();
   q('INSERT INTO itinerary_shares(uid,itinerary_id,created_by,token_hash,show_author) VALUES(?,?,?,?,?)').run(uid, it.id, user.id, tokenHash(tok), showAuthor ? 1 : 0);
   recordProvenance('itinerary_share', uid, 'created', ctx, { source_ref: it.uid, fields: showAuthor ? 'show_author' : null });
   return { token: tok, uid, it };
 }
 function shareByToken(tok) {
-  const sh = /^[A-Za-z0-9_-]{20,100}$/.test(String(tok || '')) ? q("SELECT * FROM itinerary_shares WHERE token_hash=? AND state='active'").get(tokenHash(tok)) : null;
+  const sh = linkLookup("SELECT * FROM itinerary_shares WHERE token_hash=? AND state='active'", tok);
   if (!sh) return null;
   const it = itinById(sh.itinerary_id);
   return it ? { ...sh, it } : null;
@@ -7529,6 +7535,20 @@ function itinPageShell(req, res, me, it, title, inner, status = 200) {
   <div class="settings collab-box">${inner}</div></section>`;
   return send(res, layout({ title: `${title} · ${it.title || 'Itinerary'}`, body, me, req }), status);
 }
+// The link, shown once, with Copy and (where the device has a share sheet)
+// Send; the field stays for anyone who prefers to select it.
+function linkBox(label, href, title, text) {
+  return `<div class="collab-link"><p><b>${esc(label)}</b> — it won’t be shown again.</p>
+    <input class="nf-field collab-link-field" readonly value="${esc(href)}" onfocus="this.select()">
+    <div class="collab-link-acts"><button type="button" class="btn3d collab-copy" data-copy="${esc(href)}">Copy link</button><button type="button" class="btn3d collab-send" data-send="${esc(href)}" data-title="${esc(title)}" data-text="${esc(text)}" hidden>Send…</button></div>
+    <script>(function(){var s=document.currentScript.parentNode,c=s.querySelector('.collab-copy'),d=s.querySelector('.collab-send');
+      if(navigator.share)d.hidden=false;
+      c.addEventListener('click',function(){var done=function(){var t=c.textContent;c.textContent='Copied';setTimeout(function(){c.textContent=t;},1600);};
+        if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(c.dataset.copy).then(done,function(){var f=s.querySelector('input');f.focus();f.select();try{document.execCommand('copy');done();}catch(e){}});
+        else{var f=s.querySelector('input');f.focus();f.select();try{document.execCommand('copy');done();}catch(e){}}});
+      d.addEventListener('click',function(){navigator.share({title:d.dataset.title,text:d.dataset.text,url:d.dataset.send}).catch(function(){});});})();</script>
+  </div>`;
+}
 function itinMembersPage(req, res, me, it, { flash = '', link = '', disclose = false, role = 'editor', email = '', shareLink = '', discloseShare = false, showAuthor = true } = {}, status = 200) {
   const myRole = itinRole(it, me), owner = myRole === 'owner', base = `/t/${it.id}`;
   const author = q('SELECT handle FROM users WHERE id=?').get(it.user_id);
@@ -7564,8 +7584,8 @@ function itinMembersPage(req, res, me, it, { flash = '', link = '', disclose = f
       <button class="nf-post">Make a link</button>
     </div></form>`;
   const inner = `${flash ? `<p class="err">${esc(flash)}</p>` : ''}
-    ${link ? `<div class="collab-link"><p><b>Your invitation link</b> — copy it now; it won’t be shown again.</p><input class="nf-field" readonly value="${esc(link)}" onfocus="this.select()"></div>` : ''}
-    ${shareLink ? `<div class="collab-link"><p><b>Your link</b> — copy it now; it won’t be shown again.</p><input class="nf-field" readonly value="${esc(shareLink)}" onfocus="this.select()"></div>` : ''}
+    ${link ? linkBox('Your invitation link', link, it.title || 'Itinerary', 'Come plan this with me') : ''}
+    ${shareLink ? linkBox('Your link', shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}
     <h4 class="collab-h">Planning this</h4><ul class="collab-list">${people.join('')}</ul>
     ${invites.length ? `<h4 class="collab-h">Open invitations</h4><ul class="collab-list">${invites.map((v) => row(v.email || 'anyone with the link', `${v.role === 'editor' ? 'can edit' : 'can view'} · until ${esc(String(v.expires_at || '').slice(0, 10))}`,
       `<form method="post" action="${base}/invitations/${v.uid}/revoke"><button class="link caps">Revoke</button></form>`, '')).join('')}</ul>` : ''}
@@ -14710,8 +14730,8 @@ async function handle(req, res) {
     }
     return redirect(res, `/t/${it.id}/members`);
   }
-  if ((mt = p.match(/^\/s\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return sharePage(req, res, me, mt[1]);
-  if ((mt = p.match(/^\/s\/([A-Za-z0-9_-]{20,100})\/mine$/)) && m === 'POST') {
+  if ((mt = p.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return sharePage(req, res, me, mt[1]);
+  if ((mt = p.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})\/mine$/)) && m === 'POST') {
     if (!me) return redirect(res, `/join?next=${encodeURIComponent('/s/' + mt[1])}`);
     let r;
     try { r = shareAdopt(me, mt[1], webActor(me)); }
@@ -14741,8 +14761,8 @@ async function handle(req, res) {
   }
   // An invitation: what it is, from whom, and an explicit Accept. Signed out,
   // sign in or create an account and come straight back here.
-  if ((mt = p.match(/^\/j\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return inviteLandingPage(req, res, me, mt[1]);
-  if ((mt = p.match(/^\/j\/([A-Za-z0-9_-]{20,100})\/(accept|decline)$/)) && m === 'POST') {
+  if ((mt = p.match(/^\/[jJ]\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return inviteLandingPage(req, res, me, mt[1]);
+  if ((mt = p.match(/^\/[jJ]\/([A-Za-z0-9_-]{20,100})\/(accept|decline)$/)) && m === 'POST') {
     if (!me) return redirect(res, `/login?next=${encodeURIComponent('/j/' + mt[1])}`);
     let r;
     try { r = inviteRespond(me, mt[1], mt[2] === 'accept', webActor(me)); }
