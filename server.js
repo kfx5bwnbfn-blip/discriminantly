@@ -7535,6 +7535,36 @@ function itinPageShell(req, res, me, it, title, inner, status = 200) {
   <div class="settings collab-box">${inner}</div></section>`;
   return send(res, layout({ title: `${title} · ${it.title || 'Itinerary'}`, body, me, req }), status);
 }
+// The two sharing forms (v2.70/v2.71), shared by the Members page and the plan
+// page's Share sheet (v2.75). `from` marks where the form was shown, so a
+// submit can come back to the same place with the link.
+function collabForms(me, it, { disclose = false, role = 'editor', email = '', discloseShare = false, showAuthor = true, from = '' } = {}) {
+  const owner = itinRole(it, me) === 'owner', base = `/t/${it.id}`;
+  const priv = owner ? itinPrivatePlaces(it) : [];
+  const kept = isAdopted('itinerary', it.uid);
+  const origin = from ? `<input type="hidden" name="from" value="${esc(from)}">` : '';
+  const inviteForm = !owner ? '' : !kept ? '<p class="about">This plan was recommended to you and isn’t yours yet. Keep it first; only your own plans can be shared.</p>'
+    : !it.private ? '<p class="about">This plan is public. Make it private first: a plan you plan together with others stays private.</p>'
+    : `<form method="post" action="${base}/invite" class="nf nf-compact collab-invite">${origin}<div class="nf-box"><div class="nf-stack">
+        <select class="nf-field" name="role" aria-label="What they can do"><option value="editor" ${role === 'editor' ? 'selected' : ''}>THEY CAN EDIT THE PLAN</option><option value="viewer" ${role === 'viewer' ? 'selected' : ''}>THEY CAN ONLY VIEW IT</option></select>
+        <input class="nf-field" name="email" type="email" value="${esc(email)}" placeholder="THEIR EMAIL (OPTIONAL — ONLY THAT ACCOUNT CAN ACCEPT)">
+        </div>
+        ${priv.length ? `<div class="collab-disclose${disclose ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
+          <p>People you invite will see ${priv.length === 1 ? 'its' : 'their'} name and address, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
+          <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
+        <button class="nf-post">Make an invitation link</button>
+        <p class="fine">Anyone you give the link to can join once, after signing in. It works for ${INVITE_TTL_DAYS} days and you can revoke it. Everyone planning it can change the plan if they can edit; each person’s own places, notes and visits stay their own.</p>
+      </div></form>`;
+  const shareForm = !owner || !kept ? '' : `<form method="post" action="${base}/share" class="nf nf-compact collab-invite">${origin}<div class="nf-box">
+      <p class="fine collab-lead">Anyone with the link can see the plan — its days, stops and places — and make their own copy to change as they like. They don’t join your plan, and nothing of yours but the plan itself comes across.</p>
+      <label class="collab-confirm"><input type="checkbox" name="show_author" value="1" ${showAuthor ? 'checked' : ''}><span>Show my name on copies (“from a plan shared by @${esc(me.handle)}”, in the copy’s provenance only)</span></label>
+      ${priv.length ? `<div class="collab-disclose${discloseShare ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
+        <p>Anyone with the link will see ${priv.length === 1 ? 'its' : 'their'} name and where ${priv.length === 1 ? 'it is' : 'they are'}, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
+        <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
+      <button class="nf-post">Make a link</button>
+    </div></form>`;
+  return { inviteForm, shareForm };
+}
 // The link, shown once, with Copy and (where the device has a share sheet)
 // Send; the field stays for anyone who prefers to select it.
 function linkBox(label, href, title, text) {
@@ -7560,29 +7590,10 @@ function itinMembersPage(req, res, me, it, { flash = '', link = '', disclose = f
   const invites = owner ? q(`SELECT * FROM itinerary_invitations WHERE itinerary_id=? AND state='pending' AND (expires_at IS NULL OR expires_at > datetime('now')) ORDER BY id DESC`).all(it.id) : [];
   const priv = owner ? itinPrivatePlaces(it) : [];
   const kept = isAdopted('itinerary', it.uid);
-  const inviteForm = !owner ? '' : !kept ? '<p class="about">This plan was recommended to you and isn’t yours yet. Keep it first; only your own plans can be shared.</p>'
-    : !it.private ? '<p class="about">This plan is public. Make it private first: a plan you plan together with others stays private.</p>'
-    : `<form method="post" action="${base}/invite" class="nf nf-compact collab-invite"><div class="nf-box"><div class="nf-stack">
-        <select class="nf-field" name="role" aria-label="What they can do"><option value="editor" ${role === 'editor' ? 'selected' : ''}>THEY CAN EDIT THE PLAN</option><option value="viewer" ${role === 'viewer' ? 'selected' : ''}>THEY CAN ONLY VIEW IT</option></select>
-        <input class="nf-field" name="email" type="email" value="${esc(email)}" placeholder="THEIR EMAIL (OPTIONAL — ONLY THAT ACCOUNT CAN ACCEPT)">
-        </div>
-        ${priv.length ? `<div class="collab-disclose${disclose ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
-          <p>People you invite will see ${priv.length === 1 ? 'its' : 'their'} name and address, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
-          <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
-        <button class="nf-post">Make an invitation link</button>
-        <p class="fine">Anyone you give the link to can join once, after signing in. It works for ${INVITE_TTL_DAYS} days and you can revoke it. Everyone planning it can change the plan if they can edit; each person’s own places, notes and visits stay their own.</p>
-      </div></form>`;
   // "Let others use it" (v2.71): links that show the plan and offer a copy.
   const shares = owner ? q("SELECT * FROM itinerary_shares WHERE itinerary_id=? AND state='active' ORDER BY id DESC").all(it.id) : [];
   const adopted = shares.reduce((n, x) => n + x.adopted_count, 0);
-  const shareForm = !owner || !kept ? '' : `<form method="post" action="${base}/share" class="nf nf-compact collab-invite"><div class="nf-box">
-      <p class="fine collab-lead">Anyone with the link can see the plan — its days, stops and places — and make their own copy to change as they like. They don’t join your plan, and nothing of yours but the plan itself comes across.</p>
-      <label class="collab-confirm"><input type="checkbox" name="show_author" value="1" ${showAuthor ? 'checked' : ''}><span>Show my name on copies (“from a plan shared by @${esc(me.handle)}”, in the copy’s provenance only)</span></label>
-      ${priv.length ? `<div class="collab-disclose${discloseShare ? ' is-asked' : ''}"><p><b>${priv.length === 1 ? 'One place' : `${priv.length} places`} on this plan ${priv.length === 1 ? 'is' : 'are'} from your private travel marks:</b> ${priv.map((x) => esc(x.name)).join(', ')}.</p>
-        <p>Anyone with the link will see ${priv.length === 1 ? 'its' : 'their'} name and where ${priv.length === 1 ? 'it is' : 'they are'}, because the plan needs them. They won’t see your notes about ${priv.length === 1 ? 'it' : 'them'}, your visits, or anything else of yours.</p>
-        <label class="collab-confirm"><input type="checkbox" name="confirm_private" value="1" required><span>I understand</span></label></div>` : ''}
-      <button class="nf-post">Make a link</button>
-    </div></form>`;
+  const { inviteForm, shareForm } = collabForms(me, it, { disclose, role, email, discloseShare, showAuthor });
   const inner = `${flash ? `<p class="err">${esc(flash)}</p>` : ''}
     ${link ? linkBox('Your invitation link', link, it.title || 'Itinerary', 'Come plan this with me') : ''}
     ${shareLink ? linkBox('Your link', shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}
@@ -10004,7 +10015,10 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     send(res, layout({ title: 'Itineraries', body, me, req }));
   },
 
-  itinerary(req, res, me, url, id) {
+  // `collab` (v2.75): state for the Share sheet when a sharing form submitted
+  // from this page comes back here -- which option to show open, the link
+  // made (shown once), a disclosure to confirm, or an error.
+  itinerary(req, res, me, url, id, collab = null) {
     const it = q('SELECT * FROM itineraries WHERE id=?').get(id);
     if (!it || !canView('itinerary', it, me)) return send(res, layout({ title: 'Not found', body: '<p>No such itinerary.</p>', me, req }), 404);
     // Editing controls and the owner's script: the real owner only -- and, in
@@ -10043,12 +10057,22 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
       links ? `${links} ${links === 1 ? 'link' : 'links'} out for others to use` : ''].filter(Boolean).join(' · ');
     const shareLine = !role || proposed ? '' : `<div class="itin-share-row">
       ${status ? `<p class="itin-share">${status}${members.length || removedN ? ` · <a class="link" href="${base}/members">Members</a>` : ''}${removedN ? ` · <a class="link" href="${base}/removed">Removed (${removedN})</a>` : ''}</p>` : ''}
-      ${shareable ? `<details class="stop-menu itin-share-menu"><summary class="btn3d itin-share-btn">Share</summary>
+      ${shareable ? (() => {
+        // v2.75: the two ways to share open in place, inside the sheet, and
+        // the link made comes back here rather than on the Members page.
+        const c = collab || {};
+        const { inviteForm, shareForm } = collabForms(me, it, { ...c, from: 'plan' });
+        const openInv = c.open === 'invite', openSh = c.open === 'share';
+        return `<details class="stop-menu itin-share-menu"${c.open ? ' open' : ''}><summary class="btn3d itin-share-btn">Share</summary>
         <div class="stop-sheet itin-share-sheet">
-          <a class="share-opt" href="${base}/members#invite"><span class="share-opt-h">Plan together</span><span class="share-opt-d">Invite people into this plan. Everyone can change it; each person's own places, notes and visits stay their own.</span><span class="share-opt-go">Invite someone →</span></a>
-          <a class="share-opt" href="${base}/members#share"><span class="share-opt-h">Let others use it</span><span class="share-opt-d">Anyone with a link can see the plan and make their own copy to change as they like. They don't join yours.</span><span class="share-opt-go">Make a link →</span></a>
+          ${c.flash ? `<p class="err">${esc(c.flash)}</p>` : ''}
+          <details class="share-opt share-opt-x"${openInv ? ' open' : ''}><summary><span class="share-opt-h">Plan together</span><span class="share-opt-d">Invite people into this plan. Everyone can change it; each person's own places, notes and visits stay their own.</span><span class="share-opt-go">Invite someone →</span></summary>
+            <div class="share-opt-body">${c.link ? linkBox('Your invitation link', c.link, it.title || 'Itinerary', 'Come plan this with me') : ''}${inviteForm}</div></details>
+          <details class="share-opt share-opt-x"${openSh ? ' open' : ''}><summary><span class="share-opt-h">Let others use it</span><span class="share-opt-d">Anyone with a link can see the plan and make their own copy to change as they like. They don't join yours.</span><span class="share-opt-go">Make a link →</span></summary>
+            <div class="share-opt-body">${c.shareLink ? linkBox('Your link', c.shareLink, it.title || 'Itinerary', 'A plan you might like') : ''}${shareForm}</div></details>
           ${!it.private ? `<button type="button" class="share-opt share-opt-btn share-mark" data-share="/t/${it.id}" data-title="${esc(it.title || 'Itinerary')}"><span class="share-opt-h">Send the page</span><span class="share-opt-d">This plan is public, so its page can be sent as it is.</span></button>` : ''}
-        </div></details>` : role && role !== 'owner' && !status ? '' : ''}
+          <a class="fine itin-share-more link" href="${base}/members">Members, open invitations and links →</a>
+        </div></details>`; })() : ''}
     </div>`;
     const propRec = proposed && proposed.kind === 'recommendation' ? proposed.rec : null;
     const propOrigin = propRec && propRec.origin_itinerary_uid ? itinByUid(propRec.origin_itinerary_uid) : null;
@@ -14721,11 +14745,16 @@ async function handle(req, res) {
     try {
       if (mt[2] === 'share') {
         const r = shareCreate(me, it.uid, { showAuthor: b.show_author !== '0', confirmPrivate: b.confirm_private === '1' }, ctx);
+        if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'share', shareLink: `${BASE_URL()}/s/${r.token}` });
         return itinMembersPage(req, res, me, it, { shareLink: `${BASE_URL()}/s/${r.token}` });
       }
       shareRevoke(me, it.uid, mt[3], ctx);
     } catch (e) {
-      if (e.code === 'disclosure') return itinMembersPage(req, res, me, it, { discloseShare: true, showAuthor: b.show_author !== '0' });
+      if (e.code === 'disclosure') {
+        if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'share', discloseShare: true, showAuthor: b.show_author !== '0' });
+        return itinMembersPage(req, res, me, it, { discloseShare: true, showAuthor: b.show_author !== '0' });
+      }
+      if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'share', flash: e.message });
       return itinMembersPage(req, res, me, it, { flash: e.message }, 400);
     }
     return redirect(res, `/t/${it.id}/members`);
@@ -14746,6 +14775,7 @@ async function handle(req, res) {
     try {
       if (mt[2] === 'invite') {
         const r = inviteCreate(me, it.uid, { role: b.role, email: b.email, confirmPrivate: b.confirm_private === '1' }, ctx);
+        if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'invite', link: `${BASE_URL()}/j/${r.token}`, role: b.role, email: String(b.email || '').trim() });
         return itinMembersPage(req, res, me, it, { link: `${BASE_URL()}/j/${r.token}`, role: b.role, email: String(b.email || '').trim() });
       }
       if (mt[2] === 'leave') { memberEnd(me, it.uid, me.id, ctx); return redirect(res, '/t'); }
@@ -14754,7 +14784,11 @@ async function handle(req, res) {
       else if (mt[5]) inviteRevoke(me, it.uid, mt[5], ctx);
       else if (mt[6]) { itinRestore(me, it.uid, mt[6], ctx); return redirect(res, `/t/${it.id}/removed`); }
     } catch (e) {
-      if (e.code === 'disclosure') return itinMembersPage(req, res, me, it, { disclose: true, role: b.role, email: String(b.email || '').trim() });
+      if (e.code === 'disclosure') {
+        if (b.from === 'plan') return pages.itinerary(req, res, me, url, it.id, { open: 'invite', disclose: true, role: b.role, email: String(b.email || '').trim() });
+        return itinMembersPage(req, res, me, it, { disclose: true, role: b.role, email: String(b.email || '').trim() });
+      }
+      if (b.from === 'plan' && mt[2] === 'invite') return pages.itinerary(req, res, me, url, it.id, { open: 'invite', flash: e.message });
       return itinMembersPage(req, res, me, it, { flash: e.message }, 400);
     }
     return redirect(res, `/t/${it.id}/members`);

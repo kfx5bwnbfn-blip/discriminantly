@@ -1492,3 +1492,14 @@ body[data-skin="modern"] .itin-head .share-opt { color: var(--m-ink); }
 body[data-skin="modern"] .itin-head .share-opt-d { color: var(--m-ink-2); opacity: 1; }
 body[data-skin="modern"] .itin-head .share-opt-go { color: var(--m-accent); opacity: 1; }
 body[data-skin="modern"] .itin-share-sheet { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); padding: .9rem 1rem; }
+/* v2.75: the two options open in place */
+details.share-opt-x { padding: 0; }
+details.share-opt-x > summary { display: block; padding: .8rem .95rem; cursor: pointer; list-style: none; }
+details.share-opt-x > summary::-webkit-details-marker { display: none; }
+details.share-opt-x[open] > summary .share-opt-go { opacity: .55; }
+details.share-opt-x[open] > summary .share-opt-go::after { content: " (close)"; letter-spacing: 0; text-transform: none; font-weight: 400; }
+.share-opt-body { padding: 0 .95rem .9rem; }
+.share-opt-body .nf.nf-compact { margin: 0; }
+.share-opt-body .collab-link { margin-bottom: .8rem; }
+.itin-share-more { display: block; text-align: center; margin-top: .2rem; }
+.itin-share-sheet .err { margin: 0 0 .4rem; }
