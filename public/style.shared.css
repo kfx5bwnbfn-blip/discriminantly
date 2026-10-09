@@ -1147,7 +1147,12 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .welcome-card .wl-ai summary::-webkit-details-marker { display: none; }
 .welcome-card .wl-ai-name { font-size: 1.25rem; font-weight: 400; line-height: 1; }
 .welcome-card .wl-ai-logo { display: inline-flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; margin-bottom: .15rem; }
-.welcome-card .wl-ai-logo img, .welcome-card .wl-ai-logo svg { width: 2.5rem; height: 2.5rem; display: block; }
+.welcome-card .wl-ai-logo img, .welcome-card .wl-ai-logo svg { width: 2.5rem; height: 2.5rem; display: block; object-fit: contain; }
+/* Official marks, used as provided: the OpenAI blossom sits in a generous canvas, so it is
+   scaled to fill the slot; Meta's file is the full lockup (symbol and wordmark), so its slot is wider. */
+.welcome-card .wl-ai[data-ai="chatgpt"] .wl-ai-logo img { transform: scale(1.45); }
+.welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo { width: auto; }
+.welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo img { width: 5.6rem; height: 2.5rem; }
 .welcome-card .wl-ai-mono svg text { font-family: var(--slab); }
 .welcome-card .wl-ais { align-items: stretch; }
 .welcome-card label.wl-ai { height: 100%; box-sizing: border-box; justify-content: flex-start; }
