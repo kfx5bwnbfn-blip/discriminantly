@@ -6,7 +6,7 @@ The Welcome card picks a file up automatically; nothing else to change.
 | File (exact name) | Shown on the tile | Source |
 |---|---|---|
 | `chatgpt.svg` (or `.png` / `.webp`) | ChatGPT | OpenAI brand guidelines |
-| `claude.svg` (or `.png` / `.webp`) | Claude | Anthropic brand resources |
+| `claude.svg` (or `.png` / `.webp`) | Claude | the orange Claude mark, from the MIT-licensed @lobehub/icons-static-svg package (claude-color.svg, sizing attributes removed); swap for Anthropic's own file if one is published |
 | `muse.svg` (or `.png` / `.webp`) | Muse | Meta brand resources |
 | `other.svg` (optional) | Other | anything neutral; a monogram stands in otherwise |
 

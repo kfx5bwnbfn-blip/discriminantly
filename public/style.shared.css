@@ -1151,6 +1151,7 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 /* Official marks, used as provided: the OpenAI blossom sits in a generous canvas, so it is
    scaled to fill the slot; Meta's file is the full lockup (symbol and wordmark), so its slot is wider. */
 .welcome-card .wl-ai[data-ai="chatgpt"] .wl-ai-logo img { transform: scale(1.45); }
+.welcome-card .wl-ai[data-ai="claude"] .wl-ai-logo img { transform: scale(.92); }
 .welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo { width: auto; }
 .welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo img { width: 5.6rem; height: 2.5rem; }
 .welcome-card .wl-ai-mono svg text { font-family: var(--slab); }
