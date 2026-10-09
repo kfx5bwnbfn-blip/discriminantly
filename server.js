@@ -9613,14 +9613,15 @@ const WL_ICON = {
   warrant: `<svg viewBox="0 0 44 48" aria-hidden="true"><g transform="translate(0.4 -2) scale(0.34)" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"><path d="M64 20 C57 20 52 25 52 31 C52 37 57 41 60 45 C55 42 50 38 48 33 C46 38 47 44 52 48 C48 47 44 45 41 42 C42 50 47 55 53 59 C57 62 60 67 61 73 L64 86 L67 73 C68 67 71 62 75 59 C81 55 86 50 87 42 C84 45 80 47 76 48 C81 44 82 38 80 33 C78 38 73 42 68 45 C71 41 76 37 76 31 C76 25 71 20 64 20 Z"/><path d="M34 41 C26 41 21 46 21 53 C21 59 25 63 31 66 C27 66 23 65 20 62 C21 68 25 73 31 76 C36 79 42 83 46 89 L52 96 L55 91 C52 80 47 69 42 61 C39 56 37 49 34 41 Z"/><path d="M94 41 C102 41 107 46 107 53 C107 59 103 63 97 66 C101 66 105 65 108 62 C107 68 103 73 97 76 C92 79 86 83 82 89 L76 96 L73 91 C76 80 81 69 86 61 C89 56 91 49 94 41 Z"/><rect x="49" y="102" width="30" height="6.5" rx="3.25"/><rect x="49" y="111" width="30" height="6.5" rx="3.25"/></g></svg>`,
 };
 // v2.72: the platform's mark above its name. Each brand's own logo is served
-// from public/ai-logos/<key>.svg when that file is present (the brands' press
+// from public/ai-logos/<key>.svg (or .png/.webp) when that file is present (the brands' press
 // kits supply them; none are drawn here). Until then, a monogram in the lens
 // family's frame stands in, so the tiles keep one height either way.
 const AI_LOGO_DIR = path.join(__dirname, 'public', 'ai-logos');
-const aiLogoFile = (k) => { try { return fs.existsSync(path.join(AI_LOGO_DIR, k + '.svg')); } catch { return false; } };
+const aiLogoFile = (k) => { for (const ext of ['svg', 'png', 'webp']) { try { if (fs.existsSync(path.join(AI_LOGO_DIR, `${k}.${ext}`))) return ext; } catch {} } return ''; };
 const AI_MONOGRAM = { chatgpt: 'G', claude: 'C', muse: 'M', other: '\u00b7\u00b7\u00b7' };
 function aiLogo(k) {
-  if (aiLogoFile(k)) return `<span class="wl-ai-logo"><img src="/ai-logos/${k}.svg?v=${assetHash('ai-logos/' + k + '.svg')}" alt="" width="40" height="40"></span>`;
+  const ext = aiLogoFile(k);
+  if (ext) return `<span class="wl-ai-logo"><img src="/ai-logos/${k}.${ext}?v=${assetHash(`ai-logos/${k}.${ext}`)}" alt="" width="40" height="40"></span>`;
   return `<span class="wl-ai-logo wl-ai-mono"><svg viewBox="0 0 44 44" aria-hidden="true">${wlGlare('wl-g-ai-' + k)}<circle cx="22" cy="22" r="19" fill="url(#wl-g-ai-${k})"/><circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" stroke-width="2.4"/><text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="${k === 'other' ? 16 : 19}" font-weight="300" fill="currentColor" font-family="inherit">${AI_MONOGRAM[k]}</text></svg></span>`;
 }
 function welcomeState(me) {
@@ -13945,6 +13946,15 @@ async function handle(req, res) {
     const f = path.join(__dirname, 'public', 'avatars', mt[1]);
     if (!fs.existsSync(f)) return send(res, 'Not found', 404);
     res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+    return fs.createReadStream(f).pipe(res);
+  }
+  // v2.72.2: the AI platforms' own marks for the Welcome card, dropped into
+  // public/ai-logos/ from each brand's kit (see aiLogo). Fixed names only.
+  if ((mt = p.match(/^\/ai-logos\/(chatgpt|claude|muse|other)\.(svg|png|webp)$/))) {
+    const f = path.join(AI_LOGO_DIR, `${mt[1]}.${mt[2]}`);
+    if (!fs.existsSync(f)) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': { svg: 'image/svg+xml', png: 'image/png', webp: 'image/webp' }[mt[2]],
+      'Cache-Control': url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=300' });
     return fs.createReadStream(f).pipe(res);
   }
   if ((mt = p.match(/^\/seed\/([a-z0-9_-]+\.jpg)$/))) {
