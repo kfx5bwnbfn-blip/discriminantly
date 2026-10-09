@@ -1628,6 +1628,14 @@ const MIGRATIONS = [
       adopted_count INTEGER NOT NULL DEFAULT 0)`);
     db.exec('CREATE INDEX IF NOT EXISTS idx_itin_shares_itin ON itinerary_shares(itinerary_id, state)');
   }],
+  // v2.77: one row per mark the server has tried to place on the map, so a
+  // mark is looked up once per version of its address, not on every sweep.
+  ['064-geocode-attempts', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS geocode_attempts (
+      mark_id INTEGER PRIMARY KEY REFERENCES marks(id) ON DELETE CASCADE,
+      fingerprint TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT,
+      attempted_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+  }],
 ];
 
 
@@ -6860,6 +6868,92 @@ function noteCreate(user, {
 // That is deliberate and structural: a travel mark is not evidence of
 // visitation, so a caller that also wants to record a visit calls visitRecord
 // separately and explicitly. The rule cannot be broken by forgetting it.
+// ---- server-side map placement (v2.77) ---------------------------------------
+// A mark saved with an address but no coordinates has no map. Assistants are
+// told to call verify_place, but often skip it once they have an official
+// address. The server looks the place up itself, in the same mapping data
+// (Photon / OpenStreetMap), and fills the coordinates only when the match is
+// unambiguous: same country, same city, and the same street (and number) or
+// the same place name. Anything less is left alone -- no pin beats a wrong
+// pin. It never touches a mark that has coordinates, never marks it verified,
+// and records the lookup in the mark's history as the system's act.
+const GEO_OFF = () => process.env.GEOCODE === 'off';
+const geoNorm = (x) => String(x || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const geoFingerprint = (m) => crypto.createHash('sha1').update([m.name, m.address, m.locality, m.country].map(geoNorm).join('|')).digest('hex').slice(0, 16);
+const GEO_COARSE = new Set(['city', 'country', 'state', 'county', 'district', 'locality', 'region', 'other']);
+function geoAccept(m, f) {
+  const p = (f && f.properties) || {};
+  const [lng, lat] = (f && f.geometry && f.geometry.coordinates) || [];
+  if (lat == null || lng == null || GEO_COARSE.has(p.type)) return null;
+  const mc = geoNorm(m.country), pc = geoNorm(p.country);
+  if (mc && pc && !(mc === pc || mc.includes(pc) || pc.includes(mc))) return null;
+  const places = [p.city, p.town, p.village, p.district, p.county, p.state, p.locality].map(geoNorm).filter(Boolean);
+  const wants = [...String(m.locality || '').split(','), ...(m.locality ? [] : String(m.address || '').split(','))].map(geoNorm).filter((x) => x.length >= 3);
+  const placeOk = wants.some((w) => places.some((x) => x === w || (x.length >= 4 && (x.includes(w) || w.includes(x)))));
+  if (!placeOk) return null;
+  const addr = ` ${geoNorm(m.address)} `, street = geoNorm(p.street), num = geoNorm(p.housenumber);
+  const streetOk = !!street && addr.includes(` ${street} `) && (!num || addr.includes(` ${num} `));
+  const nm = geoNorm(m.name), pn = geoNorm(p.name);
+  const nameOk = !!pn && (pn === nm || (Math.min(pn.length, nm.length) >= 5 && (pn.includes(nm) || nm.includes(pn))));
+  if (!streetOk && !nameOk) return null;
+  return { lat: +lat, lng: +lng, ref: p.osm_type && p.osm_id ? `osm:${p.osm_type}/${p.osm_id}` : 'photon', how: [streetOk && 'street', nameOk && 'name'].filter(Boolean).join('+') };
+}
+async function geoLookup(m) {
+  const ask = async (text) => {
+    // Tests: GEOCODE_STUB is a JSON file of { query text: [features] } (cf. CIMD_STUB).
+    if (process.env.GEOCODE_STUB) { const st = JSON.parse(fs.readFileSync(process.env.GEOCODE_STUB, 'utf8')); return st[text] || []; }
+    const r = await fetch(`https://photon.komoot.io/api/?limit=6&q=${encodeURIComponent(text)}`, { signal: AbortSignal.timeout(6000), headers: { 'User-Agent': 'discriminantly/geocode (+https://www.discriminantly.com)' } });
+    if (!r.ok) throw new Error('status ' + r.status);
+    const d = await r.json(); return Array.isArray(d.features) ? d.features : [];
+  };
+  const qs = [[m.name, m.address, m.locality, m.country], [m.address, m.locality, m.country], [m.name, m.locality, m.country]]
+    .map((x) => x.filter(Boolean).join(', ')).filter((x, i, a) => x && a.indexOf(x) === i);
+  for (const text of qs) { for (const f of await ask(text)) { const hit = geoAccept(m, f); if (hit) return hit; } }
+  return null;
+}
+async function geocodeMark(id) {
+  const m = q('SELECT * FROM marks WHERE id=?').get(id);
+  if (!m || m.lat != null || m.lng != null || !(m.address || m.locality)) return 'skip';
+  const fp = geoFingerprint(m);
+  const prev = q('SELECT * FROM geocode_attempts WHERE mark_id=?').get(id);
+  if (prev && prev.fingerprint === fp && prev.outcome !== 'error') return 'skip';
+  let outcome = 'no_match', detail = null;
+  try {
+    const hit = await geoLookup(m);
+    if (hit && q('UPDATE marks SET lat=?, lng=? WHERE id=? AND lat IS NULL AND lng IS NULL').run(hit.lat, hit.lng, id).changes) {
+      const owner = q('SELECT * FROM users WHERE id=?').get(m.user_id);
+      recordProvenance('mark', m.uid || uidOf('marks', id), 'enriched', systemActor(owner), { source_kind: 'photon', source_ref: hit.ref, fields: 'lat,lng' });
+      outcome = 'placed'; detail = `${hit.how} ${hit.ref}`;
+    }
+  } catch (e) { outcome = 'error'; detail = String(e.message || e).slice(0, 80); }
+  q(`INSERT INTO geocode_attempts(mark_id,fingerprint,outcome,detail,attempted_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+     ON CONFLICT(mark_id) DO UPDATE SET fingerprint=excluded.fingerprint, outcome=excluded.outcome, detail=excluded.detail, attempted_at=CURRENT_TIMESTAMP`).run(id, fp, outcome, detail);
+  console.log(`geocode mark #${id} ${outcome}${detail ? ' ' + detail : ''}`);   // ids and outcomes only
+  return outcome;
+}
+// One at a time, a little over a second apart (the mapping service's fair use).
+const GEO_QUEUE = []; let geoBusy = false;
+function geocodeSoon(id) {
+  if (GEO_OFF() || GEO_QUEUE.includes(id)) return;
+  GEO_QUEUE.push(id);
+  if (geoBusy) return;
+  geoBusy = true;
+  (async () => { while (GEO_QUEUE.length) { const next = GEO_QUEUE.shift(); try { await geocodeMark(next); } catch (e) { console.log(`geocode mark #${next} error ${String(e.message || e).slice(0, 80)}`); } await new Promise((r) => setTimeout(r, 1200)); } geoBusy = false; })();
+}
+// The sweep: every mark without coordinates whose current address has not
+// been tried (errors are retried after an hour).
+function geocodeSweep(limit = 60) {
+  if (GEO_OFF()) return 0;
+  const rows = q(`SELECT m.id FROM marks m LEFT JOIN geocode_attempts g ON g.mark_id = m.id
+    WHERE m.lat IS NULL AND m.lng IS NULL AND (m.address <> '' OR m.locality <> '')
+      AND (g.mark_id IS NULL OR (g.outcome = 'error' AND g.attempted_at < datetime('now', '-1 hour')) OR g.outcome <> 'placed')
+    ORDER BY m.id DESC LIMIT ?`).all(limit);
+  let n = 0;
+  for (const r of rows) { const m = q('SELECT * FROM marks WHERE id=?').get(r.id), g = q('SELECT * FROM geocode_attempts WHERE mark_id=?').get(r.id);
+    if (g && g.fingerprint === geoFingerprint(m) && g.outcome !== 'error') continue; geocodeSoon(r.id); n++; }
+  return n;
+}
+
 function markCreate(user, {
   name, locality = '', country = '', address = '',
   lat = null, lng = null, why = '', tags = '', url = '', image = null,
@@ -6882,6 +6976,7 @@ function markCreate(user, {
   // place added to a recommended itinerary (the refined Mark boundary).
   if (adopt) recordAdoption(user.id, 'mark', uid, ctx, { source_kind: 'created', source_ref: uid });
   if (collections) setMarkCollections(user.id, r.lastInsertRowid, collections);
+  if (la == null && (address || locality)) geocodeSoon(r.lastInsertRowid);   // v2.77: after the reply, never blocking it
   return { id: r.lastInsertRowid, uid };
 }
 
@@ -15201,4 +15296,6 @@ http.createServer((req, res) => handle(req, res).catch((e) => { console.error(e)
   console.log(`discriminant.ly on http://localhost:${PORT}`);
   // Adopt linked pictures once the server is answering, never during boot.
   if (!process.env.NO_ADOPT) setTimeout(() => { adoptLinkedImages().catch(() => {}); }, 4000);
+  // v2.77: place marks that were saved without coordinates (see geocodeMark).
+  if (!GEO_OFF()) { setTimeout(() => { const n = geocodeSweep(); if (n) console.log(`geocode sweep: ${n} mark(s) queued`); }, 20000); setInterval(() => geocodeSweep(), 30 * 60e3).unref(); }
 });
