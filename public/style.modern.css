@@ -193,6 +193,29 @@ body[data-skin="modern"] .card .link, body[data-skin="modern"] .card .link .lbl 
 body[data-skin="modern"] .card .figure { border-radius: var(--m-r2); overflow: hidden; background: var(--m-image-bed); box-shadow: inset 0 0 0 1px var(--m-line); }
 body[data-skin="modern"] .card .figure img { border: 0; box-shadow: none; }
 body[data-skin="modern"] .byline .avatar { box-shadow: 0 0 0 1px var(--m-line-2); }
+/* v2.80: a member without a profile photo. The letter sits on the skin's own
+   aurora -- lavender into warm amber, the two glows behind every page --
+   under a glass highlight, in a light weight, centred optically in the
+   circle. Photos are untouched. Tokens per mode keep contrast honest. */
+body[data-skin="modern"] { --m-initial-a: #8f7fe0; --m-initial-b: #d9a07a; --m-initial-ink: rgba(255,255,255,.96); }
+body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern"][data-mode="system"] { --m-initial-a: #b9a9f0; --m-initial-b: #f0c9a8; --m-initial-ink: rgba(20,22,28,.86); }
+body[data-skin="modern"] .avatar-initial {
+  background: linear-gradient(135deg, var(--m-initial-a) 0%, var(--m-initial-b) 100%);
+  color: var(--m-initial-ink); font-weight: 300; letter-spacing: 0;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.08), 0 0 0 1px var(--m-line-2);
+  text-shadow: 0 1px 0 rgba(255,255,255,.18);
+}
+/* the glass sheen across the top half */
+body[data-skin="modern"] .avatar-initial::after { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.34) 0%, rgba(255,255,255,.06) 48%, rgba(255,255,255,0) 52%); }
+/* centred: the box is a grid everywhere, and where the byline makes it an
+   inline-block (for baseline alignment with photos) the line box is the
+   circle's height. A hair of top padding offsets the slab face's cap height
+   sitting above the em centre. */
+body[data-skin="modern"] .avatar-initial { font-size: 1.15rem; line-height: 1; padding-top: .04em; box-sizing: border-box; }
+body[data-skin="modern"] .byline .avatar-initial { line-height: var(--m-byline-avatar, 2.9rem); padding-top: 0; }
+body[data-skin="modern"] .avatar.big.avatar-initial { font-size: 2.6rem; }
+body[data-skin="modern"] .noter-list .avatar-initial, body[data-skin="modern"] .person .avatar-initial { font-size: 1.05rem; }
 body[data-skin="modern"] .stackdate { color: var(--m-ink-3); }
 body[data-skin="modern"] .stackdate .mon, body[data-skin="modern"] .stackdate .yr { color: var(--m-ink-3); }
 body[data-skin="modern"] .stackdate .day { color: var(--m-ink-2); font-weight: 300; }
