@@ -97,7 +97,8 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
     if (KEYS() && (p === '/mcp' || p === '/mcp/')) {
       const d = depsFn(), key = keyFrom(req);
       const via = /^Bearer\s/i.test(String(req.headers.authorization || '')) ? 'bearer' : req.headers['x-api-key'] ? 'x-api-key' : 'none';
-      if (!key || !d.connectionFor(key)) {
+      const conn = key ? (d.connectionForKey ? d.connectionForKey(key) : d.connectionFor(key)) : null;
+      if (!key || !conn) {
         ctx.record(req, p, { key_mode: true, stage: key ? 'key_rejected' : 'key_missing', via });
         const msg = key ? 'That Discriminantly key is not valid, or was revoked. Make a new one in Settings › Connect to your AI.'
           : 'Send your Discriminantly key as Authorization: Bearer <key>. Make one in Settings › Connect to your AI.';
@@ -106,10 +107,31 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
                     : { 'WWW-Authenticate': 'Bearer realm="discriminantly", error="invalid_token"' });
         return true;
       }
+      delete req.headers.authorization; delete req.headers['x-api-key'];
+      if (conn.scope === 'read') {
+        // v2.83: a read-only key. The body is read here, any tools/call to a
+        // tool that is not read-only is answered with a refusal (nothing runs),
+        // and everything else is replayed, unchanged, into www's mcp().
+        const { text } = await ctx.readBody(req, 4 * 1024 * 1024);
+        let msg = null; try { msg = JSON.parse(text); } catch {}
+        const msgs = Array.isArray(msg) ? msg : msg ? [msg] : [];
+        const blocked = msgs.filter((x) => x && x.method === 'tools/call' && !d.isReadOnlyTool(String((x.params && x.params.name) || '')));
+        if (blocked.length) {
+          ctx.record(req, p, { key_mode: true, stage: 'read_only_refused', via, tools: blocked.map((x) => ctx.str(x.params && x.params.name)) });
+          const refuse = (x) => ({ jsonrpc: '2.0', id: x.id ?? null, result: { isError: true, content: [{ type: 'text',
+            text: `Not done: this Discriminantly connection is read-only, so ${x.params && x.params.name} (which changes records) was refused and nothing was written. To make changes, the member needs a connection with change access (Settings › Connect to your AI).` }] } });
+          return ctx.json(res, 200, Array.isArray(msg) ? msg.map((x) => blocked.includes(x) ? refuse(x) : { jsonrpc: '2.0', id: x.id ?? null, error: { code: -32600, message: 'Batch refused: it contains a write on a read-only connection.' } }) : refuse(msg)), true;
+        }
+        ctx.record(req, p, { key_mode: true, stage: 'key_forwarded', via, read_only: true });
+        const { Readable } = require('stream');
+        const replay = Readable.from([Buffer.from(text)]);
+        for (const k of ['method', 'url', 'headers', 'socket', 'httpVersion']) replay[k] = req[k];
+        await d.READ_ONLY_CALL.run(true, () => d.mcp(replay, res, key));
+        return true;
+      }
       ctx.record(req, p, { key_mode: true, stage: 'key_forwarded', via });
       // www's own mcp(), untouched: the key goes in as the path credential, and
       // the headers are removed so neither is read as anything else.
-      delete req.headers.authorization; delete req.headers['x-api-key'];
       await d.mcp(req, res, key);
       return true;
     }

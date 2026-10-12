@@ -180,6 +180,25 @@ async function consent(s, q, form) {
     ok('K8 the log records the mode and how the key came, never the key', /"stage":"key_forwarded","via":"bearer"/.test(K.log) && /"via":"x-api-key"/.test(K.log) && !K.log.includes(key));
     const wwwOauth2 = await req(K, { host: WWW, method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + key }, body: krpc() });
     ok('K9 www’s own /mcp is unchanged: a key is not an OAuth token there', wwwOauth2.status === 401);
+
+    // ---- read-only keys (v2.83) -------------------------------------------------------------
+    const rkey = crypto.randomBytes(24).toString('base64url');
+    { const d3 = new DatabaseSync(K.db); d3.prepare("INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label,scope) VALUES(?,?,?,?,'Muse RO','read')").run(crypto.randomUUID(), kuser, crypto.createHash('sha256').update(rkey).digest('hex'), rkey.slice(0, 6)); d3.close(); }
+    const call = (name, args, id = 7) => JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } });
+    const roList = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + rkey }, body: krpc() });
+    ok('K10 a read-only key lists tools on the Muse address', roList.status === 200 && JSON.parse(roList.body).result.tools.length > 50);
+    const roRead = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + rkey }, body: call('my_travel_marks', { limit: 2 }) });
+    ok('K11 and reads', roRead.status === 200 && !JSON.parse(roRead.body).result.isError, roRead.body.slice(0, 200));
+    const before = (() => { const d4 = new DatabaseSync(K.db); try { return d4.prepare('SELECT COUNT(*) n FROM objects').get().n; } finally { d4.close(); } })();
+    const roWrite = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + rkey }, body: call('note_object', { name: 'Muse read-only test', why: 'x' }) });
+    const after = (() => { const d4 = new DatabaseSync(K.db); try { return d4.prepare('SELECT COUNT(*) n FROM objects').get().n; } finally { d4.close(); } })();
+    const rw = JSON.parse(roWrite.body);
+    ok('K12 a write on a read-only key is refused with a clear message, and nothing is written', rw.id === 7 && rw.result.isError === true && /read-only/.test(rw.result.content[0].text) && before === after, roWrite.body.slice(0, 300));
+    const roWww = await req(K, { host: WWW, method: 'POST', p: '/mcp/' + rkey, headers: J, body: call('note_object', { name: 'via www', why: 'x' }) });
+    ok('K13 a read-only key is not accepted on www’s /mcp/<key> at all', roWww.status === 401, roWww.status + ' ' + roWww.body.slice(0, 120));
+    ok('K14 the refusal is logged by tool name, never the key', /"stage":"read_only_refused"[^\n]*"tools":\["note_object"\]/.test(K.log) && !K.log.includes(rkey));
+    const fullWrite = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + rkey.slice(0, 3) + 'x' }, body: call('note_object', { name: 'n', why: 'x' }) });
+    ok('K15 an unknown key still gets the 401', fullWrite.status === 401);
     await stop(K);
   } catch (e) { console.error(e); fail++; } finally {
     for (const s of all) { try { s.proc.kill(); } catch {} }

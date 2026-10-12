@@ -11,7 +11,7 @@ const museCapture = require('./muse-capture');
 // Phase 1 (v2.73): the Muse OAuth wrapper, on the Muse origin only and off
 // unless MUSE_WRAPPER=1. It is handed www's own functions lazily, at request
 // time; none of www's OAuth or MCP code changes (see muse-wrapper.js).
-museCapture.attach(require('./muse-wrapper').create(() => ({ q, checkPass, loginBlocked, loginFailed, loginSucceeded, connectionCreate, connectionFor, mcp })));
+museCapture.attach(require('./muse-wrapper').create(() => ({ q, checkPass, loginBlocked, loginFailed, loginSucceeded, connectionCreate, connectionFor, connectionForKey, isReadOnlyTool, READ_ONLY_CALL, mcp })));
 
 const PORT = process.env.PORT || 3000;
 // The stylesheet is fingerprinted by content: a deploy changes the URL, so a
@@ -2549,20 +2549,33 @@ const token = (n = 24) => crypto.randomBytes(n).toString('base64url');
 // exists so two connections are tellable apart in Settings.
 const tokenHash = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
 
-function connectionCreate(userId, label) {
+function connectionCreate(userId, label, { readOnly = false } = {}) {
   const t = token(24);
   const uid = crypto.randomUUID();
-  q(`INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label)
-     VALUES(?,?,?,?,?)`)
-    .run(uid, userId, tokenHash(t), t.slice(0, 6), String(label || 'AI client').trim() || 'AI client');
+  q(`INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label,scope)
+     VALUES(?,?,?,?,?,?)`)
+    .run(uid, userId, tokenHash(t), t.slice(0, 6), String(label || 'AI client').trim() || 'AI client', readOnly ? 'read' : '');
   return { uid, token: t };                 // the plaintext is shown once and never stored
 }
+
+// v2.83: a read-only key (scope 'read') is honoured only on the Muse address,
+// whose wrapper refuses every tool that changes anything before the call
+// reaches mcp(). Everywhere else -- www's /mcp/<key> -- it resolves to
+// nothing, so a read-only key can never be used for a write by another route.
+// The wrapper marks its own forwarded calls with this context.
+const { AsyncLocalStorage } = require('async_hooks');
+const READ_ONLY_CALL = new AsyncLocalStorage();
 
 // Resolve a bearer credential to its connection. A revoked connection resolves
 // to nothing, so revoking one leaves every other connection working.
 function connectionFor(tok) {
-  return q('SELECT * FROM connections WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash(tok)) || null;
+  const c = q('SELECT * FROM connections WHERE token_hash=? AND revoked_at IS NULL').get(tokenHash(tok)) || null;
+  if (c && c.scope === 'read' && !READ_ONLY_CALL.getStore()) return null;
+  return c;
 }
+const isReadOnlyTool = (name) => !!(TOOL_BY_NAME.get(name) && TOOL_BY_NAME.get(name).annotations && TOOL_BY_NAME.get(name).annotations.readOnlyHint === true);
+// For the Muse wrapper: any live key, read-only included.
+const connectionForKey = (tok) => READ_ONLY_CALL.run(true, () => connectionFor(tok));
 
 function connectionRevoke(userId, uid) {
   const c = q('SELECT * FROM connections WHERE uid=? AND user_id=?').get(uid, userId);
@@ -11087,7 +11100,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <div class="conn-list">
               <span class="lbl">Connected AI</span>
               ${connectionsOf(me.id).map((c) => `<div class="sugg conn-row">
-                <span class="sugg-name">${esc(c.client_label)}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
+                <span class="sugg-name">${esc(c.client_label)}${c.scope === 'read' ? ' <span class="lbl">read only</span>' : ''}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
                 <span class="sugg-sub">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'}
                   \u00b7 ${c.revoked_at ? 'revoked' : 'active'}
                   \u00b7 since ${esc(monthYear(c.created_at))}${c.last_used_at ? ' \u00b7 used ' + esc(monthYear(c.last_used_at)) : ''}</span>
@@ -11095,6 +11108,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               </div>`).join('') || '<p class="empty center">No AI connections yet.</p>'}
               <form method="post" action="/settings/connections" class="conn-new">
                 <label class="slabel">Name this connection<input name="label" placeholder="ChatGPT, Claude\u2026" maxlength="40"></label>
+                <label class="collab-confirm conn-ro"><input type="checkbox" name="read_only" value="1"><span>Read only: it can look things up but not change anything. Works on the Muse address only.</span></label>
                 <button class="btn3d block">Create a connection</button>
               </form>
             </div>
@@ -14511,7 +14525,7 @@ async function handle(req, res) {
   if (p === '/settings/connections' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req);
-    const made = connectionCreate(me.id, b.label || 'AI client');
+    const made = connectionCreate(me.id, b.label || 'AI client', { readOnly: b.read_only === '1' });
     // The plaintext credential exists only in this redirect: it is never stored.
     return redirect(res, `/settings?conn=${encodeURIComponent(made.token)}`);
   }
