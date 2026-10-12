@@ -38,6 +38,19 @@ const SEND_ISS = () => process.env.MUSE_SEND_ISS !== '0';
 // v2.81: the status of the redirect back to Meta. 303 by default; 302 is what
 // the one publicly verified-working Muse OAuth server returns (Oct 2026).
 const REDIRECT_STATUS = () => (process.env.MUSE_REDIRECT_STATUS === '302' ? 302 : 303);
+// v2.82: key mode. Meta's callback never completes an OAuth exchange (twelve
+// approvals, two servers, every variable we control; DCR not attempted by
+// this Muse build), and Muse's connector flow is built around API keys. With
+// MUSE_KEYS=1 the Muse origin's /mcp accepts a Discriminantly connection key
+// -- the same hashed, per-client, revocable connection Settings makes -- as
+// `Authorization: Bearer <key>` or `X-API-Key: <key>`, and hands the call to
+// www's unchanged mcp(). While OAuth is off, the origin does not advertise
+// OAuth discovery, so Muse is not drawn into a flow that cannot finish.
+const KEYS = () => process.env.MUSE_KEYS === '1';
+const keyFrom = (req) => {
+  const b = /^Bearer\s+(.+)$/i.exec(String(req.headers.authorization || ''));
+  return (b ? b[1] : String(req.headers['x-api-key'] || '')).trim();
+};
 const CODE_TTL = 10 * 60e3, PENDING_TTL = 30 * 60e3, MAX_ITEMS = 500;
 const DCR_ID = /^muse-dcr-[0-9a-f]{16}$/;
 
@@ -79,8 +92,28 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
 
   // Returns true when it handled the request.
   async function handle(req, res, url, ctx) {
-    if (!ENABLED()) return false;
     const p = url.pathname, m = req.method === 'HEAD' ? 'GET' : req.method;
+    // Key mode answers /mcp whether or not the OAuth experiment is on.
+    if (KEYS() && (p === '/mcp' || p === '/mcp/')) {
+      const d = depsFn(), key = keyFrom(req);
+      const via = /^Bearer\s/i.test(String(req.headers.authorization || '')) ? 'bearer' : req.headers['x-api-key'] ? 'x-api-key' : 'none';
+      if (!key || !d.connectionFor(key)) {
+        ctx.record(req, p, { key_mode: true, stage: key ? 'key_rejected' : 'key_missing', via });
+        const msg = key ? 'That Discriminantly key is not valid, or was revoked. Make a new one in Settings › Connect to your AI.'
+          : 'Send your Discriminantly key as Authorization: Bearer <key>. Make one in Settings › Connect to your AI.';
+        ctx.json(res, 401, { error: 'invalid_token', error_description: msg },
+          ENABLED() ? { 'WWW-Authenticate': `Bearer resource_metadata="${ctx.ORIGIN}/.well-known/oauth-protected-resource", error="invalid_token"` }
+                    : { 'WWW-Authenticate': 'Bearer realm="discriminantly", error="invalid_token"' });
+        return true;
+      }
+      ctx.record(req, p, { key_mode: true, stage: 'key_forwarded', via });
+      // www's own mcp(), untouched: the key goes in as the path credential, and
+      // the headers are removed so neither is read as anything else.
+      delete req.headers.authorization; delete req.headers['x-api-key'];
+      await d.mcp(req, res, key);
+      return true;
+    }
+    if (!ENABLED()) return false;
     const d = depsFn();
     const stage = (name, extra = {}) => ctx.record(req, p, { wrapper: true, stage: name, iss_sent: SEND_ISS(), redirect_status: REDIRECT_STATUS(), ...extra });
 
@@ -205,7 +238,8 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
     return false;
   }
 
-  return { handle, enabled: ENABLED };
+  // Key mode without the OAuth experiment: the origin advertises no OAuth.
+  return { handle, enabled: ENABLED, keysOnly: () => KEYS() && !ENABLED() };
 }
 
 module.exports = { create, DCR_ID };

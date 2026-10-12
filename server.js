@@ -7696,6 +7696,20 @@ function collabForms(me, it, { disclose = false, role = 'editor', email = '', di
     </div></form>`;
   return { inviteForm, shareForm };
 }
+// v2.82: the same connection as a bare key, for clients that take an API key
+// rather than an address (Muse). Copy only: a key is never offered to a share
+// sheet. Shown once, with the new connection, like the address above it.
+function keyBox(key) {
+  return `<div class="collab-link conn-key"><p class="collab-made"><b>Or as a key</b> for Muse and other clients that ask for an API key:</p>
+    <input class="nf-field collab-link-field" readonly value="${esc(key)}" onfocus="this.select()">
+    <div class="collab-link-acts"><button type="button" class="btn3d collab-copy" data-copy="${esc(key)}">Copy key</button></div>
+    <p class="fine">In Muse: connector address <b>https://muse.discriminantly.com/mcp</b>, authentication <b>API key</b>, sent as <b>Authorization: Bearer</b> &lt;key&gt;. Revoke it here any time.</p>
+    <script>(function(){var s=document.currentScript.parentNode,c=s.querySelector('.collab-copy');
+      c.addEventListener('click',function(){var done=function(){var t=c.textContent;c.textContent='Copied';setTimeout(function(){c.textContent=t;},1600);};
+        if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(c.dataset.copy).then(done,function(){var f=s.querySelector('input');f.focus();f.select();try{document.execCommand('copy');done();}catch(e){}});
+        else{var f=s.querySelector('input');f.focus();f.select();try{document.execCommand('copy');done();}catch(e){}}});})();</script>
+  </div>`;
+}
 // The link, shown once, with Copy and (where the device has a share sheet)
 // Send; the field stays for anyone who prefers to select it.
 function linkBox(label, href, title, text) {
@@ -9875,7 +9889,8 @@ function welcomeCard(me) {
   const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
   // v2.72: Muse (Meta AI). Meta's sign-in for custom connectors is not working
   // yet, so Muse connects with a connection address made in Settings instead.
-  const museSteps = `${steps(['In <a class="link" href="/settings#connector">Settings \u203a Connect to your AI</a>, name a connection <b>Muse</b> and choose <b>Create a connection</b>. Copy the address it shows: it appears once.', 'In Muse, open <b>Secure credentials store</b> and choose <b>Add custom connector</b>.', 'Name it <b>Discriminantly</b>, set the host to <b>www.discriminantly.com</b>, and paste the address as the connector URL.', 'In a conversation, ask Muse to use Discriminantly.'])}<p class="fine wl-note">The address stands in for a sign-in, so treat it like a password. Revoke it any time in Settings.</p>`;
+  // v2.82: Muse connects with a key (Meta's OAuth callback never exchanges the code).
+  const museSteps = `${steps(['In <a class="link" href="/settings#connector">Settings \u203a Connect to your AI</a>, name a connection <b>Muse</b> and choose <b>Create a connection</b>. Copy the <b>key</b> it shows: it appears once.', 'In a Muse chat, say: <i>\u201cAdd a custom connector for my Discriminantly MCP server at https://muse.discriminantly.com/mcp, using an API key sent as Authorization: Bearer.\u201d</i>', 'When Muse asks for the key, paste it into the <b>Secure credentials store</b>.', 'In a conversation, ask Muse to use Discriminantly.'])}<p class="fine wl-note">The key stands in for a sign-in, so treat it like a password. Revoke it any time in Settings.</p>`;
   const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
     : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
   const step2 = `<div class="wl-panel wl-p2">
@@ -11067,7 +11082,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
                  URL is shown once, immediately after it is made: the server
                  keeps only a hash of it. -->
             ${url.searchParams.get('conn') ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(url.searchParams.get('conn'))}</code></p>
-              <p class="fine center">Copy this now — it is not stored and cannot be shown again.</p>` : ''}
+              <p class="fine center">Copy this now — it is not stored and cannot be shown again.</p>
+              ${keyBox(url.searchParams.get('conn'))}` : ''}
             <div class="conn-list">
               <span class="lbl">Connected AI</span>
               ${connectionsOf(me.id).map((c) => `<div class="sugg conn-row">

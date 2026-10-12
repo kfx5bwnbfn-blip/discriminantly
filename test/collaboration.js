@@ -360,7 +360,10 @@ const anon = (p) => reqRaw('GET', p);
     const wj = (await web('brian', 'GET', '/?welcome=1')).body;
     ok('WA3 an established member’s Welcome is unchanged', !/arrived through a shared plan/.test(wj));
     ok('WA4 Muse is offered beside ChatGPT, Claude and Other, with its steps', /data-ai="muse"/.test(wl) && /Secure credentials store/.test(wl) && /\/settings#connector/.test(wl) && (wl.match(/class="wl-ai[ "]/g) || []).length === 4);
-    await web(mo, 'POST', '/settings/connections', { label: 'Muse' });
+    const madeConn = await web(mo, 'POST', '/settings/connections', { label: 'Muse' });
+    const keyPage = (await web(mo, 'GET', madeConn.headers.location)).body;
+    ok('WA6 a new connection is shown once as a key too, with Copy and the Muse endpoint, and no share sheet', /class="collab-link conn-key"/.test(keyPage) && /Copy key/.test(keyPage) && /https:\/\/muse\.discriminantly\.com\/mcp/.test(keyPage) && !/conn-key[\s\S]{0,600}collab-send/.test(keyPage));
+    ok('WA7 the Muse onboarding steps use the key, not OAuth', /Copy the <b>key<\/b>/.test(wl) && /muse\.discriminantly\.com\/mcp/.test(wl));
     const wm2 = (await web(mo, 'GET', '/?welcome=1')).body;
     ok('WA5 a connection named Muse lights the Muse tile and names Muse in the paste hint', /data-ai="muse"[^>]*>(?:(?!<\/label>).)*Connected/.test(wm2.replace(/\n/g, ' ')) && /Paste it into Muse and send/.test(wm2) && /Copy one into Muse/.test(wm2));
 

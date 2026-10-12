@@ -19,7 +19,7 @@ function boot(extraEnv) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'muse-wrap-'));
   const port = 5300 + Math.floor(Math.random() * 400);
   const env = { ...process.env, PORT: String(port), DB_PATH: path.join(work, 'd.db'), SEED: '1', ADMIN_PASSWORD: PW, PUBLIC_ORIGIN: 'https://' + WWW, MUSE_ORIGIN: ORIGIN, ...extraEnv };
-  for (const k of ['MUSE_WRAPPER', 'MUSE_SEND_ISS', 'MUSE_ADVERTISE_CIMD']) if (!(k in extraEnv)) delete env[k];
+  for (const k of ['MUSE_WRAPPER', 'MUSE_SEND_ISS', 'MUSE_ADVERTISE_CIMD', 'MUSE_REDIRECT_STATUS', 'MUSE_KEYS']) if (!(k in extraEnv)) delete env[k];
   const proc = spawn(process.execPath, ['server.js'], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const s = { port, work, proc, log: '', db: path.join(work, 'd.db') };
   proc.stdout.on('data', (d) => { s.log += d; }); proc.stderr.on('data', (d) => { s.log += d; });
@@ -152,6 +152,35 @@ async function consent(s, q, form) {
     ok('W26 MUSE_REDIRECT_STATUS=302 sends Allow back as a 302, still with code, state and iss', go4.r.status === 302 && !!go4.loc.searchParams.get('code') && !!go4.loc.searchParams.get('state') && go4.loc.searchParams.get('iss') === ORIGIN, go4.r.status);
     ok('W27 and the log records which status was used', /"redirect_status":302/.test(R.log));
     await stop(R);
+
+    // ---- key mode (v2.82): MUSE_KEYS=1, OAuth off ---------------------------------------
+    const K = boot({ MUSE_KEYS: '1' }); all.push(K); await up(K);
+    const kdb = new DatabaseSync(K.db);
+    const kuser = kdb.prepare('SELECT id FROM users WHERE id=1').get().id;
+    const key = crypto.randomBytes(24).toString('base64url');
+    kdb.prepare("INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label) VALUES(?,?,?,?,'Muse')").run(crypto.randomUUID(), kuser, crypto.createHash('sha256').update(key).digest('hex'), key.slice(0, 6));
+    kdb.close();
+    const krpc = (id = 1) => JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/list', params: {} });
+    const prmK = await req(K, { p: '/.well-known/oauth-protected-resource' }), asK = await req(K, { p: '/.well-known/oauth-authorization-server' });
+    ok('K1 key mode advertises no OAuth: discovery documents are 404', prmK.status === 404 && asK.status === 404);
+    const noKey = await req(K, { method: 'POST', p: '/mcp', headers: J, body: krpc() });
+    ok('K2 no key: 401 asking for the key, with no OAuth resource metadata', noKey.status === 401 && /Bearer realm="discriminantly"/.test(noKey.headers['www-authenticate']) && !/resource_metadata/.test(noKey.headers['www-authenticate']) && /Settings/.test(noKey.body));
+    const viaBearer = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + key }, body: krpc() });
+    const viaWwwPath = await req(K, { host: WWW, method: 'POST', p: '/mcp/' + key, headers: J, body: krpc() });
+    ok('K3 a Settings connection key as Bearer gets the same tools/list as www’s /mcp/<key>', viaBearer.status === 200 && viaBearer.body === viaWwwPath.body && JSON.parse(viaBearer.body).result.tools.length > 50);
+    const viaHeader = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, 'x-api-key': key }, body: krpc() });
+    ok('K4 and as X-API-Key', viaHeader.status === 200 && viaHeader.body === viaBearer.body);
+    const bad = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer nope-not-a-key' }, body: krpc() });
+    ok('K5 an unknown key is refused', bad.status === 401 && /not valid, or was revoked/.test(bad.body));
+    { const d2 = new DatabaseSync(K.db); d2.prepare("UPDATE connections SET revoked_at=CURRENT_TIMESTAMP WHERE client_label='Muse'").run(); d2.close(); }
+    const revoked = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + key }, body: krpc() });
+    ok('K6 revoking the connection in Settings shuts the key out', revoked.status === 401);
+    const authK = await req(K, { p: authQ({ code_challenge: 'x' }) });
+    ok('K7 the OAuth pages stay inert in key mode (Phase 0 test page)', /test mode for Muse/.test(authK.body) && !/name="password"/.test(authK.body));
+    ok('K8 the log records the mode and how the key came, never the key', /"stage":"key_forwarded","via":"bearer"/.test(K.log) && /"via":"x-api-key"/.test(K.log) && !K.log.includes(key));
+    const wwwOauth2 = await req(K, { host: WWW, method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + key }, body: krpc() });
+    ok('K9 www’s own /mcp is unchanged: a key is not an OAuth token there', wwwOauth2.status === 401);
+    await stop(K);
   } catch (e) { console.error(e); fail++; } finally {
     for (const s of all) { try { s.proc.kill(); } catch {} }
     await new Promise((r) => setTimeout(r, 300));

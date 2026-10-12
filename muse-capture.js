@@ -149,8 +149,12 @@ const wrapperOn = () => !!(wrapper && wrapper.enabled());
 // ---- the capture origin -------------------------------------------------------
 async function handle(req, res, url) {
   const p = url.pathname, m = req.method === 'HEAD' ? 'GET' : req.method;
-  if (wrapperOn() && await wrapper.handle(req, res, url, { ORIGIN, MUSE_CLIENT_PATH, MUSE_REDIRECT, record, json, page, readBody, dcrShape, authShape, str })) return;
+  if (wrapper && await wrapper.handle(req, res, url, { ORIGIN, MUSE_CLIENT_PATH, MUSE_REDIRECT, record, json, page, readBody, dcrShape, authShape, str })) return;
 
+  const discovery = m === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server',
+    '/.well-known/openid-configuration', '/.well-known/oauth-authorization-server/mcp', '/.well-known/openid-configuration/mcp'].includes(p);
+  // v2.82: in key mode (MUSE_KEYS=1, OAuth off) nothing here advertises OAuth.
+  if (discovery && wrapper && wrapper.keysOnly && wrapper.keysOnly()) { record(req, p, { key_mode: true }); return json(res, 404, { error: 'not_found', error_description: 'This connector uses a Discriminantly key, not OAuth.' }); }
   if (m === 'GET' && (p === '/.well-known/oauth-protected-resource' || p === '/.well-known/oauth-protected-resource/mcp')) {
     record(req, p); return json(res, 200, prm());
   }
