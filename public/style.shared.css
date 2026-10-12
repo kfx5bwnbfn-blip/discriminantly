@@ -932,6 +932,10 @@
 .welcome-foot { text-align: center; margin: 2.4rem auto 2rem; }
 body[data-skin] footer.welcome-foot a { color: inherit; text-decoration: none; }
 body[data-skin] footer.welcome-foot a:hover { text-decoration: underline; }
+/* v2.85: the same small print at the foot of every other page */
+.site-foot { text-align: center; margin: 2.4rem auto 2rem; opacity: .75; }
+body[data-skin] footer.site-foot a { color: inherit; text-decoration: none; }
+body[data-skin] footer.site-foot a:hover { text-decoration: underline; }
 /* Shown on every page while the admin's view of private content is on. It is
    a direct child of <main>, whose children are otherwise styled as content
    blocks (background, padding, margin), so the selector is one step more

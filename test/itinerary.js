@@ -1016,7 +1016,20 @@ console.log('\npolicy pages');
      && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{PRIVACY_UPDATED\}/.test(pp) && /privacy: \['Privacy', datedPrivacy,/.test(pp));
   ok('PP5b the privacy page discloses location, server logs, and what assistants receive',
      /Places and where you have been: for a travel mark/.test(SRC) && /Server logs: when a request fails, Discriminantly logs/.test(SRC)
-     && /What an assistant receives:[^']*handles/.test(SRC));
+     && /What a service receives:[^']*handles/.test(SRC));
+  // v2.85: connection keys, read-only keys, revocation, shared plans, automatic
+  // place lookups, export, and the hashing claim scoped to what is true
+  // (users.api_token, the legacy connector address, is stored as written).
+  ok('PP5c the privacy page covers connection keys, read-only, revocation, sharing, lookups and export',
+     /create a connection key in Settings/.test(pp) && /A read-only key[^']*refused/.test(pp)
+     && /Revoking takes effect immediately/.test(pp) && /Revoking a connection does not delete anything/.test(pp)
+     && /Deleting and disconnecting are separate/.test(pp) && /A share link shows/.test(pp)
+     && /automatically when a travel mark is saved without map coordinates/.test(pp)
+     && /To get a copy of everything in your account/.test(pp) && /We do not sell your personal information/.test(pp)
+     && /personal connector address[^']*stored as written/.test(pp));
+  ok('PP5d every page but the welcome page and the OAuth/discovery paths carries the policy links in its footer',
+     /<footer class="site-foot fine"><a href="\/privacy">Privacy<\/a>/.test(SRC)
+     && /includes\('welcome-foot'\) \|\| !req \|\| \/\^\\\/\(oauth\|\\\.well-known\)/.test(SRC));
   ok('PP6 every page links to the other two',
      /<a href="\/terms">Terms<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)
      && /<a href="\/privacy">Privacy<\/a> \\u00b7 <a href="\/support">Support<\/a>/.test(pp)

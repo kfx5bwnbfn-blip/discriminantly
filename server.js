@@ -2793,7 +2793,8 @@ const SUPPORT_EMAIL = () => {
 };
 // The date this wording took effect. Change it whenever the text changes.
 const POLICY_DATE = '21 September 2026';
-const PRIVACY_UPDATED = '23 September 2026';   // location, server logs and assistant results disclosed
+const PRIVACY_UPDATED = '12 October 2026';   // v2.85: connection keys (Muse), read-only keys, shared plans and share links, automatic place lookups, export
+
 if (!PUBLISHER() || !SUPPORT_EMAIL())
   console.warn('Policy pages are offline until PUBLISHER_NAME and SUPPORT_EMAIL are set.');
 
@@ -2810,36 +2811,44 @@ function policyPage(req, res, me, which) {
   const datedPrivacy = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${PRIVACY_UPDATED}</p>`;
   const pages = {
     privacy: ['Privacy', datedPrivacy, [
-      P(`Discriminantly is operated by ${who}. This page explains what Discriminantly keeps, who can see it, and what happens when you connect an AI assistant. Questions: ${contact}.`),
+      P(`Discriminantly is operated by ${who}. This page explains what Discriminantly keeps, who can see it, and what happens when you connect an AI service such as ChatGPT, Claude or Muse. Questions: ${contact}.`),
       H('What we keep'),
       P('Your account: your name, handle, email address and password. Your password is stored only as a salted scrypt hash, never in readable form. Your profile: a bio, a website and an avatar, if you add them.'),
       P('What you add: notes, travel marks, check-ins, collections, itineraries, ensembles, comments, warrants, ownership records, and the photos attached to them.'),
       P('Places and where you have been: for a travel mark, the place\u2019s name and, when a place lookup finds them, its address and map coordinates. A check-in keeps the dates you say you were there, so together your marks and check-ins are a record of where you have been. Check-ins follow the privacy of the mark they belong to.'),
-      P('A history of changes: when something is added, changed or removed, and whether you did it yourself or an assistant did it for you.'),
+      P('A history of changes: when something is added, changed or removed, and whether you did it yourself or an AI service did it for you, and if so which one. This is called provenance.'),
+      P('Shared plans: who you have invited to an itinerary, their role, the links you have made for it, and when those were used or revoked.'),
       P('Server logs: when a request fails, Discriminantly logs the time, what was being attempted, your handle, the names of the details it was given (not their contents), a short reference and the error, so the problem can be diagnosed. Our hosting provider also keeps standard request logs, such as the address requested, the time and the response. Both are kept for a limited period set by the provider.'),
-      P('AI connections: which assistants you have connected, when you connected them, when each was last used, and the credentials they use to connect.'),
+      P('AI connections: which AI services you have connected, when you connected them, when each was last used, whether a connection is read-only, and the credential each one uses, in hashed form except as noted under Credentials below.'),
       P('Cookies: one cookie keeps you signed in, and two remember your chosen look (the skin, and light or dark mode). Discriminantly itself runs no analytics and no advertising, and does not track you across other sites.'),
       H('Who can see it'),
-      P('Notes, travel marks and ensembles are visible to other members, and to anyone with the link, unless you mark them private. Itineraries start private. Check-ins, collection names, comments and warrants appear with the note or mark they belong to, so whoever can see that note or mark can see them too. Ownership records are visible only to you and assistants you connect. Your email address is never shown to other members.'),
-      P('Something you mark private is not visible to other members or the public. AI assistants you connect can see it, as described below. The operator can also access stored information, including private things, when that is needed to run, secure or support Discriminantly.'),
-      H('AI assistants you connect'),
-      P('When you connect an assistant, such as ChatGPT or Claude, it can read everything you keep here, including private things, and can add, change and remove things on your behalf. Each change it makes is recorded as that assistant acting for you.'),
-      P('What an assistant receives: the things it asks for, with the details needed to work with them, such as their identifiers, when you added them, their places and dates, and their privacy. When it reads public notes or comments by other members, it also receives those members\u2019 handles, as anyone viewing them here would.'),
-      P('What the assistant\u2019s provider keeps from your conversations, and how it uses it, is governed by that provider\u2019s own policies. You can disconnect an assistant in Settings at any time, and it loses access immediately.'),
+      P('Notes, travel marks and ensembles are visible to other members, and to anyone with the link, unless you mark them private. Itineraries start private. Check-ins, collection names, comments and warrants appear with the note or mark they belong to, so whoever can see that note or mark can see them too. Ownership records are visible only to you and AI services you connect. Your email address is never shown to other members.'),
+      P('Something you mark private is not visible to other members or the public. It is available to AI services only through a connection you have made, as described below. The operator can also access stored information, including private things, when that is needed to run, secure or support Discriminantly.'),
+      P('Shared plans: if you invite people to an itinerary, they can see its days and stops, including the name and address of each place, even a place you keep privately. You are asked to confirm this before inviting anyone. They do not see your notes about those places or your visits. Your notes attached to stops are visible to them only if the note itself is public. A share link shows the plan\u2019s days, stops and places, by name and city, to anyone who has the link, and lets them copy that outline into their own account. Nothing else of yours comes with it. You can remove people and revoke invitations and links at any time, but a copy someone has already made stays theirs. Changes made in a shared plan are recorded under the person who made them.'),
+      H('AI services you connect'),
+      P('An AI service can reach your Discriminantly account only after you connect it. There are two ways to do that. Some services, such as ChatGPT and Claude, ask you to sign in to Discriminantly and approve the connection. For others, such as Muse, you create a connection key in Settings and give it to the service yourself. A service you have not connected cannot reach anything you have marked private.'),
+      P('A connected service reaches Discriminantly when you use it: to find things you have kept, and to do what you ask, such as noting something, planning a trip, recording recommendations or checking in. A full-access connection can read everything in your account, including private things, and can add, change and remove things for you. A read-only key, available for the Muse connection, can read but cannot change anything: any attempt to change something is refused and nothing is saved.'),
+      P('What a service receives: the things it asks for, with the details needed to work with them, such as their identifiers, when you added them, their places and dates, and their privacy. When it reads public notes or comments by other members, it also receives those members\u2019 handles, as anyone viewing them here would.'),
+      P('Credentials: each connection you approve, and each connection key you create, has its own credential, which is stored only in hashed form. A connection key is shown to you once. In Settings you can revoke any of these connections on its own. Revoking takes effect immediately: the credential stops working, and your other connections are unaffected. Settings can also give you a personal connector address, an older way to connect, with one per account. It is stored as written so it can be shown to you in Settings, and replacing it stops the old address working. Revoking a connection does not delete anything. What the service saved for you stays in your account until you delete it, and what it already received is governed by its own provider.'),
+      P('Every change a connected service makes is recorded as that service, for example ChatGPT, Claude or Muse, acting for you.'),
+      P('What the service\u2019s provider (such as OpenAI, Anthropic or Meta) keeps from your conversations, and how it uses it, is governed by that provider\u2019s own policies.'),
       H('AI training'),
-      P('Discriminantly does not use what you keep to train AI models, and does not itself send it to any AI provider. It reaches an AI provider only through an assistant you have connected.'),
+      P('Discriminantly does not use what you keep to train AI models, and does not itself send it to any AI provider. It reaches an AI provider only through a service you have connected.'),
       H('Services we rely on'),
       P('Hosting: Discriminantly runs on Railway, a cloud hosting provider, which stores and processes what is kept here on our behalf.'),
-      P('Place lookups: when you or an assistant look up a place, Discriminantly sends the search text, such as a place name and city, to Photon, an open map search service run by Komoot. The request comes from our server, not your browser.'),
+      P('Place lookups: when you or an AI service look up a place, Discriminantly sends the search text, such as a place name and city, to Photon, an open map search service run by Komoot. It also does this automatically when a travel mark is saved without map coordinates, sending the mark’s name, address, city and country so it can be placed on a map. Only those place details are sent, never your notes, visits or account. The request comes from our server, not your browser.'),
       P('Links and images: when you add a link or an image link, Discriminantly visits that address from its server to fetch the image, or the page\u2019s title and picture. The site sees our server, not you.'),
       P('In your browser: pages load fonts from Google Fonts and Adobe Fonts, and maps are shown from OpenStreetMap. Your browser contacts those services directly, so they receive your IP address and basic browser details.'),
       H('Sharing and disclosure'),
-      P('We do not sell your personal information and do not share it with advertisers. We share it with the services above only as needed to run Discriminantly, and with the assistants you choose to connect. We may also disclose information when the law or valid legal process requires it, or when it is reasonably necessary to protect Discriminantly\u2019s security, investigate abuse or enforce our Terms.'),
+      P('We do not sell your personal information and do not share it with advertisers. We share it with the services above only as needed to run Discriminantly, with the people you invite to a plan or give a link to, and with the AI services you connect, when you use them. We may also disclose information when the law or valid legal process requires it, or when it is reasonably necessary to protect Discriminantly\u2019s security, investigate abuse or enforce our Terms.'),
       H('Keeping and deleting'),
       P('We keep what you add until you delete it. When you delete a note, mark, check-in, itinerary or ensemble, it is removed from your account right away. Some traces can remain afterwards: photos that were attached to it stay in storage, though no longer shown with it; the history of changes keeps a record that it existed and was removed; and copies can remain in backups until those backups are removed.'),
-      P(`To delete your whole account, write to ${contact}. Account deletion is currently done by hand, so it may take a little time.`),
+      P('Deleting and disconnecting are separate. Deleting something removes it from your account but leaves your AI connections as they are. Revoking a connection ends that service’s access but deletes nothing. A revoked connection stays listed in your history so earlier changes remain attributed.'),
+      H('Your copy, and deleting your account'),
+      P(`To get a copy of everything in your account, write to ${contact}. We will send it in a machine-readable format (JSON), with your photos. A connected AI service can also retrieve what you keep at any time.`),
+      P(`To delete your whole account, write to ${contact}. Account deletion is currently done by hand, so it may take a little time. Deleting your account deletes what it holds, as described above, and ends every AI connection it has.`),
       H('Security'),
-      P('We take reasonable technical and organizational measures to protect your account and what you keep here. No online service can guarantee complete security.'),
+      P('Connections to Discriminantly are encrypted in transit (HTTPS). Passwords are stored as salted scrypt hashes. The credentials for approved connections and connection keys, and the links for plan invitations and sharing, are stored only as hashes (the personal connector address is the exception noted above). Each AI connection has its own credential. Private things are shown only to you and through connections you have made, apart from the places in a plan you choose to share, as described above. We take reasonable technical and organizational measures to protect your account and what you keep here, but no online service can guarantee complete security.'),
       H('Changes'),
       P('If we change this policy in a way that matters, we will say so on the site. The date at the top shows when it last changed.'),
       P('<a href="/terms">Terms</a> \u00b7 <a href="/support">Support</a>'),
@@ -2869,11 +2878,11 @@ function policyPage(req, res, me, which) {
     support: ['Support', '', [
       P(`For help with Discriminantly, write to ${contact}.`),
       H('Connecting an AI assistant'),
-      P(`In your AI assistant, add Discriminantly from its apps, plugins or connectors (the name varies by assistant), sign in with your Discriminantly account, and approve access. If it asks for a server address, use ${mcpUrl}. Some assistants use a personal connector address instead, which you can create in Settings.`),
+      P(`In your AI assistant, add Discriminantly from its apps, plugins or connectors (the name varies by assistant), sign in with your Discriminantly account, and approve access. If it asks for a server address, use ${mcpUrl}. Some services, such as Muse, use a connection key instead: create one in Settings, choosing read-only if you only want the service to read, and give it to that service. The key is shown once.`),
       H('Disconnecting'),
-      P('Open Settings, find the assistant under Connected AI, and choose Revoke. It loses access immediately. If you use a personal connector address, choose Replace connector URL to stop the old address working.'),
+      P('Open Settings, find the service under Connected AI, and choose Revoke. It loses access immediately, and your other connections keep working. If you use a personal connector address, choose Replace connector URL to stop the old address working.'),
       H('Your account and data'),
-      P(`You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To delete your account, write to ${contact}.`),
+      P(`You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To get a copy of your data, or to delete your account, write to ${contact}.`),
       P('<a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a>'),
     ]],
   };
@@ -3758,7 +3767,8 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 </script>` : ''}
 ${flash ? `<div class="flash"><div class="wrap">${esc(flash)}</div></div>` : ''}${req && doneKey(req) ? `<div class="flash-done" role="status">${esc(DONE[doneKey(req)])}</div><script>(function(){try{var u=new URL(location.href);u.searchParams.delete('done');history.replaceState(null,'',u.pathname+u.search+u.hash);}catch(e){}})();</script>` : ''}
-<main class="wrap">${body}</main>
+<main class="wrap">${body}</main>${String(body).includes('welcome-foot') || !req || /^\/(oauth|\.well-known)(\/|$)/.test(String(req.url || '')) || String(body).includes('settings policy') ? '' : `
+<footer class="site-foot fine"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/support">Support</a></footer>`}
 <script>
 document.addEventListener('click', function (e) {
   var b = e.target.closest && e.target.closest('.share-mark');
