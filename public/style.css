@@ -1312,6 +1312,13 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
   .byline .avatar { width: var(--m-byline-avatar); height: var(--m-byline-avatar); flex: 0 0 auto;
     align-self: center; position: relative; top: .82rem; }   /* recentres on the date visually;
     a relative offset paints only — it does not alter what the row exposes as its baseline */
+  /* v2.79: the lettered avatar (no profile photo) must sit exactly where a
+     photo does. A photo's baseline is its bottom edge; a grid box's is the
+     letter inside it, which dropped the circle by half its height against the
+     date. As an inline-block with overflow hidden, its baseline is its bottom
+     edge too, so both kinds line up with the date the same way. */
+  .byline .avatar-initial { display: inline-block; overflow: hidden; text-align: center; vertical-align: baseline;
+    line-height: var(--m-byline-avatar); }
   .stackdate { flex-direction: row; align-items: baseline; gap: .28rem;
     margin: 0; line-height: 1; white-space: nowrap; }
   .stackdate .mon, .stackdate .day, .stackdate .yr {
