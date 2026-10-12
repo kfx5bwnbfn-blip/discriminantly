@@ -202,12 +202,17 @@ body[data-skin="modern"][data-mode="light"], html.m-light body[data-skin="modern
 body[data-skin="modern"] .avatar-initial {
   background: linear-gradient(135deg, var(--m-initial-a) 0%, var(--m-initial-b) 100%);
   color: var(--m-initial-ink); font-weight: 300; letter-spacing: 0;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.08), 0 0 0 1px var(--m-line-2);
-  text-shadow: 0 1px 0 rgba(255,255,255,.18);
+  /* an inset shadow falling from the top rim, blurred generously, so the
+     letter reads as set into the glass the way a photo does (its own inset
+     ring and the page shadow give photos that depth) */
+  box-shadow: inset 0 .55em 1.1em -.25em rgba(20,22,28,.42), inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 1px var(--m-line-2);
+  text-shadow: 0 1px 0 rgba(255,255,255,.12);
 }
-/* the glass sheen across the top half */
+/* a faint sheen low in the circle, where light would catch the far rim */
 body[data-skin="modern"] .avatar-initial::after { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
-  background: linear-gradient(180deg, rgba(255,255,255,.34) 0%, rgba(255,255,255,.06) 48%, rgba(255,255,255,0) 52%); }
+  background: linear-gradient(180deg, rgba(255,255,255,0) 55%, rgba(255,255,255,.16) 100%); }
+body[data-skin="modern"][data-mode="light"] .avatar-initial, html.m-light body[data-skin="modern"][data-mode="system"] .avatar-initial {
+  box-shadow: inset 0 .55em 1.1em -.25em rgba(20,22,28,.3), inset 0 1px 0 rgba(255,255,255,.4), 0 0 0 1px var(--m-line-2); }
 /* centred: the box is a grid everywhere, and where the byline makes it an
    inline-block (for baseline alignment with photos) the line box is the
    circle's height. A hair of top padding offsets the slab face's cap height
