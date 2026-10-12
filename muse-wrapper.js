@@ -108,13 +108,23 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
         return true;
       }
       delete req.headers.authorization; delete req.headers['x-api-key'];
+      // The body is read once here and replayed, unchanged, into www's mcp().
+      const { text } = req.method === 'POST' ? await ctx.readBody(req, 4 * 1024 * 1024) : { text: '' };
+      let msg = null; try { msg = JSON.parse(text); } catch {}
+      const msgs = Array.isArray(msg) ? msg : msg ? [msg] : [];
+      const { Readable } = require('stream');
+      const replay = () => { const r = Readable.from(text ? [Buffer.from(text)] : []); for (const k of ['method', 'url', 'headers', 'socket', 'httpVersion']) r[k] = req[k]; return r; };
+      // v2.84: provenance names the AI from the client's own declaration
+      // (MCP initialize clientInfo), written once. Muse's connector calls
+      // tools without an initialize, so its writes were attributed to
+      // 'unknown'. A key used on this address is Muse by construction, so an
+      // unnamed connection is named 'Muse' -- unless this very request
+      // declares a name, which then wins (the same write-once rule as www).
+      const declares = msgs.some((x) => x && x.params && (x.params.clientInfo || (x.params._meta && (x.params._meta.clientInfo || x.params._meta['client.info']))));
+      if (!conn.client_name && !declares) d.q("UPDATE connections SET client_name='Muse', client_label=CASE WHEN client_label='' THEN 'Muse' ELSE client_label END WHERE id=? AND client_name IS NULL").run(conn.id);
       if (conn.scope === 'read') {
-        // v2.83: a read-only key. The body is read here, any tools/call to a
-        // tool that is not read-only is answered with a refusal (nothing runs),
-        // and everything else is replayed, unchanged, into www's mcp().
-        const { text } = await ctx.readBody(req, 4 * 1024 * 1024);
-        let msg = null; try { msg = JSON.parse(text); } catch {}
-        const msgs = Array.isArray(msg) ? msg : msg ? [msg] : [];
+        // v2.83: a read-only key. Any tools/call to a tool that is not
+        // read-only is answered with a refusal (nothing runs).
         const blocked = msgs.filter((x) => x && x.method === 'tools/call' && !d.isReadOnlyTool(String((x.params && x.params.name) || '')));
         if (blocked.length) {
           ctx.record(req, p, { key_mode: true, stage: 'read_only_refused', via, tools: blocked.map((x) => ctx.str(x.params && x.params.name)) });
@@ -123,16 +133,13 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
           return ctx.json(res, 200, Array.isArray(msg) ? msg.map((x) => blocked.includes(x) ? refuse(x) : { jsonrpc: '2.0', id: x.id ?? null, error: { code: -32600, message: 'Batch refused: it contains a write on a read-only connection.' } }) : refuse(msg)), true;
         }
         ctx.record(req, p, { key_mode: true, stage: 'key_forwarded', via, read_only: true });
-        const { Readable } = require('stream');
-        const replay = Readable.from([Buffer.from(text)]);
-        for (const k of ['method', 'url', 'headers', 'socket', 'httpVersion']) replay[k] = req[k];
-        await d.READ_ONLY_CALL.run(true, () => d.mcp(replay, res, key));
+        await d.READ_ONLY_CALL.run(true, () => d.mcp(replay(), res, key));
         return true;
       }
       ctx.record(req, p, { key_mode: true, stage: 'key_forwarded', via });
       // www's own mcp(), untouched: the key goes in as the path credential, and
       // the headers are removed so neither is read as anything else.
-      await d.mcp(req, res, key);
+      await d.mcp(replay(), res, key);
       return true;
     }
     if (!ENABLED()) return false;

@@ -199,6 +199,18 @@ async function consent(s, q, form) {
     ok('K14 the refusal is logged by tool name, never the key', /"stage":"read_only_refused"[^\n]*"tools":\["note_object"\]/.test(K.log) && !K.log.includes(rkey));
     const fullWrite = await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + rkey.slice(0, 3) + 'x' }, body: call('note_object', { name: 'n', why: 'x' }) });
     ok('K15 an unknown key still gets the 401', fullWrite.status === 401);
+
+    // ---- attribution (v2.84): calls without initialize are attributed to Muse ----------
+    const fkey = crypto.randomBytes(24).toString('base64url');
+    { const d5 = new DatabaseSync(K.db); d5.prepare("INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label) VALUES(?,?,?,?,'My Muse')").run(crypto.randomUUID(), kuser, crypto.createHash('sha256').update(fkey).digest('hex'), fkey.slice(0, 6)); d5.close(); }
+    const made = JSON.parse((await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + fkey }, body: call('add_travel_mark', { place: 'Attribution Test Cafe', locality: 'Testville', country: 'Nowhere', private: true }) })).body);
+    const pv = (() => { const d6 = new DatabaseSync(K.db); try { return d6.prepare("SELECT p.agent, p.actor_type, p.connection_uid, c.client_name, c.client_label FROM provenance p JOIN connections c ON c.uid=p.connection_uid WHERE p.entity_type='mark' AND p.action='created' ORDER BY p.id DESC LIMIT 1").get(); } finally { d6.close(); } })();
+    ok('K16 a write through a key with no initialize is attributed to Muse, on that connection', made.result && !made.result.isError && pv && pv.agent === 'muse' && pv.actor_type === 'ai_on_behalf' && pv.client_name === 'Muse' && pv.client_label === 'My Muse', JSON.stringify(pv) + ' ' + JSON.stringify(made).slice(0, 300));
+    const named = crypto.randomBytes(24).toString('base64url');
+    { const d7 = new DatabaseSync(K.db); d7.prepare("INSERT INTO connections(uid,user_id,token_hash,token_prefix,client_label) VALUES(?,?,?,?,'Other')").run(crypto.randomUUID(), kuser, crypto.createHash('sha256').update(named).digest('hex'), named.slice(0, 6)); d7.close(); }
+    await req(K, { method: 'POST', p: '/mcp', headers: { ...J, authorization: 'Bearer ' + named }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', clientInfo: { name: 'Muse Agent', version: '1' }, capabilities: {} } }) });
+    const cn = (() => { const d8 = new DatabaseSync(K.db); try { return d8.prepare("SELECT client_name FROM connections WHERE token_prefix=?").get(named.slice(0, 6)).client_name; } finally { d8.close(); } })();
+    ok('K17 a client that declares itself keeps its own name', cn === 'Muse Agent', cn);
     await stop(K);
   } catch (e) { console.error(e); fail++; } finally {
     for (const s of all) { try { s.proc.kill(); } catch {} }
