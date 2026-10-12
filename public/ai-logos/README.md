@@ -7,7 +7,7 @@ The Welcome card picks a file up automatically; nothing else to change.
 |---|---|---|
 | `chatgpt.svg` (or `.png` / `.webp`) | ChatGPT | OpenAI brand guidelines |
 | `claude.svg` (or `.png` / `.webp`) | Claude | the orange Claude mark, from the MIT-licensed @lobehub/icons-static-svg package (claude-color.svg, sizing attributes removed); swap for Anthropic's own file if one is published |
-| `muse.svg` (or `.png` / `.webp`) | Muse | Meta brand resources |
+| `muse.png` (or `.svg` / `.webp`) | Muse | the Muse mascot, from the file Brian supplied (Oct 12 2026), downscaled to 160×160; replaces the Meta lockup |
 | `other.svg` (optional) | Other | anything neutral; a monogram stands in otherwise |
 
 Square, with the mark centred; it is shown at 40×40 CSS px (so 80×80 or an SVG for sharp display).
