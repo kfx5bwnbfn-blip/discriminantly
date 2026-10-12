@@ -2588,6 +2588,74 @@ function connectionRevoke(userId, uid) {
 const connectionsOf = (userId) =>
   q('SELECT * FROM connections WHERE user_id=? ORDER BY id DESC').all(userId);
 
+// ---- Account deletion (v2.86) -------------------------------------------------
+// A member deletes their own account from Settings. Everything the account
+// holds goes, in one transaction: notes, marks, visits, collections, comments
+// (theirs, and others' on their things), ownership and warrant records,
+// ensembles, recommendations, itineraries they own (with their days, stops,
+// invitations, links and participants), their place in other people's plans,
+// AI connections and tokens, sessions, and their images (rows now, files
+// after commit). The history of changes is removed for everything they owned
+// and for everything they did. What stays: a stop they added to someone
+// else's plan (it belongs to that plan), and copies other people made of
+// their public things or shared plans, which are those people's own records.
+// The admin account cannot be deleted this way (it is recreated at boot).
+const ACCOUNT_UID_TABLES = ['objects', 'marks', 'visits', 'comments', 'collections', 'images', 'mark_comments',
+  'ownership_assertions', 'warrants', 'note_relations', 'ensembles', 'image_uploads', 'itineraries', 'connections',
+  'itinerary_stop_notes', 'adoptions', 'recommendations'];
+function accountDelete(userId) {
+  const u = q('SELECT * FROM users WHERE id=?').get(userId);
+  if (!u) throw new Error('No such account.');
+  if (isAdminUi(u)) throw new Error('The admin account can’t be deleted here.');
+  const uidCols = (t) => { try { return q(`PRAGMA table_info(${t})`).all().some((c) => c.name === 'uid'); } catch { return false; } };
+  let imageUids = [];
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    // 1. Every uid the account owns, so its history can go with it.
+    const uids = new Set([u.uid]);
+    const add = (rows) => { for (const r of rows) if (r.uid) uids.add(r.uid); };
+    for (const t of ACCOUNT_UID_TABLES) if (uidCols(t)) add(q(`SELECT uid FROM ${t} WHERE user_id=?`).all(userId));
+    add(q('SELECT uid FROM follows WHERE follower_id=? OR followee_id=?').all(userId, userId));
+    add(q('SELECT c.uid FROM ensemble_components c JOIN ensembles e ON e.id=c.ensemble_id WHERE e.user_id=?').all(userId));
+    add(q('SELECT a.uid FROM ensemble_artifacts a JOIN ensembles e ON e.id=a.ensemble_id WHERE e.user_id=?').all(userId));
+    add(q('SELECT d.uid FROM visit_days d JOIN visits v ON v.id=d.visit_id WHERE v.user_id=?').all(userId));
+    for (const t of ['itinerary_groups', 'itinerary_stops', 'itinerary_invitations', 'itinerary_removed', 'itinerary_shares'])
+      add(q(`SELECT x.uid FROM ${t} x JOIN itineraries i ON i.id=x.itinerary_id WHERE i.user_id=?`).all(userId));
+    imageUids = q('SELECT uid FROM images WHERE user_id=?').all(userId).map((r) => r.uid).filter(Boolean);
+    const objIds = q('SELECT id FROM objects WHERE user_id=?').all(userId).map((r) => r.id);
+    const markIds = q('SELECT id FROM marks WHERE user_id=?').all(userId).map((r) => r.id);
+    // 2. Plans they own (in the itinerary core block, with every other itinerary write).
+    itinerariesDeleteForAccount(userId);
+    // 3. Records whose foreign key would otherwise block or orphan.
+    q('DELETE FROM objects WHERE user_id=?').run(userId);
+    q('DELETE FROM images WHERE user_id=?').run(userId);
+    q('UPDATE invites SET from_user=NULL WHERE from_user=?').run(userId);
+    q('UPDATE invites SET used_by=NULL WHERE used_by=?').run(userId);
+    // Bare ids (no foreign key) in other people's plans: cleared, not left dangling.
+    q('UPDATE itinerary_invitations SET responded_by=NULL WHERE responded_by=?').run(userId);
+    q('UPDATE itinerary_shares SET revoked_by=NULL WHERE revoked_by=?').run(userId);
+    q('UPDATE itinerary_members SET ended_by=NULL WHERE ended_by=?').run(userId);
+    q('UPDATE itinerary_removed SET removed_by=NULL WHERE removed_by=?').run(userId);
+    q('UPDATE itinerary_removed SET restored_by=NULL WHERE restored_by=?').run(userId);
+    const del = (sql, ids) => { for (let i = 0; i < ids.length; i += 400) { const c = ids.slice(i, i + 400); q(sql.replace('?*', c.map(() => '?').join(','))).run(...c); } };
+    del("DELETE FROM linked_image_backlog WHERE kind='object' AND row_id IN (?*)", objIds);
+    del("DELETE FROM linked_image_backlog WHERE kind='mark' AND row_id IN (?*)", markIds);
+    // 4. The account itself; everything else keyed to it cascades.
+    q('DELETE FROM provenance WHERE actor_user_id=?').run(userId);
+    q('DELETE FROM users WHERE id=?').run(userId);
+    // 5. History and derived relations about anything the account owned,
+    //    including rows the delete triggers above just wrote.
+    const all = [...uids];
+    del('DELETE FROM provenance WHERE entity_uid IN (?*)', all);
+    del('DELETE FROM derived_relations WHERE subject_uid IN (?*)', all);
+    del('DELETE FROM derived_relations WHERE object_uid IN (?*)', all);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  for (const uid of imageUids) { removeImageFile(uid); removeRenditions(uid); }
+  console.log(`[account] deleted account #${userId}`);
+  return true;
+}
+
 // ---- OAuth 2.1 authorization ------------------------------------------------
 // Discriminantly is its own authorization server, for exactly one resource
 // (its MCP endpoint) and one scope. It is deliberately not a general OAuth
@@ -2793,7 +2861,8 @@ const SUPPORT_EMAIL = () => {
 };
 // The date this wording took effect. Change it whenever the text changes.
 const POLICY_DATE = '21 September 2026';
-const PRIVACY_UPDATED = '12 October 2026';   // v2.85: connection keys (Muse), read-only keys, shared plans and share links, automatic place lookups, export
+const TERMS_UPDATED = '12 October 2026';   // v2.86: self-serve account deletion
+const PRIVACY_UPDATED = '12 October 2026';   // v2.86: self-serve account deletion. v2.85: connection keys (Muse), read-only keys, shared plans and share links, automatic place lookups, export
 
 if (!PUBLISHER() || !SUPPORT_EMAIL())
   console.warn('Policy pages are offline until PUBLISHER_NAME and SUPPORT_EMAIL are set.');
@@ -2807,7 +2876,7 @@ function policyPage(req, res, me, which) {
   const contact = `<a href="mailto:${esc(email)}">${esc(email)}</a>`;
   const mcpUrl = esc(PUBLIC_ORIGIN + '/mcp');
   const P = (t) => `<p class="policy-p">${t}</p>`, H = (t) => `<h2 class="policy-h">${t}</h2>`;
-  const dated = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${POLICY_DATE}</p>`;
+  const dated = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${TERMS_UPDATED}</p>`;
   const datedPrivacy = `<p class="policy-date">Effective ${POLICY_DATE} \u00b7 Last updated ${PRIVACY_UPDATED}</p>`;
   const pages = {
     privacy: ['Privacy', datedPrivacy, [
@@ -2846,7 +2915,8 @@ function policyPage(req, res, me, which) {
       P('Deleting and disconnecting are separate. Deleting something removes it from your account but leaves your AI connections as they are. Revoking a connection ends that service’s access but deletes nothing. A revoked connection stays listed in your history so earlier changes remain attributed.'),
       H('Your copy, and deleting your account'),
       P(`To get a copy of everything in your account, write to ${contact}. We will send it in a machine-readable format (JSON), with your photos. A connected AI service can also retrieve what you keep at any time.`),
-      P(`To delete your whole account, write to ${contact}. Account deletion is currently done by hand, so it may take a little time. Deleting your account deletes what it holds, as described above, and ends every AI connection it has.`),
+      P('You can delete your account yourself, in Settings under Your data, by confirming your handle and password. This takes effect immediately and cannot be undone. It deletes your account and everything in it: your profile, notes, travel marks, check-ins, collections, comments (and other people’s comments on your things), ownership and warrant records, ensembles, recommendations and photos, including the photo files. It also deletes the plans you own, for everyone you shared them with, and the history of changes for everything you owned and did. It ends every AI connection and signs you out everywhere.'),
+      P('Some things are not deleted, because they belong to other people. A stop you added to someone else’s plan stays in that plan. Copies other members made of your public things or shared plans are their own records. Copies of your data can also remain in backups until those backups are removed, and in server logs for the period described above.'),
       H('Security'),
       P('Connections to Discriminantly are encrypted in transit (HTTPS). Passwords are stored as salted scrypt hashes. The credentials for approved connections and connection keys, and the links for plan invitations and sharing, are stored only as hashes (the personal connector address is the exception noted above). Each AI connection has its own credential. Private things are shown only to you and through connections you have made, apart from the places in a plan you choose to share, as described above. We take reasonable technical and organizational measures to protect your account and what you keep here, but no online service can guarantee complete security.'),
       H('Changes'),
@@ -2867,7 +2937,7 @@ function policyPage(req, res, me, which) {
       H('Acceptable use'),
       P('Do not use Discriminantly to break the law, infringe other people\u2019s rights, or harass or abuse anyone. Do not try to access other people\u2019s accounts or data, disrupt or compromise the service, or overload it with automated requests.'),
       H('If these terms are broken'),
-      P('If you break these terms, or your use puts the service or other people at risk, we may restrict or suspend your access. Suspension on its own does not delete your content. You can stop using Discriminantly at any time and ask us to delete your account; if an account is closed, what it holds is deleted as described in our Privacy policy.'),
+      P('If you break these terms, or your use puts the service or other people at risk, we may restrict or suspend your access. Suspension on its own does not delete your content. You can stop using Discriminantly at any time and delete your account yourself in Settings. When an account is deleted, what it holds is deleted as described in our Privacy policy, including plans it owns that were shared with others.'),
       H('The service'),
       P('We work to keep Discriminantly running and what you keep safe, but it is provided as it is, without warranties. Features may change over time. If we ever decide to shut Discriminantly down, we will aim to give reasonable notice, and to help you keep a copy of what you have kept, where practical.'),
       P('To the extent the law allows, we are not liable for indirect or consequential losses arising from your use of Discriminantly. Nothing in these terms limits rights you have that the law does not allow to be limited.'),
@@ -2882,7 +2952,7 @@ function policyPage(req, res, me, which) {
       H('Disconnecting'),
       P('Open Settings, find the service under Connected AI, and choose Revoke. It loses access immediately, and your other connections keep working. If you use a personal connector address, choose Replace connector URL to stop the old address working.'),
       H('Your account and data'),
-      P(`You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To get a copy of your data, or to delete your account, write to ${contact}.`),
+      P(`You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To delete your whole account, open Settings, go to Your data, choose Delete my account, and confirm with your handle and password. It happens immediately and cannot be undone. To get a copy of your data, write to ${contact}.`),
       P('<a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a>'),
     ]],
   };
@@ -2916,6 +2986,9 @@ const DONE = {
   'invite-revoked': 'Invitation revoked. Its link no longer works.',
   'link-revoked': 'Link revoked. It no longer opens the plan; copies already made stay with the people who made them.',
   'role-changed': 'Role changed.',
+  'avatar-set': 'Profile photo updated.',
+  'avatar-removed': 'Profile photo removed.',
+  'account-deleted': 'Your account and everything in it have been deleted.',
   'member-removed': 'Removed from the plan. Their own places and notes stay theirs.',
   restored: 'Restored to the plan.',
   kept: 'Kept in your travel marks.',
@@ -6479,7 +6552,7 @@ function loginBlocked(req, email) {
 function loginFailed(req, email) { const now = Date.now(); for (const k of loginKeys(req, email)) LOGIN_FAILS.set(k, [...(LOGIN_FAILS.get(k) || []).filter((t) => now - t < 15 * 60e3), now]); }
 function loginSucceeded(req, email) { LOGIN_FAILS.delete(loginKeys(req, email)[1]); }
 // Terms: which versions a member agreed to, from the policy pages' own dates.
-const TERMS_VERSION = () => `terms:${POLICY_DATE}|privacy:${PRIVACY_UPDATED}`;
+const TERMS_VERSION = () => `terms:${TERMS_UPDATED}|privacy:${PRIVACY_UPDATED}`;
 // Starters: one set of first acts, used by Welcome and the empty states.
 const STARTERS = {
   plan: ['Help me plan an upcoming trip to [destination] in Discriminantly that I can collaborate on with friends: a plan by day, with places we can each add to.', 'A plan you and your friends change together, in one conversation.'],
@@ -7400,6 +7473,16 @@ function placeInScope(table, scope, id, pos) {
 function txn(fn) {
   const tx = !db.isTransaction; if (tx) db.exec('BEGIN');
   try { const out = fn(); if (tx) db.exec('COMMIT'); return out; } catch (e) { if (tx) { try { db.exec('ROLLBACK'); } catch {} } throw e; }
+}
+// v2.86: account deletion removes every plan the account owns, shared or not:
+// stops, then days, then the plan (stops RESTRICT days). Runs inside the
+// caller's transaction (accountDelete).
+function itinerariesDeleteForAccount(userId) {
+  for (const it of q('SELECT id FROM itineraries WHERE user_id=?').all(userId)) {
+    q('DELETE FROM itinerary_stops WHERE itinerary_id=?').run(it.id);
+    q('DELETE FROM itinerary_groups WHERE itinerary_id=?').run(it.id);
+    q('DELETE FROM itineraries WHERE id=?').run(it.id);
+  }
 }
 function itinRemoveStop(user, stop, itin, ctx) {
   return txn(() => {
@@ -10956,6 +11039,41 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <p class="fine center">The ${log.length === 200 ? '200 most recent' : log.length} things they have done, newest first. Times in Eastern.${adminOn(me) ? '' : ' Private items are named only with your private view on.'}</p>
       <p class="center"><a class="btn3d" href="/u/${esc(u.handle)}">Open their profile</a></p>
     </div>
+    <div class="wcell wcell-wide" id="member-photo">
+      <p class="sbox-title">Profile photo</p>
+      <p class="sbox-sub">Set or remove @${esc(u.handle)}’s photo. It is cropped to a square from the centre.</p>
+      <form method="post" action="/admin/members/${esc(u.handle)}/avatar" class="admin-avatar-form">
+        <input type="hidden" name="avatar" value="">
+        <label class="btn3d block">Choose a photo<input type="file" accept="image/*" style="display:none" data-admin-avatar></label>
+        <img class="avatar big" data-admin-avatar-preview alt="" style="display:none">
+        <button class="btn3d block" data-admin-avatar-save style="display:none">Save photo</button>
+      </form>
+      ${u.avatar ? `<form method="post" action="/admin/members/${esc(u.handle)}/avatar"><input type="hidden" name="remove" value="1"><p class="center"><button class="link caps">Remove photo</button></p></form>` : ''}
+      <script>
+      (function () {
+        var f = document.querySelector('#member-photo .admin-avatar-form'); if (!f) return;
+        var input = f.querySelector('[data-admin-avatar]'), prev = f.querySelector('[data-admin-avatar-preview]'), save = f.querySelector('[data-admin-avatar-save]');
+        input.addEventListener('change', function () {
+          var file = input.files && input.files[0]; if (!file) return;
+          var r = new FileReader();
+          r.onload = function () {
+            var img = new Image();
+            img.onload = function () {
+              var S = 640, cv = document.createElement('canvas'); cv.width = cv.height = S;
+              var n = Math.min(img.width, img.height), cx = cv.getContext('2d');
+              cx.fillStyle = '#fff'; cx.fillRect(0, 0, S, S);     // transparent edges become white, not black
+              cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+              cx.drawImage(img, (img.width - n) / 2, (img.height - n) / 2, n, n, 0, 0, S, S);
+              f.avatar.value = cv.toDataURL('image/jpeg', 0.92);
+              prev.src = f.avatar.value; prev.style.display = ''; save.style.display = '';
+            };
+            img.src = r.result;
+          };
+          r.readAsDataURL(file);
+        });
+      })();
+      </script>
+    </div>
     ${(() => {
       // v2.68: where this member is in the activation model (derived, nothing stored)
       const pr = activationProfile(u);
@@ -11142,6 +11260,21 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <a class="btn3d block" href="/admin">Open Admin</a>
           </div>
         </div>` : ''}
+        <div class="wtable settings-table" id="your-data">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Your data</p>
+            <p class="sbox-sub">To get a copy of everything in your account, write to ${SUPPORT_EMAIL() ? `<a href="mailto:${esc(SUPPORT_EMAIL())}">${esc(SUPPORT_EMAIL())}</a>` : 'support'}.</p>
+            ${isAdminUi(me) ? '<p class="fine center">The admin account can’t be deleted from Settings.</p>' : `<details class="share-opt-x account-delete"${err && /delete|handle|password/i.test(err) ? ' open' : ''}>
+              <summary class="link caps">Delete my account</summary>
+              <form method="post" action="/settings/delete-account">
+                <p class="fine">This permanently deletes your account and everything in it: your notes, travel marks, check-ins, collections, comments, ensembles, recommendations and photos, and the plans you own, including for anyone you’ve shared them with. It also disconnects every AI service you’ve connected. It can’t be undone. Copies other people have already made of your public things or shared plans are theirs and stay.</p>
+                <label class="slabel">Type your handle, ${esc(me.handle)}, to confirm<input name="confirm" autocapitalize="none" autocomplete="off" spellcheck="false" required></label>
+                <label class="slabel">Your password<input type="password" name="password" autocomplete="current-password" required></label>
+                <button class="btn3d block danger">Delete my account permanently</button>
+              </form>
+            </details>`}
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -15289,6 +15422,31 @@ async function handle(req, res) {
     }
     if (m === 'POST') { if (q('SELECT COUNT(*) c FROM invites WHERE from_user=? AND used_by IS NULL').get(me.id).c < 5) q('INSERT INTO invites(code,from_user) VALUES(?,?)').run(token(6), me.id); return redirect(res, '/invites'); }
     return redirect(res, '/settings'); // joining is open; no invites page
+  }
+  // v2.86: the admin sets or clears a member's profile photo (e.g. a test account's).
+  if ((mt = p.match(/^\/admin\/members\/([a-z0-9]+)\/avatar$/)) && m === 'POST') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const u = q('SELECT * FROM users WHERE handle=?').get(mt[1]);
+    if (!u) return send(res, 'Not found', 404);
+    const b = await readBody(req);
+    if (b.remove === '1') { q("UPDATE users SET avatar='' WHERE id=?").run(u.id); return redirect(res, withDone(`/admin/members/${u.handle}`, 'avatar-removed')); }
+    const a = String(b.avatar || '');
+    if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a) || a.length > 3e6) return send(res, 'That image could not be used. Choose a JPEG, PNG or WebP photo.', 400);
+    q('UPDATE users SET avatar=? WHERE id=?').run(a, u.id);
+    return redirect(res, withDone(`/admin/members/${u.handle}`, 'avatar-set'));
+  }
+  // v2.86: a member deletes their own account. Their password and their handle
+  // typed out confirm it; the admin account is refused.
+  if (p === '/settings/delete-account' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const again = (msg) => pages.settings(req, res, me, msg);
+    if (isAdminUi(me)) return again('The admin account can’t be deleted from Settings.');
+    if (String(b.confirm || '').trim().toLowerCase().replace(/^@/, '') !== me.handle) return again('To delete your account, type your handle exactly as shown.');
+    let okPass = false; try { okPass = checkPass(String(b.password || ''), me.pass); } catch {}
+    if (!okPass) return again('That password isn’t right, so nothing was deleted.');
+    try { accountDelete(me.id); } catch (e) { console.error('[account] delete failed', e.message); return again('Your account couldn’t be deleted just now, and nothing was changed. Please try again, or write to support.'); }
+    return redirect(res, withDone('/', 'account-deleted'), { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' });
   }
   if ((mt = p.match(/^\/admin\/members\/([a-z0-9]+)$/)) && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);

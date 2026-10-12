@@ -932,6 +932,11 @@
 .welcome-foot { text-align: center; margin: 2.4rem auto 2rem; }
 body[data-skin] footer.welcome-foot a { color: inherit; text-decoration: none; }
 body[data-skin] footer.welcome-foot a:hover { text-decoration: underline; }
+/* v2.86: Settings, delete my account; Admin, a member's photo */
+.account-delete > summary { display: block; text-align: center; margin: .6rem 0 .2rem; cursor: pointer; }
+.account-delete form { display: grid; gap: .7rem; margin-top: .6rem; }
+.btn3d.danger { color: #d9443b; }
+.admin-avatar-form { display: grid; gap: .7rem; justify-items: center; }
 /* v2.85: the same small print at the foot of every other page */
 .site-foot { text-align: center; margin: 2.4rem auto 2rem; opacity: .75; }
 body[data-skin] footer.site-foot a { color: inherit; text-decoration: none; }

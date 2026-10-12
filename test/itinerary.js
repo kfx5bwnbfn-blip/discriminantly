@@ -1009,7 +1009,7 @@ console.log('\npolicy pages');
   ok('PP4 the configured publisher and address are escaped before rendering',
      /const who = esc\(PUBLISHER\(\)\), email = SUPPORT_EMAIL\(\);/.test(pp) && /mailto:\$\{esc\(email\)\}/.test(pp));
   ok('PP5 privacy and terms carry an effective and a last-updated date',
-     /const POLICY_DATE = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all) && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{POLICY_DATE\}/.test(pp)
+     /const POLICY_DATE = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all) && /Effective \$\{POLICY_DATE\} \\u00b7 Last updated \$\{TERMS_UPDATED\}/.test(pp) && /const TERMS_UPDATED = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all)
      && /terms: \['Terms', dated,/.test(pp)
      // Privacy keeps its effective date and carries its own last-updated date (v2.54.1)
      && /const PRIVACY_UPDATED = '\d{1,2} [A-Z][a-z]+ \d{4}'/.test(all)
@@ -1027,6 +1027,9 @@ console.log('\npolicy pages');
      && /automatically when a travel mark is saved without map coordinates/.test(pp)
      && /To get a copy of everything in your account/.test(pp) && /We do not sell your personal information/.test(pp)
      && /personal connector address[^']*stored as written/.test(pp));
+  ok('PP5e account deletion is self-serve in every policy that mentions it, and no page still says it is done by hand',
+     /delete your account yourself, in Settings under Your data/.test(pp) && /delete your account yourself in Settings/.test(pp)
+     && /choose Delete my account/.test(pp) && !/done by hand/.test(pp) && !/ask us to delete your account/.test(pp));
   ok('PP5d every page but the welcome page and the OAuth/discovery paths carries the policy links in its footer',
      /<footer class="site-foot fine"><a href="\/privacy">Privacy<\/a>/.test(SRC)
      && /includes\('welcome-foot'\) \|\| !req \|\| \/\^\\\/\(oauth\|\\\.well-known\)/.test(SRC));
@@ -1044,7 +1047,7 @@ console.log('\npolicy pages');
      /Adobe Fonts/.test(pp) && /OpenStreetMap/.test(pp) && /Photon/.test(pp) && /visits that address from its server/.test(pp)
      && /operator can also access stored information/.test(pp) && /does not use what you keep to train AI models/.test(pp)
      && /copies can remain in backups/.test(pp) && /photos that were attached to it stay in storage/.test(pp)
-     && /Account deletion is currently done by hand/.test(pp));
+     && /You can delete your account yourself, in Settings/.test(pp));
   ok('PP10 the AI-training claim is still true: the server calls no AI provider',
      !/api\.openai\.com|api\.anthropic\.com|generativelanguage\.googleapis|replicate\.com/.test(SRC.replace(/\/\/[^\n]*/g, '')));
 }
