@@ -35,6 +35,9 @@ const crypto = require('crypto');
 
 const ENABLED = () => process.env.MUSE_WRAPPER === '1';
 const SEND_ISS = () => process.env.MUSE_SEND_ISS !== '0';
+// v2.81: the status of the redirect back to Meta. 303 by default; 302 is what
+// the one publicly verified-working Muse OAuth server returns (Oct 2026).
+const REDIRECT_STATUS = () => (process.env.MUSE_REDIRECT_STATUS === '302' ? 302 : 303);
 const CODE_TTL = 10 * 60e3, PENDING_TTL = 30 * 60e3, MAX_ITEMS = 500;
 const DCR_ID = /^muse-dcr-[0-9a-f]{16}$/;
 
@@ -70,7 +73,7 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
     const u = new URL(redirectUri);
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== '') u.searchParams.set(k, v);
     if (SEND_ISS()) u.searchParams.set('iss', ctx.ORIGIN);
-    res.writeHead(303, { Location: u.toString(), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    res.writeHead(REDIRECT_STATUS(), { Location: u.toString(), 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
     res.end();
   }
 
@@ -79,7 +82,7 @@ ${err ? `<p class="err">${esc(err)}</p>` : ''}
     if (!ENABLED()) return false;
     const p = url.pathname, m = req.method === 'HEAD' ? 'GET' : req.method;
     const d = depsFn();
-    const stage = (name, extra = {}) => ctx.record(req, p, { wrapper: true, stage: name, iss_sent: SEND_ISS(), ...extra });
+    const stage = (name, extra = {}) => ctx.record(req, p, { wrapper: true, stage: name, iss_sent: SEND_ISS(), redirect_status: REDIRECT_STATUS(), ...extra });
 
     if (p === '/oauth/register') {
       if (m !== 'POST') { stage('register_wrong_method'); ctx.json(res, 405, { error: 'invalid_request' }); return true; }

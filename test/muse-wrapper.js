@@ -144,6 +144,14 @@ async function consent(s, q, form) {
     const t3 = await req(N, { method: 'POST', p: '/oauth/token', headers: J, body: JSON.stringify({ grant_type: 'authorization_code', code: go3.loc.searchParams.get('code'), code_verifier: k3.v }) });
     ok('W25 a JSON token request without client_id also works (public client)', t3.status === 200 && !!JSON.parse(t3.body).access_token, t3.body);
     await stop(N);
+
+    // ---- 302 back to Meta (v2.81) ----------------------------------------------------------
+    const R = boot({ MUSE_WRAPPER: '1', MUSE_REDIRECT_STATUS: '302' }); all.push(R); await up(R);
+    const k4 = pkce();
+    const go4 = await consent(R, authQ({ code_challenge: k4.c }), { action: 'allow', email: email(R), password: PW });
+    ok('W26 MUSE_REDIRECT_STATUS=302 sends Allow back as a 302, still with code, state and iss', go4.r.status === 302 && !!go4.loc.searchParams.get('code') && !!go4.loc.searchParams.get('state') && go4.loc.searchParams.get('iss') === ORIGIN, go4.r.status);
+    ok('W27 and the log records which status was used', /"redirect_status":302/.test(R.log));
+    await stop(R);
   } catch (e) { console.error(e); fail++; } finally {
     for (const s of all) { try { s.proc.kill(); } catch {} }
     await new Promise((r) => setTimeout(r, 300));
