@@ -2569,6 +2569,7 @@ body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ai-panel, html.m-l
 body[data-skin="modern"][data-mode="light"] .welcome-card .wl-ai-panel::before, html.m-light body[data-skin="modern"][data-mode="system"] .welcome-card .wl-ai-panel::before { border-bottom-color: rgba(20,22,28,.045); }
 body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ais label[data-ai="chatgpt"],
 body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
+body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-muse-"]:checked ~ .wl-ais label[data-ai="muse"],
 body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] {
   background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), 0 0 0 4px var(--m-line-2), var(--m-shadow); color: var(--m-ink); }
 /* v2.66.1 phones: the bottom bar scrolls sideways when its icons do not fit (no visible scrollbar);

@@ -1158,11 +1158,9 @@ body:not([data-skin="modern"]) .is-proposed > .card { border-style: dashed; }
 .welcome-card .wl-ai-logo { display: inline-flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; margin-bottom: .15rem; }
 .welcome-card .wl-ai-logo img, .welcome-card .wl-ai-logo svg { width: 2.5rem; height: 2.5rem; display: block; object-fit: contain; }
 /* Official marks, used as provided: the OpenAI blossom sits in a generous canvas, so it is
-   scaled to fill the slot; Meta's file is the full lockup (symbol and wordmark), so its slot is wider. */
+   scaled to fill the slot. The Muse mascot (v2.85.1) is square and uses the shared slot as is. */
 .welcome-card .wl-ai[data-ai="chatgpt"] .wl-ai-logo img { transform: scale(1.45); }
 .welcome-card .wl-ai[data-ai="claude"] .wl-ai-logo img { transform: scale(.92); }
-.welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo { width: auto; }
-.welcome-card .wl-ai[data-ai="muse"] .wl-ai-logo img { width: 5.6rem; height: 2.5rem; }
 .welcome-card .wl-ai-mono svg text { font-family: var(--slab); }
 .welcome-card .wl-ais { align-items: stretch; }
 .welcome-card label.wl-ai { height: 100%; box-sizing: border-box; justify-content: flex-start; }
@@ -1397,6 +1395,7 @@ body[data-skin] .welcome-card input.wl-ai-toggle { display: none !important; }
 /* the open tile: lifted like an active profile chip (brighter fill, light edge, faint halo) */
 .welcome-card .wl-ai-toggle[id^="wl-ai-chatgpt-"]:checked ~ .wl-ais label[data-ai="chatgpt"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-other-"]:checked ~ .wl-ais label[data-ai="other"],
+.welcome-card .wl-ai-toggle[id^="wl-ai-muse-"]:checked ~ .wl-ais label[data-ai="muse"],
 .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checked ~ .wl-ais label[data-ai="claude"] { background: rgba(0,0,0,.09); box-shadow: 0 0 0 4px rgba(127,127,127,.18); }
 /* Orientation: the outcome headings at the step headline's size */
 body[data-skin] .welcome-card .wl-kind .wl-kind-name, body[data-skin] .welcome-card .wl-warrant .wl-warrant-name { font-size: 21.25px; font-size: 1.25rem; line-height: 1.3; }
