@@ -14796,6 +14796,9 @@ async function handle(req, res) {
   if (p === '/travel-marks') return PUB().travelMarks(req, res, me);
   if (p === '/ai') return PUB().aiHub(req, res, me);
   if (p === '/ai/muse') return PUB().muse(req, res, me);
+  if (p === '/ai/chatgpt') return PUB().chatgpt(req, res, me);
+  if (p === '/ai/claude') return PUB().claude(req, res, me);
+  if (p === '/ai/other') return PUB().other(req, res, me);
   if (p === '/guides') return PUB().guides(req, res, me);
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 

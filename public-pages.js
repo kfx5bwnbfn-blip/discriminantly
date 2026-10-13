@@ -65,9 +65,7 @@ function create(d) {
       ${p.review ? `<div><dt>Review</dt><dd>${esc(p.review)}</dd></div>` : ''}
       ${p.basis ? `<div><dt>Verification</dt><dd>${esc(p.basis)}</dd></div>` : ''}
     </dl>
-    ${p.reviewDetail ? `<p class="pub-p">${esc(p.reviewDetail)}</p>` : ''}
-    <p class="pub-p">${esc(p.summary)}</p>
-    <p class="pub-plat-act"><a class="link caps" href="${esc(p.guide)}">${p.guide.includes('#') ? 'How to connect' : 'Guide'} →</a></p>
+    <p class="pub-plat-act"><a class="link caps" href="${esc(p.guide)}">Guide →</a></p>
   </article>`;
   const stepsList = (items) => `<ol class="steps wl-how pub-steps">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
   const page = (res, me, req, { path, title, description, h1, lede, body, home = false, cls = '' }) =>
@@ -189,50 +187,70 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
   }
 
   // ---- 4. Use with AI hub -----------------------------------------------------
+  // The hub routes; it does not repeat the steps. Each platform has its own page.
   function aiHub(req, res, me) {
+    const sk = skinOf(me, req), md = modeOf(me, req);
+    const pick = (light, dark, alt) => sk !== 'modern' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : md === 'light' ? `<img src="${light}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : md === 'dark' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy"></picture>`;
+    const phone = (img, cap) => `<figure class="phone-wrap"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span>${img}</span></span><figcaption class="welcome-caption">${cap}</figcaption></figure>`;
+    const pair1 = `<div class="phones">${phone(pick('/welcome-phone-profile-light.jpg', '/welcome-phone-profile-dark.jpg', 'A Discriminantly profile: the member\u2019s notes, travel marks and plans'), 'Your record, in Discriminantly')}${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}</div>`;
+    const pair2 = `<div class="phones">${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}${phone(pick('/welcome-phone-app-light.jpg', '/welcome-phone-app-dark.jpg', 'The same day as an itinerary in Discriminantly'), 'Saved in Discriminantly')}</div>`;
     const body = `
-${sec('how', 'How it works', 'Your record stays in Discriminantly. Assistants ask to reach it.', `
-  <ul class="pub-list">
-    <li><b>Your corpus remains in Discriminantly.</b> Connecting an assistant does not move or copy it; the assistant reaches it when you use it.</li>
-    <li><b>AI clients request authorized access.</b> You approve the connection, and you can revoke it in Settings at any time.</li>
-    <li><b>Platforms differ.</b> Installation, authentication, approval behaviour, the features available and the decisions the model makes vary from one client to another. Each has its own guide.</li>
-    <li><b>Four separate facts.</b> Whether a platform is available, how it connects, how it authenticates and whether it is listed in a directory are different things, and are stated separately below.</li>
-  </ul>`)}
+<section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
+  <p class="splash-pair-lead" id="useful-h">What you keep becomes useful.</p>
+  ${pair1}
+  <p class="splash-pair-lead splash-pair-lead-2">Plan naturally.</p>
+  ${pair2}
+  <p class="welcome-caption welcome-caption-close">Your record stays in Discriminantly. An assistant you have authorized can retrieve from it and add to it; what it adds shows up here, recorded as that assistant acting for you. Installation, sign-in, approval behaviour and what each model does with the tools vary by platform, so each has its own page.</p>
+</section>
 <section class="pub-sec itin-shell pub-shell" id="platforms" aria-labelledby="platforms-h">${eyebrow('Platforms')}<h2 class="pub-h2" id="platforms-h">Status, by client.</h2>
   <div class="pub-plats">${C.platforms.map(platformRow).join('')}</div>
 </section>
-${sec('connect', 'Connecting', 'The steps, by client.', C.platforms.filter((p) => p.key !== 'muse').map((p) => `<h3 class="pub-h3" id="connect-${p.key}">${esc(p.name)}</h3>${stepsList(p.steps.map(esc))}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}`).join('') + `<h3 class="pub-h3" id="connect-muse">Muse</h3><p class="pub-p">Muse connects with an API key rather than a sign-in. <a href="/ai/muse">Use Discriminantly with Muse</a> has the full guide.</p>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
-      description: 'Connect Discriminantly to ChatGPT, Claude, Muse or another AI assistant. Availability, connection method, authentication and directory status for each, with the steps to connect.',
+      description: 'Connect Discriminantly to ChatGPT, Claude, Muse or another AI assistant. Availability, connection method, authentication and directory status for each, with a guide per platform.',
       h1: 'Use Discriminantly with AI', lede: 'Your record stays here. The assistant you already use can retrieve from it and add to it, once you authorize it.', body });
   }
 
-  // ---- 5. Muse guide ----------------------------------------------------------
-  function muse(req, res, me) {
-    const p = C.platforms.find((x) => x.key === 'muse');
-    const body = `
+  // ---- 5. Platform pages (one template; Muse carries the extra facts) ---------
+  const PLATFORM_PATH = { chatgpt: '/ai/chatgpt', claude: '/ai/claude', muse: '/ai/muse', other: '/ai/other' };
+  function platformPage(key) {
+    return (req, res, me) => {
+      const p = C.platforms.find((x) => x.key === key);
+      const facts = [
+        p.endpoint ? `<div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>` : (key !== 'muse' ? `<div><dt>Address</dt><dd><code class="pub-code">https://www.discriminantly.com/mcp</code></dd></div>` : ''),
+        `<div><dt>Connection</dt><dd>${esc(p.method)}</dd></div>`,
+        `<div><dt>Authentication</dt><dd>${esc(p.auth)}</dd></div>`,
+        key === 'muse' ? `<div><dt>Key creation</dt><dd>Discriminantly \u2192 Settings \u203a Connect to your AI \u2192 name the connection <b>Muse</b> \u2192 Create a connection</dd></div><div><dt>OAuth</dt><dd>Not supported for this route</dd></div>` : '',
+        p.reviewDetail ? `<div><dt>Status on the Muse platform</dt><dd>${esc(p.reviewDetail)}</dd></div>` : '',
+        p.basis ? `<div><dt>Verification</dt><dd>${esc(p.basis)}</dd></div>` : '',
+        `<div><dt>Availability</dt><dd>${esc(p.availability)}</dd></div>`,
+        `<div><dt>Directory</dt><dd>${esc(p.directory)}</dd></div>`,
+      ].join('');
+      const body = `
 <section class="pub-sec itin-shell pub-shell pub-guide-head" id="facts" aria-labelledby="facts-h">
-  <div class="pub-guide-mark">${aiLogo('muse')}</div>
-  <p class="pub-badge"><span class="lbl">${esc(p.badge)}</span> <span class="lbl">${esc(p.review)}</span></p>
+  <div class="pub-guide-mark">${aiLogo(key)}</div>
+  <p class="pub-badge"><span class="lbl">${esc(p.badge || p.method)}</span>${p.review ? ` <span class="lbl">${esc(p.review)}</span>` : ''}</p>
   <h2 class="pub-h2" id="facts-h">The facts.</h2>
-  <dl class="pub-facts pub-facts-wide">
-    <div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>
-    <div><dt>Authentication</dt><dd>${esc(p.auth)}</dd></div>
-    <div><dt>Key creation</dt><dd>Discriminantly → Settings › Connect to your AI → name the connection <b>Muse</b> → Create a connection</dd></div>
-    <div><dt>OAuth</dt><dd>Not supported for this route</dd></div>
-    <div><dt>Status on the Muse platform</dt><dd>${esc(p.reviewDetail)}</dd></div>
-    <div><dt>Directory</dt><dd>${esc(p.directory)}</dd></div>
-  </dl>
+  <dl class="pub-facts pub-facts-wide">${facts}</dl>
 </section>
-${sec('setup', 'Setup', 'Four steps.', `${stepsList(p.steps.map(esc))}<p class="fine pub-fine">${esc(p.note)}</p>`)}
-${sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once the connector is in place, send Muse this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote><p class="pub-p">Muse should list the travel marks you have kept, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`)}
-${sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`)}
+${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map(esc))}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}`)}
+${p.verify ? sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once the connector is in place, send ${esc(p.name)} this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote><p class="pub-p">${esc(p.name)} should list the travel marks you have kept, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`) : ''}
+${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them.</li></ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">All platforms</a></p></section>`;
-    return page(res, me, req, { path: '/ai/muse', title: 'Use Discriminantly with Muse',
-      description: 'Connect Meta’s Muse to Discriminantly as a custom connector with an API key: the endpoint, how to make a key in Settings, the setup steps and a prompt to verify the connection.',
-      h1: 'Use Discriminantly with Muse', lede: 'A custom connector, authenticated with a key you make in Discriminantly’s Settings.', body });
+      const titles = { chatgpt: 'Use Discriminantly with ChatGPT', claude: 'Use Discriminantly with Claude', muse: 'Use Discriminantly with Muse', other: 'Use Discriminantly with another AI assistant' };
+      const descs = {
+        chatgpt: 'Install the Discriminantly plugin in ChatGPT, connect it by signing in, and ask. The facts, the steps and what happens once connected.',
+        claude: 'Add Discriminantly to Claude as a custom connector with sign-in: the address, the steps and what happens once connected.',
+        muse: 'Connect Meta\u2019s Muse to Discriminantly as a custom connector with an API key: the endpoint, how to make a key in Settings, the setup steps and a prompt to verify the connection.',
+        other: 'Add Discriminantly to any AI client that supports a remote MCP server with sign-in. Compatibility varies and must be verified.' };
+      const ledes = { chatgpt: 'A plugin in ChatGPT\u2019s directory, connected by signing in to Discriminantly.', claude: 'A custom connector, connected by signing in to Discriminantly.', muse: 'A custom connector, authenticated with a key you make in Discriminantly\u2019s Settings.', other: 'A remote MCP server with sign-in. Whether a given client works is something to test.' };
+      return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body });
+    };
   }
+  const muse = platformPage('muse'), chatgpt = platformPage('chatgpt'), claude = platformPage('claude'), other = platformPage('other');
 
   // ---- 6. Guides index ---------------------------------------------------------
   function guides(req, res, me) {
@@ -240,7 +258,7 @@ ${sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list
     return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep a place, keep an object, plan with what you have kept, find and refine your record, build and share an itinerary.', h1: 'Guides', lede: 'Short, plain guides to the things you do here.', body });
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, guides, header, canonical, OG_IMAGE };
+  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, header, canonical, OG_IMAGE };
 }
 
 module.exports = { create };

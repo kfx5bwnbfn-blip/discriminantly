@@ -29,10 +29,10 @@ const site = {
 const nav = [
   { label: 'How it works', href: '/how-it-works' },
   { label: 'Use with AI', href: '/ai', children: [
-    { label: 'ChatGPT', href: '/ai#chatgpt' },
-    { label: 'Claude', href: '/ai#claude' },
+    { label: 'ChatGPT', href: '/ai/chatgpt' },
+    { label: 'Claude', href: '/ai/claude' },
     { label: 'Muse', href: '/ai/muse' },
-    { label: 'Other AI assistants', href: '/ai#other' },
+    { label: 'Other AI assistants', href: '/ai/other' },
   ] },
   { label: 'Guides', href: '/guides' },
   { label: 'About Discriminantly', href: '/about' },
@@ -74,7 +74,7 @@ const platforms = [
     directory: 'Listed in ChatGPT’s plugin directory',
     summary: 'Install the Discriminantly plugin from ChatGPT’s plugin directory, connect it by signing in, and ask.',
     steps: ['In ChatGPT, open Plugins (in the sidebar, or at chatgpt.com/plugins).', 'Search for Discriminantly and choose Install plugin.', 'Choose Connect when asked, and sign in to Discriminantly.', 'In a chat, mention @Discriminantly and say what you’d like.'],
-    guide: '/ai#chatgpt',
+    guide: '/ai/chatgpt',
     verified: 'Plugin approved by OpenAI and published by Discriminantly, 9 October 2026.' },
   { key: 'claude', name: 'Claude', by: 'Anthropic',
     availability: 'Verified custom connector', method: 'Custom connector (remote MCP)', auth: 'Sign in to Discriminantly when Claude asks',
@@ -83,7 +83,7 @@ const platforms = [
     summary: 'Add Discriminantly as a custom connector in Claude’s settings, sign in when asked, and turn it on in a chat.',
     steps: ['In Claude, go to Customize › Connectors, choose +, then Add custom connector.', 'Name it Discriminantly and paste the address https://www.discriminantly.com/mcp.', 'Choose Add, then Connect, and sign in to Discriminantly.', 'In a chat, turn it on under + › Connectors.'],
     note: 'On Claude’s free plan you can add one custom connector. On Team and Enterprise plans an owner adds it first.',
-    guide: '/ai#claude',
+    guide: '/ai/claude',
     verified: 'Validated with MCP Inspector and Claude (v2.51) and in daily use. No directory listing exists or is claimed.' },
   { key: 'muse', name: 'Muse', by: 'Meta',
     availability: 'Available as a custom connector', method: 'Custom connector (remote MCP)', auth: 'API key, sent as Authorization: Bearer',
@@ -103,7 +103,7 @@ const platforms = [
     directory: 'None',
     summary: 'Any client that can add a remote MCP server with sign-in can try Discriminantly. Installation, approval behaviour, available features and model decisions differ by client.',
     steps: ['In your AI’s settings, add a remote MCP server (often called a connector or integration) at https://www.discriminantly.com/mcp.', 'When asked, sign in to Discriminantly.', 'Turn it on in a chat, then ask.'],
-    guide: '/ai#other',
+    guide: '/ai/other',
     verified: 'Not verified per client. Treat compatibility as something to test.' },
 ];
 
