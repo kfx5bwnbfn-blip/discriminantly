@@ -1540,11 +1540,15 @@ body[data-skin="modern"] .flash-done { background: var(--m-ink); color: var(--m-
 .pub-acts { display: flex; align-items: center; gap: .6rem; position: relative; }
 .pub-cta { display: inline-block; padding: .55rem 1.1rem; font-size: .66rem; }
 .pub-menu { position: relative; }
-.pub-menu > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1rem; border-radius: 999px; font-family: var(--slab); font-weight: 600; font-size: .66rem; letter-spacing: .15em; text-transform: uppercase; }
+.pub-menu > summary { list-style: none; cursor: pointer; display: inline-grid; place-items: center; width: 2.3rem; height: 2.3rem; padding: 0; border-radius: 999px; }
+.pub-menu > summary svg { display: block; grid-area: 1 / 1; }
 .pub-menu > summary::-webkit-details-marker { display: none; }
 .pub-menu > summary:focus-visible, .pub-cta:focus-visible, .pub-menu-panel a:focus-visible, .pub-brand:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
-.pub-menu-x { display: none; font-size: 1rem; line-height: 1; }
-.pub-menu[open] > summary .pub-menu-x { display: inline; }
+.pub-menu > summary svg.pub-menu-x { display: none; }
+.pub-menu[open] > summary svg.pub-menu-x { display: block; }
+.pub-menu[open] > summary svg.pub-menu-ico { display: none; }
+/* no sign-in bar on public pages, so no space reserved for it */
+body.is-public:not(.is-in) { padding-top: 0; }
 .pub-menu-panel { position: absolute; right: 0; top: calc(100% + .6rem); min-width: 17rem; padding: .9rem 1.1rem 1rem; border-radius: 18px; z-index: 50; }
 .pub-menu-list, .pub-menu-list ul { list-style: none; margin: 0; padding: 0; }
 .pub-menu-list > li > a { display: block; padding: .5rem 0; font-size: 1.05rem; text-decoration: none; color: inherit; }

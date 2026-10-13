@@ -3003,7 +3003,10 @@ function policyPage(req, res, me, which) {
     ]],
   };
   const [title, date, parts] = pages[which];
-  return send(res, layout({ title, me, req,
+  // v2.88.1: the public header on the policy pages (public-facing; not the feed, not sign-in flows).
+  const PP = PUB();
+  return send(res, layout({ title, me, req, cls: 'is-public',
+    pub: { header: PP.header(me), canonical: PP.canonical('/' + which), description: which === 'privacy' ? 'What Discriminantly keeps, who can see it, and what happens when you connect an AI service.' : which === 'terms' ? 'The terms for using Discriminantly.' : 'Help with Discriminantly: connecting an AI, disconnecting, your account and data.', og: { title, image: PP.OG_IMAGE } },
     body: `<h3 class="strip">${title}</h3><div class="settings policy">${date}${parts.join('')}</div>` }));
 }
 
@@ -11526,7 +11529,8 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   },
 
   about(req, res, me) {
-    send(res, layout({ title: 'About', me, body: `<h1>About</h1><p>discriminant.ly was designed with a single focus: to serve as an elegant social sharing platform for its members to collect, share and discover the most interesting fine goods from around the world.</p><p>Every entry is one object, one maker, and one honest reason from the member who noted it. Nothing is sponsored. Membership is by invitation.</p>` }));
+    const P = PUB();
+    send(res, layout({ title: 'About', me, req, cls: 'is-public', pub: { header: P.header(me), canonical: P.canonical('/about'), description: 'About Discriminantly.', og: { title: 'About', image: P.OG_IMAGE } }, body: `<h1>About</h1><p>discriminant.ly was designed with a single focus: to serve as an elegant social sharing platform for its members to collect, share and discover the most interesting fine goods from around the world.</p><p>Every entry is one object, one maker, and one honest reason from the member who noted it. Nothing is sponsored. Membership is by invitation.</p>` }));
   },
 };
 

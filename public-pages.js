@@ -24,7 +24,7 @@ function create(d) {
     <div class="pub-acts">
       ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : '<a class="btn3d pub-cta" href="/join">Get started</a>'}
       <details class="pub-menu" id="pub-menu">
-        <summary class="pub-menu-btn" aria-controls="pub-menu-panel"><span>Menu</span><span class="pub-menu-x" aria-hidden="true">×</span></summary>
+        <summary class="pub-menu-btn" aria-controls="pub-menu-panel" aria-label="Menu"><svg class="pub-menu-ico" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><svg class="pub-menu-x" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary>
         <nav class="pub-menu-panel" id="pub-menu-panel" aria-label="Site">
           <ul class="pub-menu-list">${C.nav.map(item).join('')}</ul>
           <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : [C.utility[0]]).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>
@@ -240,7 +240,7 @@ ${sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list
     return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep a place, keep an object, plan with what you have kept, find and refine your record, build and share an itinerary.', h1: 'Guides', lede: 'Short, plain guides to the things you do here.', body });
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, guides };
+  return { home, howItWorks, travelMarks, aiHub, muse, guides, header, canonical, OG_IMAGE };
 }
 
 module.exports = { create };
