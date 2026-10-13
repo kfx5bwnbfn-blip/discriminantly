@@ -2600,3 +2600,41 @@ body[data-skin="modern"] .welcome-card .wl-ai-toggle[id^="wl-ai-claude-"]:checke
 }
 body[data-skin="modern"] .admin-wide .admin-activity .act-line { background: rgba(0,0,0,.035); border-color: transparent; }
 body[data-skin="modern"][data-mode="light"] .admin-wide .admin-activity .act-line, html.m-light body[data-skin="modern"][data-mode="system"] .admin-wide .admin-activity .act-line { background: rgba(20,22,28,.045); }
+
+/* ---------------------------------------------------------------------
+   PUBLIC PAGES (review build): the glass. Structure is in the shared sheet.
+   --------------------------------------------------------------------- */
+body[data-skin="modern"] .pub-head { background: color-mix(in srgb, var(--m-bg) 72%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2); box-shadow: inset 0 -1px 0 var(--m-rule); }
+body[data-skin="modern"] .pub-head-home { background: transparent; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+body[data-skin="modern"] .pub-head-home.is-stuck { background: color-mix(in srgb, var(--m-bg) 72%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.2); backdrop-filter: blur(18px) saturate(1.2); }
+body[data-skin="modern"] .pub-word { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-brand img { filter: none; }
+body[data-skin="modern"][data-mode="dark"] .pub-brand img, body[data-skin="modern"][data-mode="system"]:not(.m-light) .pub-brand img { filter: invert(1) brightness(1.4); }
+html.m-light body[data-skin="modern"][data-mode="system"] .pub-brand img { filter: none; }
+body[data-skin="modern"] .pub-menu > summary { background: var(--m-glass-2); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line); transition: background .2s var(--m-ease); }
+body[data-skin="modern"] .pub-menu > summary:hover, body[data-skin="modern"] .pub-menu[open] > summary { background: var(--m-glass-3); }
+body[data-skin="modern"] .pub-menu-panel { background: var(--m-sheet); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+body[data-skin="modern"] .pub-menu-list ul a { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-menu-util { border-top-color: var(--m-rule); }
+body[data-skin="modern"] .pub-menu-util a { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-h1, body[data-skin="modern"] .pub-h2, body[data-skin="modern"] .pub-h3 { color: var(--m-ink); }
+body[data-skin="modern"] .pub-lede, body[data-skin="modern"] .pub-p, body[data-skin="modern"] .pub-list li, body[data-skin="modern"] .pub-object dd, body[data-skin="modern"] .pub-defs dd, body[data-skin="modern"] .pub-facts dd, body[data-skin="modern"] .pub-prog-verb { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-eyebrow, body[data-skin="modern"] .pub-facts dt, body[data-skin="modern"] .pub-demo-meta, body[data-skin="modern"] .pub-demo-cap, body[data-skin="modern"] .pub-object-not, body[data-skin="modern"] .pub-by { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .pub-object, body[data-skin="modern"] .pub-demo-beat, body[data-skin="modern"] .pub-prog-step { border-top-color: var(--m-rule); }
+body[data-skin="modern"] .pub-demo-n { background: var(--m-ink); color: var(--m-bg); }
+body[data-skin="modern"] .pub-demo-tile { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); color: var(--m-ink); }
+body[data-skin="modern"] .pub-demo-chat { background: var(--m-glass-2); }
+body[data-skin="modern"] .pub-demo-ask { background: var(--m-accent); color: #17141f; }
+body[data-skin="modern"] .pub-demo-reply { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-plat, body[data-skin="modern"] .pub-plat-row, body[data-skin="modern"] .pub-quote { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .pub-plat-row { transition: background .2s var(--m-ease); }
+body[data-skin="modern"] .pub-plat-row:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .pub-plat-row-status { color: var(--m-accent); }
+body[data-skin="modern"] .pub-badge .lbl { border-color: var(--m-line-2); color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-quote p { color: var(--m-ink); }
+body[data-skin="modern"] .pub-cta-big { padding: .9rem 2.6rem; }
+body[data-skin="modern"] .pub-see, body[data-skin="modern"] .pub-plat-act a, body[data-skin="modern"] .pub-final-sub a { color: var(--m-accent); }
+body[data-skin="modern"] .pub-splash-acts .splash-enter { margin-top: .2rem; }
+@media (prefers-reduced-motion: reduce) {
+  body[data-skin="modern"] .pub-menu > summary, body[data-skin="modern"] .pub-plat-row { transition: none; }
+}

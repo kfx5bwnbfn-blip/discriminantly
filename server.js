@@ -3047,8 +3047,15 @@ const DONE = {
 };
 const doneKey = (req) => { try { const k = new URL(req.url, 'http://x').searchParams.get('done'); return k && DONE[k] ? k : ''; } catch { return ''; } };
 const withDone = (path, key) => { const i = path.indexOf('#'); const h = i < 0 ? '' : path.slice(i), b = i < 0 ? path : path.slice(0, i); return `${b}${b.includes('?') ? '&' : '?'}done=${key}${h}`; };
-function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null }) {
+function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null, pub = null }) {
+  // pub (public-pages review build): { description, canonical, og, header }.
+  // Pages that pass nothing render exactly as before.
   req = req || CURRENT_REQ;
+  const pubHead = pub ? [
+    pub.description ? `<meta name="description" content="${esc(pub.description)}">` : '',
+    pub.canonical ? `<link rel="canonical" href="${esc(pub.canonical)}">` : '',
+    pub.og ? `<meta property="og:type" content="website"><meta property="og:site_name" content="Discriminantly"><meta property="og:title" content="${esc(pub.og.title || title)}"><meta property="og:description" content="${esc(pub.og.description || pub.description || '')}"><meta property="og:url" content="${esc(pub.canonical || '')}"><meta property="og:image" content="${esc(pub.og.image || '')}"><meta name="twitter:card" content="summary">` : '',
+  ].join('\n') : '';
   if (adminOn(me)) body = `<p class="admin-view-note">Admin view is on: you can see members’ private content. <a href="/settings#admin">Turn it off</a></p>` + body;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
@@ -3108,7 +3115,7 @@ window.addEventListener('appinstalled', function () {
   document.dispatchEvent(new Event('discriminantly:installed'));
 });
 </script>
-<title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>
+<title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>${pubHead}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -3153,10 +3160,10 @@ ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&
   </button>
 </div>
 `
-  : `<header class="masthead"><div class="wrap">
+  : pub && pub.header ? '' : `<header class="masthead"><div class="wrap">
   <a class="mark" href="/welcome"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
-</div></header>`}
+</div></header>`}${pub && pub.header ? pub.header : ''}
 
 <script>
 
@@ -11524,6 +11531,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 };
 
 const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+// Public pages (review build) share the app's layout, skins and icons.
+let PUB_ = null;
+const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON }));
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 // One shared description for every `image` parameter, so the warning can't
@@ -14776,7 +14786,13 @@ async function handle(req, res) {
   // environment rather than being invented here.
   if (p === '/privacy' || p === '/terms' || p === '/support') return policyPage(req, res, me, p.slice(1));
   if (p === '/about') return pages.about(req, res, me);
-  if (p === '/welcome') { if (!me) { const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc); } return pages.welcome(req, res, me); }
+  // Public pages (review build): the welcome page keeps its route; the rest are new.
+  if (p === '/welcome') { if (!me) { const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc); } return PUB().home(req, res, me); }
+  if (p === '/how-it-works') return PUB().howItWorks(req, res, me);
+  if (p === '/travel-marks') return PUB().travelMarks(req, res, me);
+  if (p === '/ai') return PUB().aiHub(req, res, me);
+  if (p === '/ai/muse') return PUB().muse(req, res, me);
+  if (p === '/guides') return PUB().guides(req, res, me);
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
   if (p === '/login') {
