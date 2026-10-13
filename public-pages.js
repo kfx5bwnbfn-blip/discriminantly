@@ -11,7 +11,14 @@
 const C = require('./public-content');
 
 function create(d) {
-  const { layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON } = d;
+  const { layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, publisher } = d;
+  // Structured data shared by every public page. Only facts the pages state.
+  const ORG = { '@type': 'Organization', '@id': PUBLIC_ORIGIN + '/#org', name: C.site.name, url: PUBLIC_ORIGIN + '/', logo: { '@type': 'ImageObject', url: PUBLIC_ORIGIN + '/icon-512.png', width: 512, height: 512 } };
+  const SITE = { '@type': 'WebSite', '@id': PUBLIC_ORIGIN + '/#site', name: C.site.name, url: PUBLIC_ORIGIN + '/', description: C.site.description, publisher: { '@id': PUBLIC_ORIGIN + '/#org' } };
+  const ldScript = (graph) => `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replace(/</g, '\\u003c')}</script>`;
+  const crumbsHtml = (crumbs) => crumbs && crumbs.length ? `<nav class="pub-crumbs" aria-label="Breadcrumb"><ol>${crumbs.map((c, i) => `<li>${i < crumbs.length - 1 ? `<a href="${esc(c.href)}">${esc(c.name)}</a>` : `<span aria-current="page">${esc(c.name)}</span>`}</li>`).join('')}</ol></nav>` : '';
+  const crumbsLd = (crumbs) => crumbs && crumbs.length ? { '@type': 'BreadcrumbList', itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: PUBLIC_ORIGIN + c.href })) } : null;
+  const HOME_CRUMB = { name: 'Discriminantly', href: '/welcome' };
   const canonical = (p) => PUBLIC_ORIGIN + p;
   const OG_IMAGE = PUBLIC_ORIGIN + '/icon-512.png';
 
@@ -68,9 +75,12 @@ function create(d) {
     <p class="pub-plat-act"><a class="link caps" href="${esc(p.guide)}">Guide →</a></p>
   </article>`;
   const stepsList = (items) => `<ol class="steps wl-how pub-steps">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
-  const page = (res, me, req, { path, title, description, h1, lede, body, home = false, cls = '' }) =>
-    send(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`, body: `${h1 ? `<section class="pub-hero"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}</section>` : ''}${body}${foot}`,
+  const page = (res, me, req, { path, title, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [] }) => {
+    const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
+    return send(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
+      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
       pub: { description, canonical: canonical(path), og: { title, description, image: OG_IMAGE }, header: header(me, { home }) } }));
+  };
 
   // ---- 1. Home ----------------------------------------------------------------
   function home(req, res, me) {
@@ -151,20 +161,42 @@ ${sec('boundaries', 'Boundaries', 'What Discriminantly does not claim.', `<ul cl
   <p class="pub-final-acts">${cta(me)}</p>
   <p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/ai">Use with AI</a></p>
 </section>`;
-    return page(res, me, req, { path: '/welcome', title: 'Welcome', description: C.site.description, body, home: true, cls: 'is-pub-home' });
+    return page(res, me, req, { path: '/welcome', title: 'Welcome', description: C.site.description, body, home: true, cls: 'is-pub-home',
+      ld: [{ '@type': 'SoftwareApplication', name: C.site.name, url: PUBLIC_ORIGIN + '/', applicationCategory: 'LifestyleApplication', operatingSystem: 'Web', description: C.site.proposition[0], publisher: { '@id': PUBLIC_ORIGIN + '/#org' }, featureList: C.objects.map((o) => o.name).join(', ') }] });
   }
 
   // ---- 2. How it works --------------------------------------------------------
+  // Each step carries a visual: a view cropped from the application's own
+  // screenshots where one exists, otherwise an illustrative tile.
   function howItWorks(req, res, me) {
+    const sk = skinOf(me, req), md = modeOf(me, req);
+    const shot = (name, alt, w, h) => {
+      const L = `/how/${name}-light.jpg`, D = `/how/${name}-dark.jpg`;
+      const img = sk !== 'modern' ? `<img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : md === 'light' ? `<img src="${L}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : md === 'dark' ? `<img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : `<picture><source srcset="${L}" media="(prefers-color-scheme: light)"><img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy"></picture>`;
+      return `<figure class="pub-shot"><div class="pub-shot-frame">${img}</div><figcaption class="welcome-caption">From the application</figcaption></figure>`;
+    };
+    const tile = (kind, title, meta, lines) => `<figure class="pub-shot pub-shot-tile"><div class="pub-demo-tile pub-demo-app"><span class="lbl">${kind}</span><span class="pub-demo-title">${title}</span><span class="pub-demo-meta">${meta}</span>${lines.map((l) => `<span class="pub-demo-why">${l}</span>`).join('')}</div><figcaption class="welcome-caption">Illustrative example</figcaption></figure>`;
+    const visuals = {
+      1: tile('Note', 'Hagi teabowl, Yamane kiln', 'Kept 4 March', ['Soft glaze, a lip that pours well. From a small kiln we found by chance.']),
+      2: shot('locate', 'A travel mark in the feed: Penicillin, a bar in Central, Hong Kong, with its address and Directions and Check in buttons', 500, 360),
+      3: shot('experience', 'A travel mark card with its Check in button', 1000, 345),
+      4: tile('Collection', 'Kyoto', '2 travel marks · 1 note', ['Kissa Hoshikawa', 'Gojozaka pottery walk', 'Hagi teabowl, Yamane kiln']),
+      5: shot('compose', 'An itinerary for London: Day 1, Spitalfields and Shoreditch, with its first stops', 700, 585),
+      6: shot('together', 'The same plan’s map, every stop pinned', 690, 680),
+      7: `<figure class="pub-shot pub-shot-phone"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><img src="/how/ai.jpg" alt="A trip planned in a conversation with an AI, from places kept in Discriminantly" width="900" height="1150" loading="lazy"></span></span><figcaption class="welcome-caption">From a conversation</figcaption></figure>`,
+      8: tile('History', 'Kissa Hoshikawa', 'What changed, and who changed it', ['Kept — you, 5 March', 'Address and map position looked up — Discriminantly, 5 March', 'Added to “Kyoto, two slow days” — Muse, for you, 2 November', 'Suggested: an evening counter nearby — recommendation, not kept']),
+    };
     const body = `
-<section class="pub-sec itin-shell pub-shell" id="progression" aria-label="The progression">
-  <ol class="pub-prog">${C.steps.map((s) => `<li class="pub-prog-step" id="step-${s.n}"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2><p class="pub-p">${esc(s.body)}</p></li>`).join('')}</ol>
+<section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
+  <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2><p class="pub-p">${esc(s.body)}</p></div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
 </section>
 ${sec('names', 'The names', 'Each step leaves a record with a name.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => `<div class="pub-object"><dt>${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</dt><dd>${esc(o.what)}</dd></div>`).join('')}</dl>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
       description: 'From noticing something to planning with it: how Discriminantly keeps notes, travel marks, check-ins, collections and itineraries, and how an authorized AI works with them.',
-      h1: 'How Discriminantly works', lede: 'Eight steps, from noticing something to returning from a trip. Each one leaves a record you can see, adjust and use.', body });
+      h1: 'How Discriminantly works', lede: 'Eight steps, from noticing something to returning from a trip. Each one leaves a record you can see, adjust and use.', body,
+      crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
+      ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: 'Eight steps, from noticing something to returning from a trip.', step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body, url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
   }
 
   // ---- 3. Travel Marks (the object-page template) -----------------------------
@@ -183,7 +215,9 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/travel-marks', title: 'Travel Marks',
       description: 'A travel mark is a place worth remembering in Discriminantly: what it is, how it differs from a check-in, how it sits in collections and itineraries, and what it does not prove.',
-      h1: 'Travel Marks', lede: 'A place worth remembering, kept with its name and where it is. Not yet a visit.', body });
+      h1: 'Travel Marks', lede: 'A place worth remembering, kept with its name and where it is. Not yet a visit.', body,
+      crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
+      ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }] });
   }
 
   // ---- 4. Use with AI hub -----------------------------------------------------
@@ -211,7 +245,9 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
       description: 'Connect Discriminantly to ChatGPT, Claude, Muse or another AI assistant. Availability, connection method, authentication and directory status for each, with a guide per platform.',
-      h1: 'Use Discriminantly with AI', lede: 'Your record stays here. The assistant you already use can retrieve from it and add to it, once you authorize it.', body });
+      h1: 'Use Discriminantly with AI', lede: 'Your record stays here. The assistant you already use can retrieve from it and add to it, once you authorize it.', body,
+      crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
+      ld: [{ '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
   }
 
   // ---- 5. Platform pages (one template; Muse carries the extra facts) ---------
@@ -247,7 +283,9 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
         muse: 'Connect Meta\u2019s Muse to Discriminantly as a custom connector with an API key: the endpoint, how to make a key in Settings, the setup steps and a prompt to verify the connection.',
         other: 'Add Discriminantly to any AI client that supports a remote MCP server with sign-in. Compatibility varies and must be verified.' };
       const ledes = { chatgpt: 'A plugin in ChatGPT\u2019s directory, connected by signing in to Discriminantly.', claude: 'A custom connector, connected by signing in to Discriminantly.', muse: 'A custom connector, authenticated with a key you make in Discriminantly\u2019s Settings.', other: 'A remote MCP server with sign-in. Whether a given client works is something to test.' };
-      return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body });
+      return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body,
+        crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }, { name: p.name, href: PLATFORM_PATH[key] }],
+        ld: [{ '@type': 'HowTo', name: titles[key], description: descs[key], step: p.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })) }] });
     };
   }
   const muse = platformPage('muse'), chatgpt = platformPage('chatgpt'), claude = platformPage('claude'), other = platformPage('other');
@@ -255,10 +293,56 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
   // ---- 6. Guides index ---------------------------------------------------------
   function guides(req, res, me) {
     const body = `${sec('list', 'Guides', 'Things you do in Discriminantly.', `<ul class="pub-list pub-guides">${C.guides.map((g) => `<li><b>${esc(g.title)}.</b> ${esc(g.body)} <a href="${esc(g.href)}">${esc(g.via)} \u2192</a></li>`).join('')}</ul><p class="fine pub-fine">Each of these gets its own page next. Until then the links go to the page that covers the work. Connecting an AI is under <a href="/ai">Use with AI</a>.</p>`)}`;
-    return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep a place, keep an object, plan with what you have kept, find and refine your record, build and share an itinerary.', h1: 'Guides', lede: 'Short, plain guides to the things you do here.', body });
+    return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep a place, keep an object, plan with what you have kept, find and refine your record, build and share an itinerary.', h1: 'Guides', lede: 'Short, plain guides to the things you do here.', body,
+      crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }],
+      ld: [{ '@type': 'ItemList', name: 'Guides', itemListElement: C.guides.map((g, i) => ({ '@type': 'ListItem', position: i + 1, name: g.title, description: g.body, url: PUBLIC_ORIGIN + g.href })) }] });
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, header, canonical, OG_IMAGE };
+  // ---- 7. About ----------------------------------------------------------------
+  function about(req, res, me) {
+    const who = publisher();
+    const body = `
+<section class="splash pub-splash pub-about-splash" aria-label="Discriminantly">
+  <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
+  <p class="splash-word">${C.site.wordmark}</p>
+  <h1 class="splash-h pub-about-h">About Discriminantly</h1>
+  <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
+</section>
+${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
+${sec('why', 'Why it exists', 'Taste accumulates. Most of it is lost.', `<p class="pub-p">The things you notice, the places you mean to return to, the trips you half-plan in a conversation: most of it is scattered across notes, screenshots and chats, and none of it is there the next time you need it. Discriminantly gives those things one durable home, with the meaning of each kept straight: a note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">Because the record is durable and exact, an AI you authorize can start from it. Recommendations shaped by what you have actually kept and experienced are different from recommendations shaped by a guess about you.</p>`)}
+${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design kept intact as a skin for anyone who wants it.</p>`)}
+${sec('who', 'Who makes it', who ? esc(who) + '.' : 'An independent maker.', `<p class="pub-p">Discriminantly is designed, built and operated by ${who ? esc(who) : 'its founder'}, as an individual. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
+${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
+<section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/privacy">Privacy</a></p></section>`;
+    return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'What Discriminantly is, why it exists, where it came from and who makes it.', body, cls: 'is-pub-about',
+      crumbs: [HOME_CRUMB, { name: 'About', href: '/about' }],
+      ld: [{ '@type': 'AboutPage', '@id': PUBLIC_ORIGIN + '/about#about', url: PUBLIC_ORIGIN + '/about', name: 'About Discriminantly', about: { '@id': PUBLIC_ORIGIN + '/#org' } }] });
+  }
+
+  // ---- 8. Machine-readable files, from the same model ---------------------------
+  const PUBLIC_PATHS = ['/welcome', '/how-it-works', '/travel-marks', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', '/about', '/privacy', '/terms', '/support'];
+  const text = (res, body, type = 'text/plain; charset=utf-8') => { res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' }); res.end(body); };
+  function llms(req, res) {
+    const L = [];
+    L.push(`# ${C.site.name}`, '', `> ${C.site.proposition[0]}`, '', C.site.proposition[1], '', C.site.stance, '');
+    L.push('## What it keeps', '', ...C.objects.map((o) => `- **${o.name}**: ${o.what} ${o.not}`), '');
+    L.push('## How it works', '', ...C.steps.map((s) => `${s.n}. **${s.verb}.** ${s.title} ${s.body}`), '');
+    L.push('## Using it with an AI client', '', 'Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');
+    for (const p of C.platforms) L.push(`- **${p.name}** (${PUBLIC_ORIGIN}${p.guide}): ${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.${p.review ? ' ' + p.review + '.' : ''}${p.endpoint ? ' Endpoint ' + p.endpoint + ' (no trailing slash).' : ''}`);
+    L.push('', '## Boundaries', '', ...C.boundaries.map((b) => `- ${b}`), '');
+    L.push('## Pages', '', ...PUBLIC_PATHS.map((p) => `- ${PUBLIC_ORIGIN}${p}`), '');
+    L.push('## For agents', '', `- The MCP server for authorized clients is ${PUBLIC_ORIGIN}/mcp (sign-in) and https://muse.discriminantly.com/mcp (API key). Reading this file grants no access.`, `- Privacy: ${PUBLIC_ORIGIN}/privacy. Terms: ${PUBLIC_ORIGIN}/terms. Support: ${PUBLIC_ORIGIN}/support.`, '');
+    return text(res, L.join('\n'));
+  }
+  function sitemap(req, res) {
+    const today = new Date().toISOString().slice(0, 10);
+    return text(res, `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${PUBLIC_PATHS.map((p) => `  <url><loc>${PUBLIC_ORIGIN}${p}</loc><lastmod>${today}</lastmod></url>`).join('\n')}\n</urlset>\n`, 'application/xml; charset=utf-8');
+  }
+  function robots(req, res) {
+    return text(res, ['User-agent: *', 'Allow: /', 'Disallow: /settings', 'Disallow: /admin', 'Disallow: /oauth/', 'Disallow: /mcp', 'Disallow: /logout', 'Disallow: /i/', '', `Sitemap: ${PUBLIC_ORIGIN}/sitemap.xml`, ''].join('\n'));
+  }
+
+  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, about, llms, sitemap, robots, header, canonical, OG_IMAGE };
 }
 
 module.exports = { create };

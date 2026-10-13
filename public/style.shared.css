@@ -1681,3 +1681,32 @@ body.is-public:not(.is-in) { padding-top: 0; }
 @media (prefers-reduced-motion: reduce) {
   .pub-head, .pub-menu-panel, .pub-cta, .pub-plat-row { transition: none !important; animation: none !important; }
 }
+/* v2.89: breadcrumb, visual How it works, About */
+.pub-crumbs { max-width: 54rem; margin: 1.2rem auto 0; padding: 0 1.4rem; }
+.pub-crumbs ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .2rem .5rem; font-family: var(--slab); font-weight: 600; font-size: .62rem; letter-spacing: .15em; text-transform: uppercase; opacity: .75; }
+.pub-crumbs li + li::before { content: '\203A'; padding-right: .5rem; opacity: .6; }
+.pub-crumbs a { color: inherit; text-decoration: none; }
+.pub-crumbs a:hover { text-decoration: underline; }
+.pub-crumbs [aria-current] { opacity: .8; }
+.pub-shell-plain { padding: 0 1.4rem; }
+.pub-prog-visual { display: grid; gap: 1.2rem; }
+.pub-prog-visual .pub-prog-step { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 2.2rem; align-items: center; border-top: 0; padding: 1.6rem 1.6rem; }
+.pub-prog-visual .pub-prog-step:nth-child(even) .pub-prog-text { order: 2; }
+.pub-prog-visual .pub-prog-title, .pub-prog-visual .pub-prog-step .pub-p { grid-column: auto; }
+.pub-prog-text .pub-p { margin: 0; }
+.pub-prog-visual-col { display: flex; justify-content: center; }
+.pub-shot { margin: 0; max-width: 24rem; width: 100%; }
+.pub-shot-frame { border-radius: 14px; overflow: hidden; }
+.pub-shot-frame img { display: block; width: 100%; height: auto; }
+.pub-shot .welcome-caption { margin-top: .7rem; }
+.pub-shot-tile .pub-demo-tile { max-width: none; }
+.pub-shot-phone { max-width: 13rem; }
+.pub-shot-phone .phone-body { display: block; position: relative; }
+.pub-about-splash .splash-sub { max-width: 34rem; }
+.pub-about-h { font-size: 1.9rem; }
+@media (max-width: 52rem) {
+  .pub-crumbs { padding: 0 1rem; margin-top: .9rem; }
+  .pub-prog-visual .pub-prog-step { grid-template-columns: 1fr; padding: 1.2rem 1rem; }
+  .pub-prog-visual .pub-prog-step:nth-child(even) .pub-prog-text { order: 0; }
+  .pub-shot-phone { max-width: 11rem; }
+}

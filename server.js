@@ -11537,7 +11537,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
 // Public pages (review build) share the app's layout, skins and icons.
 let PUB_ = null;
-const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON }));
+const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, publisher: PUBLISHER }));
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 // One shared description for every `image` parameter, so the warning can't
@@ -14397,6 +14397,7 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
     return fs.createReadStream(f).pipe(res);
   }
+  if (/^\/how\/[a-z-]+\.jpg$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   if (STATIC[p]) {
     const versioned = url.searchParams.has('v');
     res.writeHead(200, { 'Content-Type': STATIC[p],
@@ -14789,7 +14790,10 @@ async function handle(req, res) {
   // actually does; the publisher name and contact address come from the
   // environment rather than being invented here.
   if (p === '/privacy' || p === '/terms' || p === '/support') return policyPage(req, res, me, p.slice(1));
-  if (p === '/about') return pages.about(req, res, me);
+  if (p === '/about') return PUB().about(req, res, me);
+  if (p === '/llms.txt') return PUB().llms(req, res);
+  if (p === '/sitemap.xml') return PUB().sitemap(req, res);
+  if (p === '/robots.txt') return PUB().robots(req, res);
   // Public pages (review build): the welcome page keeps its route; the rest are new.
   if (p === '/welcome') { if (!me) { const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc); } return PUB().home(req, res, me); }
   if (p === '/how-it-works') return PUB().howItWorks(req, res, me);

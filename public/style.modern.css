@@ -2638,3 +2638,6 @@ body[data-skin="modern"] .pub-splash-acts .splash-enter { margin-top: .2rem; }
 @media (prefers-reduced-motion: reduce) {
   body[data-skin="modern"] .pub-menu > summary, body[data-skin="modern"] .pub-plat-row { transition: none; }
 }
+body[data-skin="modern"] .pub-crumbs ol { color: var(--m-ink-3); opacity: 1; }
+body[data-skin="modern"] .pub-crumbs a:hover { color: var(--m-ink); }
+body[data-skin="modern"] .pub-shot-frame { box-shadow: inset 0 0 0 1px var(--m-line), var(--m-shadow-2); background: var(--m-image-bed); }
