@@ -1636,6 +1636,12 @@ const MIGRATIONS = [
       fingerprint TEXT NOT NULL, outcome TEXT NOT NULL, detail TEXT,
       attempted_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
   }],
+  // v2.87: a member can remove a past connection from their lists. The row is
+  // kept (provenance names the AI through connection_uid; activation reads
+  // connection history) and only hidden.
+  ['065-connections-removed', () => {
+    if (!hasColumn('connections', 'removed_at')) db.exec('ALTER TABLE connections ADD COLUMN removed_at TEXT');
+  }],
 ];
 
 
@@ -2588,6 +2594,46 @@ function connectionRevoke(userId, uid) {
 const connectionsOf = (userId) =>
   q('SELECT * FROM connections WHERE user_id=? ORDER BY id DESC').all(userId);
 
+// v2.87: where a connection stands, for Settings.
+//   revoked   the member revoked it
+//   expired   an AI sign-in (OAuth) whose refresh token has lapsed: the AI
+//             cannot get back in without the member approving it again
+//   inactive  still works, but unused (or, if never used, made) 90+ days ago
+//   active    everything else
+const CONN_INACTIVE_DAYS = 90;
+const CONN_STATUS_WORDS = { active: 'active', inactive: `not used in ${CONN_INACTIVE_DAYS} days`, expired: 'sign-in expired', revoked: 'revoked' };
+// One row, shared by Settings and the past-connections page. back: where Revoke and Remove return.
+function connRow(c, { back = '/settings', remove = false } = {}) {
+  const used = c.last_used_at ? ' \u00b7 used ' + esc(monthYear(c.last_used_at)) : ' \u00b7 never used';
+  return `<div class="sugg conn-row conn-${c.status}">
+    <span class="sugg-name">${esc(c.client_label)}${c.scope === 'read' ? ' <span class="lbl">read only</span>' : ''}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
+    <span class="sugg-sub">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'} \u00b7 ${CONN_STATUS_WORDS[c.status]} \u00b7 since ${esc(monthYear(c.created_at))}${used}</span>
+    <span class="conn-acts">${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><input type="hidden" name="back" value="${esc(back)}"><button class="link caps">Revoke</button></form>`}${remove ? `<form method="post" action="/settings/connections/${esc(c.uid)}/remove"><button class="link caps">${c.revoked_at ? 'Remove' : 'Revoke and remove'}</button></form>` : ''}</span>
+  </div>`;
+}
+function connectionStatus(c) {
+  if (c.revoked_at) return 'revoked';
+  if (c.auth_kind === 'oauth') {
+    const live = q("SELECT expires_at FROM oauth_tokens WHERE connection_id=? AND kind='refresh' AND revoked_at IS NULL AND redeemed_at IS NULL").all(c.id)
+      .some((t) => !expiredAt(t.expires_at));
+    if (!live) return 'expired';
+  }
+  const last = String(c.last_used_at || c.created_at || '').replace(' ', 'T');
+  const t = Date.parse(/Z$|[+-]\d\d:?\d\d$/.test(last) ? last : last + 'Z');
+  if (Number.isFinite(t) && Date.now() - t > CONN_INACTIVE_DAYS * 864e5) return 'inactive';
+  return 'active';
+}
+// Listed in Settings (removed ones are hidden everywhere the member looks).
+const connectionsListed = (userId) => connectionsOf(userId).filter((c) => !c.removed_at).map((c) => ({ ...c, status: connectionStatus(c) }));
+// Remove from the lists: revoke first if it still works, then hide.
+function connectionRemove(userId, uid) {
+  const c = q('SELECT * FROM connections WHERE uid=? AND user_id=?').get(uid, userId);
+  if (!c || c.removed_at) return false;
+  if (!c.revoked_at) connectionRevoke(userId, uid);
+  q('UPDATE connections SET removed_at=CURRENT_TIMESTAMP WHERE id=?').run(c.id);
+  return true;
+}
+
 // ---- Account deletion (v2.86) -------------------------------------------------
 // A member deletes their own account from Settings. Everything the account
 // holds goes, in one transaction: notes, marks, visits, collections, comments
@@ -2862,7 +2908,7 @@ const SUPPORT_EMAIL = () => {
 // The date this wording took effect. Change it whenever the text changes.
 const POLICY_DATE = '21 September 2026';
 const TERMS_UPDATED = '12 October 2026';   // v2.86: self-serve account deletion
-const PRIVACY_UPDATED = '12 October 2026';   // v2.86: self-serve account deletion. v2.85: connection keys (Muse), read-only keys, shared plans and share links, automatic place lookups, export
+const PRIVACY_UPDATED = '13 October 2026';   // v2.87: removing past connections. v2.86: self-serve account deletion. v2.85: connection keys (Muse), read-only keys, shared plans and share links, automatic place lookups, export
 
 if (!PUBLISHER() || !SUPPORT_EMAIL())
   console.warn('Policy pages are offline until PUBLISHER_NAME and SUPPORT_EMAIL are set.');
@@ -2912,7 +2958,7 @@ function policyPage(req, res, me, which) {
       P('We do not sell your personal information and do not share it with advertisers. We share it with the services above only as needed to run Discriminantly, with the people you invite to a plan or give a link to, and with the AI services you connect, when you use them. We may also disclose information when the law or valid legal process requires it, or when it is reasonably necessary to protect Discriminantly\u2019s security, investigate abuse or enforce our Terms.'),
       H('Keeping and deleting'),
       P('We keep what you add until you delete it. When you delete a note, mark, check-in, itinerary or ensemble, it is removed from your account right away. Some traces can remain afterwards: photos that were attached to it stay in storage, though no longer shown with it; the history of changes keeps a record that it existed and was removed; and copies can remain in backups until those backups are removed.'),
-      P('Deleting and disconnecting are separate. Deleting something removes it from your account but leaves your AI connections as they are. Revoking a connection ends that service’s access but deletes nothing. A revoked connection stays listed in your history so earlier changes remain attributed.'),
+      P('Deleting and disconnecting are separate. Deleting something removes it from your account but leaves your AI connections as they are. Revoking a connection ends that service’s access but deletes nothing. In Settings, past and inactive connections have their own page, where you can remove them from your lists. Removing one revokes it if it still works. A record of it (its name, dates and hashed credential) is kept so earlier changes remain attributed to that service, and it is deleted with your account.'),
       H('Your copy, and deleting your account'),
       P(`To get a copy of everything in your account, write to ${contact}. We will send it in a machine-readable format (JSON), with your photos. A connected AI service can also retrieve what you keep at any time.`),
       P('You can delete your account yourself, in Settings under Your data, by confirming your handle and password. This takes effect immediately and cannot be undone. It deletes your account and everything in it: your profile, notes, travel marks, check-ins, collections, comments (and other people’s comments on your things), ownership and warrant records, ensembles, recommendations and photos, including the photo files. It also deletes the plans you own, for everyone you shared them with, and the history of changes for everything you owned and did. It ends every AI connection and signs you out everywhere.'),
@@ -2989,6 +3035,9 @@ const DONE = {
   'avatar-set': 'Profile photo updated.',
   'avatar-removed': 'Profile photo removed.',
   'account-deleted': 'Your account and everything in it have been deleted.',
+  'conn-revoked': 'Connection revoked. It no longer works.',
+  'conn-removed': 'Connection removed.',
+  'conns-removed': 'Revoked and expired connections removed.',
   'member-removed': 'Removed from the plan. Their own places and notes stay theirs.',
   restored: 'Restored to the plan.',
   kept: 'Kept in your travel marks.',
@@ -11161,6 +11210,31 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 </div>`;
     return send(res, layout({ title: 'Admin', body, me, req, nav: 'admin', cls: 'is-dark-page' }));
   },
+  // v2.87: past and inactive AI connections, off the main Settings page.
+  pastConnections(req, res, me) {
+    const listed = connectionsListed(me.id).filter((c) => c.status !== 'active');
+    const group = (st, title, sub) => {
+      const rows = listed.filter((c) => c.status === st);
+      return rows.length ? `<div class="wcell wcell-wide"><p class="sbox-title">${title}</p><p class="sbox-sub">${sub}</p>
+        <div class="conn-list">${rows.map((c) => connRow(c, { back: '/settings/connections', remove: true })).join('')}</div></div>` : '';
+    };
+    const clearable = listed.filter((c) => c.status === 'revoked' || c.status === 'expired').length;
+    const body = `<h3 class="strip dark-strip">Past and inactive connections</h3>
+<div class="settings">
+  <div class="wtable settings-table conn-past">
+    ${group('inactive', 'Not used lately', `These still work but haven’t been used in ${CONN_INACTIVE_DAYS} days. Revoke any you no longer use.`)}
+    ${group('expired', 'Sign-in expired', 'The AI’s sign-in has lapsed, so it can’t get in again unless you approve it again from that AI.')}
+    ${group('revoked', 'Revoked', 'These no longer work.')}
+    ${listed.length ? '' : '<div class="wcell wcell-wide"><p class="empty center">Nothing here. All your connections are active.</p></div>'}
+    <div class="wcell wcell-wide">
+      ${clearable ? `<form method="post" action="/settings/connections/remove-past"><button class="btn3d block">Remove all revoked and expired (${clearable})</button></form>` : ''}
+      <p class="fine center">Removing a connection takes it off these lists and revokes it if it still works. A record of it is kept so earlier changes stay attributed to that AI. It is deleted with your account.</p>
+      <a class="btn3d block" href="/settings#connector">← Back to Settings</a>
+    </div>
+  </div>
+</div>`;
+    return send(res, layout({ title: 'Past connections', body, me, req, cls: 'is-dark-page', nav: 'settings' }));
+  },
   settings(req, res, me, err = '', url = new URL(req.url, 'http://x')) {
     const mine = q('SELECT * FROM invites WHERE from_user=? ORDER BY created_at DESC').all(me.id);
     const unusedInvites = mine.filter((i) => !i.used_by);
@@ -11227,13 +11301,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               ${keyBox(url.searchParams.get('conn'))}` : ''}
             <div class="conn-list">
               <span class="lbl">Connected AI</span>
-              ${connectionsOf(me.id).map((c) => `<div class="sugg conn-row">
-                <span class="sugg-name">${esc(c.client_label)}${c.scope === 'read' ? ' <span class="lbl">read only</span>' : ''}${c.client_name ? '' : ' <i>not yet identified</i>'}</span>
-                <span class="sugg-sub">${c.auth_kind === 'oauth' ? 'authorized' : esc(c.token_prefix) + '\u2026'}
-                  \u00b7 ${c.revoked_at ? 'revoked' : 'active'}
-                  \u00b7 since ${esc(monthYear(c.created_at))}${c.last_used_at ? ' \u00b7 used ' + esc(monthYear(c.last_used_at)) : ''}</span>
-                ${c.revoked_at ? '' : `<form method="post" action="/settings/connections/${esc(c.uid)}/revoke"><button class="link caps">Revoke</button></form>`}
-              </div>`).join('') || '<p class="empty center">No AI connections yet.</p>'}
+              ${(() => {
+                // v2.87: only working connections here; the rest have their own page.
+                const listed = connectionsListed(me.id), live = listed.filter((c) => c.status === 'active'), past = listed.length - live.length;
+                return (live.map((c) => connRow(c)).join('') || '<p class="empty center">No active AI connections.</p>')
+                  + (past ? `<a class="btn3d block conn-past-btn" href="/settings/connections">Past and inactive connections (${past})</a>` : '');
+              })()}
               <form method="post" action="/settings/connections" class="conn-new">
                 <label class="slabel">Name this connection<input name="label" placeholder="ChatGPT, Claude\u2026" maxlength="40"></label>
                 <label class="collab-confirm conn-ro"><input type="checkbox" name="read_only" value="1"><span>Read only: it can look things up but not change anything. Works on the Muse address only.</span></label>
@@ -14674,8 +14747,26 @@ async function handle(req, res) {
   }
   if ((mt = p.match(/^\/settings\/connections\/([0-9a-f-]{36})\/revoke$/)) && m === 'POST') {
     if (!me) return need();
-    connectionRevoke(me.id, mt[1]);
-    return redirect(res, '/settings');
+    const b = await readBody(req);
+    const done = connectionRevoke(me.id, mt[1]);
+    const back = b.back === '/settings/connections' ? '/settings/connections' : '/settings#connector';
+    return redirect(res, done ? withDone(back, 'conn-revoked') : back);
+  }
+  // v2.87: past connections
+  if (p === '/settings/connections' && m === 'GET') {
+    if (!me) return need();
+    return pages.pastConnections(req, res, me);
+  }
+  if ((mt = p.match(/^\/settings\/connections\/([0-9a-f-]{36})\/remove$/)) && m === 'POST') {
+    if (!me) return need();
+    const done = connectionRemove(me.id, mt[1]);
+    return redirect(res, done ? withDone('/settings/connections', 'conn-removed') : '/settings/connections');
+  }
+  if (p === '/settings/connections/remove-past' && m === 'POST') {
+    if (!me) return need();
+    let n = 0;
+    for (const c of connectionsListed(me.id)) if (c.status === 'revoked' || c.status === 'expired') n += connectionRemove(me.id, c.uid) ? 1 : 0;
+    return redirect(res, n ? withDone('/settings/connections', 'conns-removed') : '/settings/connections');
   }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
   if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
