@@ -177,7 +177,7 @@ body[data-skin="modern"] .card .who a { color: var(--m-ink); }
 body[data-skin="modern"] .card .colls a {
   color: var(--m-ink-3); background: var(--m-glass-2); border-radius: 999px; padding: .2rem .7rem; font-size: .7rem; letter-spacing: .06em;
 }
-body[data-skin="modern"] .card h2, body[data-skin="modern"] .card h2 a { color: var(--m-ink); font-weight: 400; letter-spacing: -.005em; }
+body[data-skin="modern"] .card h2, body[data-skin="modern"] .card h2 a, body[data-skin="modern"] .card h1, body[data-skin="modern"] .card h1 a { color: var(--m-ink); font-weight: 400; letter-spacing: -.005em; }
 body[data-skin="modern"] .card .body, body[data-skin="modern"] .card .text .body { color: var(--m-ink-2); }
 /* the markup joins tags with ", " — collapse those to nothing by zeroing the
    container's font size, then give each pill its own size and a margin that

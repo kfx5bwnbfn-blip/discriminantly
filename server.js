@@ -2871,6 +2871,24 @@ function readBodyMulti(req) {
 function send(res, html, status = 200, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', ...headers }); res.end(html);
 }
+// Pass 2: compressed delivery for the public pages and static text assets
+// only. Opt-in per call, so the application, OAuth and MCP responses go out
+// exactly as before. Chooses brotli, then gzip, from Accept-Encoding; small
+// bodies and anything already encoded are sent as they are. Vary always
+// carries Accept-Encoding so a shared cache keys on it.
+const zlib = require('zlib');
+function sendZ(req, res, body, status = 200, headers = {}) {
+  const h = { 'Content-Type': 'text/html; charset=utf-8', ...headers };
+  const vary = String(h.Vary || h.vary || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!vary.some((v) => v.toLowerCase() === 'accept-encoding')) vary.push('Accept-Encoding');
+  delete h.vary; h.Vary = vary.join(', ');
+  const buf = Buffer.isBuffer(body) ? body : Buffer.from(String(body));
+  const ae = String((req && req.headers['accept-encoding']) || '').toLowerCase();
+  const enc = buf.length < 1024 || h['Content-Encoding'] ? '' : /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : '';
+  if (!enc) { res.writeHead(status, h); return res.end(buf); }
+  const out = enc === 'br' ? zlib.brotliCompressSync(buf, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: buf.length } }) : zlib.gzipSync(buf, { level: 6 });
+  res.writeHead(status, { ...h, 'Content-Encoding': enc, 'Content-Length': out.length }); res.end(out);
+}
 function redirect(res, to, extra = {}) { res.writeHead(303, { Location: to, ...extra }); res.end(); }
 function json(res, data) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data, null, 2)); }
 const timeAgo = (t) => {
@@ -3005,9 +3023,15 @@ function policyPage(req, res, me, which) {
   const [title, date, parts] = pages[which];
   // v2.88.1: the public header on the policy pages (public-facing; not the feed, not sign-in flows).
   const PP = PUB();
-  return send(res, layout({ title, me, req, cls: 'is-public',
-    pub: { header: PP.header(me), canonical: PP.canonical('/' + which), description: which === 'privacy' ? 'What Discriminantly keeps, who can see it, and what happens when you connect an AI service.' : which === 'terms' ? 'The terms for using Discriminantly.' : 'Help with Discriminantly: connecting an AI, disconnecting, your account and data.', og: { title, image: PP.OG_IMAGE } },
-    body: `<h3 class="strip">${title}</h3><div class="settings policy">${date}${parts.join('')}</div>` }));
+  const description = which === 'privacy' ? 'What Discriminantly keeps, who can see it, and what happens when you connect an AI service.' : which === 'terms' ? 'The terms for using Discriminantly: your account, what you add, public things, AI assistants, acceptable use.' : 'Help with Discriminantly: connecting an AI, disconnecting, your account and data.';
+  // Pass 2: one H1, breadcrumb and page-type metadata (ContactPage for support), a card.
+  const pub = artifactPub({ path: '/' + which, title, description, card: '/card/page/' + which + '.png',
+    breadcrumb: [{ name: 'Discriminantly', href: '/' }, { name: title, href: '/' + which }],
+    ld: [which === 'support' ? { '@type': 'ContactPage', '@id': PUBLIC_ORIGIN + '/support#contact', url: PUBLIC_ORIGIN + '/support', name: 'Support' } : { '@type': 'WebPage', '@id': PUBLIC_ORIGIN + '/' + which + '#page', url: PUBLIC_ORIGIN + '/' + which, name: title }] });
+  pub.header = PP.header(me);
+  const cache = PP.cacheHeaders(me);
+  return sendZ(req, res, layout({ title, me, req, cls: 'is-public', pub,
+    body: `${PP.crumbs([{ name: 'Discriminantly', href: '/' }, { name: title, href: '/' + which }])}<h1 class="strip">${title}</h1><div class="settings policy">${date}${parts.join('')}</div>` }), 200, cache);
 }
 
 // Screenshot aliases (v2.65.4): every page's visible text shows an alias in
@@ -3057,11 +3081,14 @@ function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null, pu
   const pubHead = pub ? [
     pub.description ? `<meta name="description" content="${esc(pub.description)}">` : '',
     pub.canonical ? `<link rel="canonical" href="${esc(pub.canonical)}">` : '',
-    pub.og ? `<meta property="og:type" content="website"><meta property="og:site_name" content="Discriminantly"><meta property="og:title" content="${esc(pub.og.title || title)}"><meta property="og:description" content="${esc(pub.og.description || pub.description || '')}"><meta property="og:url" content="${esc(pub.canonical || '')}"><meta property="og:image" content="${esc(pub.og.image || '')}"><meta name="twitter:card" content="summary">` : '',
+    pub.noindex ? '<meta name="robots" content="noindex,follow">' : '',
+    pub.og ? `<meta property="og:type" content="${esc(pub.og.type || 'website')}"><meta property="og:site_name" content="Discriminantly"><meta property="og:title" content="${esc(pub.og.title || title)}"><meta property="og:description" content="${esc(pub.og.description || pub.description || '')}"><meta property="og:url" content="${esc(pub.canonical || '')}"><meta property="og:image" content="${esc(pub.og.image || '')}">${pub.og.imageWidth ? `<meta property="og:image:width" content="${pub.og.imageWidth}"><meta property="og:image:height" content="${pub.og.imageHeight}">` : ''}<meta name="twitter:card" content="${pub.og.card || 'summary_large_image'}"><meta name="twitter:title" content="${esc(pub.og.title || title)}"><meta name="twitter:description" content="${esc(pub.og.description || pub.description || '')}"><meta name="twitter:image" content="${esc(pub.og.image || '')}">` : '',
   ].join('\n') : '';
+  const pubLd = pub && pub.ld ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': pub.ld }).replace(/</g, '\\u003c')}</script>` : '';
+  if (pubLd) body = body + pubLd;
   if (adminOn(me)) body = `<p class="admin-view-note">Admin view is on: you can see members’ private content. <a href="/settings#admin">Turn it off</a></p>` + body;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="viewport" content="${pub && pub.header ? 'width=device-width,initial-scale=1,viewport-fit=cover' : 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'}">
 <script>
 /* Saved to the home screen, iOS draws the page under the status bar and the
    island. Flag that case so the fixed bar can reserve the safe area. Runs
@@ -3118,7 +3145,7 @@ window.addEventListener('appinstalled', function () {
   document.dispatchEvent(new Event('discriminantly:installed'));
 });
 </script>
-<title>${esc(title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>${pubHead}
+<title>${esc(pub && pub.title ? pub.title : title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>${pubHead}
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
 <link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -3164,7 +3191,7 @@ ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&
 </div>
 `
   : pub && pub.header ? '' : `<header class="masthead"><div class="wrap">
-  <a class="mark" href="/welcome"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
+  <a class="mark" href="/"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
   <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
 </div></header>`}${pub && pub.header ? pub.header : ''}
 
@@ -4654,7 +4681,7 @@ function markCard(m, me, full = false) {
     <div class="text">
       <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
       ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
-      <h2 class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></h2>
+      <${full ? 'h1' : 'h2'} class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></${full ? 'h1' : 'h2'}>
       ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img loading="lazy" decoding="async" src="${esc(m.image)}"${imgSet(m.image)} alt="${esc(m.name)}"></a>` : ''}
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
       ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
@@ -7955,7 +7982,7 @@ function invitePreview(it, limit = 6) {
 function sharePage(req, res, me, tok, err = '') {
   const sh = shareByToken(tok);
   res.setHeader('X-Robots-Tag', 'noindex');
-  const shell = (inner, status = 200) => send(res, layout({ title: 'A shared plan', me, req, body: `<section class="feed invite-page">${inner}</section>` }), status);
+  const shell = (inner, status = 200) => send(res, layout({ title: 'A shared plan', me, req, pub: { noindex: true }, body: `<section class="feed invite-page">${inner}</section>` }), status);
   if (!sh) return shell(`<article class="itin-shell invite-card"><div class="ens-head itin-head invite-hero">
       <p class="who">Shared plan</p><h1 class="ens-title">This link isn’t active</h1>
       <p class="itin-ctx">It may have been revoked. Ask the person who sent it for a new one.</p></div></article>`, 404);
@@ -7989,7 +8016,7 @@ function sharePage(req, res, me, tok, err = '') {
 function inviteLandingPage(req, res, me, tok, err = '') {
   const inv = inviteByToken(tok);
   res.setHeader('X-Robots-Tag', 'noindex');
-  const shell = (inner, status = 200) => send(res, layout({ title: 'Invitation', me, req, body: `<section class="feed invite-page">${inner}</section>` }), status);
+  const shell = (inner, status = 200) => send(res, layout({ title: 'Invitation', me, req, pub: { noindex: true }, body: `<section class="feed invite-page">${inner}</section>` }), status);
   if (!inv || inv.state !== 'pending') return shell(`<article class="itin-shell invite-card"><div class="ens-head itin-head invite-hero">
       <p class="who">Invitation</p><h1 class="ens-title">This link isn’t active</h1>
       <p class="itin-ctx">It may have been used, revoked, or have run out. Ask the person who sent it for a new one.</p></div></article>`, 404);
@@ -8880,7 +8907,7 @@ function objectCard(o, me, full = false) {
       ${(() => { const cs = objCollections(o.id); return cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(o.handle)}?tab=notes&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''; })()}
     </div>
     <div class="text">
-      <h2><a href="/o/${o.id}">${esc(o.name)}</a></h2>
+      <${full ? 'h1' : 'h2'}><a href="/o/${o.id}">${esc(o.name)}</a></${full ? 'h1' : 'h2'}>
       ${o.why ? (() => {
         // roughly seven lines at the card's measure, or seven typed lines
         const long = !full && (o.why.length > 330 || o.why.split('\n').length > 7);
@@ -10098,7 +10125,7 @@ function welcomeCard(me) {
 }
 
 const pages = {
-  home(req, res, me, url) {
+  home(req, res, me, url, { activity = false } = {}) {
     const s = (url.searchParams.get('q') || '').trim();
     const tag = (url.searchParams.get('t') || '').trim().toLowerCase();
     const feed = me && ['following', 'followers'].includes(url.searchParams.get('feed')) ? url.searchParams.get('feed') : 'all';
@@ -10204,7 +10231,7 @@ const pages = {
 `}
   </aside>
   <section class="feed feed-plain is-tiled">
-    <h3 class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</h3>
+    <${!me && activity ? 'h1' : 'h3'} class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</${!me && activity ? 'h1' : 'h3'}>
     ${banner.html}
     ${s ? (() => {
       // A search is answered by kind: one group per primitive, each paging on
@@ -10218,7 +10245,17 @@ const pages = {
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}
   </section>
 </div>`;
-    send(res, layout({ title: '', body, me, nav: 'home' }));
+    // Pass 2: signed out, the feed is the public activity page, with its own
+    // metadata. Signed in it is the application home, exactly as before.
+    const pub = !me ? artifactPub({ path: '/activity' + (s ? '?q=' + encodeURIComponent(s) : tag ? '?t=' + encodeURIComponent(tag) : ''), title: s ? `Results for “${s}”` : tag ? `#${tag}` : 'Activity across Discriminantly', type: 'website',
+      description: 'Public notes, travel marks and plans members have kept recently on Discriminantly. Supporting evidence of activity; the product itself is described on the homepage.',
+      card: '/card/page/activity.png', noindex: !!(s || tag),
+      breadcrumb: [{ name: 'Discriminantly', href: '/' }, { name: 'Activity', href: '/activity' }],
+      ld: [{ '@type': 'CollectionPage', '@id': PUBLIC_ORIGIN + '/activity', name: 'Activity across Discriminantly', isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' } }] }) : null;
+    // Cache safeguards: the signed-out activity page may be shared-cached
+    // briefly, keyed on Cookie; a member's home is never shared-cached.
+    if (!me) return sendZ(req, res, layout({ title: 'Activity', body, me, req, nav: 'home', pub }), 200, { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300', Vary: 'Cookie, Accept-Encoding' });
+    send(res, layout({ title: '', body, me, req, nav: 'home', pub }), 200, { 'Cache-Control': 'private, no-store' });
   },
 
   object(req, res, me, url, id) {
@@ -10230,8 +10267,16 @@ const pages = {
       JOIN users u ON u.id=a.user_id
       WHERE a.renoted_from_uid=? AND a.user_id<>? AND a.private=0 ORDER BY a.created_at`).all(o.uid, o.user_id);
     const cmts = q('SELECT c.*, u.handle, u.name, u.avatar FROM comments c JOIN users u ON u.id=c.user_id WHERE c.object_id=? ORDER BY c.created_at').all(id);
-    const ld = { '@context': 'https://schema.org', '@type': 'Product', name: o.name, url: o.url || undefined, image: o.image || undefined, description: o.why, keywords: tags.join(', ') || undefined };
     const author = q('SELECT * FROM users WHERE id=?').get(o.user_id);
+    // Pass 2: public metadata, only for a public Note. A Note is a thing the
+    // member thought worth remembering, so it is described as a Thing, never
+    // as owned, bought or endorsed.
+    const pub = o.private ? { noindex: true } : artifactPub({ path: `/o/${o.id}`, title: o.name, type: 'article',
+      description: metaText(`${o.name}. Noted by @${author.handle} on Discriminantly${o.why ? ': ' + o.why : ''}`),
+      image: o.image, card: cardPath('o', o.id, o.image ? 'i' : 't'),
+      breadcrumb: [{ name: '@' + author.handle, href: '/u/' + author.handle }, { name: 'Notes', href: `/u/${author.handle}?tab=notes` }, { name: o.name, href: `/o/${o.id}` }],
+      ld: [{ '@type': 'WebPage', '@id': PUBLIC_ORIGIN + `/o/${o.id}`, name: o.name, description: metaText(o.why || o.name), isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, author: personLd(author), datePublished: String(o.created_at || '').slice(0, 10) || undefined,
+        mainEntity: { '@type': 'Thing', name: o.name, description: o.why || undefined, image: o.image ? absUrl(o.image) : undefined, sameAs: o.url || undefined } }] });
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'notes')}
 <section class="feed profile-feed${skinOf(me, req) === 'modern' ? ' has-colophon' : ''}">
 <h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> › <a class="crumb" href="/u/${esc(author.handle)}?tab=notes">Notes</a> › <span class="crumb-here">Note</span></h3>
@@ -10261,9 +10306,8 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
   label(); f.addEventListener('toggle', label);
 })();
 </script>
-</section></div>
-<script type="application/ld+json">${JSON.stringify(ld)}</script>`;
-    send(res, layout({ title: o.name, body, me, cls: 'is-article' }));
+</section></div>`;
+    send(res, layout({ title: o.name, body, me, req, cls: 'is-article', pub }));
   },
 
   // ---- Itinerary ------------------------------------------------------------
@@ -10443,7 +10487,17 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     const body = `<div class="cols profile-cols">${profileRail(author, me, 'itineraries')}
   <section class="feed profile-feed itin-page">${main}</section>
 </div>`;
-    send(res, layout({ title: it.title || 'Itinerary', body, me, req }));
+    const pub = it.private ? { noindex: true } : (() => {
+      const stops = q('SELECT s.label, s.place_name, m.name AS mark_name FROM itinerary_stops s LEFT JOIN marks m ON m.uid = s.mark_uid WHERE s.itinerary_id=? ORDER BY s.id').all(it.id)
+        .map((s) => s.mark_name || s.place_name || s.label).filter(Boolean);
+      return artifactPub({ path: base, title: it.title || 'Itinerary', type: 'article',
+        description: metaText(`${it.title || 'An itinerary'}: a plan by @${author.handle} on Discriminantly with ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}${it.context ? '. ' + it.context : ''}. A plan, not a record of having gone.`),
+        card: cardPath('t', it.id, stops.length),
+        breadcrumb: [{ name: '@' + author.handle, href: '/u/' + author.handle }, { name: 'Itineraries', href: '/t' }, { name: it.title || 'Itinerary', href: base }],
+        ld: [{ '@type': 'WebPage', '@id': PUBLIC_ORIGIN + base, name: it.title || 'Itinerary', description: metaText(it.context || `A plan by @${author.handle}.`), isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, author: personLd(author), datePublished: String(it.created_at || '').slice(0, 10) || undefined,
+          mainEntity: { '@type': 'ItemList', name: it.title || 'Itinerary', description: 'A travel plan: an intention, not a record of a completed trip.', numberOfItems: stops.length, itemListElement: stops.slice(0, 60).map((n, i) => ({ '@type': 'ListItem', position: i + 1, name: n })) } }] });
+    })();
+    send(res, layout({ title: it.title || 'Itinerary', body, me, req, pub }));
   },
 
   ensembles(req, res, me) {
@@ -10571,7 +10625,13 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
   </div>
   ${skinOf(me, req) === 'modern' ? ensembleColophon(e, me) : ''}
 </aside></section></section></div>`;
-    send(res, layout({ title: v.title, body, me, nav: 'home' }));
+    const pub = (v.private || v.status !== 'saved') ? { noindex: true } : artifactPub({ path: `/e/${e.id}`, title: v.title || 'Ensemble', type: 'article',
+      description: metaText(`${v.title || 'An ensemble'}: a composition by @${author.handle} on Discriminantly${v.description ? '. ' + v.description : ''}`),
+      image: primary ? primary.image : '', card: cardPath('e', e.id, primary ? 'i' : 't'),
+      breadcrumb: [{ name: '@' + author.handle, href: '/u/' + author.handle }, { name: 'Ensembles', href: `/u/${author.handle}?tab=ensembles` }, { name: v.title || 'Ensemble', href: `/e/${e.id}` }],
+      ld: [{ '@type': 'WebPage', '@id': PUBLIC_ORIGIN + `/e/${e.id}`, name: v.title || 'Ensemble', description: metaText(v.description || v.title || 'An ensemble'), isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, author: personLd(author), datePublished: String(v.created_at || '').slice(0, 10) || undefined,
+        mainEntity: { '@type': 'CreativeWork', name: v.title || 'Ensemble', description: v.description || undefined, image: primary ? absUrl(primary.image) : undefined, creator: personLd(author) } }] });
+    send(res, layout({ title: v.title, body, me, req, nav: 'home', pub }));
   },
 
   mark(req, res, me, url, id) {
@@ -10656,7 +10716,16 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
   copy: 'Log today as your first visit to <b>${esc(m.name)}</b>? You can check in any time from the card.',
   cta: 'Log today', dismiss: 'Not now', action: '/m/${m.id}/checkin', field: 'A LINE ABOUT THIS VISIT (OPTIONAL)' });` : ''}
 </script>`;
-    send(res, layout({ title: m.name, body, me }));
+    const pub = m.private ? { noindex: true } : artifactPub({ path: `/m/${m.id}`, title: m.name, type: 'article',
+      description: metaText(`${m.name}${m.locality || m.country ? ', ' + [m.locality, m.country].filter(Boolean).join(', ') : ''}. A travel mark kept by @${author.handle} on Discriminantly${m.why ? ': ' + m.why : ''}`),
+      image: m.image, card: cardPath('m', m.id, m.image ? 'i' : 't'),
+      breadcrumb: [{ name: '@' + author.handle, href: '/u/' + author.handle }, { name: 'Travel Marks', href: `/u/${author.handle}?tab=marks` }, { name: m.name, href: `/m/${m.id}` }],
+      ld: [{ '@type': 'WebPage', '@id': PUBLIC_ORIGIN + `/m/${m.id}`, name: m.name, description: metaText(m.why || m.name), isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, author: personLd(author), datePublished: String(m.created_at || '').slice(0, 10) || undefined,
+        // The place itself. The page records that the member kept it; nothing here says they went or recommend it.
+        mainEntity: { '@type': 'Place', name: m.name, image: m.image ? absUrl(m.image) : undefined, url: m.url || undefined,
+          ...(m.address || m.locality || m.country ? { address: { '@type': 'PostalAddress', streetAddress: m.address || undefined, addressLocality: m.locality || undefined, addressCountry: m.country || undefined } } : {}),
+          ...(m.lat != null && m.lng != null ? { geo: { '@type': 'GeoCoordinates', latitude: m.lat, longitude: m.lng } } : {}) } }] });
+    send(res, layout({ title: m.name, body, me, req, pub }));
   },
 
   markForm(req, res, me, m = {}, err = '', picked = null) {
@@ -10703,7 +10772,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       const rows = tab === 'followers'
         ? q('SELECT u.* FROM follows f JOIN users u ON u.id=f.follower_id WHERE f.followee_id=? ORDER BY f.created_at DESC').all(u.id)
         : q('SELECT u.* FROM follows f JOIN users u ON u.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC').all(u.id);
-      main = `<h3 class="strip">${tab === 'followers' ? `${fc.followers} ${fc.followers === 1 ? 'person follows' : 'people follow'} ${esc(u.handle)}` : `${esc(u.handle)} follows ${fc.following} ${fc.following === 1 ? 'person' : 'people'}`}</h3>
+      main = `<h1 class="strip">${tab === 'followers' ? `${fc.followers} ${fc.followers === 1 ? 'person follows' : 'people follow'} ${esc(u.handle)}` : `${esc(u.handle)} follows ${fc.following} ${fc.following === 1 ? 'person' : 'people'}`}</h1>
       <ul class="people">${rows.map((p) => {
         // The card itself is the way in — a Follow button here competed with
         // it for the tap. What the member actually wants at a glance is a
@@ -10735,7 +10804,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       }
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const wpg = pageOf(acts, url);
-      main = `<h3 class="strip">${esc(u.handle)}\u2019s warrants</h3>
+      main = `<h1 class="strip">${esc(u.handle)}\u2019s warrants</h1>
       <div class="activity-feed" id="feed-grid">${wpg.slice.map((a) => a.mark
         ? `<div class="act-note">${markCard(a.mark, me)}</div>`
         : `<div class="act-note">${objectCard(a.card, me)}</div>`).join('')}</div>${moreLink(url, wpg.off, wpg.more)}
@@ -10745,7 +10814,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       // public ensembles; the owner sees their own private ones too.
       const rows = q('SELECT * FROM ensembles WHERE user_id=? ORDER BY id DESC').all(u.id)
         .filter((e) => ensCanSee(e, me));
-      main = `<h3 class="strip">${esc(u.handle)}\u2019s ensembles</h3>
+      main = `<h1 class="strip">${esc(u.handle)}\u2019s ensembles</h1>
       <div class="ens-grid">${rows.map((e) => {
         const pa = e.primary_artifact_uid ? q('SELECT image_uid FROM ensemble_artifacts WHERE uid=?').get(e.primary_artifact_uid) : null;
         const st = ensStats(e.id);
@@ -10792,7 +10861,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-ren>Cancel</button></span>
   </form>` : ''}</div>`;
       const chip = (label, href, on) => `<a class="place-chip ${on ? 'on' : ''}" href="${href}">${esc(label)}</a>`;
-      main = `<h3 class="strip">${esc(u.handle)}'s Travel Marks</h3>
+      main = `<h1 class="strip">${esc(u.handle)}'s Travel Marks</h1>
       <div class="tiles-wrap">
         <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
         <div class="tiles" id="tiles">${mtile(0, 'All marks', all.length, !cid)}${mcolls.map((c) => mtile(c.id, c.name, c.count, c.id === cid)).join('')}${owner ? `
@@ -10901,7 +10970,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <input name="name" value="${esc(name)}" maxlength="40" required>
     <span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-ren>Cancel</button></span>
   </form>` : ''}</div>`;
-      main = `<h3 class="strip">${esc(u.handle)}'s Notes</h3>
+      main = `<h1 class="strip">${esc(u.handle)}'s Notes</h1>
       <div class="tiles-wrap">
         <div class="tiles-nav"><button type="button" class="tiles-arrow" data-scroll="-1" aria-label="Scroll collections left"><img src="/chev.png" alt="" width="26" height="26"></button><button type="button" class="tiles-arrow" data-scroll="1" aria-label="Scroll collections right"><img src="/chev.png" alt="" width="26" height="26"></button></div>
         <div class="tiles" id="tiles">${tile(0, 'All notes', visible.length, '', !cid)}${colls.map((c) => tile(c.id, c.name, c.count, c.image, c.id === cid)).join('')}${owner ? `
@@ -11000,7 +11069,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const apg = pageOf(acts, url);
-      main = `<h3 class="strip">All activity</h3>
+      main = `<h1 class="strip">${esc(u.handle)}\u2019s activity</h1>
       <div class="activity-feed" id="feed-grid">${apg.slice.map((a) => a.itin
         ? `<div class="act-note">${itineraryPreview(a.itin, me)}</div>`
         : a.mark
@@ -11018,7 +11087,19 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const body = `<div class="cols profile-cols">${profileRail(u, me, tab)}
   <section class="feed profile-feed is-tiled">${main}</section>
 </div>`;
-    send(res, layout({ title: u.handle, body, me, nav: me && me.id === u.id ? 'profile' : '' }));
+    // Pass 2: a profile is public (handles and public records are); a
+    // collection view describes only the records this viewer can see.
+    const coll = cid ? colls.find((c) => c.id === cid) : null;
+    const pubPath = coll ? `/u/${u.handle}?c=${coll.id}&tab=notes` : `/u/${u.handle}`;
+    const pub = artifactPub({ path: pubPath, type: 'profile', title: coll ? `${coll.name}, a collection by @${u.handle}` : `@${u.handle}`,
+      description: coll ? metaText(`${coll.name}: ${coll.count} ${coll.count === 1 ? 'note' : 'notes'} kept by @${u.handle} on Discriminantly.`)
+        : metaText(`${u.name && u.name !== u.handle ? u.name + ' (@' + u.handle + ')' : '@' + u.handle} on Discriminantly${u.bio ? ': ' + u.bio : ''}. Notes, travel marks and plans they have kept.`),
+      image: u.avatar && /^(https?:)?\//.test(u.avatar) ? u.avatar : '', card: cardPath('u', u.handle, coll ? 'c' + coll.id : 'p'),
+      breadcrumb: coll ? [{ name: '@' + u.handle, href: '/u/' + u.handle }, { name: 'Collections', href: `/u/${u.handle}?tab=notes` }, { name: coll.name, href: pubPath }] : [{ name: '@' + u.handle, href: '/u/' + u.handle }],
+      ld: coll ? [{ '@type': 'CollectionPage', '@id': PUBLIC_ORIGIN + pubPath, name: coll.name, description: `A collection of notes kept by @${u.handle}.`, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, author: personLd(u),
+          mainEntity: { '@type': 'ItemList', name: coll.name, numberOfItems: coll.count, itemListElement: visible.filter((o) => new Set(q('SELECT note_id FROM note_collections WHERE collection_id=?').all(coll.id).map((r) => r.note_id)).has(o.id)).slice(0, 50).map((o, i) => ({ '@type': 'ListItem', position: i + 1, name: o.name, url: PUBLIC_ORIGIN + '/o/' + o.id })) } }]
+        : [{ '@type': 'ProfilePage', '@id': PUBLIC_ORIGIN + pubPath, name: '@' + u.handle, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, mainEntity: personLd(u) }] });
+    send(res, layout({ title: u.handle, body, me, req, nav: me && me.id === u.id ? 'profile' : '', pub }));
   },
 
   login(req, res, me, err = '', next = '') {
@@ -11035,7 +11116,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <div class="wcell wcell-wide"><p class="fine center">New to discriminant.ly? <a href="/join${next ? `?next=${encodeURIComponent(next)}` : ''}">Create an account</a></p></div>
   </form>
 </div>`;
-    send(res, layout({ title: 'Sign in', body, me, req, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Sign in', body, me, req, cls: 'is-dark-page', pub: { noindex: true } }));
   },
 
   join(req, res, me, code = '', err = '', next = '', vals = {}) {
@@ -11056,7 +11137,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></div>
   </form>
 </div>`;
-    send(res, layout({ title: 'Create your account', body, me, req, cls: 'is-dark-page' }));
+    send(res, layout({ title: 'Create your account', body, me, req, cls: 'is-dark-page', pub: { noindex: true } }));
   },
 
   invites(req, res, me) {
@@ -11535,9 +11616,67 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 };
 
 const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+// ---- Public artifact metadata (pass 2) ----------------------------------------
+// One builder for every public Note, Mark, plan, profile, collection and
+// ensemble page: title, description, canonical, Open Graph/Twitter card,
+// JSON-LD with absolute URLs. Called only after the page's own visibility
+// check has passed, and given only fields the viewer can already see. A
+// private record is never described here; a signed-out crawler sees exactly
+// what a signed-out visitor sees.
+const absUrl = (u) => !u ? '' : /^https?:\/\//i.test(u) ? u : PUBLIC_ORIGIN + (u.startsWith('/') ? u : '/' + u);
+const metaText = (s, n = 160) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length <= n ? t : t.slice(0, n - 1).replace(/\s+\S*$/, '') + '\u2026'; };
+const CARD_W = 1200, CARD_H = 630;
+function artifactPub({ path, title, description, type = 'article', image = '', card = '', ld = [], noindex = false, breadcrumb = null }) {
+  const canonical = PUBLIC_ORIGIN + path;
+  // A public image of the record itself makes the best preview; otherwise the
+  // page's generated card, which carries only the same public fields.
+  const og = { type, title, description, image: image ? absUrl(image) : PUBLIC_ORIGIN + (card || '/card/site.png'), card: 'summary_large_image' };
+  if (!image) { og.imageWidth = CARD_W; og.imageHeight = CARD_H; }
+  const graph = [
+    { '@type': 'Organization', '@id': PUBLIC_ORIGIN + '/#org', name: 'Discriminantly', url: PUBLIC_ORIGIN + '/', logo: { '@type': 'ImageObject', url: PUBLIC_ORIGIN + '/icon-512.png', width: 512, height: 512 } },
+    { '@type': 'WebSite', '@id': PUBLIC_ORIGIN + '/#site', name: 'Discriminantly', url: PUBLIC_ORIGIN + '/', publisher: { '@id': PUBLIC_ORIGIN + '/#org' } },
+    ...(breadcrumb ? [{ '@type': 'BreadcrumbList', itemListElement: breadcrumb.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: PUBLIC_ORIGIN + c.href })) }] : []),
+    ...ld.map((x) => ({ ...x, url: x.url || canonical })),
+  ];
+  return { title: `${title} \u2014 Discriminantly`, description, canonical, og, ld: graph, noindex };
+}
+const personLd = (u) => ({ '@type': 'Person', '@id': PUBLIC_ORIGIN + '/u/' + u.handle + '#person', name: u.name || u.handle, alternateName: '@' + u.handle, url: PUBLIC_ORIGIN + '/u/' + u.handle, ...(u.avatar && /^(https?:)?\//.test(u.avatar) ? { image: absUrl(u.avatar) } : {}) });
+// The card image route renders a 1200x630 preview from public fields only.
+const cardPath = (kind, id, v) => `/card/${kind}/${id}.png${v ? '?v=' + encodeURIComponent(String(v).replace(/[^0-9a-z]/gi, '').slice(0, 14)) : ''}`;
+
+const CARD_CACHE = new Map();
+// A record's own public image, as a file sharp can read; only images already
+// visible to a signed-out visitor, so a card can never surface a private one.
+function publicImageFile(ref) {
+  const mm = /^\/i\/([0-9a-f-]{8,}|\d+)$/i.exec(String(ref || '')); if (!mm) return null;
+  const img = /^\d+$/.test(mm[1]) ? q('SELECT * FROM images WHERE id=?').get(+mm[1]) : q('SELECT * FROM images WHERE uid=?').get(mm[1]);
+  if (!img || !imageVisibleTo(img, null)) return null;
+  const buf = imageBytes(img); return buf || null;
+}
+async function cardSpec(key) {
+  const C = PUB().content;
+  if (key === 'site') return { title: C.site.brandLine, line: C.site.proposition[0] };
+  if (key.startsWith('page/')) { const pg = PUB().cardPages[key.slice(5)]; return pg ? { eyebrow: pg.eyebrow || '', title: pg.title, line: pg.line || '' } : null; }
+  const [kind, id] = key.split('/');
+  if (kind === 'o') { const o = q(OBJ_SQL + ' WHERE o.id=?').get(+id); if (!o || !canView('object', o, null)) return null; const a = q('SELECT handle FROM users WHERE id=?').get(o.user_id);
+    return { eyebrow: 'Note', title: o.name, line: metaText(`Noted by @${a.handle}${o.why ? ': ' + o.why : ''}`, 150), image: publicImageFile(o.image) }; }
+  if (kind === 'm') { const mk = q(MARK_SQL + ' WHERE m.id=?').get(+id); if (!mk || !canView('mark', mk, null)) return null; const a = q('SELECT handle FROM users WHERE id=?').get(mk.user_id);
+    return { eyebrow: 'Travel Mark', title: mk.name, line: metaText(`${[mk.locality, mk.country].filter(Boolean).join(', ')}${mk.locality || mk.country ? '. ' : ''}Kept by @${a.handle}${mk.why ? ': ' + mk.why : ''}`, 150), image: publicImageFile(mk.image) }; }
+  if (kind === 't') { const it = q('SELECT * FROM itineraries WHERE id=?').get(+id); if (!it || !canView('itinerary', it, null)) return null; const a = q('SELECT handle FROM users WHERE id=?').get(it.user_id);
+    const n = q('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=?').get(it.id).n;
+    return { eyebrow: 'Itinerary', title: it.title || 'Itinerary', line: metaText(`A plan by @${a.handle}, ${n} ${n === 1 ? 'stop' : 'stops'}${it.context ? '. ' + it.context : ''}`, 150) }; }
+  if (kind === 'e') { const e = q('SELECT * FROM ensembles WHERE id=?').get(+id); if (!e || !ensCanSee(e, null) || e.private) return null; const a = q('SELECT handle FROM users WHERE id=?').get(e.user_id);
+    const v = ensembleView(e, null); const prim = v.artifacts.find((x) => x.is_primary) || v.artifacts[0];
+    return { eyebrow: 'Ensemble', title: v.title || 'Ensemble', line: metaText(`A composition by @${a.handle}${v.description ? ': ' + v.description : ''}`, 150), image: prim ? publicImageFile(prim.image) : null }; }
+  if (kind === 'u') { const usr = q('SELECT * FROM users WHERE handle=?').get(String(id).toLowerCase()); if (!usr) return null;
+    const notes = q('SELECT COUNT(*) n FROM adopted_objects WHERE user_id=? AND private=0').get(usr.id).n, marks = q('SELECT COUNT(*) n FROM adopted_marks WHERE user_id=? AND private=0').get(usr.id).n;
+    return { eyebrow: 'Member', title: '@' + usr.handle, line: metaText(`${usr.name && usr.name !== usr.handle ? usr.name + '. ' : ''}${notes} public ${notes === 1 ? 'note' : 'notes'}, ${marks} public travel ${marks === 1 ? 'mark' : 'marks'}${usr.bio ? '. ' + usr.bio : ''}`, 150) }; }
+  return null;
+}
+
 // Public pages (review build) share the app's layout, skins and icons.
 let PUB_ = null;
-const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl: () => (process.env.CHATGPT_PLUGIN_URL || '').trim() }));
+const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, sendZ, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl: () => (process.env.CHATGPT_PLUGIN_URL || '').trim() }));
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 // One shared description for every `image` parameter, so the warning can't
@@ -14351,6 +14490,21 @@ async function handle(req, res) {
   // through the same visibility check — the integer path was previously
   // unauthenticated and sequential, so a private note's bytes could be
   // fetched by anyone counting upwards.
+  // Pass 2: social-card images, from public fields only. A record that a
+  // signed-out visitor cannot see has no card (404), whoever asks.
+  if ((mt = p.match(/^\/card\/(site|page\/[a-z0-9-]{1,40}|[omteu]\/[A-Za-z0-9]{1,40})\.png$/)) && m === 'GET') {
+    const key = mt[1]; const cached = CARD_CACHE.get(key);
+    const sendCard = (buf, status = 200) => { res.writeHead(status, { 'Content-Type': 'image/png', 'Content-Length': buf.length, 'Cache-Control': 'public, max-age=86400' }); return res.end(buf); };
+    if (cached) return sendCard(cached);
+    try {
+      const spec = await cardSpec(key);
+      if (!spec) return send(res, 'Not found', 404);
+      const buf = await require('./cards').card(spec);
+      if (!buf) return send(res, 'Not found', 404);
+      if (CARD_CACHE.size > 400) CARD_CACHE.clear();
+      CARD_CACHE.set(key, buf); return sendCard(buf);
+    } catch (e) { console.error('[card]', key, e.message); return send(res, 'Not found', 404); }
+  }
   if ((mt = p.match(/^\/i\/([0-9a-f-]{8,}|\d+)$/i))) {
     const key = mt[1];
     const img = /^\d+$/.test(key)
@@ -14398,10 +14552,14 @@ async function handle(req, res) {
     return fs.createReadStream(f).pipe(res);
   }
   if (/^\/how\/[a-z-]+\.jpg$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
+  // Pass 2: WebP variants of the hero screenshots, generated from the JPEGs.
+  if (/^\/welcome-shot-(modern|itin)-(light|dark)(-1000)?\.webp$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   if (STATIC[p]) {
     const versioned = url.searchParams.has('v');
-    res.writeHead(200, { 'Content-Type': STATIC[p],
-      'Cache-Control': versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300' });
+    const cc = versioned ? 'public, max-age=31536000, immutable' : 'public, max-age=300';
+    // Text assets go out compressed; images are already compressed and stream as before.
+    if (/^(text\/|application\/(javascript|manifest))/.test(STATIC[p])) return sendZ(req, res, fs.readFileSync(path.join(__dirname, 'public', p)), 200, { 'Content-Type': STATIC[p], 'Cache-Control': cc });
+    res.writeHead(200, { 'Content-Type': STATIC[p], 'Cache-Control': cc });
     return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res);
   }
   if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
@@ -14784,7 +14942,17 @@ async function handle(req, res) {
     return redirect(res, n ? withDone('/settings/connections', 'conns-removed') : '/settings/connections');
   }
   if (p === '/settings/token' && m === 'POST') { if (!me) return need(); q('UPDATE users SET api_token=? WHERE id=?').run(token(24), me.id); return redirect(res, '/settings'); }
-  if (p === '/' && m === 'GET') return pages.home(req, res, me, url);
+  // Pass 2: the public homepage is the root. A signed-out visitor gets the
+  // welcome page (canonical /); a signed-in member keeps the application home.
+  // The signed-out feed lives at /activity. /welcome redirects permanently.
+  if (p === '/' && m === 'GET') {
+    if (me) return pages.home(req, res, me, url);
+    // A signed-out search or tag query on the old feed root goes to the feed's new route.
+    if (url.searchParams.has('q') || url.searchParams.has('t')) { res.writeHead(302, { Location: '/activity' + url.search, 'Cache-Control': 'no-store' }); return res.end(); }
+    const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc);
+    return PUB().home(req, res, me);
+  }
+  if (p === '/activity' && m === 'GET') return pages.home(req, res, me, url, { activity: true });
   // ---- public policy pages ------------------------------------------------
   // Required for public plugin listing. Written to match what this server
   // actually does; the publisher name and contact address come from the
@@ -14795,7 +14963,7 @@ async function handle(req, res) {
   if (p === '/sitemap.xml') return PUB().sitemap(req, res);
   if (p === '/robots.txt') return PUB().robots(req, res);
   // Public pages (review build): the welcome page keeps its route; the rest are new.
-  if (p === '/welcome') { if (!me) { const sc = sourceCookieFor(req, url); if (sc) res.setHeader('Set-Cookie', sc); } return PUB().home(req, res, me); }
+  if (p === '/welcome') { res.writeHead(301, { Location: '/' + (url.search || ''), 'Cache-Control': 'public, max-age=86400' }); return res.end(); }
   if (p === '/how-it-works') return PUB().howItWorks(req, res, me);
   if (p === '/travel-marks') return PUB().travelMarks(req, res, me);
   if (p === '/ai') return PUB().aiHub(req, res, me);
@@ -14804,6 +14972,16 @@ async function handle(req, res) {
   if (p === '/ai/claude') return PUB().claude(req, res, me);
   if (p === '/ai/other') return PUB().other(req, res, me);
   if (p === '/guides') return PUB().guides(req, res, me);
+  // Pass 2: first-class record pages, task guides, agent guidance. GET only;
+  // the POST routes under /collections/... are handled earlier and unchanged.
+  if (m === 'GET') {
+    const OBJ_ROUTES = { '/notes': 'note', '/check-ins': 'checkin', '/collections': 'collection', '/itineraries': 'itinerary', '/warrants': 'warrant' };
+    if (OBJ_ROUTES[p]) { const h = PUB().objectPage(OBJ_ROUTES[p]); if (h) return h(req, res, me); }
+    const gm = /^\/guides\/([a-z0-9-]{1,80})$/.exec(p);
+    if (gm) { const h = PUB().guide(gm[1]); if (h) return h(req, res, me); return send(res, layout({ title: 'Not found', body: '<p>That page does not exist.</p>', me, req, pub: { noindex: true } }), 404); }
+    if (p === '/agent-guidance') return PUB().agentGuidance(req, res, me);
+    if (p === '/agent-guidance.md') return PUB().agentGuidanceText(req, res);
+  }
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
   if (p === '/login') {

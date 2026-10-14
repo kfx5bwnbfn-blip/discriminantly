@@ -1598,6 +1598,9 @@ body.is-public:not(.is-in) { padding-top: 0; }
 .pub-defs dt { font-weight: 600; } .pub-defs dd { margin: 0; line-height: 1.55; }
 .pub-facts { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem 1.4rem; margin: .6rem 0 .9rem; }
 .pub-facts-wide { grid-template-columns: 1fr; }
+/* Long addresses (a plugin page, an endpoint) wrap inside their cell rather than widening the page. */
+.pub-facts dd, .pub-facts dd a, .pub-facts dd code, .pub-code, .welcome-card .wl-how li, .welcome-card .wl-note, .welcome-card .wl-how a { overflow-wrap: anywhere; word-break: break-word; min-width: 0; }
+.pub-facts > div { min-width: 0; }
 .pub-facts div { padding: .35rem 0; }
 .pub-facts dt { font-family: var(--slab); font-weight: 600; font-size: .64rem; letter-spacing: .15em; text-transform: uppercase; opacity: .75; margin-bottom: .15rem; }
 .pub-facts dd { margin: 0; line-height: 1.5; }

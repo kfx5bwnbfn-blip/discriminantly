@@ -215,8 +215,8 @@ img.avatar.big { box-shadow: inset 0 0 0 1px rgba(0,0,0,.2), 0 0 0 1px rgba(255,
 .note .figure img { width: 100%; height: 100%; object-fit: contain; object-position: 50% 0%; display: block; }   /* anchored to the top: no letterboxing above the image, only below if the box is taller */
 .who { margin: 0 0 .35rem; color: var(--ink); }
 .who a { color: var(--ink); }
-.note h2 { font-size: 1.25rem; margin: 0 0 .5rem; }
-.note h2 a { color: var(--ink); }
+.note h2, .note h1 { font-size: 1.25rem; margin: 0 0 .5rem; }
+.note h2 a, .note h1 a { color: var(--ink); }
 .body { margin: 0 0 .8rem; font-size: .88rem; line-height: 1.45; color: #444; white-space: pre-line; }
 .tags { margin: 0 0 .2rem; font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--link); }
 .tags a { color: var(--link); }
@@ -266,7 +266,7 @@ code { font-family: Menlo, Consolas, monospace; font-size: .85em; }
   .grid, .activity-feed { columns: 1; column-gap: 0; }
   .act-note .note, .grid .note { min-width: 0; }
   .note .card, .note .text { min-width: 0; }
-  .link, .body, .note h2 { overflow-wrap: anywhere; }
+  .link, .body, .note h2, .note h1 { overflow-wrap: anywhere; }
   .note { grid-template-columns: 1fr; gap: .4rem; }
   .has-image .card { grid-template-columns: 1fr; }
   .note .figure { order: -1; padding: var(--img-pad); }   /* stacked above the text now, so all four sides match */
@@ -1028,14 +1028,14 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 .travelmark .text { background: transparent; text-align: center; padding: 1.3rem 1.3rem 1.4rem;
   display: flex; flex-direction: column; align-items: center; }
 /* a readable measure — long lines across a wide card read as a wall of text */
-.travelmark .who, .travelmark .colls, .travelmark h2, .travelmark .mark-where,
+.travelmark .who, .travelmark .colls, .travelmark h2, .travelmark h1, .travelmark .mark-where,
 .travelmark .mark-address, .travelmark .body, .travelmark .tags, .travelmark .link {
   max-width: 34rem; width: 100%; }
 .travelmark .body { max-width: 30rem; }
 .travelmark .mark-map, .travelmark .map-credit, .travelmark .noteit { width: 100%; max-width: 34rem; }
 .travelmark .who { color: var(--mark-ink); }
 .travelmark .who a { color: var(--mark-ink); }
-.travelmark h2 a { color: #35342e; }
+.travelmark h2 a, .travelmark h1 a { color: #35342e; }
 .travelmark .body { color: #52514a; }
 .travelmark .mark-where { color: #767468; }
 .travelmark .mark-address { color: #85847a; }
@@ -1081,7 +1081,7 @@ main > .notecard-page { max-width: 33rem; margin: 1.2rem auto 2.6rem !important;
 :root { --mark-measure: 34rem; }
 .travelmark .text > * { max-width: var(--mark-measure); margin-left: auto; margin-right: auto; }
 .travelmark .body { max-width: 30rem; }
-.travelmark h2 { max-width: none; }
+.travelmark h2, .travelmark h1 { max-width: none; }
 .travelmark .mark-photo { max-width: var(--mark-measure); }
 
 /* arc-set place name */

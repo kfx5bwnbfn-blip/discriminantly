@@ -11,7 +11,7 @@
 const C = require('./public-content');
 
 function create(d) {
-  const { layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl } = d;
+  const { layout, send, sendZ, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl } = d;
   const PLUGIN = () => (pluginUrl && pluginUrl()) || '';
   // Structured data shared by every public page. Only facts the pages state.
   const ORG = { '@type': 'Organization', '@id': PUBLIC_ORIGIN + '/#org', name: C.site.name, url: PUBLIC_ORIGIN + '/', logo: { '@type': 'ImageObject', url: PUBLIC_ORIGIN + '/icon-512.png', width: 512, height: 512 } };
@@ -19,7 +19,7 @@ function create(d) {
   const ldScript = (graph) => `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': graph }).replace(/</g, '\\u003c')}</script>`;
   const crumbsHtml = (crumbs) => crumbs && crumbs.length ? `<nav class="pub-crumbs" aria-label="Breadcrumb"><ol>${crumbs.map((c, i) => `<li>${i < crumbs.length - 1 ? `<a href="${esc(c.href)}">${esc(c.name)}</a>` : `<span aria-current="page">${esc(c.name)}</span>`}</li>`).join('')}</ol></nav>` : '';
   const crumbsLd = (crumbs) => crumbs && crumbs.length ? { '@type': 'BreadcrumbList', itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.name, item: PUBLIC_ORIGIN + c.href })) } : null;
-  const HOME_CRUMB = { name: 'Discriminantly', href: '/welcome' };
+  const HOME_CRUMB = { name: 'Discriminantly', href: '/' };
   const canonical = (p) => PUBLIC_ORIGIN + p;
   const OG_IMAGE = PUBLIC_ORIGIN + '/icon-512.png';
 
@@ -28,7 +28,7 @@ function create(d) {
     const item = (n) => `<li><a href="${esc(n.href)}">${esc(n.label)}</a>${n.children ? `<ul>${n.children.map((c) => `<li><a href="${esc(c.href)}">${esc(c.label)}</a></li>`).join('')}</ul>` : ''}</li>`;
     return `<header class="pub-head${home ? ' pub-head-home' : ''}">
   <div class="wrap pub-head-in">
-    <a class="pub-brand" href="/welcome" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
+    <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
     <div class="pub-acts">
       ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : '<a class="btn3d pub-cta" href="/join">Get started</a>'}
       <details class="pub-menu" id="pub-menu">
@@ -76,11 +76,14 @@ function create(d) {
     <p class="pub-plat-act"><a class="link caps" href="${esc(p.guide)}">Guide →</a>${p.key === 'chatgpt' && PLUGIN() ? ` <a class="link caps" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT ↗</a>` : ''}</p>
   </article>`;
   const stepsList = (items) => `<ol class="steps wl-how pub-steps">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
-  const page = (res, me, req, { path, title, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [] }) => {
+  // Public editorial HTML may be cached by shared caches only for signed-out
+  // visitors; a signed-in render (its header says Open Discriminantly) never is.
+  const cacheHeaders = (me) => me ? { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Accept-Encoding' } : { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600', Vary: 'Cookie, Accept-Encoding' };
+  const page = (res, me, req, { path, title, fullTitle = null, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [], card = null }) => {
     const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
-    return send(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
+    return (sendZ ? sendZ.bind(null, req) : send)(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
       body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
-      pub: { description, canonical: canonical(path), og: { title, description, image: OG_IMAGE }, header: header(me, { home }) } }));
+      pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home }) } }), 200, cacheHeaders(me));
   };
 
   // ---- 1. Home ----------------------------------------------------------------
@@ -91,12 +94,19 @@ function create(d) {
     collection: `<svg viewBox="0 0 44 48" aria-hidden="true"><rect x="8" y="22" width="28" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="3"/><path d="M12 16h20M16 10h12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
   };
   function home(req, res, me) {
-    const shot = (light, dark, alt, w, h) => {
-      const sk = skinOf(me, req), md = modeOf(me, req);
-      if (sk !== 'modern') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}">`;
-      if (md === 'light') return `<img src="${light}" alt="${alt}" width="${w}" height="${h}">`;
-      if (md === 'dark') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}">`;
-      return `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="${w}" height="${h}"></picture>`;
+    // The two desktop frames: webp at two widths beside the jpeg, light and
+    // dark chosen by the member's setting or the system; the first is the
+    // page's largest image and loads eagerly, the second lazily.
+    const SIZES = '(max-width: 52rem) 100vw, 60rem';
+    const webp = (base, w) => `${base}-1000.webp 1000w, ${base}.webp ${w}w`;
+    const shot = (light, dark, alt, w, h, { lazy = false } = {}) => {
+      const sk = skinOf(me, req), md = modeOf(me, req), L = lazy ? ' loading="lazy" decoding="async"' : ' fetchpriority="high" decoding="async"';
+      const img = (src) => `<img src="${src}" alt="${alt}" width="${w}" height="${h}"${L}>`;
+      const b = (src) => src.replace(/\.jpg$/, '');
+      if (sk !== 'modern') return `<picture><source type="image/webp" srcset="${webp(b(dark), w)}" sizes="${SIZES}">${img(dark)}</picture>`;
+      if (md === 'light') return `<picture><source type="image/webp" srcset="${webp(b(light), w)}" sizes="${SIZES}">${img(light)}</picture>`;
+      if (md === 'dark') return `<picture><source type="image/webp" srcset="${webp(b(dark), w)}" sizes="${SIZES}">${img(dark)}</picture>`;
+      return `<picture><source type="image/webp" srcset="${webp(b(light), w)}" sizes="${SIZES}" media="(prefers-color-scheme: light)"><source srcset="${light}" media="(prefers-color-scheme: light)"><source type="image/webp" srcset="${webp(b(dark), w)}" sizes="${SIZES}">${img(dark)}</picture>`;
     };
     const frame = (img, cls = '') => `<div class="shot-wrap ${cls}"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${img}</div></div>`;
     const tile = (a) => `<div class="pub-demo-tile pub-demo-app"><span class="lbl">${esc(a.kind)}</span><span class="pub-demo-title">${esc(a.title)}</span><span class="pub-demo-meta">${esc(a.meta)}</span><span class="pub-demo-why">${esc(a.why)}</span></div>`;
@@ -108,6 +118,7 @@ function create(d) {
   <p class="splash-word">${C.site.wordmark}</p>
   <h1 class="splash-h">${esc(C.site.brandLine)}</h1>
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
+  <p class="splash-sub pub-prop-plain">${esc(C.site.plain)}</p>
   <p class="pub-splash-acts">${me ? '<a class="btn splash-enter" href="/">Open Discriminantly</a>' : '<a class="btn splash-enter" href="/join">Get started</a>'}<a class="link caps pub-see" href="/how-it-works">See how it works</a></p>
 </section>
 ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', 2000, 1174))}
@@ -116,7 +127,7 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
   ${eyebrow('What you keep')}
   <h2 class="pub-h2" id="keep-h">Six kinds of record. Each means one thing.</h2>
   <p class="pub-p pub-keep-intro">${esc(C.site.proposition[1])}</p>
-  <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name">${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
+  <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name"><a href="${o.href}">${esc(o.name)}</a></span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
   <p class="pub-rule-line">A saved object is not owned. A saved place is not visited. A plan is not a trip.</p>
 </section>
 
@@ -144,7 +155,7 @@ ${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
     <div><h3 class="pub-h3">${esc(C.together.collaborate.title)}</h3><p class="pub-p">An invitation adds someone to the same plan, as editor or viewer. Every change is recorded under who made it.</p></div>
   </div>
   <p class="pub-rule-line">Your notes, visits, warrants and private records stay yours. ${esc(C.together.disclosure)}</p>
-  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
+  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000, { lazy: true }), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
 ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
   <p class="pub-p">Connect it; revoke it any time. What it adds appears here, recorded as that assistant acting for you.</p>
@@ -152,11 +163,11 @@ ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
 
 
 <section class="pub-sec pub-final" id="start" aria-label="Get started">
-  <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
+  <p class="pub-trust" id="trust">${esc(C.site.trust)}</p>
   <p class="pub-final-acts">${cta(me)}</p>
   <p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/ai">Use with AI</a></p>
 </section>`;
-    return page(res, me, req, { path: '/welcome', title: 'Welcome', description: C.site.description, body, home: true, cls: 'is-pub-home',
+    return page(res, me, req, { path: '/', title: 'Welcome', fullTitle: 'Discriminantly — Your interests, travels and plans', description: C.site.description, body, home: true, cls: 'is-pub-home', card: '/card/site.png',
       ld: [{ '@type': 'SoftwareApplication', name: C.site.name, url: PUBLIC_ORIGIN + '/', applicationCategory: 'LifestyleApplication', operatingSystem: 'Web', description: C.site.proposition[0], publisher: { '@id': PUBLIC_ORIGIN + '/#org' }, featureList: C.objects.map((o) => o.name).join(', ') }] });
   }
 
@@ -185,7 +196,7 @@ ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
 <section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
   <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2><p class="pub-p">${esc(s.body)}</p></div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
 </section>
-${sec('names', 'The names', 'Each step leaves a record with a name.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => `<div class="pub-object"><dt>${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</dt><dd>${esc(o.what)}</dd></div>`).join('')}</dl>`)}
+${sec('names', 'The names', 'Each step leaves a record with a name.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => `<div class="pub-object"><dt><a href="${o.href}">${esc(o.name)}</a></dt><dd>${esc(o.what)} <span class="pub-object-not">${esc(o.not)}</span></dd></div>`).join('')}</dl>`)}
 <section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
   ${eyebrow('Evidence and control')}
   <h2 class="pub-h2" id="evidence-h">Yours, looked up, suggested, planned, done.</h2>
@@ -201,12 +212,13 @@ ${sec('names', 'The names', 'Each step leaves a record with a name.', `<dl class
     <li><b>The application</b> is where you review, adjust and remove.</li>
     <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
   </ul>
+  <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
       description: 'From noticing something to planning with it: how Discriminantly keeps notes, travel marks, check-ins, collections and itineraries, and how an authorized AI works with them.',
       h1: 'How Discriminantly works', lede: 'Eight steps, from noticing something to returning from a trip. Each one leaves a record you can see, adjust and use.', body,
-      crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
+      card: '/card/page/how-it-works.png', crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
       ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: 'Eight steps, from noticing something to returning from a trip.', step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body, url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
   }
 
@@ -227,7 +239,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
     return page(res, me, req, { path: '/travel-marks', title: 'Travel Marks',
       description: 'A travel mark is a place worth remembering in Discriminantly: what it is, how it differs from a check-in, how it sits in collections and itineraries, and what it does not prove.',
       h1: 'Travel Marks', lede: 'A place worth remembering, kept with its name and where it is. Not yet a visit.', body,
-      crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
+      card: '/card/page/travel-marks.png', crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
       ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }] });
   }
 
@@ -261,7 +273,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
       description: 'Connect Discriminantly to ChatGPT, Claude, Muse or another AI assistant. Availability, connection method, authentication and directory status for each, with a guide per platform.',
       h1: 'Use Discriminantly with AI', lede: 'Your record stays here. The assistant you already use can retrieve from it and add to it, once you authorize it.', body,
-      crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
+      card: '/card/page/ai.png', crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
       ld: [{ '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
   }
 
@@ -271,7 +283,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
     return (req, res, me) => {
       const p = C.platforms.find((x) => x.key === key);
       const facts = [
-        p.endpoint ? `<div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>` : key === 'chatgpt' ? (PLUGIN() ? `<div><dt>Plugin page</dt><dd><a href="${esc(PLUGIN())}" rel="noopener">${esc(PLUGIN())}</a></dd></div>` : '') : (key !== 'muse' ? `<div><dt>Address</dt><dd><code class="pub-code">https://www.discriminantly.com/mcp</code></dd></div>` : ''),
+        p.endpoint ? `<div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>` : key === 'chatgpt' ? (PLUGIN() ? `<div><dt>Plugin page</dt><dd><a class="link caps" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT ↗</a></dd></div>` : '') : (key !== 'muse' ? `<div><dt>Address</dt><dd><code class="pub-code">https://www.discriminantly.com/mcp</code></dd></div>` : ''),
         `<div><dt>Connection</dt><dd>${esc(p.method)}</dd></div>`,
         `<div><dt>Authentication</dt><dd>${esc(p.auth)}</dd></div>`,
         key === 'muse' ? `<div><dt>Key creation</dt><dd>Discriminantly \u2192 Settings \u203a Connect to your AI \u2192 name the connection <b>Muse</b> \u2192 Create a connection</dd></div><div><dt>OAuth</dt><dd>Not supported for this route</dd></div>` : '',
@@ -289,7 +301,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
 </section>
 ${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}`)}
 ${p.verify ? sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once the connector is in place, send ${esc(p.name)} this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote><p class="pub-p">${esc(p.name)} should list the travel marks you have kept, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`) : ''}
-${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them.</li></ul>`)}
+${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>${p.provenance ? esc(p.provenance) : `What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.`}</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them.</li></ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">All platforms</a></p></section>`;
       const titles = { chatgpt: 'Use Discriminantly with ChatGPT', claude: 'Use Discriminantly with Claude', muse: 'Use Discriminantly with Muse', other: 'Use Discriminantly with another AI assistant' };
       const descs = {
@@ -299,18 +311,79 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
         other: 'Add Discriminantly to any AI client that supports a remote MCP server with sign-in. Compatibility varies and must be verified.' };
       const ledes = { chatgpt: 'A plugin in ChatGPT\u2019s directory, connected by signing in to Discriminantly.', claude: 'A custom connector, connected by signing in to Discriminantly.', muse: 'A custom connector, authenticated with a key you make in Discriminantly\u2019s Settings.', other: 'A remote MCP server with sign-in. Whether a given client works is something to test.' };
       return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body,
-        crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }, { name: p.name, href: PLATFORM_PATH[key] }],
+        card: `/card/page/${key}.png`, crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }, { name: p.name, href: PLATFORM_PATH[key] }],
         ld: [{ '@type': 'HowTo', name: titles[key], description: descs[key], step: p.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })) }] });
     };
   }
   const muse = platformPage('muse'), chatgpt = platformPage('chatgpt'), claude = platformPage('claude'), other = platformPage('other');
 
-  // ---- 6. Guides index ---------------------------------------------------------
+  // ---- 6. Guides: an index, and one page per task ------------------------------
   function guides(req, res, me) {
-    const body = `${sec('list', 'Guides', 'Things you do in Discriminantly.', `<ul class="pub-list pub-guides">${C.guides.map((g) => `<li><b>${esc(g.title)}.</b> ${esc(g.body)} <a href="${esc(g.href)}">${esc(g.via)} \u2192</a></li>`).join('')}</ul><p class="fine pub-fine">Each of these gets its own page next. Until then the links go to the page that covers the work. Connecting an AI is under <a href="/ai">Use with AI</a>.</p>`)}`;
-    return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep a place, keep an object, plan with what you have kept, find and refine your record, build and share an itinerary.', h1: 'Guides', lede: 'Short, plain guides to the things you do here.', body,
-      crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }],
-      ld: [{ '@type': 'ItemList', name: 'Guides', itemListElement: C.guides.map((g, i) => ({ '@type': 'ListItem', position: i + 1, name: g.title, description: g.body, url: PUBLIC_ORIGIN + g.href })) }] });
+    const body = `${sec('list', 'Guides', 'Things you do in Discriminantly.', `<ul class="pub-list pub-guides">${C.guides.map((g) => `<li><a href="/guides/${g.slug}">${esc(g.title)}</a> — ${esc(g.q)}</li>`).join('')}</ul>`)}
+${sec('records', 'The records', 'What each kind of record means.', `<ul class="pub-list pub-guides">${C.objects.map((o) => `<li><a href="${o.href}">${esc(o.name)}</a> — ${esc(o.what)}</li>`).join('')}</ul>`)}`;
+    return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: keep objects and interests, remember places without claiming a visit, plan a trip from what you have kept, share or build an itinerary together, connect an AI assistant.', h1: 'Guides', lede: 'Short, plain guides to the things you do here, each answering one question.', body,
+      card: '/card/page/guides.png', crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }],
+      ld: [{ '@type': 'ItemList', name: 'Guides', itemListElement: C.guides.map((g, i) => ({ '@type': 'ListItem', position: i + 1, name: g.title, url: PUBLIC_ORIGIN + '/guides/' + g.slug })) }] });
+  }
+  function guide(slug) {
+    const g = C.guides.find((x) => x.slug === slug); if (!g) return null;
+    return (req, res, me) => {
+      const body = `
+${sec('answer', 'The short answer', esc(g.q), `<p class="pub-p pub-answer">${esc(g.answer)}</p>`, 'itin-shell pub-shell')}
+${g.sections.map(([h, t], i) => sec('s' + (i + 1), '', esc(h), `<p class="pub-p">${esc(t)}</p>`)).join('')}
+${g.example ? sec('example', 'An example', 'What it looks like.', `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(g.example.kind)}</span><span class="pub-demo-title">${esc(g.example.title)}</span><span class="pub-demo-meta">${esc(g.example.meta)}</span><span class="pub-demo-why">${esc(g.example.why)}</span></div>`, 'itin-shell pub-shell') : ''}
+${sec('more', 'Related', 'Where to read on.', `<ul class="pub-list pub-guides">${g.links.map(([h, l]) => `<li><a href="${esc(h)}">${esc(l)}</a></li>`).join('')}</ul>`)}
+<section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/guides">All guides</a></p></section>`;
+      return page(res, me, req, { path: '/guides/' + g.slug, title: g.title, description: metaDesc(g.answer), h1: g.title, lede: g.q, body,
+        card: `/card/page/guide-${g.slug}.png`, crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }, { name: g.title, href: '/guides/' + g.slug }],
+        ld: [{ '@type': 'Article', '@id': PUBLIC_ORIGIN + '/guides/' + g.slug + '#article', headline: g.title, description: metaDesc(g.answer), author: { '@id': PUBLIC_ORIGIN + '/#org' }, publisher: { '@id': PUBLIC_ORIGIN + '/#org' }, mainEntityOfPage: PUBLIC_ORIGIN + '/guides/' + g.slug },
+             { '@type': 'Question', name: g.q, acceptedAnswer: { '@type': 'Answer', text: g.answer }, url: PUBLIC_ORIGIN + '/guides/' + g.slug + '#answer' }] });
+    };
+  }
+  const metaDesc = (t) => { const x = String(t).replace(/\s+/g, ' ').trim(); return x.length <= 158 ? x : x.slice(0, 157).replace(/\s+\S*$/, '') + '\u2026'; };
+
+  // ---- 6b. First-class record pages (Travel Marks keeps its own) --------------
+  function objectPage(key) {
+    const o = C.objects.find((x) => x.key === key), d = C.objectPages[key]; if (!o || !d) return null;
+    return (req, res, me) => {
+      const body = `
+${sec('what', 'What it is', esc(o.plain) + '.', `<p class="pub-p">${esc(o.what)}</p>`)}
+${sec('asserts', 'What keeping one asserts', 'Exactly this.', `<p class="pub-p">${esc(d.asserts)}</p>`)}
+${sec('not', 'What it does not assert', 'And never implies.', `<p class="pub-p">${esc(d.not)}</p>`)}
+${sec('relates', 'How it relates to the others', 'Separate records, separate meanings.', `<p class="pub-p">${esc(d.relates)}</p>`)}
+${sec('appears', 'Where it appears', 'In the application.', `<p class="pub-p">${esc(d.appears)}</p>`)}
+${sec('ai', 'With an authorized AI', 'Retrieved, and added, when you ask.', `<p class="pub-p">${esc(d.ai)}</p>`)}
+${sec('privacy', 'Privacy and provenance', 'Per record.', `<p class="pub-p">${esc(d.privacy)}</p>`)}
+${sec('example', 'An example', `What a ${esc(o.one.toLowerCase())} looks like.`, `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(d.example.kind)}</span><span class="pub-demo-title">${esc(d.example.title)}</span><span class="pub-demo-meta">${esc(d.example.meta)}</span><span class="pub-demo-why">${esc(d.example.why)}</span></div>`, 'itin-shell pub-shell')}
+${sec('proves', `What a ${esc(o.one.toLowerCase())} does not prove`, 'Plainly.', `<ul class="pub-list pub-bounds">${d.proves.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`)}
+${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-list pub-guides">${C.objects.filter((x) => x.key !== key).map((x) => `<li><a href="${x.href}">${esc(x.name)}</a> — ${esc(x.plain)}</li>`).join('')}</ul>`)}
+<section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
+      return page(res, me, req, { path: d.path, title: o.name, description: metaDesc(`${o.what} ${o.not}`), h1: o.name, lede: d.lede, body,
+        card: `/card/page/${d.path.slice(1)}.png`, crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: o.name, href: d.path }],
+        ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }] });
+    };
+  }
+
+  // ---- 6c. Agent guidance --------------------------------------------------------
+  const GUIDANCE = () => [
+    ['Reading grants nothing', 'Reading this site, llms.txt or this page grants no access to any member’s record. Every record described here is the member’s, and reaching it requires that member’s own authorized connection.'],
+    ['Authorized access', `Clients reach a member’s record only through a connection the member made: by signing in and approving (ChatGPT, Claude and other MCP clients, at ${PUBLIC_ORIGIN}/mcp) or by a key the member created in Settings (Muse, at https://muse.discriminantly.com/mcp). Which method applies, and how to set it up, is on each platform’s page under ${PUBLIC_ORIGIN}/ai. The member can revoke any connection at any time; a revoked connection stops working immediately.`],
+    ['The six records and their non-implications', C.objects.map((o) => `${o.name}: ${o.what} ${o.not}`).join(' ')],
+    ['Recommendation versus adoption', 'A recommendation an assistant makes is recorded as a recommendation and stays one until the member keeps it. Keeping is the member’s act. A dismissed recommendation is not a dislike. Nothing a client proposes becomes a kept, visited, owned or endorsed record without the member’s say-so.'],
+    ['Provenance and actor identity', 'Every change records who made it: the member on the web, or a connected client acting for the member. The client’s identity comes from the connection and, where the client declares a name when it connects, from that declaration; a client that declares none is recorded as the member’s AI without a name. Looked-up facts (a place’s address and map position) are recorded as looked up, apart from anything the member wrote.'],
+    ['Privacy, visibility and revocation', 'Notes and travel marks are public unless the member makes them private; check-ins follow their mark; itineraries start private. Private records are visible only to the member and to clients the member has connected. A shared itinerary shows its places to participants, never the rest of a member’s record. Revoking a connection ends access and deletes nothing.'],
+    ['Collaboration', 'Shared itineraries are the only place members work on the same record. Shared-plan edits are attributed to the person who made them and are not evidence of anyone’s taste.'],
+    ['Boundaries', C.boundaries.join(' ')],
+    ['Policies', `Privacy: ${PUBLIC_ORIGIN}/privacy. Terms: ${PUBLIC_ORIGIN}/terms. Support: ${PUBLIC_ORIGIN}/support.`],
+  ];
+  function agentGuidance(req, res, me) {
+    const body = `${GUIDANCE().map(([h, t], i) => sec('g' + (i + 1), '', esc(h), `<p class="pub-p">${esc(t)}</p>`)).join('')}
+${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">This page is also at <a href="/agent-guidance.md">/agent-guidance.md</a>, and the site summary at <a href="/llms.txt">/llms.txt</a>.</p>`)}`;
+    return page(res, me, req, { path: '/agent-guidance', title: 'Guidance for AI agents', description: 'How AI agents should treat Discriminantly: reading grants no access, authorized access requires a member’s connection, the six record types and what they do not imply, recommendation versus adoption, provenance, privacy and revocation.', h1: 'Guidance for AI agents', lede: 'What an agent should know before working with a member’s record. Reading this grants no access.', body,
+      card: '/card/page/agent-guidance.png', crumbs: [HOME_CRUMB, { name: 'Guidance for AI agents', href: '/agent-guidance' }] });
+  }
+  function agentGuidanceText(req, res) {
+    return text(req, res, `# Discriminantly: guidance for AI agents\n\n${GUIDANCE().map(([h, t]) => `## ${h}\n\n${t}\n`).join('\n')}`, 'text/markdown; charset=utf-8');
   }
 
   // ---- 7. About ----------------------------------------------------------------
@@ -329,13 +402,30 @@ ${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">Discrimina
 ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/privacy">Privacy</a></p></section>`;
     return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'What Discriminantly is, why it exists, where it came from and who makes it.', body, cls: 'is-pub-about',
-      crumbs: [HOME_CRUMB, { name: 'About', href: '/about' }],
+      card: '/card/page/about.png', crumbs: [HOME_CRUMB, { name: 'About', href: '/about' }],
       ld: [{ '@type': 'AboutPage', '@id': PUBLIC_ORIGIN + '/about#about', url: PUBLIC_ORIGIN + '/about', name: 'About Discriminantly', about: { '@id': PUBLIC_ORIGIN + '/#org' } }] });
   }
 
   // ---- 8. Machine-readable files, from the same model ---------------------------
-  const PUBLIC_PATHS = ['/welcome', '/how-it-works', '/travel-marks', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', '/about', '/privacy', '/terms', '/support'];
-  const text = (res, body, type = 'text/plain; charset=utf-8') => { res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600' }); res.end(body); };
+  const PUBLIC_PATHS = ['/', '/how-it-works', '/notes', '/travel-marks', '/check-ins', '/collections', '/itineraries', '/warrants', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', ...C.guides.map((g) => '/guides/' + g.slug), '/about', '/agent-guidance', '/activity', '/privacy', '/terms', '/support'];
+  const text = (req, res, body, type = 'text/plain; charset=utf-8') => (sendZ ? sendZ.bind(null, req) : send)(res, body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600', Vary: 'Accept-Encoding' });
+  // Card specs for the editorial pages, by key.
+  const cardPages = Object.assign({
+    'how-it-works': { eyebrow: 'How it works', title: 'Notice. Locate. Experience. Organize. Compose. Plan together. Work with AI. Verify.', line: 'Eight steps, from noticing something to returning from a trip.' },
+    ai: { eyebrow: 'Use with AI', title: 'The same record, from the AI you already use.', line: 'ChatGPT, Claude, Muse and other MCP clients. Your record stays in Discriminantly.' },
+    chatgpt: { eyebrow: 'Use with ChatGPT', title: 'The Discriminantly plugin for ChatGPT', line: 'Install it from its page in ChatGPT, connect by signing in, and ask.' },
+    claude: { eyebrow: 'Use with Claude', title: 'Discriminantly as a custom connector in Claude', line: 'Add the connector, sign in to Discriminantly, turn it on in a chat.' },
+    muse: { eyebrow: 'Use with Muse', title: 'Discriminantly as a custom connector in Muse', line: 'An API key you make in Settings. Submitted to the Muse platform; in review.' },
+    other: { eyebrow: 'Other AI assistants', title: 'Any client with a remote MCP server and sign-in', line: 'Compatibility varies by client and is something to test.' },
+    guides: { eyebrow: 'Guides', title: 'Things you do in Discriminantly', line: C.guides.map((g) => g.title).join(' · ') },
+    about: { eyebrow: 'About', title: 'About Discriminantly', line: C.site.proposition[0] },
+    'agent-guidance': { eyebrow: 'For AI agents', title: 'Guidance for AI agents', line: 'Reading grants no access. The six records and what they do not imply. Provenance, privacy, revocation.' },
+    activity: { eyebrow: 'Activity', title: 'Activity across Discriminantly', line: 'Public notes, travel marks and plans members have kept recently.' },
+    privacy: { eyebrow: 'Privacy', title: 'What Discriminantly keeps, and who can see it', line: 'Private or public by record. AI access is yours to grant and revoke.' },
+    terms: { eyebrow: 'Terms', title: 'The terms for using Discriminantly', line: 'Your account, what you add, public things, AI assistants.' },
+    support: { eyebrow: 'Support', title: 'Help with Discriminantly', line: 'Connecting an AI, disconnecting, your account and data.' },
+  }, Object.fromEntries(C.objects.map((o) => [o.href.slice(1), { eyebrow: 'What you keep', title: o.name, line: o.what }])),
+     Object.fromEntries(C.guides.map((g) => ['guide-' + g.slug, { eyebrow: 'Guide', title: g.title, line: g.q }])));
   function llms(req, res) {
     const L = [];
     L.push(`# ${C.site.name}`, '', `> ${C.site.proposition[0]}`, '', C.site.proposition[1], '', C.site.stance, '');
@@ -344,19 +434,24 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
     L.push('## Using it with an AI client', '', 'Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');
     for (const p of C.platforms) L.push(`- **${p.name}** (${PUBLIC_ORIGIN}${p.guide}): ${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.${p.review ? ' ' + p.review + '.' : ''}${p.endpoint ? ' Endpoint ' + p.endpoint + ' (no trailing slash).' : ''}${p.key === 'chatgpt' && PLUGIN() ? ' Plugin page: ' + PLUGIN() + '.' : ''}`);
     L.push('', '## Boundaries', '', ...C.boundaries.map((b) => `- ${b}`), '');
+    L.push('## Evidence and control', '', '- Kept, visited, owned and endorsed are separate acts; none implies another.', '- Looked-up facts (a place’s address and map position) are recorded as looked up, apart from member-authored evidence.', '- Recommendations stay recommendations until the member keeps them.', '- Itineraries are plans, not evidence of completed travel.', '- Privacy is per record; AI access is granted by the member and revocable; the application is where records are reviewed, adjusted and removed; provenance identifies who, or which assistant, changed what.', '');
+    L.push('## Questions these pages answer', '', ...C.questions.map(([qq, href]) => `- ${qq} ${PUBLIC_ORIGIN}${href}`), '');
+    L.push('## Record types', '', ...C.objects.map((o) => `- ${o.name}: ${PUBLIC_ORIGIN}${o.href}`), '');
+    L.push('## Guides', '', ...C.guides.map((g) => `- ${g.title}: ${PUBLIC_ORIGIN}/guides/${g.slug}`), '');
     L.push('## Pages', '', ...PUBLIC_PATHS.map((p) => `- ${PUBLIC_ORIGIN}${p}`), '');
-    L.push('## For agents', '', `- The MCP server for authorized clients is ${PUBLIC_ORIGIN}/mcp (sign-in) and https://muse.discriminantly.com/mcp (API key). Reading this file grants no access.`, `- Privacy: ${PUBLIC_ORIGIN}/privacy. Terms: ${PUBLIC_ORIGIN}/terms. Support: ${PUBLIC_ORIGIN}/support.`, '');
-    return text(res, L.join('\n'));
+    L.push('## For agents', '', `- Guidance for AI agents: ${PUBLIC_ORIGIN}/agent-guidance (also ${PUBLIC_ORIGIN}/agent-guidance.md).`, `- The MCP server for authorized clients is ${PUBLIC_ORIGIN}/mcp (sign-in) and https://muse.discriminantly.com/mcp (API key). Reading this file grants no access.`, `- Privacy: ${PUBLIC_ORIGIN}/privacy. Terms: ${PUBLIC_ORIGIN}/terms. Support: ${PUBLIC_ORIGIN}/support.`, '');
+    return text(req, res, L.join('\n'));
   }
   function sitemap(req, res) {
-    const today = new Date().toISOString().slice(0, 10);
-    return text(res, `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${PUBLIC_PATHS.map((p) => `  <url><loc>${PUBLIC_ORIGIN}${p}</loc><lastmod>${today}</lastmod></url>`).join('\n')}\n</urlset>\n`, 'application/xml; charset=utf-8');
+    // lastmod comes from the content model's per-page dates, not from the deploy.
+    const lastmod = (p) => C.updated[p] || C.updated[p.replace(/\/guides\/.*/, '/guides')] || '2026-10-13';
+    return text(req, res, `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${PUBLIC_PATHS.map((p) => `  <url><loc>${PUBLIC_ORIGIN}${p}</loc><lastmod>${lastmod(p)}</lastmod></url>`).join('\n')}\n</urlset>\n`, 'application/xml; charset=utf-8');
   }
   function robots(req, res) {
-    return text(res, ['User-agent: *', 'Allow: /', 'Disallow: /settings', 'Disallow: /admin', 'Disallow: /oauth/', 'Disallow: /mcp', 'Disallow: /logout', 'Disallow: /i/', '', `Sitemap: ${PUBLIC_ORIGIN}/sitemap.xml`, ''].join('\n'));
+    return text(req, res, ['User-agent: *', 'Allow: /', 'Disallow: /settings', 'Disallow: /admin', 'Disallow: /oauth/', 'Disallow: /mcp', 'Disallow: /logout', 'Disallow: /login', 'Disallow: /join', 'Disallow: /j/', 'Disallow: /s/', 'Disallow: /new', '', `Sitemap: ${PUBLIC_ORIGIN}/sitemap.xml`, ''].join('\n'));
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, about, llms, sitemap, robots, header, canonical, OG_IMAGE };
+  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, guide, objectPage, agentGuidance, agentGuidanceText, about, llms, sitemap, robots, header, canonical, OG_IMAGE, cardPages, content: C, cacheHeaders, crumbs: crumbsHtml };
 }
 
 module.exports = { create };
