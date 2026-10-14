@@ -6002,6 +6002,21 @@ const signupSourceFor = (next) => {
   return /(^|\.)(chatgpt\.com|openai\.com)$/.test(h) ? 'chatgpt' : /(^|\.)(claude\.ai|anthropic\.com)$/.test(h) ? 'claude' : 'oauth';
 };
 const SIGNUP_WINDOW = new Map();          // network -> recent sign-up times (in memory; resets on restart)
+// Join-form guard (v2.93). A sign-up must carry a short-lived token that the
+// page's own script adds on submit, at least JOIN_MIN_MS after the form was
+// served, and must leave the hidden "website" field empty. People in a
+// browser never notice either; a script that posts the form without running
+// the page does. The token is an HMAC of its own timestamp, so nothing is
+// stored; a restart only means one resubmission.
+const JOIN_SECRET = process.env.JOIN_SECRET || crypto.randomBytes(32).toString('hex');
+const JOIN_MIN_MS = 2000, JOIN_MAX_MS = 6 * 3600e3;
+const joinToken = () => { const t = String(Date.now()); return `${t}.${crypto.createHmac('sha256', JOIN_SECRET).update(t).digest('base64url').slice(0, 32)}`; };
+function joinTokenOk(v) {
+  const [t, mac] = String(v || '').split('.'); if (!t || !mac || !/^\d{13}$/.test(t)) return false;
+  const want = crypto.createHmac('sha256', JOIN_SECRET).update(t).digest('base64url').slice(0, 32);
+  if (mac.length !== want.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(want))) return false;
+  const age = Date.now() - Number(t); return age >= JOIN_MIN_MS && age <= JOIN_MAX_MS;
+}
 function signupAllowed(req) {
   const ip = String(req.headers['x-forwarded-for'] || (req.socket && req.socket.remoteAddress) || '').split(',')[0].trim();
   const now = Date.now(), recent = (SIGNUP_WINDOW.get(ip) || []).filter((t) => now - t < 3600e3);
@@ -11123,7 +11138,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     const body = `<h3 class="strip dark-strip">Create your account</h3>
 <div class="settings">
   ${err ? `<p class="err">${err}</p>` : ''}
-  <form method="post" action="/join" class="wtable settings-table auth-card">
+  <noscript><p class="err">Creating an account needs JavaScript turned on in your browser.</p></noscript>
+  <form method="post" action="/join" class="wtable settings-table auth-card" id="join-form" data-ft="${joinToken()}">
+    <div class="hp-field" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+    <input type="hidden" name="ft" value="">
     <div class="wcell wcell-wide">
       <div class="auth-arc">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'join-arc')}</div>
       <p class="fine center join-intro">${next ? 'Create your account, then you\u2019ll go straight back to your conversation.' : 'A place to keep the things you notice, the places you go, and the plans you make.'}</p>
@@ -11136,6 +11154,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     </div>
     <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></div>
   </form>
+  <script>(function () { var f = document.getElementById('join-form'); if (!f) return; f.addEventListener('submit', function () { f.elements.ft.value = f.getAttribute('data-ft'); }); })();</script>
 </div>`;
     send(res, layout({ title: 'Create your account', body, me, req, cls: 'is-dark-page', pub: { noindex: true } }));
   },
@@ -15042,6 +15061,7 @@ async function handle(req, res) {
     if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again(`An account with that email already exists. <a href="/login${nx || jx ? `?next=${encodeURIComponent(nx || jx)}` : ''}">Sign in instead</a>.`);
     if ((b.password || '').length < 8) return again('Password needs at least 8 characters.');
     if (b.terms !== '1') return again('Please agree to the Terms and Privacy policy to create your account.');
+    if (String(b.website || '').trim() || !joinTokenOk(b.ft)) return again('We couldn\u2019t confirm that form. Please submit it again.');
     if (!inv && !signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
     const wanted = String(b.handle || '').trim() ? slug(b.handle) : ''; // slug('') is 'member', so only when one was given
     const handle = wanted.length >= 2 && !q('SELECT 1 FROM users WHERE handle=?').get(wanted) ? wanted : uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
@@ -15793,6 +15813,34 @@ if (freshInstall) {
   console.log(`First run: admin ${email} / ${pass}. One invite code: ${code}`);
   if (process.env.SEED) require('./seed')(db);
 }
+
+// One-off, 14 Oct 2026: two accounts made on 13 Oct by a sign-up bot (four
+// rented addresses, 2015-era browser strings, a C++ HTTP client checking the
+// result). Removed through the same path as self-service account deletion,
+// only if each is still exactly what the bot left: that handle, a web
+// sign-up, not an admin (accountDelete refuses those too), created
+// 14:28-14:30 UTC on 13 Oct, holding nothing.
+// Runs once; recorded alongside the schema migrations.
+(() => {
+  const id = '066-remove-bot-signups-2026-10-13';
+  try {
+    if (q('SELECT 1 FROM schema_migrations WHERE id=?').get(id)) return;
+    const holds = (uid) => ['objects', 'marks', 'itineraries', 'visits', 'comments', 'collections', 'images', 'connections']
+      .some((t) => { try { return !!q(`SELECT 1 FROM ${t} WHERE user_id=? LIMIT 1`).get(uid); } catch { return false; } });
+    const found = ['vgvjkuoqlo', 'erzyjeifnu'].map((h) => q("SELECT * FROM users WHERE handle=? AND signup_source='web' AND created_at >= '2026-10-13 14:28:00' AND created_at < '2026-10-13 14:30:00'").get(h)).filter(Boolean);
+    let removed = 0;
+    if (found.length) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      console.log(`Backed up to ${backupTo(path.join(path.dirname(DB_PATH), 'backups', `pre-${id}-${stamp}.db`))}`);
+      for (const u of found) {
+        if (isAdminUi(u) || holds(u.id)) { console.log(`[cleanup] kept @${u.handle}: ${isAdminUi(u) ? 'an admin account' : 'it holds records'}`); continue; }
+        accountDelete(u.id); removed++;
+      }
+    }
+    q('INSERT INTO schema_migrations(id) VALUES(?)').run(id);
+    console.log(`[cleanup] ${id}: ${removed} account(s) removed`);
+  } catch (e) { console.error(`[cleanup] ${id} skipped:`, e.message); }
+})();
 
 const counts = ['users', 'objects', 'marks', 'visits', 'comments']
   .map((t) => `${t} ${q(`SELECT COUNT(*) c FROM ${t}`).get().c}`).join(', ');

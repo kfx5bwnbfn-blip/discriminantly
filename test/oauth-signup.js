@@ -8,6 +8,8 @@ const crypto = require('crypto'); const { DatabaseSync } = require('node:sqlite'
 const B = 'http://localhost:3000', CID = process.env.CID, RURI = process.env.RURI;
 const db = new DatabaseSync(process.env.DB_PATH || 'data/discriminantly.db');
 let pass = 0, fail = 0; const ok = (n, c, x = '') => { c ? pass++ : fail++; console.log((c ? '  ok   ' : '  FAIL ') + n + (c || !x ? '' : '  -> ' + x)); };
+// v2.93: the join form needs the token its page's script adds, at least two seconds old.
+const ftok = async () => { const h = await (await fetch(B + '/join')).text(); await new Promise((r) => setTimeout(r, 2100)); return (h.match(/data-ft="([^"]+)"/) || [])[1]; };
 const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(cookie ? { cookie } : {}) }, body: new URLSearchParams(o), redirect: 'manual' });
 (async () => {
   const ver = crypto.randomBytes(32).toString('base64url'), ch = crypto.createHash('sha256').update(ver).digest('base64url');
@@ -20,7 +22,7 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   r = await fetch(B + joinAt); h = await r.text();
   ok('OS3 the account form asks for name, email and password; no invite', /Create your account/.test(h) && !/name="code"/.test(h) && !/name="handle"/.test(h));
   const next = (h.match(/name="next" value="([^"]+)"/) || [])[1].replace(/&amp;/g, '&');
-  r = await fetch(B + '/join', form({ name: 'Ada Lovelace', email: 'ada@example.com', password: 'correcthorse', terms: '1', next }));
+  r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'Ada Lovelace', email: 'ada@example.com', password: 'correcthorse', terms: '1', next }));
   const sid = ((r.headers.get('set-cookie') || '').match(/sid=([^;]+)/) || [])[1];
   ok('OS4 creating the account signs in and returns to the authorization', r.status === 303 && (r.headers.get('location') || '').startsWith('/oauth/authorize?') && !!sid);
   r = await fetch(B + r.headers.get('location'), { headers: { cookie: 'sid=' + sid }, redirect: 'manual' }); h = await r.text();
@@ -38,9 +40,9 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   ok('OS9 an ordinary sign-in still goes home', r.headers.get('location') === '/');
   r = await fetch(B + '/login?next=' + encodeURIComponent('https://evil.example/')); h = await r.text();
   ok('OS10 a foreign return address is ignored', !/evil\.example/.test(h));
-  r = await fetch(B + '/join', form({ name: 'x', email: 'x@example.com', password: 'correcthorse', terms: '1', next: 'https://evil.example/' }));
+  r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'x', email: 'x@example.com', password: 'correcthorse', terms: '1', next: 'https://evil.example/' }));
   ok('OS11 joining is open, and a foreign return address still cannot redirect: the new member goes home', r.status === 303 && r.headers.get('location') === '/');
-  r = await fetch(B + '/join', form({ name: 'Ada Two', email: 'ada@example.com', password: 'correcthorse', terms: '1', next })); h = await r.text();
+  r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'Ada Two', email: 'ada@example.com', password: 'correcthorse', terms: '1', next })); h = await r.text();
   ok('OS12 a taken email offers sign-in instead', /already exists/.test(h) && /Sign in instead/.test(h));
   // activation: keeping an itinerary counts; the report shows it by source
   await call('tools/call', { name: 'create_itinerary', arguments: { title: 'A day in Lisbon' } });
@@ -57,7 +59,7 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   ok('OS17 sign-in always offers an account', /New to discriminant\.ly\? <a href="\/join">Create an account<\/a>/.test(h) && !/invite code/i.test(h));
   const link = 'OLDLINK1'; db.prepare('INSERT INTO invites(code, from_user) VALUES(?, 1)').run(link);
   h = await (await fetch(B + '/join?code=' + link)).text();
-  r = await fetch(B + '/join', form({ name: 'Linked Friend', email: 'friend@example.com', password: 'correcthorse', terms: '1', code: link }));
+  r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'Linked Friend', email: 'friend@example.com', password: 'correcthorse', terms: '1', code: link }));
   const fr = db.prepare("SELECT id, signup_source FROM users WHERE email='friend@example.com'").get();
   ok('OS18 an old invite link still works and is credited', /name="code" value="OLDLINK1"/.test(h) && r.headers.get('location') === '/' && fr.signup_source === 'invite' && db.prepare('SELECT used_by FROM invites WHERE code=?').get(link).used_by === fr.id);
   h = await (await fetch(B + '/settings', { headers: { cookie: 'sid=' + asid } })).text();
@@ -65,7 +67,7 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   // ---- v2.65 activation ----------------------------------------------------
   const jar = {}; const cookieOf = (r) => { for (const c of (r.headers.getSetCookie ? r.headers.getSetCookie() : [])) { const [kv] = c.split(';'); const [k, v] = kv.split('='); jar[k] = v; } return Object.entries(jar).map(([k, v]) => `${k}=${v}`).join('; '); };
   // terms
-  r = await fetch(B + '/join', form({ name: 'No Terms', email: 'noterms@example.com', password: 'correcthorse' }));
+  r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'No Terms', email: 'noterms@example.com', password: 'correcthorse' }));
   h = await r.text();
   ok('AT1 an account needs the Terms and Privacy agreement', /Please agree to the Terms and Privacy policy/.test(h) && !db.prepare("SELECT 1 FROM users WHERE email='noterms@example.com'").get());
   const ada = db.prepare("SELECT terms_accepted_at, terms_version FROM users WHERE email='ada@example.com'").get();
@@ -75,7 +77,7 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   // attribution: hostile source values are sanitised and bounded; the AI client host is recorded
   r = await fetch(B + '/join?utm_source=News%20Letter!&utm_campaign=%3Cscript%3Ealert(1)%3C%2Fscript%3E' + 'x'.repeat(300) + '&ref=friend_42', { redirect: 'manual' });
   const ck = cookieOf(r);
-  r = await fetch(B + '/join', { ...form({ name: 'From Campaign', email: 'campaign@example.com', password: 'correcthorse', terms: '1' }), headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: ck } });
+  r = await fetch(B + '/join', { ...form({ ft: await ftok(), name: 'From Campaign', email: 'campaign@example.com', password: 'correcthorse', terms: '1' }), headers: { 'content-type': 'application/x-www-form-urlencoded', cookie: ck } });
   const cu = db.prepare("SELECT u.signup_source, c.* FROM users u JOIN signup_context c ON c.user_id=u.id WHERE u.email='campaign@example.com'").get();
   ok('AA1 campaign context is kept, sanitised and bounded', cu && cu.signup_source === 'web' && cu.utm_source === 'newsletter' && /^scriptalert1script/.test(cu.utm_campaign) && cu.utm_campaign.length <= 48 && cu.ref === 'friend_42', JSON.stringify(cu));
   const oc = db.prepare("SELECT client_host FROM signup_context c JOIN users u ON u.id=c.user_id WHERE u.email='ada@example.com'").get();
@@ -126,7 +128,7 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   h = await (await fetch(B + '/admin/activation', { headers: { cookie: 'sid=' + asid } })).text();
   ok('AF2 the report separates founder-assisted accounts and shows the AI client and events', /web \u00b7 founder-assisted/.test(h) && /chatgpt\.com/.test(h) && /starter_copied/.test(h));
   ok('AI1 members can no longer create invite codes', (await fetch(B + '/invites', form({}, csid))).status === 403);
-  let blocked = false; for (let i = 0; i < 6; i++) { r = await fetch(B + '/join', form({ name: 'Spam ' + i, email: `spam${i}@example.com`, password: 'correcthorse', terms: '1', next })); if (r.status !== 303) { blocked = /Too many new accounts/.test(await r.text()); break; } }
+  let blocked = false; for (let i = 0; i < 6; i++) { r = await fetch(B + '/join', form({ ft: await ftok(),  name: 'Spam ' + i, email: `spam${i}@example.com`, password: 'correcthorse', terms: '1', next })); if (r.status !== 303) { blocked = /Too many new accounts/.test(await r.text()); break; } }
   ok('OS15 more than five new accounts in an hour from one network are refused', blocked);
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('error:', e.message); process.exit(2); });

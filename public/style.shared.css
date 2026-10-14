@@ -1849,3 +1849,6 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .is-public .pub-useful-frame { font-style: italic; opacity: .9; }
 /* v2.92: the conversational-capture line under the record-type intro */
 .is-public .pub-keep-capture { margin-top: -.6rem; font-style: italic; opacity: .9; }
+
+/* v2.93: the join form's decoy field, out of sight and out of the tab order */
+.hp-field { position: absolute !important; left: -10000px !important; top: auto; width: 1px; height: 1px; overflow: hidden; }
