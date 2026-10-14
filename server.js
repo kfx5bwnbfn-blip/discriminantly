@@ -10081,6 +10081,49 @@ function welcomeCompact(me, st, fresh) {
   ${STARTER_JS}
 </article>`;
 }
+// v2.98: the "Connect your AI" guide: the four clients, each opening its
+// current steps, with the live state (Connected / Connect). One function,
+// shown in the Welcome card and on Settings, so there is one place to keep
+// the steps right.
+function connectGuide(me, st, { title = 'Connect your AI.', ns = String(me.id) } = {}) {
+  const pluginUrl = (process.env.CHATGPT_PLUGIN_URL || '').trim();
+  const mcpUrl = BASE_URL() + '/mcp';
+  const copy = (text, label = 'Copy') => `<button type="button" class="link caps wl-copy" data-wl-copy="${esc(text)}">${label}</button>`;
+  // The state line sits in the same place either way (v2.72): Connect, or Connected.
+  const aiState = (on) => on ? '<span class="wl-ai-state is-on">Connected</span>' : '<span class="wl-ai-state">Connect</span>';
+  // Steps use the rail's numbered-circle list (ol.steps), one helper for all three.
+  const steps = (items) => `<ol class="steps wl-how">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
+  // the address may break only after the scheme, never mid-word; Copy copies it whole
+  const addr = `<span class="wl-addr"><code class="wl-url">${esc(mcpUrl).replace('://', '://<wbr>')}</code>${copy(mcpUrl, 'Copy address')}</span>`;
+  const chatgptSteps = pluginUrl
+    ? `${steps([`Open the <a class="link" href="${esc(pluginUrl)}" rel="noopener">Discriminantly plugin in ChatGPT</a> and choose <b>Install plugin</b>.`, 'Choose <b>Connect</b> when asked, and sign in to Discriminantly.', 'In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.'])}<p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
+    : `<p class="lbl wl-soon">Coming to ChatGPT\u2019s plugin directory</p>${steps(['In ChatGPT, open <b>Plugins</b>.', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b>, and sign in to Discriminantly.'])}`;
+  const claudeSteps = `${steps(['In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.', `Name it <b>Discriminantly</b> and paste this address: ${addr}`, 'Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.', 'In a chat, turn it on under <b>+ \u203a Connectors</b>.'])}<p class="fine wl-note">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
+  const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
+  // v2.72: Muse (Meta AI). Meta's sign-in for custom connectors is not working
+  // yet, so Muse connects with a connection address made in Settings instead.
+  // v2.82: Muse connects with a key (Meta's OAuth callback never exchanges the code).
+  const museSteps = `${steps(['In <a class="link" href="/settings#connector">Settings \u203a Connect to your AI</a>, name a connection <b>Muse</b> and choose <b>Create a connection</b>. Copy the <b>key</b> it shows: it appears once.', 'In a Muse chat, say: <i>\u201cAdd a custom connector for my Discriminantly MCP server at https://muse.discriminantly.com/mcp, using an API key sent as Authorization: Bearer.\u201d</i>', 'When Muse asks for the key, paste it into the <b>Secure credentials store</b>.', 'In a conversation, ask Muse to use Discriminantly.'])}<p class="fine wl-note">The key stands in for a sign-in, so treat it like a password. Revoke it any time in Settings.</p>`;
+  const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
+    : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
+  return `<p class="sbox-title">${title}</p>
+    <p class="sbox-sub">${lede}</p>
+    ${(() => {
+      // Tiles toggle one shared instruction container beneath the row (the
+      // resurfacing tint), with a small triangle pointing at the open tile.
+      const ais = [
+        ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiLogo('chatgpt'), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
+        ['claude', 'Claude', 'MCP connector', st.claude, aiLogo('claude'), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
+        ['muse', 'Muse', 'Meta AI connector', st.muse, aiLogo('muse'), st.muse ? '<p class="fine wl-note">Ask Muse to use Discriminantly, then say what you\u2019d like to keep, find or plan.</p>' : museSteps],
+        ['other', 'Other', 'Any MCP client', st.other, aiLogo('other'), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
+      return `<div class="wl-ais-wrap">
+      ${ais.map(([k]) => `<input type="radio" name="wl-ai-${ns}" class="wl-ai-toggle" id="wl-ai-${k}-${ns}" hidden>`).join('')}
+      <div class="wl-ais">${ais.map(([k, name, kind, on, logo]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${ns}" data-ai="${k}">${logo}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
+      ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n};--wl-col2:${n % 2}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
+    </div>`;
+    })()}`;
+}
+
 function welcomeCard(me, { plan = null } = {}) {
   const st = welcomeState(me);
   const any = st.chatgpt || st.claude || st.muse || st.other;
@@ -10105,40 +10148,8 @@ function welcomeCard(me, { plan = null } = {}) {
     <div class="wl-warrant"><span class="wl-ico wl-ico-sm">${WL_ICON.warrant}</span><span class="wl-warrant-name">Stand behind what you genuinely endorse</span><a class="wl-term" href="/u/${esc(me.handle)}?tab=warrants">Warrants</a></div>
     <div class="wl-nav"><span></span>${nextBtn(2, 'Next: connect your AI')}</div>
   </div>`;
-  // The state line sits in the same place either way (v2.72): Connect, or Connected.
-  const aiState = (on) => on ? '<span class="wl-ai-state is-on">Connected</span>' : '<span class="wl-ai-state">Connect</span>';
-  // Steps use the rail's numbered-circle list (ol.steps), one helper for all three.
-  const steps = (items) => `<ol class="steps wl-how">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
-  // the address may break only after the scheme, never mid-word; Copy copies it whole
-  const addr = `<span class="wl-addr"><code class="wl-url">${esc(mcpUrl).replace('://', '://<wbr>')}</code>${copy(mcpUrl, 'Copy address')}</span>`;
-  const chatgptSteps = pluginUrl
-    ? `${steps([`Open the <a class="link" href="${esc(pluginUrl)}" rel="noopener">Discriminantly plugin in ChatGPT</a> and choose <b>Install plugin</b>.`, 'Choose <b>Connect</b> when asked, and sign in to Discriminantly.', 'In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.'])}<p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
-    : `<p class="lbl wl-soon">Coming to ChatGPT\u2019s plugin directory</p>${steps(['In ChatGPT, open <b>Plugins</b>.', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b>, and sign in to Discriminantly.'])}`;
-  const claudeSteps = `${steps(['In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.', `Name it <b>Discriminantly</b> and paste this address: ${addr}`, 'Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.', 'In a chat, turn it on under <b>+ \u203a Connectors</b>.'])}<p class="fine wl-note">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
-  const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
-  // v2.72: Muse (Meta AI). Meta's sign-in for custom connectors is not working
-  // yet, so Muse connects with a connection address made in Settings instead.
-  // v2.82: Muse connects with a key (Meta's OAuth callback never exchanges the code).
-  const museSteps = `${steps(['In <a class="link" href="/settings#connector">Settings \u203a Connect to your AI</a>, name a connection <b>Muse</b> and choose <b>Create a connection</b>. Copy the <b>key</b> it shows: it appears once.', 'In a Muse chat, say: <i>\u201cAdd a custom connector for my Discriminantly MCP server at https://muse.discriminantly.com/mcp, using an API key sent as Authorization: Bearer.\u201d</i>', 'When Muse asks for the key, paste it into the <b>Secure credentials store</b>.', 'In a conversation, ask Muse to use Discriminantly.'])}<p class="fine wl-note">The key stands in for a sign-in, so treat it like a password. Revoke it any time in Settings.</p>`;
-  const lede = st.chatgpt && st.claude ? 'Discriminantly is available in both ChatGPT and Claude. Use whichever you have open.'
-    : 'Connect the AI you already use, and remembering, adding and planning become conversational.';
   const step2 = `<div class="wl-panel wl-p2">
-    <p class="sbox-title">Connect your AI.</p>
-    <p class="sbox-sub">${lede}</p>
-    ${(() => {
-      // Tiles toggle one shared instruction container beneath the row (the
-      // resurfacing tint), with a small triangle pointing at the open tile.
-      const ais = [
-        ['chatgpt', 'ChatGPT', 'Discriminantly plugin', st.chatgpt, aiLogo('chatgpt'), st.chatgpt ? '<p class="fine wl-note">Say what you\u2019d like to keep, find or plan; mention <b>@Discriminantly</b> if ChatGPT doesn\u2019t use it on its own.</p>' : chatgptSteps],
-        ['claude', 'Claude', 'MCP connector', st.claude, aiLogo('claude'), st.claude ? '<p class="fine wl-note">Turn Discriminantly on under <b>+ \u203a Connectors</b> in any chat, then just ask.</p>' : claudeSteps],
-        ['muse', 'Muse', 'Meta AI connector', st.muse, aiLogo('muse'), st.muse ? '<p class="fine wl-note">Ask Muse to use Discriminantly, then say what you\u2019d like to keep, find or plan.</p>' : museSteps],
-        ['other', 'Other', 'Any MCP client', st.other, aiLogo('other'), st.other ? '<p class="fine wl-note">Turn Discriminantly on in a chat, then just ask.</p>' : otherSteps]];
-      return `<div class="wl-ais-wrap">
-      ${ais.map(([k]) => `<input type="radio" name="wl-ai-${me.id}" class="wl-ai-toggle" id="wl-ai-${k}-${me.id}" hidden>`).join('')}
-      <div class="wl-ais">${ais.map(([k, name, kind, on, logo]) => `<label class="wl-ai${on ? ' is-on' : ''}" for="wl-ai-${k}-${me.id}" data-ai="${k}">${logo}<span class="wl-ai-name">${name}</span><span class="caps">${kind}</span>${aiState(on)}</label>`).join('')}</div>
-      ${ais.map(([k, , , , , body], n) => `<div class="wl-ai-panel" data-for="${k}" style="--wl-col:${n};--wl-col2:${n % 2}"><div class="wl-ai-panel-in">${body}</div></div>`).join('')}
-    </div>`;
-    })()}
+    ${connectGuide(me, st)}
     <div class="wl-nav">${next(1, '\u2190 Orientation')}${nextBtn(3, 'Next: get started')}</div>
   </div>`;
   const keys = [st.viaChatGPT && st.kept ? 'resume' : st.arrived ? (st.arrived.kind === 'invite' ? 'joined' : 'copied') : 'plan', 'place', 'thing', 'show'];
@@ -11463,11 +11474,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         </div>
         <div class="wtable settings-table settings-connector" id="connector">
           <div class="wcell wcell-wide">
-            <p class="sbox-title">Connect to your AI</p>
-            <p class="sbox-sub">Connect ChatGPT or Claude to your Discriminantly memory and work with your Notes, Marks, Collections, Ensembles, and more from any conversation.</p>
-            ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p>` : '<p class="empty center">No connector URL yet.</p>'}
-            <p class="fine center">Claude: Settings → Connectors → Add custom connector.<br>ChatGPT (paid plans): Settings → Connectors → Advanced → Developer mode, then Create → No authentication.<br>Treat the URL like a password.</p>
-            <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+            <div class="welcome-card wl-guide" id="connect-guide">${connectGuide(me, welcomeState(me), { title: 'Connect to your AI', ns: 'settings' })}${STARTER_JS}</div>
             <!-- One connection per AI client, each revocable on its own. The
                  URL is shown once, immediately after it is made: the server
                  keeps only a hash of it. -->
@@ -11488,6 +11495,10 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
                 <button class="btn3d block">Create a connection</button>
               </form>
             </div>
+            <details class="share-opt-x conn-legacy"><summary class="link caps">${me.api_token ? 'Older connector URL' : 'Single connector URL (older method)'}</summary>
+              ${me.api_token ? `<p class="conn-url"><code>${esc(baseUrl(req))}/mcp/${esc(me.api_token)}</code></p><p class="fine center">One URL for any client, without a name of its own. Treat it like a password.</p>` : '<p class="fine center">One URL for any client, without a name of its own. The named connections above are the better way.</p>'}
+              <form method="post" action="/settings/token"><button class="btn3d block">${me.api_token ? 'Replace connector URL' : 'Create connector URL'}</button></form>
+            </details>
           </div>
         </div>
       </div>

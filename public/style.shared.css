@@ -1867,3 +1867,13 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .admin-dialog-field input { display: block; width: 100%; margin-top: .4rem; padding: .6rem .8rem; font-size: 1rem; border: 1px solid #c9c9d2; border-radius: 10px; }
 .admin-dialog-acts { display: flex; gap: .7rem; justify-content: flex-end; flex-wrap: wrap; margin: 0; }
 .admin-danger { background: #a3232b !important; color: #fff !important; border-color: #a3232b !important; }
+
+/* v2.98: the connect guide on Settings reuses the Welcome card's tiles. The
+   settings cell styles every <b> and <span> as a stat label; undo that inside. */
+.settings-connector .wl-guide { padding: 0 0 1rem; margin: 0 0 1rem; background: none; box-shadow: none; border: 0; }
+.settings-connector .wl-guide .sbox-title { margin-top: 0; }
+.wcell .wl-guide b { display: inline; font-size: inherit; font-weight: 600; line-height: inherit; margin: 0; color: inherit; }
+.wcell .wl-guide span { font-size: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: none; color: inherit; }
+.wcell .wl-guide .wl-ai .caps, .wcell .wl-guide .wl-ai-state, .wcell .wl-guide .lbl, .wcell .wl-guide .caps { font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; }
+.wcell .wl-guide .wl-ai-name { font-size: 1.25rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
+.wcell .wl-guide ol.steps.wl-how li > span { font-size: .7rem; }
