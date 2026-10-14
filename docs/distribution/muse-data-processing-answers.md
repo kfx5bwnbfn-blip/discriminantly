@@ -59,4 +59,4 @@ To retrieve the member's saved context and to carry out actions the member asks 
   - every AI connection.
 
   Copies can remain in backups until those are removed.
-- Export is by email request to brianelicierto@mac.com.
+- Export is by email request to support@discriminantly.com.
