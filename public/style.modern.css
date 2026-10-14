@@ -2641,3 +2641,8 @@ body[data-skin="modern"] .pub-splash-acts .splash-enter { margin-top: .2rem; }
 body[data-skin="modern"] .pub-crumbs ol { color: var(--m-ink-3); opacity: 1; }
 body[data-skin="modern"] .pub-crumbs a:hover { color: var(--m-ink); }
 body[data-skin="modern"] .pub-shot-frame { box-shadow: inset 0 0 0 1px var(--m-line), var(--m-shadow-2); background: var(--m-image-bed); }
+body[data-skin="modern"] .pub-keep-ico { color: var(--m-ink); }
+body[data-skin="modern"] .pub-keep-short, body[data-skin="modern"] .pub-rule-line, body[data-skin="modern"] .pub-demo-sum, body[data-skin="modern"] .pub-bounds-line, body[data-skin="modern"] .pub-cols2 li { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .pub-defs-grid dt { color: var(--m-ink); }
+/* the OpenAI mark is supplied in black; on dark glass it is inverted (a colour change only, no redraw) */
+body[data-skin="modern"][data-mode="dark"] .wl-ai-logo img[src*="/chatgpt."], body[data-skin="modern"][data-mode="system"]:not(.m-light) .wl-ai-logo img[src*="/chatgpt."] { filter: invert(1); }

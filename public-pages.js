@@ -83,81 +83,91 @@ function create(d) {
   };
 
   // ---- 1. Home ----------------------------------------------------------------
+  // Glyphs for the two record types the welcome card has none for, in its frame.
+  const GLYPH = {
+    note: WL_ICON.note, mark: WL_ICON.mark, itinerary: WL_ICON.plan, warrant: WL_ICON.warrant,
+    checkin: `<svg viewBox="0 0 44 48" aria-hidden="true"><rect x="7" y="10" width="30" height="30" rx="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 19h30M15 6v8M29 6v8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M15 29l5 5 9-10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    collection: `<svg viewBox="0 0 44 48" aria-hidden="true"><rect x="8" y="22" width="28" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="3"/><path d="M12 16h20M16 10h12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+  };
   function home(req, res, me) {
-    const shot = (light, dark, alt, w, h, lazy = false) => {
-      const sk = skinOf(me, req), md = modeOf(me, req), L = lazy ? ' loading="lazy"' : '';
-      if (sk !== 'modern') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}"${L}>`;
-      if (md === 'light') return `<img src="${light}" alt="${alt}" width="${w}" height="${h}"${L}>`;
-      if (md === 'dark') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}"${L}>`;
-      return `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="${w}" height="${h}"${L}></picture>`;
+    const shot = (light, dark, alt, w, h) => {
+      const sk = skinOf(me, req), md = modeOf(me, req);
+      if (sk !== 'modern') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}">`;
+      if (md === 'light') return `<img src="${light}" alt="${alt}" width="${w}" height="${h}">`;
+      if (md === 'dark') return `<img src="${dark}" alt="${alt}" width="${w}" height="${h}">`;
+      return `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="${w}" height="${h}"></picture>`;
     };
     const frame = (img, cls = '') => `<div class="shot-wrap ${cls}"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${img}</div></div>`;
     const tile = (a) => `<div class="pub-demo-tile pub-demo-app"><span class="lbl">${esc(a.kind)}</span><span class="pub-demo-title">${esc(a.title)}</span><span class="pub-demo-meta">${esc(a.meta)}</span><span class="pub-demo-why">${esc(a.why)}</span></div>`;
     const chat = (c) => `<div class="pub-demo-tile pub-demo-chat"><span class="lbl">In a conversation</span><span class="pub-demo-ask">${esc(c.ask)}</span><span class="pub-demo-reply">${esc(c.reply)}</span></div>`;
+    const short = { note: 'Things worth remembering.', mark: 'Places worth returning to.', checkin: 'The visits you actually made.', collection: 'Records, grouped your way.', itinerary: 'Plans, by day and stop.', warrant: 'What you stand behind.' };
     const body = `
 <section class="splash pub-splash" id="promise" aria-label="Discriminantly">
   <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
   <p class="splash-word">${C.site.wordmark}</p>
   <h1 class="splash-h">${esc(C.site.brandLine)}</h1>
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
-  <p class="splash-sub pub-prop-2">${esc(C.site.proposition[1])}</p>
   <p class="pub-splash-acts">${me ? '<a class="btn splash-enter" href="/">Open Discriminantly</a>' : '<a class="btn splash-enter" href="/join">Get started</a>'}<a class="link caps pub-see" href="/how-it-works">See how it works</a></p>
 </section>
 ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', 2000, 1174))}
-<p class="welcome-caption pub-frame-caption">The application. Your record lives here, whether you add to it directly or through an AI you have connected.</p>
 
-${sec('useful', 'What you keep becomes useful', 'One record, kept over time, then used.', `
+<section class="pub-sec pub-keep" id="keep" aria-labelledby="keep-h">
+  ${eyebrow('What you keep')}
+  <h2 class="pub-h2" id="keep-h">Six kinds of record. Each means one thing.</h2>
+  <p class="pub-p pub-keep-intro">${esc(C.site.proposition[1])}</p>
+  <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name">${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
+  <p class="pub-rule-line">A saved object is not owned. A saved place is not visited. A plan is not a trip.</p>
+</section>
+
+${sec('useful', 'What you keep becomes useful', 'Kept over time. Then used.', `
   ${illus}
-  <ol class="pub-demo">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}<p class="pub-demo-cap">${esc(b.caption)}</p></li>`).join('')}</ol>
-  <p class="pub-p pub-stance">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
+  <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>
+  <p class="pub-demo-sum">The assistant starts from what was kept and recorded. The plan is saved in Discriminantly, shared or built with others, and the next trip starts from more.</p>`, 'itin-shell pub-shell')}
 
-${sec('keep', 'What you keep', 'Ordinary things, given their proper names.', `
-  <dl class="pub-objects">${C.objects.map((o) => `<div class="pub-object" id="keep-${o.key}"><dt><span class="pub-object-plain">${esc(o.plain)}</span> <span class="pub-object-arrow" aria-hidden="true">→</span> <span class="pub-object-name">${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</span></dt><dd>${esc(o.what)} <span class="pub-object-not">${esc(o.not)}</span></dd></div>`).join('')}</dl>
-  <p class="pub-p pub-rule">A saved object does not prove ownership. A saved place does not prove a visit. A plan does not prove an experience.</p>`)}
-
-${sec('possible', 'What becomes possible', 'Recall, organize, plan, return.', `
-  <ul class="pub-list">
-    <li><b>Find what you kept</b> before you need it: by place, by kind, by the words you used.</li>
-    <li><b>Organize and refine</b> the record: adjust a line, move something into a collection, make it private or public.</li>
-    <li><b>Recommendations grounded in evidence</b>: when you ask a connected AI, it starts from what you have actually kept and recorded, not from a guess about you.</li>
-    <li><b>Build itineraries</b> from places you already keep, and bring in new ones you are considering.</li>
-    <li><b>Continuity across conversations</b>: a plan started in one chat is in Discriminantly, so the next conversation can pick it up.</li>
-    <li><b>Return and add</b>: check-ins from a trip enrich the record, and the next plan starts from more.</li>
-  </ul>`)}
+<section class="pub-sec" id="possible" aria-labelledby="possible-h">
+  ${eyebrow('What becomes possible')}
+  <h2 class="pub-h2" id="possible-h">Recall. Refine. Plan. Return.</h2>
+  <ul class="pub-cols2">
+    <li><b>Find what you kept</b> by place, kind or your own words.</li>
+    <li><b>Adjust and organize</b> a line, a collection, a privacy setting.</li>
+    <li><b>Recommendations from evidence</b>, not a guess about you.</li>
+    <li><b>Plans from places you already keep</b>, with new ones added.</li>
+    <li><b>Continuity</b> across conversations: the plan is here, not in a chat.</li>
+    <li><b>Return</b> with check-ins that make the next plan better.</li>
+  </ul>
+</section>
 
 ${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
   <div class="pub-two">
-    <div><h3 class="pub-h3">${esc(C.together.view.title)}</h3><p class="pub-p">${esc(C.together.view.body)}</p></div>
-    <div><h3 class="pub-h3">${esc(C.together.collaborate.title)}</h3><p class="pub-p">${esc(C.together.collaborate.body)}</p></div>
+    <div><h3 class="pub-h3">${esc(C.together.view.title)}</h3><p class="pub-p">A link shows the plan’s days, stops and places. Anyone with it can make their own copy. Yours doesn’t change.</p></div>
+    <div><h3 class="pub-h3">${esc(C.together.collaborate.title)}</h3><p class="pub-p">An invitation adds someone to the same plan, as editor or viewer. Every change is recorded under who made it.</p></div>
   </div>
-  <p class="pub-p pub-rule">${esc(C.together.stays)}</p>
-  <p class="fine pub-fine">${esc(C.together.disclosure)}</p>
-  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 2000, 1174), 'splash-shot-2 pub-frame-2')}
-  <p class="welcome-caption pub-frame-caption">A plan in the application: its days and stops, on a map, beside the places the member already keeps nearby.</p>`, 'itin-shell pub-shell')}
+  <p class="pub-rule-line">Your notes, visits, warrants and private records stay yours. ${esc(C.together.disclosure)}</p>
+  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 2000, 1174), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
-${sec('ai', 'Use it with AI', 'The same record, reached from the AI you already use.', `
-  <p class="pub-p">An authorized assistant can retrieve from and add to the same durable record. You connect it; you can revoke it. What it adds shows up in Discriminantly, recorded as that assistant acting for you.</p>
-  <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>
-  <p class="pub-plat-act"><a class="link caps" href="/ai">All platforms and how to connect →</a></p>`)}
+${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
+  <p class="pub-p">Connect it; revoke it any time. What it adds appears here, recorded as that assistant acting for you.</p>
+  <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>`)}
 
-${sec('evidence', 'Evidence and control', 'What is yours, what is suggested, and who can see it.', `
-  <dl class="pub-defs">
-    <div><dt>Your record</dt><dd>What you have kept, each kind with its own meaning. A note says a thing was worth remembering. A travel mark says a place was worth remembering or considering. A check-in says you were there. An ownership record says you own it. A warrant says you stand behind it. None of these implies another: nothing saved is thereby liked, owned, visited or endorsed.</dd></div>
-    <div><dt>Researched facts</dt><dd>A place’s address and map position, looked up and marked as such.</dd></div>
-    <div><dt>Recommendations</dt><dd>Suggestions an assistant made. They stay recommendations until you keep them.</dd></div>
-    <div><dt>Plans</dt><dd>Intentions, arranged. Not a record of having gone.</dd></div>
-    <div><dt>Experiences</dt><dd>Check-ins: the record that you were actually there.</dd></div>
+<section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
+  ${eyebrow('Evidence and control')}
+  <h2 class="pub-h2" id="evidence-h">Yours, looked up, suggested, planned, done.</h2>
+  <dl class="pub-defs pub-defs-grid">
+    <div><dt>Your record</dt><dd>Kept, visited, owned, endorsed: each its own act. None implies another.</dd></div>
+    <div><dt>Looked up</dt><dd>A place’s address and map position, marked as such.</dd></div>
+    <div><dt>Suggested</dt><dd>An assistant’s recommendation, until you keep it.</dd></div>
+    <div><dt>Planned</dt><dd>An itinerary. Not a record of having gone.</dd></div>
   </dl>
-  <ul class="pub-list">
-    <li><b>Private or public, per record.</b> Notes and marks are visible to other members unless you mark them private. Plans start private.</li>
-    <li><b>AI access is authorized.</b> An assistant reaches your record only after you connect it, and only until you revoke it.</li>
-    <li><b>The application is the durable place</b> to review, adjust and remove what is kept.</li>
-    <li><b>Provenance stays visible.</b> Each record shows where it came from and who, or which assistant, changed it.</li>
-  </ul>`)}
-
-${sec('boundaries', 'Boundaries', 'What Discriminantly does not claim.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
+  <ul class="pub-cols2 pub-ctrl">
+    <li><b>Private or public</b>, per record. Plans start private.</li>
+    <li><b>AI access is authorized</b>, by you, until you revoke it.</li>
+    <li><b>The application</b> is where you review, adjust and remove.</li>
+    <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
+  </ul>
+</section>
 
 <section class="pub-sec pub-final" id="start" aria-label="Get started">
+  <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
   <p class="pub-final-acts">${cta(me)}</p>
   <p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/ai">Use with AI</a></p>
 </section>`;
