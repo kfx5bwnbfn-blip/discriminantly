@@ -133,23 +133,25 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
   ${eyebrow('What you keep')}
   <h2 class="pub-h2" id="keep-h">Six kinds of record. Each means one thing.</h2>
   <p class="pub-p pub-keep-intro">${esc(C.site.proposition[1])}</p>
+  <p class="pub-p pub-keep-intro pub-keep-capture">${esc(C.site.capture)}</p>
   <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name"><a href="${o.href}">${esc(o.name)}</a></span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
   <p class="pub-rule-line">A saved object is not owned. A saved place is not visited. A plan is not a trip.</p>
 </section>
 
 ${sec('useful', 'What you keep becomes useful', 'Kept over time. Then used.', `
+  <p class="pub-p pub-useful-frame">Things noticed at different moments no longer stay scattered across chats, notes and bookmarks. A connected AI can bring the relevant ones together when it is time to recommend, organize or plan. One workflow, not a required order: you can also begin with a direct request and nothing kept.</p>
   ${illus}
   <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>
-  <p class="pub-demo-sum">The assistant starts from what was kept and recorded. The plan is saved in Discriminantly, shared or built with others, and the next trip starts from more.</p>`, 'itin-shell pub-shell')}
+  <p class="pub-demo-sum">An assistant can start from your request alone. When you have relevant records, it can use that evidence to make the plan more personal. The plan is saved in Discriminantly, shared or built with others, and the next trip has more to draw on.</p>`, 'itin-shell pub-shell')}
 
 <section class="pub-sec" id="possible" aria-labelledby="possible-h">
   ${eyebrow('What becomes possible')}
   <h2 class="pub-h2" id="possible-h">Recall. Refine. Plan. Return.</h2>
   <ul class="pub-cols2">
-    <li><b>Find what you kept</b> by place, kind or your own words.</li>
+    <li><b>Keep it in conversation</b>, then find it again by place, kind or your own words.</li>
     <li><b>Adjust and organize</b> a line, a collection, a privacy setting.</li>
-    <li><b>Recommendations from evidence</b>, not a guess about you.</li>
-    <li><b>Plans from places you already keep</b>, with new ones added.</li>
+    <li><b>Recommendations from what you ask for</b>, sharpened by the evidence you have accumulated.</li>
+    <li><b>Plans can start fresh</b>, use places you already keep, or combine both.</li>
     <li><b>Continuity</b> across conversations: the plan is here, not in a chat.</li>
     <li><b>Return</b> with check-ins that make the next plan better.</li>
   </ul>
@@ -164,7 +166,7 @@ ${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
   ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000, { lazy: true }), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
 ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
-  <p class="pub-p">Connect it; revoke it any time. What it adds appears here, recorded as that assistant acting for you.</p>
+  <p class="pub-p">Your record lives in Discriminantly, not inside one AI. Connect the compatible assistant you choose to the same record, and revoke its access when you choose. Ask it for recommendations or a plan from the first request; what you keep gives later ones more direction. What it adds appears here, recorded as that assistant acting for you.</p>
   <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>`)}
 
 
@@ -224,9 +226,9 @@ ${sec('names', 'The names', 'Six kinds of record, each with one meaning.', `<dl 
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
       description: 'From noticing something to planning with it: how Discriminantly keeps notes, travel marks, check-ins, collections and itineraries, and how an authorized AI works with them.',
-      h1: 'How Discriminantly works', lede: 'Eight steps, from noticing something to returning from a trip. They show how your records are created, organized, used and checked; not every step creates a new one.', body,
+      h1: 'How Discriminantly works', lede: 'Eight ways Discriminantly helps you keep, organize, discover and plan. You can begin with something worth remembering or start with a destination and a direct request—an existing record is not required.', body,
       card: '/card/page/how-it-works.png', crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
-      ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: 'Eight steps, from noticing something to returning from a trip.', step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body, url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
+      ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: 'Eight ways Discriminantly helps you keep, organize, discover and plan. They are not a required order; an existing record is not required to plan.', step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body, url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
   }
 
   // ---- 3. Travel Marks (the object-page template) -----------------------------
@@ -267,12 +269,21 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
     const pair1 = `<div class="phones">${phone(pick9('/welcome-phone-profile-light.jpg', '/welcome-phone-profile-dark.jpg', 'A Discriminantly profile: the member’s notes, travel marks and plans'), 'Your record, in Discriminantly')}${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}</div>`;
     const pair2 = `<div class="phones">${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}${phone(pick9('/welcome-phone-app-light.jpg', '/welcome-phone-app-dark.jpg', 'The same day as an itinerary in Discriminantly'), 'Saved in Discriminantly')}</div>`;
     const body = `
+<section class="pub-sec pub-start-note" id="no-record-needed" aria-labelledby="no-record-needed-h">
+  ${eyebrow('Starting out')}
+  <h2 class="pub-h2" id="no-record-needed-h">No record needed to begin.</h2>
+  <p class="pub-p">You do not need an existing Discriminantly record to begin. Ask your assistant for recommendations or a plan from a destination, interests and constraints. As you keep places, objects and experiences, that record gives later recommendations more personal direction.</p>
+  <p class="pub-p">Recommendations and conversational planning happen in the assistant you connect. Discriminantly holds the durable record: what you keep, what you plan, and where each came from. ${esc(C.site.stance.replace(/^Discriminantly is a complete application, and the durable home of your record\. /, ''))}</p>
+</section>
 <section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
   <p class="splash-pair-lead" id="useful-h">What you keep becomes useful.</p>
   ${pair1}
   <p class="splash-pair-lead splash-pair-lead-2">Plan naturally.</p>
   ${pair2}
-  <p class="welcome-caption welcome-caption-close">Your record stays in Discriminantly. An assistant you have authorized can retrieve from it and add to it; what it adds shows up here, recorded as that assistant acting for you. Installation, sign-in, approval behaviour and what each model does with the tools vary by platform, so each has its own page.</p>
+  <p class="welcome-caption welcome-caption-close">Your record stays in Discriminantly. An assistant you have authorized can recommend and plan from what you ask, retrieve from your record and add to it; what it adds shows up here, recorded as that assistant acting for you. Installation, sign-in, approval behaviour and what each model does with the tools vary by platform, so each has its own page.</p>
+</section>
+<section class="pub-sec" id="faq" aria-labelledby="faq-h">${eyebrow('Questions')}<h2 class="pub-h2" id="faq-h">Before you start.</h2>
+  <dl class="pub-faq">${C.faq.map(([q, a]) => `<div><dt>${esc(q)}</dt><dd>${esc(a)}</dd></div>`).join('')}</dl>
 </section>
 <section class="pub-sec itin-shell pub-shell" id="platforms" aria-labelledby="platforms-h">${eyebrow('Platforms')}<h2 class="pub-h2" id="platforms-h">Choose your assistant.</h2>
   <p class="pub-p pub-p-center">Each has its own page: how to connect, what to expect, and where it stands.</p>
@@ -280,10 +291,10 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
-      description: 'Connect Discriminantly to ChatGPT, Claude, Muse or another AI assistant. Availability, connection method, authentication and directory status for each, with a guide per platform.',
-      h1: 'Use Discriminantly with AI', lede: 'Your record stays here. The assistant you already use can retrieve from it and add to it, once you authorize it.', body,
+      description: 'Connect ChatGPT, Claude, Muse or another AI to Discriminantly. No saved record is needed: ask for recommendations or a plan, and what you keep sharpens later ones.',
+      h1: 'Use Discriminantly with AI', lede: 'Your record stays here. Once you authorize it, the assistant you already use can recommend and plan from what you ask, draw on your record to sharpen the result, and keep what you choose.', body,
       card: '/card/page/ai.png', crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
-      ld: [{ '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
+      ld: [{ '@type': 'FAQPage', '@id': PUBLIC_ORIGIN + '/ai#faq', mainEntity: C.faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) }, { '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
   }
 
   // ---- 5. Platform pages (one template; Muse carries the extra facts) ---------
@@ -309,6 +320,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
   <dl class="pub-facts pub-facts-wide">${facts}</dl>
 </section>
 ${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}`)}
+${p.asks ? sec('ask', 'What you can ask', 'Start from a request, use your record, keep what matters.', `<p class="pub-p">An empty account can begin with recommendations and planning; it simply has no records of yours to contribute yet. As you keep things, requests can draw on them.</p><dl class="pub-asks">${p.asks.map(([h, t]) => `<div><dt>${esc(h)}</dt><dd><blockquote class="pub-quote"><p>${esc(t)}</p></blockquote></dd></div>`).join('')}</dl><p class="fine pub-fine">Suggested places stay recommendations until you keep them. A plan is not a record of going.${p.asksNote ? ' ' + esc(p.asksNote) : ''}</p>`) : ''}
 ${p.verify ? sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once ${key === 'chatgpt' ? 'the plugin is connected' : 'the connector is in place'}, send ${esc(p.name)} this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote>${p.verifyExpect ? `<h3 class="pub-h3">What you should see</h3><p class="pub-p">${esc(p.verifyExpect)}</p><h3 class="pub-h3">If access is refused or nothing comes back</h3><ul class="pub-list">${p.trouble.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><h3 class="pub-h3">Disconnecting</h3><p class="pub-p">${esc(p.revoke)}</p>` : `<p class="pub-p">${esc(p.name)} should list the travel marks you have kept, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`}${p.lastTested ? `<p class="pub-tested"><span class="lbl">Last tested</span> <time>${esc(p.lastTested)}</time>, by ${esc(p.lastTestedBy || 'Discriminantly')}: ${esc(p.lastTestedBasis)}.</p>` : ''}${p.reviewNote ? `<p class="fine pub-fine">${esc(p.reviewNote)}</p>` : ''}`) : ''}
 ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>${p.provenance ? esc(p.provenance) : `What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.`}</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them. The one disclosed exception is a private travel mark used as a stop in a plan you share, whose name and address may appear to collaborators after you confirm.</li></ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">All platforms</a></p></section>`;
@@ -380,6 +392,7 @@ ${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-
     ['Reading grants nothing', 'Reading this site, llms.txt or this page grants no access to any member’s record. Every record described here is the member’s, and reaching it requires that member’s own authorized connection.'],
     ['Authorized access', `Clients reach a member’s record only through a connection the member made: by signing in and approving (ChatGPT, Claude and other MCP clients, at ${PUBLIC_ORIGIN}/mcp) or by a key the member created in Settings (Muse, at https://muse.discriminantly.com/mcp). Which method applies, and how to set it up, is on each platform’s page under ${PUBLIC_ORIGIN}/ai. The member can revoke any connection at any time; a revoked connection stops working immediately.`],
     ['The six records and their non-implications', C.objects.map((o) => `${o.name}: ${o.what} ${o.not}`).join(' ')],
+    ['Starting with an empty record', 'A member does not need any saved records to receive recommendations or a plan. An authorized client can recommend places and build an itinerary from a destination, interests and constraints. Where relevant records exist, retrieve them to sharpen the result; do not claim the member has kept, visited or endorsed anything they have not recorded.'],
     ['Recommendation versus adoption', 'A recommendation an assistant makes is recorded as a recommendation and stays one until the member keeps it. Keeping is the member’s act. A dismissed recommendation is not a dislike. Nothing a client proposes becomes a kept, visited, owned or endorsed record without the member’s say-so.'],
     ['Provenance and actor identity', 'Every change records who made it: the member on the web, or a connected client acting for the member. The client’s identity comes from the connection and, where the client declares a name when it connects, from that declaration; a client that declares none is recorded as the member’s AI without a name. Looked-up facts (a place’s address and map position) are recorded as looked up, apart from anything the member wrote.'],
     ['Privacy, visibility and revocation', `Notes and travel marks are public unless the member makes them private; check-ins follow their mark; itineraries start private. A private record is visible to the member and to clients the member has connected, with one disclosed exception: ${C.together.disclosureAgent} Revoking a connection ends access and deletes nothing.`],
@@ -407,7 +420,7 @@ ${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">Thi
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
 </section>
 ${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
-${sec('why', 'Why it exists', 'Taste accumulates. Most of it is lost.', `<p class="pub-p">The things you notice, the places you mean to return to, the trips you half-plan in a conversation: most of it is scattered across notes, screenshots and chats, and none of it is there the next time you need it. Discriminantly gives those things one durable home, with the meaning of each kept straight: a note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">${esc(C.together.memory)}</p><p class="pub-p">Because the record is durable and exact, an AI you authorize can start from it. Recommendations shaped by what you have actually kept and experienced are different from recommendations shaped by a guess about you.</p>`)}
+${sec('why', 'Why it exists', 'Taste accumulates. Most of it is lost.', `<p class="pub-p">The things you notice, the places you mean to return to, the trips you half-plan in a conversation: most of it is scattered across notes, screenshots and chats, and none of it is there the next time you need it. Discriminantly gives those things one durable home without another filing system to maintain: tell the AI you already use what is worth keeping, in your own words, and it is kept here, with the meaning of each kept straight. A note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">${esc(C.together.memory)}</p><p class="pub-p">Because the record is durable and exact, an AI you authorize can draw on it. Things kept at different times become useful later, when an assistant recommends, organizes or plans; recommendations shaped by what you have actually kept and experienced are different from recommendations shaped by a guess about you. The record does not belong to any one assistant: connect the compatible one you choose, revoke it when you choose, and see what each one changed. What is private or public is yours to set, record by record.</p>`)}
 ${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design kept intact as a skin for anyone who wants it.</p>`)}
 ${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">Discriminantly is designed, built and operated independently, by one person, as a personal project that others are welcome to use. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
 ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
@@ -422,7 +435,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
   const text = (req, res, body, type = 'text/plain; charset=utf-8') => (sendZ ? sendZ.bind(null, req) : send)(res, body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600', Vary: 'Accept-Encoding' });
   // Card specs for the editorial pages, by key.
   const cardPages = Object.assign({
-    'how-it-works': { eyebrow: 'How it works', title: 'Notice. Locate. Experience. Organize. Compose. Plan together. Work with AI. Verify.', line: 'Eight steps, from noticing something to returning from a trip.' },
+    'how-it-works': { eyebrow: 'How it works', title: 'Notice. Locate. Experience. Organize. Compose. Plan together. Work with AI. Verify.', line: 'Eight ways to keep, organize, discover and plan. Start anywhere.' },
     ai: { eyebrow: 'Use with AI', title: 'The same record, from the AI you already use.', line: 'ChatGPT, Claude, Muse and other MCP clients. Your record stays in Discriminantly.' },
     chatgpt: { eyebrow: 'Use with ChatGPT', title: 'The Discriminantly plugin for ChatGPT', line: 'Install it from its page in ChatGPT, connect by signing in, and ask.' },
     claude: { eyebrow: 'Use with Claude', title: 'Discriminantly as a custom connector in Claude', line: 'Add the connector, sign in to Discriminantly, turn it on in a chat.' },
@@ -442,10 +455,11 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
     L.push(`# ${C.site.name}`, '', `> ${C.site.proposition[0]}`, '', C.site.proposition[1], '', C.site.stance, '');
     L.push('## What it keeps', '', ...C.objects.map((o) => `- **${o.name}**: ${o.what} ${o.not}`), '');
     L.push('## How it works', '', ...C.steps.map((s) => `${s.n}. **${s.verb}.** ${s.title} ${s.body}`), '');
-    L.push('## Using it with an AI client', '', 'Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');
+    L.push('## Using it with an AI client', '', 'No existing record is required: through a connected AI client a member can ask for recommendations or a plan from a destination, interests and constraints, and existing records sharpen the result over time. Recommendations remain recommendations until the member keeps them. Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');
     for (const p of C.platforms) L.push(`- **${p.name}** (${PUBLIC_ORIGIN}${p.guide}): ${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.${p.review ? ' ' + p.review + '.' : ''}${p.endpoint ? ' Endpoint ' + p.endpoint + ' (no trailing slash).' : ''}${p.key === 'chatgpt' && PLUGIN() ? ' Plugin page: ' + PLUGIN() + '.' : ''}`);
     L.push('', '## Boundaries', '', ...C.boundaries.map((b) => `- ${b}`), '');
     L.push('## Evidence and control', '', '- Kept, visited, owned and endorsed are separate acts; none implies another.', '- Looked-up facts (a place’s address and map position) are recorded as looked up, apart from member-authored evidence.', '- Recommendations stay recommendations until the member keeps them.', '- Itineraries are plans, not evidence of completed travel.', `- ${C.together.disclosureAgent}`, '- Privacy is per record; AI access is granted by the member and revocable; the application is where records are reviewed, adjusted and removed; provenance identifies who, or which assistant, changed what.', '');
+    L.push('## Frequently asked', '', ...C.faq.map(([q, a]) => `- **${q}** ${a}`), '');
     L.push('## Questions these pages answer', '', ...C.questions.map(([qq, href]) => `- ${qq} ${PUBLIC_ORIGIN}${href}`), '');
     L.push('## Record types', '', ...C.objects.map((o) => `- ${o.name}: ${PUBLIC_ORIGIN}${o.href}`), '');
     L.push('## Guides', '', ...C.guides.map((g) => `- ${g.title}: ${PUBLIC_ORIGIN}/guides/${g.slug}`), '');

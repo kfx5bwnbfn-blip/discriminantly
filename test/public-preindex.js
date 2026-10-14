@@ -54,7 +54,7 @@ const desc = (h) => (/<meta name="description" content="([^"]*)"/.exec(h) || [])
 
   // ---- P1.2 how-it-works transitions ----
   const how = await get('/how-it-works');
-  ok('how-it-works: lede no longer says each step leaves a record', !/Each one leaves a record/.test(how.t) && /not every step creates a new one/.test(how.t));
+  ok('how-it-works: lede no longer says each step leaves a record', !/Each one leaves a record/.test(how.t) && /an existing record is not required/.test(how.t));
   ok('how-it-works: names intro no longer says each step leaves a record', !/Each step leaves a record with a name/.test(how.t) && /Six kinds of record, each with one meaning\./.test(how.t));
   ok('how-it-works: still eight numbered steps and six definitions', (ld(how.t)[0]['@graph'].find((x) => x['@type'] === 'HowTo').step || []).length === 8 && (how.t.match(/<div class="pub-object"><dt>/g) || []).length === 6);
 

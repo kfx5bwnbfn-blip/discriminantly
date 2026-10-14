@@ -1835,3 +1835,17 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .is-public main.wrap > .pub-crumbs { margin-top: 1.2rem; }
 .is-public main.wrap > .pub-hero { margin-top: 2.4rem; margin-bottom: 1.4rem; }
 .is-public main.wrap > .pub-final { margin-top: 3.4rem; }
+
+/* v2.92: the AI hub FAQ and the platform pages' example requests */
+.is-public .pub-faq, .is-public .pub-asks { margin: .4rem auto 0; max-width: 40rem; text-align: left; }
+.pub-faq div { padding: .7rem 0; border-top: 1px solid rgba(255,255,255,.12); }
+.pub-faq div:first-child { border-top: 0; }
+.pub-faq dt { font-size: 1.08rem; margin: 0 0 .3rem; }
+.pub-faq dd { margin: 0; line-height: 1.6; }
+.pub-asks div { padding: .3rem 0 .5rem; }
+.pub-asks dt { font-family: var(--slab); font-weight: 600; font-size: .64rem; letter-spacing: .15em; text-transform: uppercase; opacity: .8; margin: 0 0 .35rem; }
+.pub-asks dd { margin: 0; }
+.pub-asks .pub-quote { margin: 0; max-width: none; }
+.is-public .pub-useful-frame { font-style: italic; opacity: .9; }
+/* v2.92: the conversational-capture line under the record-type intro */
+.is-public .pub-keep-capture { margin-top: -.6rem; font-style: italic; opacity: .9; }
