@@ -9746,15 +9746,15 @@ const agentName = (a) => (a in AGENT_NAMES ? AGENT_NAMES[a]
 // others. Every group is privacy-filtered by the same rules its own surface
 // uses, so search can never surface what a page would withhold.
 const SEARCH_FIRST = 10, SEARCH_PAGE = 20;
-// v2.94: a signed-in search answers for one scope: the member's own records
-// ("mine": every private and public record they keep) or the whole network
-// (everyone's visible records, as before). People are members, not content,
-// so they appear only in the network scope.
-const searchScope = (me, url) => (me && url.searchParams.get('scope') === 'mine' ? 'mine' : 'network');
+// v2.94.1: a signed-in search answers for one of two scopes, "mine" (every
+// record the member keeps, private included; the default) or "others"
+// (everyone else's visible records, plus People). Signed out there is one
+// scope: everything public.
+const searchScope = (me, url) => (!me ? 'public' : url.searchParams.get('scope') === 'others' ? 'others' : 'mine');
 function searchGroups(term, me, url) {
   const k = term.toLowerCase();
-  const mineOnly = searchScope(me, url) === 'mine';
-  const own = (rows) => mineOnly ? rows.filter((r) => r.user_id === me.id) : rows;
+  const scope = searchScope(me, url);
+  const own = (rows) => scope === 'mine' ? rows.filter((r) => r.user_id === me.id) : scope === 'others' ? rows.filter((r) => r.user_id !== me.id) : rows;
   const hit = (...parts) => parts.filter(Boolean).join(' ').toLowerCase().includes(k);
   const out = [];
 
@@ -9781,7 +9781,7 @@ function searchGroups(term, me, url) {
       ${e.description ? `<span class="ens-tile-d">${esc(e.description)}</span>` : ''}
       ${statChips([['pieces', st.total], ['from notes', st.fromNotes], ['sources', st.sourceImages]])}</span></a>`;
   }]);
-  if (!mineOnly) out.push(['people', 'People', people, (u) => `<article class="note"><div class="card"><div class="text">
+  if (scope !== 'mine') out.push(['people', 'People', people, (u) => `<article class="note"><div class="card"><div class="text">
     <a class="person" href="/u/${esc(u.handle)}">${avatar(u)}<span class="person-name">${esc(u.handle)}</span></a>
     ${u.bio ? `<p class="body">${esc(u.bio)}</p>` : ''}</div></div></article>`]);
   return out.filter(([, , rows]) => rows.length);
@@ -10263,16 +10263,16 @@ const pages = {
       // the post form's Note / Travel Mark switch. The links keep the query
       // and drop the per-group paging, which belongs to one scope.
       const scopeTab = me ? (() => {
-        const href = (scope) => { const sp = new URLSearchParams(url.search); for (const key of [...sp.keys()]) if (key.startsWith('g_')) sp.delete(key); if (scope === 'mine') sp.set('scope', 'mine'); else sp.delete('scope'); return '?' + sp; };
+        const href = (scope) => { const sp = new URLSearchParams(url.search); for (const key of [...sp.keys()]) if (key.startsWith('g_')) sp.delete(key); if (scope === 'others') sp.set('scope', 'others'); else sp.delete('scope'); return '?' + sp; };
         const cur = searchScope(me, url);
         return `<nav class="seg search-scope" role="tablist" aria-label="Search in">
-    <a class="seg-btn ${cur === 'mine' ? 'on' : ''}" role="tab" aria-selected="${cur === 'mine'}" href="${esc(href('mine'))}">My content</a>
-    <a class="seg-btn ${cur === 'network' ? 'on' : ''}" role="tab" aria-selected="${cur === 'network'}" href="${esc(href('network'))}">Entire network</a>
+    <a class="seg-btn ${cur === 'mine' ? 'on' : ''}" role="tab" aria-selected="${cur === 'mine'}" href="${esc(href('mine'))}">Mine</a>
+    <a class="seg-btn ${cur === 'others' ? 'on' : ''}" role="tab" aria-selected="${cur === 'others'}" href="${esc(href('others'))}">Everyone else</a>
   </nav>`;
       })() : '';
       return scopeTab + (groups.length
         ? groups.map(([k, t, rows, render]) => searchGroupHtml(k, t, rows, render, url)).join('')
-        : `<p class="empty pad">${me && searchScope(me, url) === 'mine' ? 'Nothing of yours matches.' : 'Nothing found.'}</p>`);
+        : `<p class="empty pad">${{ mine: 'Nothing of yours matches.', others: 'Nothing from everyone else matches.' }[searchScope(me, url)] || 'Nothing found.'}</p>`);
     })()
       : entries.length ? `<div class="grid" id="feed-grid">${page.slice.map((e) => e.html).join('')}</div>${moreLink(url, page.off, page.more)}`
       : (me ? emptyState(me, feed === 'all' ? (tag ? 'tagged' : 'feed') : feed) : '<p class="empty pad">Nothing here yet.</p>')}

@@ -24,30 +24,29 @@ const groupCount = (h, key) => { const m = new RegExp(`<section class="search-gr
   note(Bm, 'B public zq note', 0); note(Bm, 'B private zq note', 1); mark(Bm, 'B zq place', 0);
   db.prepare("UPDATE users SET bio='zqterm in bio' WHERE id=?").run(Bm);
 
-  // Signed in, default scope: the whole network
+  // Signed in, default scope: Mine
   let h = await get('/?q=zq', sA);
-  ok('tab: shown signed in, Entire network selected by default, links keep the query', /<nav class="seg search-scope" role="tablist"/.test(h) && /class="seg-btn on" role="tab" aria-selected="true" href="\?q=zq">Entire network<\/a>/.test(h) && /class="seg-btn " role="tab" aria-selected="false" href="\?q=zq&amp;scope=mine">My content<\/a>/.test(h));
-  ok('network: own records (private included) plus others’ public ones; people included', groupCount(h, 'notes') === 3 && groupCount(h, 'marks') === 2 && groupCount(h, 'people') === 1 && !/B private zq note/.test(h));
-  ok('tab: uses the post form’s token classes (.seg / .seg-btn)', /class="seg search-scope"/.test(h) && (h.match(/class="seg-btn/g) || []).length >= 2);
+  ok('tab: shown signed in, Mine selected by default, links keep the query', /<nav class="seg search-scope" role="tablist"/.test(h) && /class="seg-btn on" role="tab" aria-selected="true" href="\?q=zq">Mine<\/a>/.test(h) && /class="seg-btn " role="tab" aria-selected="false" href="\?q=zq&amp;scope=others">Everyone else<\/a>/.test(h));
+  ok('mine: only the member\u2019s records, private included; no People group', groupCount(h, 'notes') === 2 && groupCount(h, 'marks') === 1 && /A private zq note/.test(h) && !/B public zq note/.test(h) && !/data-group="people"/.test(h));
+  ok('tab: uses the post form\u2019s token classes (.seg / .seg-btn)', /class="seg search-scope"/.test(h) && (h.match(/class="seg-btn/g) || []).length >= 2);
 
-  // My content
-  h = await get('/?q=zq&scope=mine', sA);
-  ok('mine: My content selected; only the member’s records, private included', /aria-selected="true" href="\?q=zq&amp;scope=mine">My content/.test(h) && groupCount(h, 'notes') === 2 && groupCount(h, 'marks') === 1 && /A private zq note/.test(h) && !/B public zq note/.test(h));
-  ok('mine: no People group (members are not content)', !/data-group="people"/.test(h));
-  ok('mine: nothing of another member’s, even their public records, leaks', !/scopeb/.test(h.replace(/<nav class="seg search-scope"[\s\S]*?<\/nav>/, '')));
-  h = await get('/?q=nothingmatchesthis&scope=mine', sA);
-  ok('mine: empty state names the scope', /Nothing of yours matches\./.test(h) && /search-scope/.test(h));
+  // Everyone else
+  h = await get('/?q=zq&scope=others', sA);
+  ok('others: Everyone else selected; only other members\u2019 public records, plus People', /aria-selected="true" href="\?q=zq&amp;scope=others">Everyone else/.test(h) && groupCount(h, 'notes') === 1 && groupCount(h, 'marks') === 1 && groupCount(h, 'people') === 1 && /B public zq note/.test(h) && !/B private zq note/.test(h));
+  ok('others: none of the member\u2019s own records appear', !/A public zq note|A private zq note|A zq place/.test(h));
+  ok('mine: nothing of another member\u2019s leaks', !/scopeb/.test((await get('/?q=zq', sA)).replace(/<nav class="seg search-scope"[\s\S]*?<\/nav>/, '')));
+  ok('empty states name the scope', /Nothing of yours matches\./.test(await get('/?q=nothingmatchesthis', sA)) && /Nothing from everyone else matches\./.test(await get('/?q=nothingmatchesthis&scope=others', sA)));
 
   // Paging stays within a scope; switching scope drops the paging
-  h = await get('/?q=zq&scope=mine&g_notes=30', sA);
-  ok('switching scope drops per-group paging; the other tab keeps the query only', /href="\?q=zq">Entire network/.test(h) && /href="\?q=zq&amp;scope=mine">My content/.test(h));
-  ok('tag and feed parameters are carried across the tab', /href="\?q=zq&amp;t=zq&amp;scope=mine">My content/.test(await get('/?q=zq&t=zq', sA)));
+  h = await get('/?q=zq&scope=others&g_notes=30', sA);
+  ok('switching scope drops per-group paging; the other tab keeps the query only', /href="\?q=zq">Mine/.test(h) && /href="\?q=zq&amp;scope=others">Everyone else/.test(h));
+  ok('tag and feed parameters are carried across the tab', /href="\?q=zq&amp;t=zq&amp;scope=others">Everyone else/.test(await get('/?q=zq&t=zq', sA)));
 
   // Signed out: no tab, scope ignored
   h = await get('/activity?q=zq');
   ok('signed out: no tab; the public search is unchanged', !/search-scope/.test(h) && groupCount(h, 'notes') === 2 && !/private zq note/.test(h));
-  h = await get('/activity?q=zq&scope=mine');
-  ok('signed out: scope=mine is ignored, never a 500', !/search-scope/.test(h) && groupCount(h, 'notes') === 2);
+  h = await get('/activity?q=zq&scope=others');
+  ok('signed out: scope=others is ignored, never a 500', !/search-scope/.test(h) && groupCount(h, 'notes') === 2);
 
   // The plain feed is untouched
   h = await get('/', sA);
