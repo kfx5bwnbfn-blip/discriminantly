@@ -10188,7 +10188,7 @@ const pages = {
     const members = q('SELECT handle, name, avatar FROM users ORDER BY created_at LIMIT 12').all();
     const tagCounts = {}; for (const o of q('SELECT tags FROM adopted_objects WHERE private=0').all()) for (const t of tagList(o.tags)) tagCounts[t] = (tagCounts[t] || 0) + 1;
     const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 16);
-    const heading = { all: 'Activity from the entire network', following: 'From people you follow', followers: 'From your followers' }[feed]
+    const heading = { all: me ? 'Activity from the entire network' : 'Public activity', following: 'From people you follow', followers: 'From your followers' }[feed]
       + (me && feed === 'all' ? '<span class="strip-sub">Your private items remain visible only to you</span>' : '');
 
     let rail;
@@ -14458,10 +14458,20 @@ RECOMMENDATIONS. When a Discriminantly recommendation workflow (starting their c
 // ---------- router ----------
 const STATIC = { '/style.css': 'text/css', '/style.modern.css': 'text/css', '/style.shared.css': 'text/css', '/welcome-shot-itin-dark.jpg': 'image/jpeg', '/welcome-shot-itin-light.jpg': 'image/jpeg', '/welcome-phone-ask.jpg': 'image/jpeg', '/welcome-phone-profile-light.jpg': 'image/jpeg', '/welcome-phone-profile-dark.jpg': 'image/jpeg', '/welcome-phone-chat.jpg': 'image/jpeg', '/welcome-phone-app-light.jpg': 'image/jpeg', '/welcome-phone-app-dark.jpg': 'image/jpeg', '/mark.png': 'image/png', '/mark@4x.png': 'image/png', '/nub.png': 'image/png', '/favicon.png': 'image/png', '/apple-touch-icon.png': 'image/png', '/icon-192.png': 'image/png', '/icon-256.png': 'image/png', '/icon-512.png': 'image/png', '/icon-512-maskable.png': 'image/png', '/icon-mcp.png': 'image/png', '/plus.png': 'image/png', '/plus-sm.png': 'image/png', '/minus.png': 'image/png', '/chev.png': 'image/png', '/close.png': 'image/png', '/sw.js': 'application/javascript', '/manifest.webmanifest': 'application/manifest+json', '/welcome-shot.jpg': 'image/jpeg', '/welcome-shot-modern-dark.jpg': 'image/jpeg', '/welcome-shot-modern-light.jpg': 'image/jpeg' };
 
+const APEX_HOST = (() => { try { const h = new URL(PUBLIC_ORIGIN).hostname.toLowerCase(); return h.startsWith('www.') ? h.slice(4) : ''; } catch { return ''; } })();
 async function handle(req, res) {
   // Muse capture origin first, before any cookie, session or route is read:
   // an exact Host match on MUSE_ORIGIN, never taken when it is unset.
   if (museCapture.matches(req)) return museCapture.handle(req, res, new URL(req.url, 'http://x'));
+  // Apex host → canonical www origin, path and query preserved, in one hop
+  // whatever the incoming scheme. Exact Host match on the bare domain of
+  // PUBLIC_ORIGIN, and only when that origin is a www host; inert locally and
+  // for every other host (www, muse, the Railway service domain).
+  if (APEX_HOST && String(req.headers.host || '').toLowerCase().replace(/:\d+$/, '') === APEX_HOST) {
+    const code = req.method === 'GET' || req.method === 'HEAD' ? 301 : 308;
+    res.writeHead(code, { Location: PUBLIC_ORIGIN + (req.url && req.url.startsWith('/') ? req.url : '/'), 'Cache-Control': 'public, max-age=86400' });
+    return res.end();
+  }
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   // HEAD is routed as GET, with the body suppressed — uptime checks and link
