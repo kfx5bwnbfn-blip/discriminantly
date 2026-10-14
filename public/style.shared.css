@@ -1883,3 +1883,19 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .is-public .pub-list-left li { margin-bottom: .35rem; line-height: 1.55; }
 .pub-faq dd .pub-p { margin: 0 0 .5rem; }
 .pub-faq dd .pub-p:last-child { margin-bottom: 0; }
+
+/* v2.101: Sign in with Apple. Apple's guidelines: black (or white) button, its own label. */
+.apple-btn { display: flex !important; align-items: center; justify-content: center; gap: .55rem; background: #000 !important; color: #fff !important; border-color: #000 !important; text-decoration: none; }
+.apple-btn .apple-mark { width: 1rem; height: 1rem; filter: invert(1); }
+.auth-or { position: relative; margin: .9rem 0 .4rem !important; }
+.auth-or span { padding: 0 .6rem; }
+.auth-note { margin: 0 auto 1rem; max-width: 28rem; text-align: center; }
+.apple-email { margin: .2rem 0 .9rem !important; }
+.apple-email-addr { display: block; font-weight: 600; font-size: .95rem; overflow-wrap: anywhere; margin: .15rem 0 .3rem; }
+
+/* v2.101: Apple in the masthead (a quiet link beside Sign in) and the signed-out rail */
+.signin .signin-apple { align-self: baseline; font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; line-height: 1; white-space: nowrap; text-decoration: none; color: inherit; }
+body[data-skin="modern"] .masthead .signin .signin-apple { color: var(--m-ink-2); }
+body[data-skin="modern"] .masthead .signin .signin-apple:hover { color: var(--m-ink); }
+.rail-or { margin: .5rem 0 .3rem !important; }
+.rail-signin { margin: .8rem 0 0 !important; }

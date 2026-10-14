@@ -49,6 +49,7 @@ const modeOf = (u, req) => {
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'discriminantly.db');
 const SECURE = process.env.NODE_ENV === 'production';
+const APPLE = require('./apple-auth');
 
 // ---------- database ----------
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
@@ -1642,6 +1643,20 @@ const MIGRATIONS = [
   ['065-connections-removed', () => {
     if (!hasColumn('connections', 'removed_at')) db.exec('ALTER TABLE connections ADD COLUMN removed_at TEXT');
   }],
+  // v2.101: sign-in identities from other providers (Sign in with Apple), and
+  // whether the account has a password of its own (an Apple-made one does not).
+  ['067-user-identities', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS user_identities (
+      id         INTEGER PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider   TEXT NOT NULL,
+      subject    TEXT NOT NULL,
+      email      TEXT DEFAULT '',
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (provider, subject))`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_user_identities_user ON user_identities(user_id)');
+    if (!hasColumn('users', 'password_set')) db.exec('ALTER TABLE users ADD COLUMN password_set INTEGER DEFAULT 1');
+  }],
 ];
 
 
@@ -3063,6 +3078,11 @@ const DONE = {
   'avatar-removed': 'Profile photo removed.',
   'account-deleted': 'Your account and everything in it have been deleted.',
   'member-deleted': 'The account and everything in it have been deleted. A backup was taken first.',
+  'apple-failed': 'Signing in with Apple didn\u2019t work that time. Please try again, or use your email and password.',
+  'apple-linked': 'Your Apple ID is connected. You can sign in with Apple from now on.',
+  'apple-unlinked': 'Your Apple ID is disconnected. Sign in with your email and password.',
+  'apple-taken': 'That Apple ID is already connected to another Discriminantly account.',
+  'apple-needed': 'This account was made with Apple and has no password, so Apple can\u2019t be disconnected.',
   'member-confirm': 'Nothing was deleted: the handle you typed didn\u2019t match.',
   'member-not-deleted': 'Nothing was deleted. The admin account can\u2019t be deleted here, or the deletion failed; see the log.',
   'conn-revoked': 'Connection revoked. It no longer works.',
@@ -3195,7 +3215,7 @@ ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&
 `
   : pub && pub.header ? '' : `<header class="masthead"><div class="wrap">
   <a class="mark" href="/"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
-  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required><button class="link caps">Sign in</button></form>
+  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required>${req && pageNext(req.url) ? `<input type="hidden" name="next" value="${esc(pageNext(req.url))}">` : ''}<button class="link caps">Sign in</button>${APPLE.enabled() ? `<a class="link caps signin-apple" href="/auth/apple${req && pageNext(req.url) ? `?next=${encodeURIComponent(pageNext(req.url))}` : ''}">Sign in with Apple</a>` : ''}</form>
 </div></header>`}${pub && pub.header ? pub.header : ''}
 
 <script>
@@ -5997,6 +6017,10 @@ const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authoriz
 // v2.70: an itinerary invitation is the only other place sign-in or sign-up
 // may return to. Internal path, token characters only; no host, no scheme.
 const inviteNext = (n) => { const v = String(n || ''); return /^\/[jsJS]\/[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ''; };
+// v2.101: back to the page someone signed in from (the masthead). Same-site
+// paths only, never the sign-in pages themselves; the AI-authorization and
+// invitation nexts keep their own stricter checks and come first.
+const pageNext = (n) => { const v = String(n || ''); return /^\/(?![\/\\])[^\s]{0,300}$/.test(v) && !/^\/(login|join|logout|auth\/)/.test(v) && v !== '/' ? v : ''; };
 const signupSourceFor = (next) => {
   // v2.65: from the host of the client's metadata document (its client_id),
   // not words anywhere in it. The real ChatGPT client_id is not yet observed:
@@ -7786,6 +7810,25 @@ function shareRevoke(user, itUid, shareUid, ctx) {
   const r = q("UPDATE itinerary_shares SET state='revoked', revoked_at=CURRENT_TIMESTAMP, revoked_by=? WHERE uid=? AND itinerary_id=? AND state='active'").run(user.id, String(shareUid || ''), it.id);
   if (r.changes) recordProvenance('itinerary_share', String(shareUid), 'revoked', ctx, { source_ref: it.uid });
   return it;
+}
+// After an account is created (the form or Sign in with Apple): sign-up
+// context, the event, a session, and where to go next. A share link's plan
+// is copied straight away (v2.96); otherwise back to the AI's authorization
+// they came from, the invitation, or All, where Welcome is.
+function completeSignup(req, userId, { nx = '', jx = '', source = 'web' } = {}) {
+  const sc = sourceFromCookie(req);
+  q('INSERT OR REPLACE INTO signup_context(user_id, client_host, ref_host, utm_source, utm_medium, utm_campaign, ref, landing) VALUES(?,?,?,?,?,?,?,?)')
+    .run(userId, nx ? clientHostOf(nx) : '', sc.h, sc.s, sc.m, sc.c, sc.r, sc.l);
+  recordEvent(userId, 'signup_completed', { surface: nx ? 'oauth' : 'web', meta: { source } });
+  const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, userId);
+  const cookie = `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`;
+  const sm = jx && jx.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})$/);
+  if (sm) {
+    const nu = q('SELECT * FROM users WHERE id=?').get(userId);
+    try { const a = shareAdopt(nu, sm[1], webActor(nu)); return { to: `/t/${a.it.id}?mine=1`, cookie }; }
+    catch (e) { console.log(`[join] share not adopted: ${String(e.message).slice(0, 120)}`); }
+  }
+  return { to: nx || jx || '/', cookie };
 }
 // "Make this mine": a new plan of the recipient's, kept, with the source's
 // days and stops. Places are resolved against the RECIPIENT's own catalogue
@@ -10025,6 +10068,14 @@ function aiLogo(k) {
   if (ext) return `<span class="wl-ai-logo"><img src="/ai-logos/${k}.${ext}?v=${assetHash(`ai-logos/${k}.${ext}`)}" alt="" width="40" height="40"></span>`;
   return `<span class="wl-ai-logo wl-ai-mono"><svg viewBox="0 0 44 44" aria-hidden="true">${wlGlare('wl-g-ai-' + k)}<circle cx="22" cy="22" r="19" fill="url(#wl-g-ai-${k})"/><circle cx="22" cy="22" r="19" fill="none" stroke="currentColor" stroke-width="2.4"/><text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="${k === 'other' ? 16 : 19}" font-weight="300" fill="currentColor" font-family="inherit">${AI_MONOGRAM[k]}</text></svg></span>`;
 }
+// v2.101: the "Continue with Apple" button, shown only when Sign in with Apple
+// is configured. Apple's own mark is used only if its official asset has been
+// placed at public/brand/apple.svg; none is drawn here.
+const appleMark = () => { try { return fs.existsSync(path.join(__dirname, 'public', 'brand', 'apple.svg')) ? '<img class="apple-mark" src="/brand/apple.svg" alt="" width="16" height="16">' : ''; } catch { return ''; } };
+function appleButton(next = '', label = 'Continue with Apple') {
+  if (!APPLE.enabled()) return '';
+  return `<p class="auth-or fine center"><span>or</span></p><a class="btn3d block apple-btn" href="/auth/apple${next ? `?next=${encodeURIComponent(next)}` : ''}">${appleMark()}${label}</a>`;
+}
 function welcomeState(me) {
   const conns = q('SELECT client_name, client_label, created_at, revoked_at FROM connections WHERE user_id=?').all(me.id);
   const is = (c, re) => re.test(`${c.client_name || ''} ${c.client_label || ''}`);
@@ -10270,6 +10321,7 @@ const pages = {
       rail = `<p class="rail-title">Start remembering:</p>
       <ol class="steps"><li><span>1</span>Save what catches your eye</li><li><span>2</span>Remember where you've been</li><li><span>3</span>Connect to your AI</li></ol>
       <p class="signup"><a class="btn3d block" href="/join">Create an account</a></p>
+      ${APPLE.enabled() ? `<p class="auth-or fine center rail-or"><span>or</span></p><p class="signup signup-apple"><a class="btn3d block apple-btn" href="/auth/apple">${appleMark()}Continue with Apple</a></p><p class="fine center rail-signin">Already a member? <a href="/login">Sign in</a></p>` : ''}
 `;
     }
     const body = `
@@ -11168,16 +11220,17 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     send(res, layout({ title: u.handle, body, me, req, nav: me && me.id === u.id ? 'profile' : '', pub }));
   },
 
-  login(req, res, me, err = '', next = '') {
+  login(req, res, me, err = '', next = '', note = '') {
     const body = `<h3 class="strip dark-strip">Sign in</h3>
 <div class="settings">
-  ${err ? `<p class="err">${esc(err)}</p>` : ''}
+  ${err ? `<p class="err">${esc(err)}</p>` : ''}${note ? `<p class="flash-done auth-note" role="status">${esc(note)}</p>` : ''}
   <form method="post" action="/login" class="wtable settings-table auth-card">
     <div class="wcell wcell-wide">
       <label class="slabel">Email<input name="email" type="email" required autofocus></label>
       <label class="slabel">Password<input name="password" type="password" required></label>
       ${next ? `<input type="hidden" name="next" value="${esc(next)}">` : ''}
       <button class="btn3d block">Sign in</button>
+      ${note ? '' : appleButton(next, 'Sign in with Apple')}
     </div>
     <div class="wcell wcell-wide"><p class="fine center">New to discriminant.ly? <a href="/join${next ? `?next=${encodeURIComponent(next)}` : ''}">Create an account</a></p></div>
   </form>
@@ -11202,12 +11255,35 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <label class="auth-terms"><input type="checkbox" name="terms" value="1" required${vals.terms ? ' checked' : ''}><span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a>.</span></label>
       ${next ? `<input type="hidden" name="next" value="${esc(next)}">` : ''}${code ? `<input type="hidden" name="code" value="${esc(code)}">` : ''}
       <button class="btn3d block">${next ? 'Create account and continue' : 'Create account'}</button>
+      ${appleButton(next)}
     </div>
     <div class="wcell wcell-wide"><p class="fine center">Already a member? <a href="/login${next ? `?next=${encodeURIComponent(next)}` : ''}">Sign in</a></p></div>
   </form>
   <script>(function () { var f = document.getElementById('join-form'); if (!f) return; f.addEventListener('submit', function () { f.elements.ft.value = f.getAttribute('data-ft'); }); })();</script>
 </div>`;
     send(res, layout({ title: 'Create your account', body, me, req, cls: 'is-dark-page', pub: { noindex: true } }));
+  },
+
+  // v2.101: the one step after Sign in with Apple for someone new: their name
+  // (Apple shares it only the first time), the email (when Apple gave none),
+  // and the Terms.
+  appleFinish(req, res, apn, err = '') {
+    const body = `<h3 class="strip dark-strip">Create your account</h3>
+<div class="settings">
+  ${err ? `<p class="err">${err}</p>` : ''}
+  <form method="post" action="/auth/apple/finish" class="wtable settings-table auth-card" id="apple-finish">
+    <div class="wcell wcell-wide">
+      <div class="auth-arc">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'apple-arc')}</div>
+      <p class="fine center join-intro">You\u2019re signed in with Apple. One last step to create your account.</p>
+      <label class="slabel">Your name<input name="name" value="${esc(apn.name || '')}" required autofocus autocomplete="name"></label>
+      ${apn.email ? `<p class="fine center apple-email">Your email: <strong class="apple-email-addr">${esc(apn.email)}</strong>${/@privaterelay\.appleid\.com$/.test(apn.email) ? '<br>This is Apple\u2019s Hide My Email address; messages reach you through Apple.' : ''}</p>`
+        : `<label class="slabel">Email<input name="email" type="email" value="${esc(apn.typed || '')}" required autocomplete="email"></label>`}
+      <label class="auth-terms"><input type="checkbox" name="terms" value="1" required><span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy policy</a>.</span></label>
+      <button class="btn3d block">${apn.x ? 'Create account and continue' : 'Create account'}</button>
+    </div>
+  </form>
+</div>`;
+    send(res, layout({ title: 'Create your account', body, me: null, req, cls: 'is-dark-page', pub: { noindex: true } }));
   },
 
   invites(req, res, me) {
@@ -11519,6 +11595,19 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <a class="btn3d block" href="/admin">Open Admin</a>
           </div>
         </div>` : ''}
+        ${APPLE.enabled() ? (() => {
+          const ident = q("SELECT email, created_at FROM user_identities WHERE provider='apple' AND user_id=?").get(me.id);
+          return `<div class="wtable settings-table" id="apple">
+          <div class="wcell wcell-wide">
+            <p class="sbox-title">Sign in with Apple</p>
+            ${ident ? `<p class="sbox-sub">Connected${ident.email ? ` as ${esc(ident.email)}` : ''}. You can sign in with Apple on any device.</p>
+              ${me.password_set === 0 ? '<p class="fine center">This account was made with Apple and has no password, so Apple stays connected.</p>'
+                : `<form method="post" action="/auth/apple/unlink" onsubmit="return confirm('Disconnect Apple? You\\u2019ll sign in with your email and password.')"><p class="center"><button class="link caps">Disconnect Apple</button></p></form>`}`
+            : `<p class="sbox-sub">Connect your Apple ID to sign in with Face ID or Touch ID instead of a password.</p>
+              <a class="btn3d block apple-btn" href="/auth/apple?link=1">${appleMark()}Connect Apple</a>`}
+          </div>
+        </div>`;
+        })() : ''}
         <div class="wtable settings-table" id="your-data">
           <div class="wcell wcell-wide">
             <p class="sbox-title">Your data</p>
@@ -11528,7 +11617,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
               <form method="post" action="/settings/delete-account">
                 <p class="fine">This permanently deletes your account and everything in it: your notes, travel marks, check-ins, collections, comments, ensembles, recommendations and photos, and the plans you own, including for anyone you’ve shared them with. It also disconnects every AI service you’ve connected. It can’t be undone. Copies other people have already made of your public things or shared plans are theirs and stay.</p>
                 <label class="slabel">Type your handle, ${esc(me.handle)}, to confirm<input name="confirm" autocapitalize="none" autocomplete="off" spellcheck="false" required></label>
-                <label class="slabel">Your password<input type="password" name="password" autocomplete="current-password" required></label>
+                ${me.password_set === 0 ? '' : '<label class="slabel">Your password<input type="password" name="password" autocomplete="current-password" required></label>'}
                 <button class="btn3d block danger">Delete my account permanently</button>
               </form>
             </details>`}
@@ -14642,6 +14731,13 @@ async function handle(req, res) {
     return fs.createReadStream(f).pipe(res);
   }
   // v2.72.2: the AI platforms' own marks for the Welcome card, dropped into
+  // v2.101: Apple's official mark, if placed (see appleMark). Fixed name only.
+  if (p === '/brand/apple.svg') {
+    const f = path.join(__dirname, 'public', 'brand', 'apple.svg');
+    if (!fs.existsSync(f)) return send(res, 'Not found', 404);
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'public, max-age=86400' });
+    return fs.createReadStream(f).pipe(res);
+  }
   // public/ai-logos/ from each brand's kit (see aiLogo). Fixed names only.
   if ((mt = p.match(/^\/ai-logos\/(chatgpt|claude|muse|other)\.(svg|png|webp)$/))) {
     const f = path.join(AI_LOGO_DIR, `${mt[1]}.${mt[2]}`);
@@ -14667,7 +14763,9 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': STATIC[p], 'Cache-Control': cc });
     return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res);
   }
-  if (m === 'POST' && req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
+  // Apple posts the sign-in result back from its own site (form_post); that one
+  // route is checked against its signed state cookie instead.
+  if (m === 'POST' && req.headers.origin && p !== '/auth/apple/callback' && new URL(req.headers.origin).host !== req.headers.host) return send(res, 'Bad origin', 403);
 
   // v2.68.1: a trailing slash reaches the same endpoint, served in place rather
   // than redirected (many MCP clients will not follow a redirect on POST).
@@ -15089,26 +15187,115 @@ async function handle(req, res) {
   }
   if (p === '/objects.json') return json(res, q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all().map((o) => ({ id: o.id, headline: o.name, description: o.why, tags: tagList(o.tags), link: o.url, image: o.image, noted_by: o.handle, collections: objCollections(o.id).map((c) => c.name), created_at: o.created_at })));
 
+  // ---- Sign in with Apple (v2.101) -------------------------------------------
+  // Inert (404, no buttons) until the four APPLE_* settings are present.
+  if (p === '/auth/apple' || p.startsWith('/auth/apple/')) {
+    if (!APPLE.enabled()) return send(res, 'Not found', 404);
+    const redirectUri = BASE_URL() + '/auth/apple/callback';
+    const SID = (t) => `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`;
+    // The flow cookie travels on Apple's cross-site POST back, so it is SameSite=None in production.
+    const flow = (v, age) => `apl=${v}; Path=/auth/apple; HttpOnly; Max-Age=${age}; ${SECURE ? 'SameSite=None; Secure' : 'SameSite=Lax'}`;
+    const pending = (o) => `apn=${APPLE.seal(JOIN_SECRET, { t: Date.now(), ...o })}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1200${SECURE ? '; Secure' : ''}`;
+    if (p === '/auth/apple' && m === 'GET') {
+      const link = url.searchParams.get('link') === '1';
+      if (link && !me) return need();
+      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')), px = pageNext(url.searchParams.get('next'));
+      const st = { t: Date.now(), s: token(16), n: token(16), x: nx || jx || px || '', l: link ? 1 : 0 };
+      res.setHeader('Set-Cookie', flow(APPLE.seal(JOIN_SECRET, st), 600));
+      return redirect(res, APPLE.authorizeUrl({ redirectUri, state: st.s, nonce: st.n }));
+    }
+    if (p === '/auth/apple/callback' && m === 'POST') {
+      const b = await readBody(req);
+      const st = APPLE.unseal(JOIN_SECRET, cookies(req).apl, 10 * 60e3);
+      // A small page that moves on in the browser, so the next request is same-site
+      // and carries the session cookie set here.
+      const hop = (to, set = []) => {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': [flow('', 0), ...set] });
+        return res.end(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="refresh" content="0;url=${esc(to)}"><title>Signing in…</title><p style="font-family:sans-serif;text-align:center;margin-top:3rem">Signing in… <a href="${esc(to)}">Continue</a></p><script>location.replace(${JSON.stringify(to)})</script>`);
+      };
+      if (!st || !b.state || b.state !== st.s) return hop(withDone('/login', 'apple-failed'));
+      if (b.error) return hop(st.l ? '/settings#apple' : st.x ? `/login?next=${encodeURIComponent(st.x)}` : '/login');   // they cancelled
+      let c;
+      try { c = await APPLE.exchange({ code: String(b.code || ''), redirectUri, nonce: st.n }); }
+      catch (e) { console.error('[apple] sign-in failed:', String(e.message).slice(0, 80)); return hop(withDone('/login', 'apple-failed')); }
+      let given = {}; try { given = JSON.parse(b.user || '{}') || {}; } catch {}
+      const email = String(c.email || given.email || '').toLowerCase().trim();
+      const name = [given.name && given.name.firstName, given.name && given.name.lastName].filter(Boolean).join(' ').trim().slice(0, 80);
+      const known = q("SELECT u.* FROM user_identities i JOIN users u ON u.id=i.user_id WHERE i.provider='apple' AND i.subject=?").get(c.sub);
+      if (st.l) {                                   // linking from Settings
+        if (!me) return hop('/login');
+        if (known && known.id !== me.id) return hop(withDone('/settings#apple', 'apple-taken'));
+        if (!known) q("INSERT INTO user_identities(user_id, provider, subject, email) VALUES(?,'apple',?,?)").run(me.id, c.sub, email);
+        return hop(withDone('/settings#apple', 'apple-linked'));
+      }
+      if (known) {                                  // a returning member
+        recordEvent(known.id, 'signed_in', { surface: oauthNext(st.x) ? 'oauth' : 'web', meta: { via: 'apple' } });
+        const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, known.id);
+        return hop(st.x || '/', [SID(t)]);
+      }
+      // Same email as an existing account: never linked on Apple's word alone
+      // (that account's email was never verified); its password links it.
+      if (email && q('SELECT 1 FROM users WHERE email=?').get(email))
+        return hop(`/login?apple=link${st.x ? '&next=' + encodeURIComponent(st.x) : ''}`, [pending({ k: 'link', sub: c.sub, email })]);
+      return hop('/auth/apple/finish', [pending({ k: 'new', sub: c.sub, email, name, x: st.x })]);
+    }
+    if (p === '/auth/apple/finish') {
+      const apn = APPLE.unseal(JOIN_SECRET, cookies(req).apn, 20 * 60e3);
+      if (me) return redirect(res, (apn && apn.x) || '/');
+      if (!apn || apn.k !== 'new') return redirect(res, '/join');
+      if (m === 'GET') return pages.appleFinish(req, res, apn, '');
+      const b = await readBody(req);
+      const name = String(b.name || '').trim().slice(0, 80), email = apn.email || String(b.email || '').toLowerCase().trim();
+      const again = (err) => pages.appleFinish(req, res, { ...apn, name: name || apn.name, typed: email }, err);
+      if (!name) return again('Please add your name.');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return again('Please enter a valid email address.');
+      if (b.terms !== '1') return again('Please agree to the Terms and Privacy policy to create your account.');
+      if (q("SELECT 1 FROM user_identities WHERE provider='apple' AND subject=?").get(apn.sub)) return redirect(res, '/login');
+      if (q('SELECT 1 FROM users WHERE email=?').get(email)) return again('An account with that email already exists. <a href="/login">Sign in</a> with its password instead.');
+      if (!signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
+      const handle = uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
+      const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source,terms_accepted_at,terms_version,password_set) VALUES(?,?,?,?,'modern','apple',CURRENT_TIMESTAMP,?,0)")
+        .run(handle, name, email, hashPass(token(32)), TERMS_VERSION());
+      q("INSERT INTO user_identities(user_id, provider, subject, email) VALUES(?,'apple',?,?)").run(r.lastInsertRowid, apn.sub, email);
+      const done = completeSignup(req, r.lastInsertRowid, { nx: oauthNext(apn.x), jx: inviteNext(apn.x), source: 'apple' });
+      return redirect(res, done.to, { 'Set-Cookie': [done.cookie, 'apn=; Path=/; Max-Age=0'] });
+    }
+    if (p === '/auth/apple/unlink' && m === 'POST') {
+      if (!me) return need();
+      if (me.password_set === 0) return redirect(res, withDone('/settings#apple', 'apple-needed'));
+      q("DELETE FROM user_identities WHERE provider='apple' AND user_id=?").run(me.id);
+      return redirect(res, withDone('/settings#apple', 'apple-unlinked'));
+    }
+    return send(res, 'Not found', 404);
+  }
+
   if (p === '/login') {
     if (m === 'GET') {
-      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')); if (me && (nx || jx)) return redirect(res, nx || jx);
+      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')), px = pageNext(url.searchParams.get('next')); if (me && (nx || jx)) return redirect(res, nx || jx);
       const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
       if (nx) recordEvent(null, 'ai_connection_started', { anon: anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : ''), surface: 'signin', meta: { client_host: clientHostOf(nx) }, dedupeMinutes: 30 });
-      return pages.login(req, res, me, '', nx || jx);
+      return pages.login(req, res, me, '', nx || jx || px, url.searchParams.get('apple') === 'link' ? 'An account with this email already exists. Sign in with your password once, and Apple will be connected to it.' : '');
     }
     const b = await readBody(req); const em = (b.email || '').toLowerCase().trim();
     // Throttled before the password is checked, with the same message whether or not the account exists.
     if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next) || inviteNext(b.next));
     const u = q('SELECT * FROM users WHERE email=?').get(em);
-    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next) || inviteNext(b.next)); }
+    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next) || inviteNext(b.next) || pageNext(b.next)); }
     loginSucceeded(req, em);
     recordEvent(u.id, 'signed_in', { surface: oauthNext(b.next) ? 'oauth' : 'web' });
+    // v2.101: Apple said this email already had an account; the password proves it, so link.
+    const apn = APPLE.unseal(JOIN_SECRET, cookies(req).apn, 20 * 60e3);
+    let appleLinked = false;
+    if (apn && apn.k === 'link' && apn.sub && !q("SELECT 1 FROM user_identities WHERE provider='apple' AND subject=?").get(apn.sub)) {
+      q("INSERT INTO user_identities(user_id, provider, subject, email) VALUES(?,'apple',?,?)").run(u.id, apn.sub, apn.email || ''); appleLinked = true;
+    }
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
     // carry the member's look into the cookies too, so the signed-out pages
     // they meet next (logout, a second tab) do not snap to a different theme
     const lookCookies = [`skin=${skinOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${modeOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`];
     // back to the authorization that sent them here, if any; otherwise home
-    return redirect(res, oauthNext(b.next) || inviteNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
+    const backTo = oauthNext(b.next) || inviteNext(b.next) || (appleLinked ? withDone('/settings#apple', 'apple-linked') : pageNext(b.next) || '/');
+    return redirect(res, backTo, { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies, ...(apn ? ['apn=; Path=/; Max-Age=0'] : [])] });
   }
   // Private product events from the first-run surfaces (v2.65): allow-listed
   // types, bounded values, signed-in members only; dropped silently otherwise.
@@ -15144,23 +15331,8 @@ async function handle(req, res) {
     const source = inv ? 'invite' : nx ? signupSourceFor(nx) : jx ? (/^\/[sS]\//.test(jx) ? 'itinerary_share' : 'itinerary_invitation') : 'web';
     const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source,terms_accepted_at,terms_version) VALUES(?,?,?,?,'modern',?,CURRENT_TIMESTAMP,?)").run(handle, name, email, hashPass(b.password), source, TERMS_VERSION());
     if (inv) q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
-    const sc = sourceFromCookie(req);
-    q('INSERT OR REPLACE INTO signup_context(user_id, client_host, ref_host, utm_source, utm_medium, utm_campaign, ref, landing) VALUES(?,?,?,?,?,?,?,?)')
-      .run(r.lastInsertRowid, nx ? clientHostOf(nx) : '', sc.h, sc.s, sc.m, sc.c, sc.r, sc.l);
-    recordEvent(r.lastInsertRowid, 'signup_completed', { surface: nx ? 'oauth' : 'web', meta: { source } });
-    const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
-    const cookie = { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` };
-    // v2.96: an account made from a share link gets the plan straight away --
-    // the link is what they came for -- and lands on it with a welcome.
-    // Invitations still need their explicit Accept (a role in someone else's plan).
-    const sm = jx && jx.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})$/);
-    if (sm) {
-      const nu = q('SELECT * FROM users WHERE id=?').get(r.lastInsertRowid);
-      try { const a = shareAdopt(nu, sm[1], webActor(nu)); return redirect(res, `/t/${a.it.id}?mine=1`, cookie); }
-      catch (e) { console.log(`[join] share not adopted: ${String(e.message).slice(0, 120)}`); }
-    }
-    // back to the AI's authorization if they came from one; otherwise All, where Welcome is
-    return redirect(res, nx || jx || '/', cookie);
+    const done = completeSignup(req, r.lastInsertRowid, { nx, jx, source });
+    return redirect(res, done.to, { 'Set-Cookie': done.cookie });
   }
 
   if (p === '/marks/new') {
@@ -15862,6 +16034,7 @@ async function handle(req, res) {
     if (isAdminUi(me)) return again('The admin account can’t be deleted from Settings.');
     if (String(b.confirm || '').trim().toLowerCase().replace(/^@/, '') !== me.handle) return again('To delete your account, type your handle exactly as shown.');
     let okPass = false; try { okPass = checkPass(String(b.password || ''), me.pass); } catch {}
+    if (me.password_set === 0) okPass = true;   // an Apple-made account has no password; the session and handle confirm it
     if (!okPass) return again('That password isn’t right, so nothing was deleted.');
     try { accountDelete(me.id); } catch (e) { console.error('[account] delete failed', e.message); return again('Your account couldn’t be deleted just now, and nothing was changed. Please try again, or write to support.'); }
     return redirect(res, withDone('/', 'account-deleted'), { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' });
