@@ -3215,7 +3215,7 @@ ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&
 `
   : pub && pub.header ? '' : `<header class="masthead"><div class="wrap">
   <a class="mark" href="/"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span>discriminant\u2022ly</span></a>
-  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required>${req && pageNext(req.url) ? `<input type="hidden" name="next" value="${esc(pageNext(req.url))}">` : ''}<button class="link caps">Sign in</button>${APPLE.enabled() ? `<a class="link caps signin-apple" href="/auth/apple${req && pageNext(req.url) ? `?next=${encodeURIComponent(pageNext(req.url))}` : ''}">Sign in with Apple</a>` : ''}</form>
+  <form class="signin" method="post" action="/login"><input name="email" type="email" placeholder="email" required><input name="password" type="password" placeholder="password" required>${req && pageNext(req.url) ? `<input type="hidden" name="next" value="${esc(pageNext(req.url))}">` : ''}<button class="link caps">Sign in</button>${APPLE.enabled() ? `<span class="signin-pipe" aria-hidden="true">|</span><a class="link caps signin-apple" href="/auth/apple${req && pageNext(req.url) ? `?next=${encodeURIComponent(pageNext(req.url))}` : ''}">Sign in with Apple</a>` : ''}</form>
 </div></header>`}${pub && pub.header ? pub.header : ''}
 
 <script>
