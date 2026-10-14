@@ -150,22 +150,6 @@ ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
   <p class="pub-p">Connect it; revoke it any time. What it adds appears here, recorded as that assistant acting for you.</p>
   <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>`)}
 
-<section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
-  ${eyebrow('Evidence and control')}
-  <h2 class="pub-h2" id="evidence-h">Yours, looked up, suggested, planned, done.</h2>
-  <dl class="pub-defs pub-defs-grid">
-    <div><dt>Your record</dt><dd>Kept, visited, owned, endorsed: each its own act. None implies another.</dd></div>
-    <div><dt>Looked up</dt><dd>A place’s address and map position, marked as such.</dd></div>
-    <div><dt>Suggested</dt><dd>An assistant’s recommendation, until you keep it.</dd></div>
-    <div><dt>Planned</dt><dd>An itinerary. Not a record of having gone.</dd></div>
-  </dl>
-  <ul class="pub-cols2 pub-ctrl">
-    <li><b>Private or public</b>, per record. Plans start private.</li>
-    <li><b>AI access is authorized</b>, by you, until you revoke it.</li>
-    <li><b>The application</b> is where you review, adjust and remove.</li>
-    <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
-  </ul>
-</section>
 
 <section class="pub-sec pub-final" id="start" aria-label="Get started">
   <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
@@ -202,6 +186,22 @@ ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
   <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2><p class="pub-p">${esc(s.body)}</p></div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
 </section>
 ${sec('names', 'The names', 'Each step leaves a record with a name.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => `<div class="pub-object"><dt>${o.key === 'mark' ? `<a href="${o.href}">${esc(o.name)}</a>` : esc(o.name)}</dt><dd>${esc(o.what)}</dd></div>`).join('')}</dl>`)}
+<section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
+  ${eyebrow('Evidence and control')}
+  <h2 class="pub-h2" id="evidence-h">Yours, looked up, suggested, planned, done.</h2>
+  <dl class="pub-defs pub-defs-grid">
+    <div><dt>Your record</dt><dd>Kept, visited, owned, endorsed: each its own act. None implies another.</dd></div>
+    <div><dt>Looked up</dt><dd>A place’s address and map position, marked as such.</dd></div>
+    <div><dt>Suggested</dt><dd>An assistant’s recommendation, until you keep it.</dd></div>
+    <div><dt>Planned</dt><dd>An itinerary. Not a record of having gone.</dd></div>
+  </dl>
+  <ul class="pub-cols2 pub-ctrl">
+    <li><b>Private or public</b>, per record. Plans start private.</li>
+    <li><b>AI access is authorized</b>, by you, until you revoke it.</li>
+    <li><b>The application</b> is where you review, adjust and remove.</li>
+    <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
+  </ul>
+</section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
       description: 'From noticing something to planning with it: how Discriminantly keeps notes, travel marks, check-ins, collections and itineraries, and how an authorized AI works with them.',
