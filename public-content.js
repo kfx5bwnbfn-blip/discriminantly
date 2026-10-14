@@ -19,17 +19,19 @@ const site = {
   // Approved, verbatim.
   proposition: [
     'Discriminantly is a durable personal record of your interests, travels and plans.',
-    'Note objects and interests, mark places in the real world, and build travel plans with others. Recall, organize and refine your taste corpus in Discriminantly—or connect it to AI to add to it conversationally, ask for recommendations and make plans from a direct request. What you have kept and experienced gives them sharper direction over time.',
+    'Save objects and interests as notes, mark places in the real world, and build travel plans with others. Find, organize and refine it all in Discriminantly—or connect it to the AI you already use to save things in conversation, ask for recommendations and make plans from a direct request. What you have saved and experienced gives those recommendations sharper, more personal direction over time.',
   ],
-  plain: 'Keep the places, objects and interests that catch your attention by talking naturally to your AI. They remain in Discriminantly as a record you control—ready to recall, explore and turn into plans.',
+  // The homepage opening (brief, 14 Oct 2026): the useful outcome first, then how.
+  opening: 'Discriminantly turns the places and things you notice—and the new possibilities your AI discovers—into plans you can share, copy and build together.',
+  plain: 'Save what catches your eye just by telling the AI assistant you already use. Start with a blank slate or draw on what you’ve saved, add recommendations, and shape it all into a day-by-day itinerary.',
   // Identity. Visible once, on /about; the formal version is for machine-readable summaries.
   identity: 'Discriminantly is an independent AI startup building a personal record controlled by the person—not the model they happen to use.',
   identityFormal: 'Discriminantly is an independent AI startup and an AI-connected personal record for interests, places, travels and plans.',
   architecture: 'The record is held by Discriminantly. AI platforms are authorized clients of it rather than owners of its semantics.',
-  capture: 'No separate filing routine: tell your AI what is worth keeping, in your own words, while it is already part of the conversation. The record holds what you asked to keep, as you put it.',
+  capture: 'No separate filing routine: tell your AI what is worth saving, in your own words, while it is already part of the conversation. The record holds what you asked to save, as you put it.',
   trust: 'Private or public, record by record. Choose which AI assistants may access your account, revoke them at any time, and see what each one changed.',
   stance: 'Discriminantly is a complete application, and the durable home of your record. ChatGPT, Claude, Muse and other compatible assistants are authorized ways of working with it—not owners of the record or its meaning.',
-  description: 'A durable personal record of your interests, travels and plans. Keep objects, places, visits and itineraries in one place, and connect it to the AI you already use.',
+  description: 'Save the places and things you notice by talking to the AI you already use, get recommendations, and turn them into day-by-day plans you can share, copy or build with friends.',
 };
 
 // Global menu, in order. `children` are crawlable links too.
@@ -53,7 +55,7 @@ const utility = [
   { label: 'Terms', href: '/terms' },
 ];
 
-// What you keep: ordinary language first, then the product's name.
+// What you save: ordinary language first, then the product's name.
 // First-class pages for each record type (Travel Marks has its own renderer).
 
 // Phone captures from the application (iPhone, modern skin, dark). Alt text
@@ -62,26 +64,26 @@ const utility = [
 // members' own public records, as anyone signed out would see them.
 const shots = {
   'note-owned': { file: 'phone-note-owned', w: 720, h: 1247,
-    alt: 'A public note in Discriminantly on a phone: a coffee grinder, the member’s reason for keeping it, a link, and the Owned switch turned on',
+    alt: 'A public note in Discriminantly on a phone: a coffee grinder, the member’s reason for saving it, a link, and the Owned switch turned on',
     caption: 'A public note, with its ownership record. The note says the grinder was worth remembering; the separate Owned switch records that the member owns it. Neither implies a recommendation.' },
   'note-private-warranted': { file: 'phone-note-private-warranted', w: 720, h: 1247,
     alt: 'A privately noted shaving soap in Discriminantly on a phone, with a warrant seal in the corner and the Owned switch turned on',
-    caption: 'A private note that is both owned and warranted. The seal is the warrant, a deliberate endorsement; the switch is the ownership record; the note itself is only the record that it was worth keeping. Private, so visible to the member and the AI they have connected.' },
+    caption: 'A private note that is both owned and warranted. The seal is the warrant, a deliberate endorsement; the switch is the ownership record; the note itself is only the record that it was worth saving. Private, so visible to the member and the AI they have connected.' },
   'new-note': { file: 'phone-new-note', w: 720, h: 1247,
     alt: 'The form for a new note in Discriminantly: collection, a link to paste, an image, title, comments, hashtags, and the Private and Owned switches',
-    caption: 'Keeping a note. A pasted link fills the title, text and picture; privacy, ownership and a warrant are separate switches, each off unless the member sets it.' },
+    caption: 'Saving a note. A pasted link fills the title, text and picture; privacy, ownership and a warrant are separate switches, each off unless the member sets it.' },
   'new-travel-mark': { file: 'phone-new-travel-mark', w: 720, h: 1247,
     alt: 'The form for a new travel mark in Discriminantly: search for a place, then place, city, country, address, why it is worth returning to, hashtags, coordinates and a link',
-    caption: 'Keeping a travel mark. A place search fills the address and map position, recorded as looked up; the reason for keeping it is the member’s own. Keeping it does not say the member has been.' },
+    caption: 'Saving a travel mark. A place search fills the address and map position, recorded as looked up; the reason for saving it is the member’s own. Saving it does not say the member has been.' },
   'travel-mark-private': { file: 'phone-travel-mark-private', w: 720, h: 1247,
     alt: 'A privately marked seafood restaurant in Lisbon in Discriminantly on a phone: photo, city, address, a description, hashtags and a link',
-    caption: 'A private travel mark: a Lisbon restaurant worth remembering, with its address, the member’s note on why, and tags. A mark records that a place was worth keeping, not that the member went or recommends it.' },
+    caption: 'A private travel mark: a Lisbon restaurant worth remembering, with its address, the member’s note on why, and tags. A mark records that a place was worth saving, not that the member went or recommends it.' },
   'travel-mark-map-checkin': { file: 'phone-travel-mark-map-checkin', w: 720, h: 1247,
     alt: 'A public travel mark for a botanical garden in Phoenix in Discriminantly on a phone, with its map, and Directions and Check in buttons',
     caption: 'A public travel mark with its map. Check in is the separate act that records a visit, on the day the member says they were there; Directions opens the place in a maps app. Until a check-in exists, the mark proves no visit.' },
   'itinerary-private-stop': { file: 'phone-itinerary-private-stop', w: 720, h: 1247,
     alt: 'A privately planned itinerary in Discriminantly on a phone: a day plan in an Italian city, its first morning stop a privately marked pasticceria, shown as a card with photo and address',
-    caption: 'A private itinerary with a private travel mark as its first stop. The plan is kept; it is not a record of going. If this plan were shared, collaborators would see the stop’s name and address after the member confirms, and nothing else of the member’s record.' },
+    caption: 'A private itinerary with a private travel mark as its first stop. The plan is saved; it is not a record of going. If this plan were shared, collaborators would see the stop’s name and address after the member confirms, and nothing else of the member’s record.' },
   'itinerary-phoenix': { file: 'phone-itinerary-phoenix', w: 720, h: 1247,
     alt: 'A privately planned two-day Phoenix itinerary in Discriminantly on a phone, with a day heading, the first stop Taliesin West, and Directions, Check in and Share buttons',
     caption: 'An itinerary arranged into days and stops, with a Share button for a link or an invitation. Each stop is a travel mark; checking in at one records the visit against the mark, not the plan.' },
@@ -91,12 +93,12 @@ const shots = {
 };
 
 const objectPages = {
-  note: { desc: 'A note keeps an object, maker or idea worth remembering, with your reason. It does not mean you own, like or recommend it; those are separate records.', shots: ['note-owned', 'new-note', 'note-private-warranted'], path: '/notes', lede: 'A thing worth remembering, in your own words. Not a claim to own, like or endorse it.',
+  note: { desc: 'A note saves an object, maker or idea worth remembering, with your reason. It does not mean you own, like or recommend it; those are separate records.', shots: ['note-owned', 'new-note', 'note-private-warranted'], path: '/notes', lede: 'A thing worth remembering, in your own words. Not a claim to own, like or endorse it.',
     asserts: 'Keeping a note asserts one thing: you thought it worth remembering. The headline and the line beneath are yours; tags, a link and a picture go with it.',
     not: 'It does not assert that you own it, bought it, like it, use it or recommend it. Owning is a separate record you make deliberately. Recommending is a warrant. Neither is ever inferred from a note’s existence or its wording.',
     relates: 'A note can sit in any number of collections, and can be attached to a stop in an itinerary (a coffee to buy at a roaster, say). It is never a place: places are travel marks.',
     appears: 'On your profile under Notes, in your collections, in search, and in the All feed when public. A note page shows the note, its picture, who noted it, and the comments on it.',
-    ai: 'A connected assistant can find your notes by words, tag or collection, keep a new one when you ask, and adjust an existing one. It is told to write in your voice and never to record ownership or endorsement unless you say so.',
+    ai: 'A connected assistant can find your notes by words, tag or collection, save a new one when you ask, and adjust an existing one. It is told to write in your voice and never to record ownership or endorsement unless you say so.',
     privacy: 'Public by default, visible to other members and anyone with the link; private when you say so, then visible only to you and assistants you have connected. Every change records who made it.',
     example: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March · in “Ceramics” · public', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
     proves: ['A note does not prove you own the thing. An ownership record does.', 'A note does not prove you recommend it. A warrant does.', 'A note in a plan does not prove you bought it on the trip.'] },
@@ -114,16 +116,16 @@ const objectPages = {
     not: 'Being in a collection adds no claim about any record in it: not owned, not visited, not endorsed, not even liked. A collection named “Favourites” is a name, not a warrant.',
     relates: 'Collections hold notes, or marks. A record can sit in several collections. Collections are not plans: a trip you intend to take is an itinerary.',
     appears: 'On your profile, as a row of collections with counts, each opening to its records. Someone else sees a collection only when they can see at least one record in it.',
-    ai: 'A connected assistant can list your collections, find records by collection, and place a note or mark in a collection when it keeps one for you.',
+    ai: 'A connected assistant can list your collections, find records by collection, and place a note or mark in a collection when it saves one for you.',
     privacy: 'A collection’s name is visible to others only through the public records it contains. Private records stay private inside any collection.',
     example: { kind: 'Collection', title: 'Kyoto', meta: '2 travel marks · 1 note', why: 'Kissa Hoshikawa · Gojozaka pottery walk · Hagi teabowl, Yamane kiln' },
     proves: ['A collection proves nothing about its members except that you grouped them.'] },
-  itinerary: { desc: 'An itinerary arranges places and ideas into days and stops. It is a plan, private until shared, and never a record that the trip happened.', shots: ['itinerary-phoenix', 'itinerary-private-stop'], path: '/itineraries', lede: 'Places and ideas arranged into days and stops. A plan, kept; never a record of going.',
+  itinerary: { desc: 'An itinerary arranges places and ideas into days and stops. It is a plan, private until shared, and never a record that the trip happened.', shots: ['itinerary-phoenix', 'itinerary-private-stop'], path: '/itineraries', lede: 'Places and ideas arranged into days and stops. A plan, saved; never a record of going.',
     asserts: 'An itinerary asserts an intention: these places, in this order, on these days or without days yet. Stops can be your existing marks, new places, or labels to resolve later.',
     not: 'It does not assert that you went, that you will go, or that you recommend any stop. A completed trip is recorded by check-ins on the places you visited, not by the plan.',
     relates: 'Adding a place to a plan keeps it as a travel mark if it was not one already; adding an existing mark reuses it. A stop can carry an attached note. Recommendations an assistant makes for the plan stay recommendations until kept.',
     appears: 'Under Itineraries on your profile, on its own page with a map of its stops, and, when published, in the All feed. Shared plans show who did what.',
-    ai: 'A connected assistant can build a plan from a destination and what you ask for, even with an empty record, or draw on places you have kept, or combine both; it can add and arrange stops, attach notes and recommendations, and check the plan is complete. It is told to reuse places you already keep rather than duplicate them.',
+    ai: 'A connected assistant can build a plan from a destination and what you ask for, even with an empty record, or draw on places you have saved, or combine both; it can add and arrange stops, attach notes and recommendations, and check the plan is complete. It is told to reuse places already in your record rather than duplicate them.',
     privacy: 'Plans start private. A plan can be shared by link for viewing and copying, or by invitation for working on together; neither shares the rest of your record. Publishing makes a plan visible to everyone.',
     example: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · shared with one friend', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter' },
     proves: ['An itinerary does not prove the trip happened.', 'A stop does not prove a visit; a check-in does.', 'A stop does not prove a recommendation; a warrant does.'] },
@@ -140,7 +142,7 @@ const objectPages = {
 
 const objects = [
   { key: 'note', plain: 'Objects and interests', name: 'Notes', one: 'Note', href: '/notes',
-    what: 'Notes remember objects and interests: a thing, a maker, an idea. A note records that you thought it worth keeping, with a line on why.',
+    what: 'Notes remember objects and interests: a thing, a maker, an idea. A note records that you thought it worth remembering, with a line on why.',
     not: 'A note does not mean you own it, like it, bought it or endorse it. Owning and endorsing are their own records.' },
   { key: 'mark', plain: 'Places', name: 'Travel Marks', one: 'Travel Mark', href: '/travel-marks',
     what: 'Travel Marks remember or consider places: a restaurant, a shop, a view, a hotel. A mark carries the place’s name and, where a lookup finds it, its address and position on a map.',
@@ -152,7 +154,7 @@ const objects = [
     what: 'Collections organize records: notes and marks brought together under a name of your choosing, such as a city, a theme, a trip or a kind of thing.',
     not: 'A collection organizes. It adds no claim about any record in it.' },
   { key: 'itinerary', plain: 'Plans', name: 'Itineraries', one: 'Itinerary', href: '/itineraries',
-    what: 'Itineraries preserve plans: places and ideas arranged into days and stops. A plan can start from a direct request, from places you have already kept, or both, and it can be shared or built with others.',
+    what: 'Itineraries preserve plans: places and ideas arranged into days and stops. A plan can start from a direct request, from places you have already saved, or both, and it can be shared or built with others.',
     not: 'An itinerary is an intention. It is not a record of having gone.' },
   { key: 'warrant', plain: 'Things you stand behind', name: 'Warrants', one: 'Warrant', href: '/warrants',
     what: 'Warrants are explicit endorsements: a deliberate seal on a note or mark saying you stand behind it. On a public record a warrant is announced; on a private one it stays with you.',
@@ -168,12 +170,12 @@ const platforms = [
     summary: 'Install the Discriminantly plugin from ChatGPT’s plugin directory, connect it by signing in, and ask.',
     steps: ['Open the Discriminantly plugin\u2019s page in ChatGPT and choose Install plugin.', 'Choose Connect when asked, and sign in to Discriminantly.', 'In a chat, mention @Discriminantly and say what you\u2019d like.'],
     guide: '/ai/chatgpt',
-    asks: [['Start from a request', '@Discriminantly Plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you have kept', '@Discriminantly Plan a weekend in London using places I’ve kept, and recommend a few complementary additions.'], ['Keep something', '@Discriminantly Keep Hatchards in London for me.']],
+    asks: [['Start from a request', '@Discriminantly Plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you’ve saved', '@Discriminantly Turn my saved London places into a weekend plan and recommend a few additions.'], ['Save something', '@Discriminantly Keep Hatchards in London for me.']],
     verify: '@Discriminantly List my saved Travel Marks. Don’t add or change anything.',
-    verifyExpect: 'ChatGPT uses Discriminantly and lists the travel marks you have kept, private ones included, because the connection is yours. Nothing in your account changes. ChatGPT may ask you to confirm before it uses the plugin.',
-    trouble: ['If ChatGPT asks you to connect, or says it cannot reach Discriminantly, choose Connect and sign in again. The connection may have been revoked in Settings.', 'If it answers without using Discriminantly, start the request with @Discriminantly.', 'If it returns no records, check that you signed in with the account that holds them. A new account has none until you keep something.', 'If it still fails, write to the address on the Support page.'],
+    verifyExpect: 'ChatGPT uses Discriminantly and lists the travel marks you have saved, private ones included, because the connection is yours. Nothing in your account changes. ChatGPT may ask you to confirm before it uses the plugin.',
+    trouble: ['If ChatGPT asks you to connect, or says it cannot reach Discriminantly, choose Connect and sign in again. The connection may have been revoked in Settings.', 'If it answers without using Discriminantly, start the request with @Discriminantly.', 'If it returns no records, check that you signed in with the account that holds them. A new account has none until you save something.', 'If it still fails, write to the address on the Support page.'],
     revoke: 'In Discriminantly, open Settings › Connect to your AI and choose Revoke beside ChatGPT. Access ends immediately and nothing is deleted. Removing the plugin in ChatGPT does not by itself revoke the connection on Discriminantly’s side.',
-    lastTested: '8 October 2026', lastTestedBy: 'OpenAI, during its plugin review', lastTestedBasis: 'its review account connected through the plugin, read its records and updated them, turning a kept place into a stop in a plan and recording a visit',
+    lastTested: '8 October 2026', lastTestedBy: 'OpenAI, during its plugin review', lastTestedBasis: 'its review account connected through the plugin, read its records and updated them, turning a saved place into a stop in a plan and recording a visit',
     reviewNote: 'The plugin’s approval and directory listing are OpenAI’s. Discriminantly has not yet recorded a dated test of its own on ChatGPT.',
     verified: 'Plugin approved by OpenAI and published by Discriminantly, 9 October 2026.' },
   { key: 'claude', chip: 'Custom connector · Tested', name: 'Claude', by: 'Anthropic',
@@ -184,10 +186,10 @@ const platforms = [
     steps: ['In Claude, go to Customize › Connectors, choose +, then Add custom connector.', 'Name it Discriminantly and paste the address https://www.discriminantly.com/mcp.', 'Choose Add, then Connect, and sign in to Discriminantly.', 'In a chat, turn it on under + › Connectors.'],
     note: 'Custom connectors are available on Claude’s Free, Pro, Max, Team and Enterprise plans. Free allows one custom connector. On Team and Enterprise an owner or admin adds it for the organization. Claude’s menus change; if a label differs, look for Connectors in Claude’s settings.',
     guide: '/ai/claude',
-    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you have kept', 'Plan a weekend in London using places I’ve kept in Discriminantly, and recommend a few complementary additions.'], ['Keep something', 'Keep Hatchards in London in Discriminantly for me.']],
+    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you’ve saved', 'Turn my saved London places in Discriminantly into a weekend plan and recommend a few additions.'], ['Save something', 'Keep Hatchards in London in Discriminantly for me.']],
     verify: 'List my saved Travel Marks in Discriminantly. Don’t add or change anything.',
-    verifyExpect: 'Claude uses the connector and lists the travel marks you have kept, private ones included, because the connection is yours. Nothing in your account changes.',
-    trouble: ['Check that the connector is turned on for this chat, under + › Connectors.', 'If Claude shows the connector as disconnected, or access is refused, choose Connect in its connector settings and sign in again. The connection may have been revoked in Settings.', 'If it returns no records, check that you signed in with the account that holds them. A new account has none until you keep something.', 'If it still fails, write to the address on the Support page.'],
+    verifyExpect: 'Claude uses the connector and lists the travel marks you have saved, private ones included, because the connection is yours. Nothing in your account changes.',
+    trouble: ['Check that the connector is turned on for this chat, under + › Connectors.', 'If Claude shows the connector as disconnected, or access is refused, choose Connect in its connector settings and sign in again. The connection may have been revoked in Settings.', 'If it returns no records, check that you signed in with the account that holds them. A new account has none until you save something.', 'If it still fails, write to the address on the Support page.'],
     revoke: 'In Discriminantly, open Settings › Connect to your AI and choose Revoke beside Claude. Access ends immediately and nothing is deleted. Removing the connector in Claude does not by itself revoke the connection on Discriminantly’s side.',
     lastTested: '13 October 2026', lastTestedBasis: 'the read-only prompt above, run through a Claude custom connector, returned the member’s travel marks and changed nothing',
     reviewNote: 'This is Discriminantly’s own testing. Anthropic has not reviewed or listed the connector.',
@@ -201,7 +203,7 @@ const platforms = [
     endpoint: 'https://muse.discriminantly.com/mcp',
     badge: 'Custom connector · API key',
     steps: ['In Discriminantly, open Settings › Connect to your AI. Name the connection Muse and choose Create a connection. Copy the key it shows: it appears once.', 'In a Muse chat, ask Muse to add a custom connector for your Discriminantly MCP server at https://muse.discriminantly.com/mcp, using an API key sent as Authorization: Bearer.', 'When Muse asks for the key, paste it into the Secure credentials store.', 'In a conversation, ask Muse to use Discriminantly.'],
-    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you have kept', 'Plan a weekend in London using places I’ve kept in Discriminantly, and recommend a few complementary additions.'], ['Keep something', 'Keep Hatchards in London in Discriminantly for me.']],
+    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you’ve saved', 'Turn my saved London places in Discriminantly into a weekend plan and recommend a few additions.'], ['Save something', 'Keep Hatchards in London in Discriminantly for me.']],
     verify: 'List my saved Travel Marks in Discriminantly. Don’t add or change anything.',
     note: 'OAuth sign-in is not supported on this route. The key stands in for a sign-in, so treat it like a password; you can make it read-only, and revoke it any time in Settings.',
     guide: '/ai/muse',
@@ -214,7 +216,7 @@ const platforms = [
     summary: 'Any client that can add a remote MCP server with sign-in can try Discriminantly. Installation, approval behaviour, available features and model decisions differ by client.',
     provenance: 'Changes are recorded under the connection the client authorized. If the client declares its name when it connects (the MCP initialize handshake), that name is recorded; if it declares none, the record says the change came through your AI, without naming which.',
     steps: ['In your AI’s settings, add a remote MCP server (often called a connector or integration) at https://www.discriminantly.com/mcp.', 'When asked, sign in to Discriminantly.', 'Turn it on in a chat, then ask.'],
-    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you have kept', 'Plan a weekend in London using places I’ve kept in Discriminantly, and recommend a few complementary additions.'], ['Keep something', 'Keep Hatchards in London in Discriminantly for me.']],
+    asks: [['Start from a request', 'Using Discriminantly, plan two days in Naples around classic cafés, pizza and tailoring.'], ['Use what you’ve saved', 'Turn my saved London places in Discriminantly into a weekend plan and recommend a few additions.'], ['Save something', 'Keep Hatchards in London in Discriminantly for me.']],
     asksNote: 'Whether a given client uses Discriminantly for a request, and how, varies by client and model. Test with your own.',
     guide: '/ai/other',
     verified: 'Not verified per client. Treat compatibility as something to test.' },
@@ -222,22 +224,22 @@ const platforms = [
 
 // How it works: the eight-step progression. Text carries the meaning.
 const steps = [
-  { n: 1, verb: 'Notice', title: 'Keep an object, maker, idea or interest as a Note.',
-    body: 'Something catches your attention: a tool, a maker, a book, a way of doing something. Keep it, with a line on why it matters to you. That line is yours; nothing about owning or recommending is assumed from it.' },
-  { n: 2, verb: 'Locate', title: 'Keep a place as a Travel Mark.',
-    body: 'A restaurant, a shop, a hotel, a view. The mark holds the place’s name and, when a lookup finds it, its address and map position. You can keep a place long before you go, or never go at all.' },
+  { n: 1, verb: 'Notice', title: 'Save an object, maker, idea or interest as a Note.',
+    body: 'Something catches your attention: a tool, a maker, a book, a way of doing something. Save it, with a line on why it matters to you. That line is yours; nothing about owning or recommending is assumed from it.' },
+  { n: 2, verb: 'Locate', title: 'Save a place as a Travel Mark.',
+    body: 'A restaurant, a shop, a hotel, a view. The mark holds the place’s name and, when a lookup finds it, its address and map position. You can save a place long before you go, or never go at all.' },
   { n: 3, verb: 'Experience', title: 'Add a Check-in when a visit actually happened.',
     body: 'A check-in records that you were there: a date, or a stay of several days, and anything you want to say about it. A check-in is never inferred. A plan, a note or a mention does not become a visit.' },
   { n: 4, verb: 'Organize', title: 'Bring related records together in Collections.',
     body: 'Group notes and marks under a name that means something to you. A record can sit in several collections. Collections organize; they claim nothing.' },
-  { n: 5, verb: 'Compose', title: 'Build an Itinerary from a direct request, places you already keep, or both.',
+  { n: 5, verb: 'Compose', title: 'Build an Itinerary from a direct request, places you have already saved, or both.',
     body: 'Start with a destination, interests and constraints, even if your record is empty. A connected AI can recommend places and arrange them into days and stops. When relevant records already exist, they help shape the plan’s direction. Adding a place to a plan keeps it as a mark; it does not make it a visit or an endorsement.' },
   { n: 6, verb: 'Plan together', title: 'Share for viewing and adoption, or collaborate on the same plan.',
     body: 'A share link lets someone see a plan’s days, stops and places, and make their own independent copy. An invitation lets someone work on the same plan with you, as an editor or a viewer. Either way, your own notes, visits and private records stay yours.' },
   { n: 7, verb: 'Work with AI', title: 'Let an authorized assistant recommend, plan and act for you.',
     body: 'Connect the AI you already use. It can recommend new places and build plans from what you ask. When you have relevant records, it can retrieve them, with your authorization, to sharpen the recommendations and connect new possibilities to what already matters to you. Every change it makes is recorded as that assistant acting for you.' },
   { n: 8, verb: 'Verify', title: 'See what was used, what changed, and what is still only a recommendation or a plan.',
-    body: 'Discriminantly keeps a history of changes and shows where a record came from. Recommendations stay marked as recommendations until you keep them. The application is where you review and manage all of it.' },
+    body: 'Discriminantly records every change and shows where each record came from. Recommendations stay marked as recommendations until you keep them. The application is where you review and manage all of it.' },
 ];
 
 const boundaries = [
@@ -254,15 +256,15 @@ const demo = {
   label: 'Illustrative example',
   member: 'a member',
   beats: [
-    { step: 'Keep a maker’s object', app: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
-      caption: 'A note records that the member thought this worth keeping, and why.' },
+    { step: 'Save a maker’s object', app: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
+      caption: 'A note records that the member thought this worth saving, and why.' },
     { step: 'Mark a place', app: { kind: 'Travel Mark', title: 'Kissa Hoshikawa', meta: 'Kyoto · kept 5 March', why: 'A kissaten with a long counter. Siphon coffee.' },
       caption: 'A travel mark records a place. It does not yet record a visit.' },
     { step: 'Record a visit', app: { kind: 'Check-in', title: 'Kissa Hoshikawa', meta: 'Visited 6 March', why: 'Went in the morning. Quiet. Would return.' },
       caption: 'A check-in is added only because the member says they went.' },
-    { step: 'Later, ask for a trip', chat: { ask: 'Plan two slow days in Kyoto in November, starting from what I’ve kept.', reply: 'You kept a Hagi teabowl from Yamane kiln and visited Kissa Hoshikawa in March. I’ll start the first morning there, then a pottery district walk, since you keep ceramics. Here is a plan…' },
+    { step: 'Later, ask for a trip', chat: { ask: 'Plan two slow days in Kyoto in November, starting from what I’ve saved.', reply: 'You saved a Hagi teabowl from Yamane kiln and visited Kissa Hoshikawa in March. I’ll start the first morning there, then a pottery district walk, since ceramics are an interest of yours. Here is a plan…' },
       caption: 'The assistant retrieves the member’s records, and they shape the recommendations.' },
-    { step: 'The plan is kept, shared and refined', app: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · shared with one friend', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter' },
+    { step: 'The plan is saved, shared and refined', app: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · shared with one friend', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter' },
       caption: 'The itinerary is saved in Discriminantly, where it can be shared for adoption or worked on with others. Later check-ins enrich the record for next time.' },
   ],
 };
@@ -282,35 +284,35 @@ const together = {
 // Guides: real task pages, each answering one unbranded question with the
 // product's actual mechanics. `q` is the question the page answers directly.
 const guides = [
-  { slug: 'keep-objects-and-interests', desc: 'Keep things as notes and places as travel marks, each with your reason, and group them into collections. Owning and endorsing are separate records.', shots: ['new-note', 'note-owned'], title: 'Keep and organize objects and interests', q: 'How can I keep a personal record of objects and places?',
-    answer: 'Keep each thing as a Note: a headline, a line on why it matters to you, tags, a link and a picture. Keep each place as a Travel Mark. Group either into Collections. The record is yours, private or public per item, and nothing about owning, liking or endorsing is assumed from keeping.',
+  { slug: 'keep-objects-and-interests', desc: 'Save things as notes and places as travel marks, each with your reason, and group them into collections. Owning and endorsing are separate records.', shots: ['new-note', 'note-owned'], title: 'Save and organize objects and interests', q: 'How can I save objects and places in one personal record?',
+    answer: 'Save each thing as a Note: a headline, a line on why it matters to you, tags, a link and a picture. Save each place as a Travel Mark. Group either into Collections. The record is yours, private or public per item, and nothing about owning, liking or endorsing is assumed from saving.',
     sections: [
       ['What a note is for', 'A note is for a thing you want to remember: an object, a maker, an idea, an interest. It carries a headline, a short description in your own words, tags, a link if there is one, and a picture. Every note has a picture; a link’s own image is fetched for you when you give one.'],
       ['What keeping asserts, and does not', 'Keeping a note says one thing: you thought it worth remembering. It does not say you own it, bought it, like it or recommend it. Owning is recorded separately, by you, with its own history. Recommending is a warrant, which you give on purpose. Nothing is inferred from enthusiasm in your description.'],
       ['Organizing', 'Collections group notes under a name you choose: a city, a theme, a kind of thing, a trip. A note can sit in several collections. Collections organize; they make no claim about what is in them. Tags are the lighter version: words you can search by.'],
       ['Refining', 'Adjust a note any time: the headline, the line, the tags, the link, the picture, or whether it is private. Edits overwrite the previous text, and the history of changes records that an edit happened and who made it, you or an assistant acting for you.'],
-      ['Finding it again', 'Search by the words you used, by tag, or by collection. Your own private notes appear in your search and nowhere else. A connected AI can find the same things by asking Discriminantly, so a note kept in March is there when you plan in November.'],
-      ['With an AI', 'A connected assistant can keep a note for you when you ask (“keep this kettle in my notes”), find your notes, and adjust them. It is told to write in your voice, propose tags, and never to record ownership or endorsement unless you say so. Everything it keeps is recorded as that assistant acting for you.'],
+      ['Finding it again', 'Search by the words you used, by tag, or by collection. Your own private notes appear in your search and nowhere else. A connected AI can find the same things by asking Discriminantly, so a note saved in March is there when you plan in November.'],
+      ['With an AI', 'A connected assistant can save a note for you when you ask (“keep this kettle in my notes”), find your notes, and adjust them. It is told to write in your voice, propose tags, and never to record ownership or endorsement unless you say so. Everything it adds is recorded as that assistant acting for you.'],
     ], example: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March · in “Ceramics” · private', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
     links: [['/notes', 'Notes'], ['/collections', 'Collections'], ['/warrants', 'Warrants']] },
   { slug: 'remember-places', desc: 'Save a place as a travel mark, worth remembering or considering, with its address looked up. Going is a separate check-in, so saving never claims a visit.', shots: ['new-travel-mark', 'travel-mark-map-checkin'], title: 'Remember places without claiming a visit', q: 'How can I save places I want to visit without pretending I have been?',
-    answer: 'Keep a place as a Travel Mark. A mark records that the place is worth remembering or considering, with its name and, when a lookup finds it, its address and map position. It never records a visit. A visit is a Check-in, which only you add, and only when you went.',
+    answer: 'Save a place as a Travel Mark. A mark records that the place is worth remembering or considering, with its name and, when a lookup finds it, its address and map position. It never records a visit. A visit is a Check-in, which only you add, and only when you went.',
     sections: [
-      ['The mark', 'A travel mark is a place: a restaurant, a shop, a hotel, a view. Give it a name and a city; Discriminantly looks the place up and records the address and coordinates as looked-up facts, marked as such, apart from anything you wrote. You can keep a place years before any visit, or never go at all.'],
+      ['The mark', 'A travel mark is a place: a restaurant, a shop, a hotel, a view. Give it a name and a city; Discriminantly looks the place up and records the address and coordinates as looked-up facts, marked as such, apart from anything you wrote. You can save a place years before any visit, or never go at all.'],
       ['The visit', 'A check-in is the record that you were there: a date, or a stay of several days, with anything you want to say about it. Check-ins are never inferred from a mark, a plan, a mention or a photo. Several visits are several check-ins. A visit whose date you cannot remember is recorded as a visit with an unknown date, never with a made-up one.'],
       ['Privacy', 'A mark is visible to other members unless you make it private. Check-ins follow the privacy of their mark. If you add a private mark to a plan you share, the place’s name and address appear in that plan to the people you invite, after you confirm; the mark itself and your notes about it stay private.'],
       ['Recommendations are not marks', 'When an assistant suggests a place, it stays a recommendation, listed as such, until you keep it. Keeping turns it into a mark in your record. A place you have dismissed does not become a dislike; it is just not kept.'],
-      ['With an AI', 'A connected assistant can keep a mark when you ask, after looking the place up so the address is real rather than guessed; find your marks by city or by the words you used; and record a check-in only when you tell it you went.'],
+      ['With an AI', 'A connected assistant can save a mark when you ask, after looking the place up so the address is real rather than guessed; find your marks by city or by the words you used; and record a check-in only when you tell it you went.'],
     ], example: { kind: 'Travel Mark', title: 'Kissa Hoshikawa', meta: 'Kyoto, Japan · kept 5 March · address looked up · no check-ins', why: 'A kissaten with a long counter. Siphon coffee.' },
     links: [['/travel-marks', 'Travel Marks'], ['/check-ins', 'Check-ins']] },
-  { slug: 'plan-from-what-you-keep', desc: 'Plan a trip from scratch, from places and interests you have already kept, or by combining both.', shots: ['itinerary-phoenix'], title: 'Plan a trip from places and interests already kept', q: 'How can I plan trips from places I have already saved?',
-    answer: 'Start an itinerary and add stops from the travel marks you already keep, then bring in new places you are considering. You do not need any saved places to begin: a connected AI can plan from a destination and what you ask for alone. When you do have a record, it can build the first draft from it: it reuses places you kept, suggests others as recommendations, and the plan is saved in Discriminantly where you refine it.',
+  { slug: 'plan-from-what-you-keep', desc: 'Plan a trip from scratch, from places and interests you have already saved, or by combining both.', shots: ['itinerary-phoenix'], title: 'Plan a trip from what you’ve saved', q: 'How can I plan trips from places I have already saved?',
+    answer: 'Start an itinerary and add stops from the travel marks you already have, then bring in new places you are considering. You do not need any saved places to begin: a connected AI can plan from a destination and what you ask for alone. When you do have a record, it can build the first draft from it: it reuses places you saved, suggests others as recommendations, and the plan is saved in Discriminantly where you refine it.',
     sections: [
       ['No saved places yet', 'An empty record is not a barrier. Ask a connected assistant for a plan from a destination, your interests and any constraints; it recommends places and arranges them into days. Those places stay recommendations until you keep them. As your record grows, later plans have more of your own evidence to draw on.'],
-      ['Start from the record', 'An itinerary is days and stops. A stop can be one of your existing marks, a new place, or a label to resolve later (“somewhere for lunch”). Adding a new place to a plan keeps it as a mark; adding an existing mark reuses it, so one place is never kept twice.'],
-      ['Let the AI draft it', 'Ask a connected assistant to plan a trip from what you have kept. It reads your marks and notes for the destination, builds the days, reuses the places you already have, and marks anything it adds beyond your record as a recommendation. It is told to say what it reused and what it suggested.'],
-      ['Recommendations stay recommendations', 'A suggested place is listed as a recommendation until you keep it. Ideas for another time are kept apart from the plan. Nothing an assistant proposes enters your record as a kept place without your say-so.'],
-      ['Refine in the application', 'Reorder days and stops, change dates and times, attach a note to a stop (a coffee to buy at a roaster, say), make the plan public or keep it private. Every change is recorded with who made it.'],
+      ['Start from the record', 'An itinerary is days and stops. A stop can be one of your existing marks, a new place, or a label to resolve later (“somewhere for lunch”). Adding a new place to a plan keeps it as a mark; adding an existing mark reuses it, so one place is never saved twice.'],
+      ['Let the AI draft it', 'Ask a connected assistant to plan a trip from what you have saved. It reads your marks and notes for the destination, builds the days, reuses the places you already have, and marks anything it adds beyond your record as a recommendation. It is told to say what it reused and what it suggested.'],
+      ['Recommendations stay recommendations', 'A suggested place is listed as a recommendation until you keep it. Ideas for another time are set aside, apart from the plan. Nothing an assistant proposes enters your record as a kept place without your say-so.'],
+      ['Refine in the application', 'Reorder days and stops, change dates and times, attach a note to a stop (a coffee to buy at a roaster, say), make the plan public or leave it private. Every change is recorded with who made it.'],
       ['A plan is not a trip', 'An itinerary is an intention. It never becomes a record of having gone. When you do go, add check-ins to the places you visited; those enrich the record the next plan starts from.'],
     ], example: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · 2 reused from your marks, 1 recommended', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter (recommended, not kept)' },
     links: [['/itineraries', 'Itineraries'], ['/travel-marks', 'Travel Marks'], ['/ai', 'Use with AI']] },
@@ -324,7 +326,7 @@ const guides = [
     ], example: { kind: 'Itinerary', title: 'Osaka & Kyoto — June', meta: 'Shared with 2 people · 1 editor, 1 viewer · 1 link, copied once', why: 'Day 1, Osaka: fishing design and watches. Day 2, Kyoto: craft.' },
     links: [['/itineraries', 'Itineraries'], ['/how-it-works#step-6', 'How it works, step 6']] },
   { slug: 'connect-an-ai-assistant', desc: 'Connect ChatGPT, Claude or Muse to your Discriminantly record, see what a connected assistant can access, how its changes are recorded, and how to revoke it.', title: 'Connect Discriminantly to an AI assistant, and what it can access', q: 'How can I connect a personal taste or travel corpus to ChatGPT, Claude or Muse?',
-    answer: 'Connect the assistant from its own settings: ChatGPT installs the Discriminantly plugin from its page; Claude adds a custom connector with sign-in; Muse adds a custom connector with a key you make in Discriminantly’s Settings. Once connected, the assistant can recommend and plan from what you ask, even before you have kept anything; read your record, including private items, to sharpen the result; and keep what you choose. You can revoke it any time.',
+    answer: 'Connect the assistant from its own settings: ChatGPT installs the Discriminantly plugin from its page; Claude adds a custom connector with sign-in; Muse adds a custom connector with a key you make in Discriminantly’s Settings. Once connected, the assistant can recommend and plan from what you ask, even before you have saved anything; read your record, including private items, to sharpen the result; and save what you choose. You can revoke it any time.',
     sections: [
       ['What access means', 'A connected assistant can retrieve everything in your record, private items included, and can add, change and remove things on your behalf when you ask. It reaches Discriminantly only while you use it. A read-only key (Muse) lets an assistant look things up but refuses any change.'],
       ['What it remembers across conversations', 'The assistant itself remembers only what its own provider keeps. Discriminantly is what persists: a plan started in one chat is in Discriminantly, so the next conversation, on any connected assistant, can pick it up by asking.'],
@@ -340,20 +342,20 @@ const guides = [
 // Shown on /ai, and the source of that page's FAQPage data, so the two match.
 const faq = [
   ['Do I need saved places before Discriminantly can recommend or plan?', 'No. With a connected AI, you can ask for recommendations or build an itinerary from a destination, interests and constraints even when your record is empty. Existing Notes, Travel Marks, Check-ins and Warrants can give the result more specific and personal direction.'],
-  ['Does Discriminantly only recommend places I have already saved?', 'No. A plan can use places you already keep, introduce new recommendations, or combine both. A recommendation remains distinct from something you have deliberately kept.'],
+  ['Does Discriminantly only recommend places I have already saved?', 'No. A plan can use places you have already saved, introduce new recommendations, or combine both. A recommendation remains distinct from something you have deliberately kept.'],
 ];
 
 const questions = [
   ['Do I need saved places before Discriminantly can recommend or plan?', '/ai#faq'],
   ['How can an AI remember my tastes across conversations?', '/guides/connect-an-ai-assistant'],
   ['How can I plan trips from places I have already saved?', '/guides/plan-from-what-you-keep'],
-  ['How can I keep a personal record of objects and places?', '/guides/keep-objects-and-interests'],
+  ['How can I save objects and places in one personal record?', '/guides/keep-objects-and-interests'],
   ['How can friends collaboratively build an itinerary without sharing all their private data?', '/guides/share-or-build-an-itinerary-together'],
   ['How can I connect a personal taste or travel corpus to ChatGPT, Claude or Muse?', '/guides/connect-an-ai-assistant'],
 ];
 
 // When each editorial page last changed in substance (sitemap lastmod).
-const updated = { '/': '2026-10-13', '/activity': '2026-10-13', '/how-it-works': '2026-10-13', '/notes': '2026-10-13', '/travel-marks': '2026-10-13', '/check-ins': '2026-10-13', '/collections': '2026-10-13', '/itineraries': '2026-10-13', '/warrants': '2026-10-13',
-  '/ai': '2026-10-13', '/ai/chatgpt': '2026-10-13', '/ai/claude': '2026-10-13', '/ai/muse': '2026-10-13', '/ai/other': '2026-10-13', '/guides': '2026-10-13', '/about': '2026-10-13', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-13' };
+const updated = { '/': '2026-10-14', '/activity': '2026-10-13', '/how-it-works': '2026-10-14', '/notes': '2026-10-14', '/travel-marks': '2026-10-14', '/check-ins': '2026-10-13', '/collections': '2026-10-14', '/itineraries': '2026-10-14', '/warrants': '2026-10-13',
+  '/ai': '2026-10-14', '/ai/chatgpt': '2026-10-14', '/ai/claude': '2026-10-14', '/ai/muse': '2026-10-14', '/ai/other': '2026-10-14', '/guides': '2026-10-14', '/about': '2026-10-14', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-13' };
 
 module.exports = { faq, shots, site, nav, utility, objects, objectPages, platforms, steps, boundaries, demo, together, guides, questions, updated };
