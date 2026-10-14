@@ -239,8 +239,12 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
       : md === 'dark' ? `<img src="${dark}" alt="${alt}" width="1920" height="1000" loading="lazy">`
       : `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="1920" height="1000" loading="lazy"></picture>`;
     const phone = (img, cap) => `<figure class="phone-wrap"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span>${img}</span></span><figcaption class="welcome-caption">${cap}</figcaption></figure>`;
-    const pair1 = `<div class="phones">${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}</div>`;
-    const pair2 = `<div class="shot-wrap splash-shot-2"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${pick('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'The same plan saved in Discriminantly, with its map')}</div></div><p class="welcome-caption">Saved in Discriminantly</p>`;
+    const pick9 = (light, dark, alt) => sk !== 'modern' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : md === 'light' ? `<img src="${light}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : md === 'dark' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
+      : `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy"></picture>`;
+    const pair1 = `<div class="phones">${phone(pick9('/welcome-phone-profile-light.jpg', '/welcome-phone-profile-dark.jpg', 'A Discriminantly profile: the member’s notes, travel marks and plans'), 'Your record, in Discriminantly')}${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}</div>`;
+    const pair2 = `<div class="phones">${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}${phone(pick9('/welcome-phone-app-light.jpg', '/welcome-phone-app-dark.jpg', 'The same day as an itinerary in Discriminantly'), 'Saved in Discriminantly')}</div>`;
     const body = `
 <section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
   <p class="splash-pair-lead" id="useful-h">What you keep becomes useful.</p>
