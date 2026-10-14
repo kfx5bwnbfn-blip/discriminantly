@@ -61,6 +61,8 @@ function create(d) {
   // ---- shared pieces --------------------------------------------------------
   const cta = (me) => me ? `<a class="btn3d btn-solid pub-cta-big" href="/">Open Discriminantly</a>` : `<a class="btn3d btn-solid pub-cta-big" href="/join">Get started</a>`;
   const eyebrow = (t) => `<p class="lbl pub-eyebrow">${t}</p>`;
+  // Plain copy with blank-line paragraphs and **bold**; escaped first.
+  const paras = (t, cls = 'pub-p') => String(t).split(/\n\n+/).map((x) => `<p class="${cls}">${esc(x).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')}</p>`).join('');
   const sec = (id, eye, h2, inner, cls = '') => `<section class="pub-sec ${cls}" id="${id}" aria-labelledby="${id}-h">${eye ? eyebrow(eye) : ''}<h2 class="pub-h2" id="${id}-h">${h2}</h2>${inner}</section>`;
 
   // Phone captures from the application, with captions that state the record and its non-implications.
@@ -190,43 +192,30 @@ ${sec('ai', 'Use it with AI', 'Use the AI you already use.', `
     const tile = (kind, title, meta, lines) => `<figure class="pub-shot pub-shot-tile"><div class="pub-demo-tile pub-demo-app"><span class="lbl">${kind}</span><span class="pub-demo-title">${title}</span><span class="pub-demo-meta">${meta}</span>${lines.map((l) => `<span class="pub-demo-why">${l}</span>`).join('')}</div><figcaption class="welcome-caption">Illustrative example</figcaption></figure>`;
     const visuals = {
       1: shot('notice', 'A note: a pour-over kettle, with the member’s reason for saving it, its tags and a link', 630, 615),
-      2: shot('locate', 'A travel mark: HEX Bar in Bangkok, with its photo, address, tags, and Directions and Check in buttons', 630, 720),
+      2: `<figure class="pub-shot pub-shot-phone pub-shot-app"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/phone-travel-mark-private.webp"><img src="/how/phone-travel-mark-private.jpg" alt="${esc(C.shots['travel-mark-private'].alt)}" width="720" height="1247" loading="lazy" decoding="async"></picture></span></span><figcaption class="welcome-caption">From the application</figcaption></figure>`,
       3: shot('experience', 'A check-in on that mark: the date, and what the member said about the visit', 465, 280),
       4: shot('organize', 'A row of collections, each with its count: bass fishing, coffee, culinary, fly fishing, fragrance, golf', 1450, 190),
       5: shot('compose', 'An itinerary, Osaka and Kyoto in June: Day 1 and its first stop', 620, 610),
       6: shot('together', 'The same plan’s map, every stop pinned', 710, 700),
       7: `<figure class="pub-shot pub-shot-phone"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><img src="/how/ai.jpg" alt="A trip planned in a conversation with an AI, from places saved in Discriminantly" width="900" height="1150" loading="lazy"></span></span><figcaption class="welcome-caption">From a conversation</figcaption></figure>`,
-      8: shot('verify', 'The feed’s receipt after an AI session: added through ChatGPT, one thing kept, with a link to view it', 1050, 340),
     };
     const body = `
 <section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
-  <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2><p class="pub-p">${esc(s.body)}</p></div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
+  <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2>${paras(s.body)}</div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
 </section>
-${sec('names', 'The names', 'Six kinds of record, each with one meaning.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => `<div class="pub-object"><dt><a href="${o.href}">${esc(o.name)}</a></dt><dd>${esc(o.what)} <span class="pub-object-not">${esc(o.not)}</span></dd></div>`).join('')}</dl>`)}
+${sec('names', 'The names', 'The six kinds of records.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => { const r = C.records.find((x) => x.key === o.key); return `<div class="pub-object"><dt><a href="${o.href}">${esc(o.key === 'mark' ? 'Places' : o.name)}</a></dt><dd>${esc(r.what)} <span class="pub-object-not">${esc(r.not)}</span></dd></div>`; }).join('')}</dl>`)}
 <section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
   ${eyebrow('Evidence and control')}
-  <h2 class="pub-h2" id="evidence-h">Yours, looked up, suggested, planned, done.</h2>
-  <dl class="pub-defs pub-defs-grid">
-    <div><dt>Your record</dt><dd>Kept, visited, owned, endorsed: each its own act. None implies another.</dd></div>
-    <div><dt>Looked up</dt><dd>A place’s address and map position, marked as such.</dd></div>
-    <div><dt>Suggested</dt><dd>An assistant’s recommendation, until you keep it.</dd></div>
-    <div><dt>Planned</dt><dd>An itinerary. Not a record of having gone.</dd></div>
-  </dl>
-  <ul class="pub-cols2 pub-ctrl">
-    <li><b>Private or public</b>, per record. Plans start private.</li>
-    <li><b>AI access is authorized</b>, by you, until you revoke it.</li>
-    <li><b>The application</b> is where you review, adjust and remove.</li>
-    <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
-    <li class="pub-ctrl-wide"><b>Shared plans</b>: ${esc(C.together.disclosure)}</li>
-  </ul>
-  <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
+  <h2 class="pub-h2" id="evidence-h">You stay in control.</h2>
+  <ul class="pub-cols2 pub-ctrl">${C.control.items.map(([h, t], i) => `<li${i === C.control.items.length - 1 ? ' class="pub-ctrl-wide"' : ''}><b>${esc(h)}</b>${t ? ' ' + esc(t) : ''}</li>`).join('')}</ul>
+  <p class="pub-bounds-line" id="boundaries">${esc(C.control.line)}</p>
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
-      description: 'From noticing something to planning with it: how notes, travel marks, check-ins, collections and itineraries work in Discriminantly, and how an authorized AI works with them.',
-      h1: 'How Discriminantly works', lede: 'Eight ways Discriminantly helps you save, organize, discover and plan. You can begin with something worth remembering or start with a destination and a direct request—an existing record is not required.', body,
+      description: 'Save the places and things you notice, remember where you’ve been, and turn it all into trips you can share or plan with friends. Seven steps, the six kinds of records, and how you stay in control.',
+      h1: 'How Discriminantly works', lede: `${C.howItWorks.lede} ${C.howItWorks.start}`, body,
       card: '/card/page/how-it-works.png', crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
-      ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: 'Eight ways Discriminantly helps you save, organize, discover and plan. They are not a required order; an existing record is not required to plan.', step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body, url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
+      ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: `${C.howItWorks.lede} ${C.howItWorks.start}`, step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body.replace(/\*\*/g, '').replace(/\n\n+/g, ' '), url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
   }
 
   // ---- 3. Travel Marks (the object-page template) -----------------------------
@@ -439,7 +428,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
   const text = (req, res, body, type = 'text/plain; charset=utf-8') => (sendZ ? sendZ.bind(null, req) : send)(res, body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600', Vary: 'Accept-Encoding' });
   // Card specs for the editorial pages, by key.
   const cardPages = Object.assign({
-    'how-it-works': { eyebrow: 'How it works', title: 'Notice. Locate. Experience. Organize. Compose. Plan together. Work with AI. Verify.', line: 'Eight ways to save, organize, discover and plan. Start anywhere.' },
+    'how-it-works': { eyebrow: 'How it works', title: 'Notice. Locate. Experience. Organize. Compose. Plan together. Work with AI.', line: 'Save what you notice, remember where you’ve been, turn it into trips. Start anywhere.' },
     ai: { eyebrow: 'Use with AI', title: 'The same record, from the AI you already use.', line: 'ChatGPT, Claude, Muse and other MCP clients. Your record stays in Discriminantly.' },
     chatgpt: { eyebrow: 'Use with ChatGPT', title: 'The Discriminantly plugin for ChatGPT', line: 'Install it from its page in ChatGPT, connect by signing in, and ask.' },
     claude: { eyebrow: 'Use with Claude', title: 'Discriminantly as a custom connector in Claude', line: 'Add the connector, sign in to Discriminantly, turn it on in a chat.' },
@@ -458,7 +447,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
     const L = [];
     L.push(`# ${C.site.name}`, '', `> ${C.site.opening}`, '', C.site.proposition[0], '', `${C.site.identityFormal} ${C.site.architecture}`, '', C.site.proposition[1], '', C.site.stance, '');
     L.push('## What it records', '', ...C.objects.map((o) => `- **${o.name}**: ${o.what} ${o.not}`), '');
-    L.push('## How it works', '', ...C.steps.map((s) => `${s.n}. **${s.verb}.** ${s.title} ${s.body}`), '');
+    L.push('## How it works', '', ...C.steps.map((s) => `${s.n}. **${s.verb}.** ${s.title}. ${s.body.replace(/\*\*/g, '').replace(/\n\n+/g, ' ')}`), '');
     L.push('## Using it with an AI client', '', 'No existing record is required: through a connected AI client a member can ask for recommendations or a plan from a destination, interests and constraints, and existing records sharpen the result over time. Recommendations remain recommendations until the member keeps them. Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');
     for (const p of C.platforms) L.push(`- **${p.name}** (${PUBLIC_ORIGIN}${p.guide}): ${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.${p.review ? ' ' + p.review + '.' : ''}${p.endpoint ? ' Endpoint ' + p.endpoint + ' (no trailing slash).' : ''}${p.key === 'chatgpt' && PLUGIN() ? ' Plugin page: ' + PLUGIN() + '.' : ''}`);
     L.push('', '## Boundaries', '', ...C.boundaries.map((b) => `- ${b}`), '');

@@ -84,8 +84,8 @@ const shots = {
     alt: 'The form for a new travel mark in Discriminantly: search for a place, then place, city, country, address, why it is worth returning to, hashtags, coordinates and a link',
     caption: 'Saving a travel mark. A place search fills the address and map position, recorded as looked up; the reason for saving it is the member’s own. Saving it does not say the member has been.' },
   'travel-mark-private': { file: 'phone-travel-mark-private', w: 720, h: 1247,
-    alt: 'A privately marked seafood restaurant in Lisbon in Discriminantly on a phone: photo, city, address, a description, hashtags and a link',
-    caption: 'A private travel mark: a Lisbon restaurant worth remembering, with its address, the member’s note on why, and tags. A mark records that a place was worth saving, not that the member went or recommends it.' },
+    alt: 'A travel mark for Hatchards bookshop on Piccadilly, London, in Discriminantly on a phone: city, address, the member’s note on why, hashtags, a link and a map',
+    caption: 'A travel mark: a London bookshop worth remembering, with its address looked up, the member’s own note on why, tags, a link and its place on the map. A mark records that a place was worth saving, not that the member went or recommends it.' },
   'travel-mark-map-checkin': { file: 'phone-travel-mark-map-checkin', w: 720, h: 1247,
     alt: 'A public travel mark for a botanical garden in Phoenix in Discriminantly on a phone, with its map, and Directions and Check in buttons',
     caption: 'A public travel mark with its map. Check in is the separate act that records a visit, on the day the member says they were there; Directions opens the place in a maps app. Until a check-in exists, the mark proves no visit.' },
@@ -230,25 +230,50 @@ const platforms = [
     verified: 'Not verified per client. Treat compatibility as something to test.' },
 ];
 
-// How it works: the eight-step progression. Text carries the meaning.
+// How it works: the seven-step progression (Brian's copy, 14 Oct 2026; step 8, Verify, folded into the control list).
+// `body` may hold two paragraphs (blank line) and **bold** for the record's name.
+const howItWorks = {
+  lede: 'Discriminantly helps you save the places and things you notice, remember where you’ve been, and turn it all into trips you can share or plan with friends.',
+  start: 'Start with something you want to remember—or start with a destination and ask for help. You don’t need an existing collection to begin.',
+};
 const steps = [
-  { n: 1, verb: 'Notice', title: 'Save an object, maker, idea or interest as a Note.',
-    body: 'Something catches your attention: a tool, a maker, a book, a way of doing something. Save it, with a line on why it matters to you. That line is yours; nothing about owning or recommending is assumed from it.' },
-  { n: 2, verb: 'Locate', title: 'Save a place as a Travel Mark.',
-    body: 'A restaurant, a shop, a hotel, a view. The mark holds the place’s name and, when a lookup finds it, its address and map position. You can save a place long before you go, or never go at all.' },
-  { n: 3, verb: 'Experience', title: 'Add a Check-in when a visit actually happened.',
-    body: 'A check-in records that you were there: a date, or a stay of several days, and anything you want to say about it. A check-in is never inferred. A plan, a note or a mention does not become a visit.' },
-  { n: 4, verb: 'Organize', title: 'Bring related records together in Collections.',
-    body: 'Group notes and marks under a name that means something to you. A record can sit in several collections. Collections organize; they claim nothing.' },
-  { n: 5, verb: 'Compose', title: 'Build an Itinerary from a direct request, places you have already saved, or both.',
-    body: 'Start with a destination, interests and constraints, even if your record is empty. A connected AI can recommend places and arrange them into days and stops. When relevant records already exist, they help shape the plan’s direction. Adding a place to a plan keeps it as a mark; it does not make it a visit or an endorsement.' },
-  { n: 6, verb: 'Plan together', title: 'Share for viewing and adoption, or collaborate on the same plan.',
-    body: 'A share link lets someone see a plan’s days, stops and places, and make their own independent copy. An invitation lets someone work on the same plan with you, as an editor or a viewer. Either way, your own notes, visits and private records stay yours.' },
-  { n: 7, verb: 'Work with AI', title: 'Let an authorized assistant recommend, plan and act for you.',
-    body: 'Connect the AI you already use. It can recommend new places and build plans from what you ask. When you have relevant records, it can retrieve them, with your authorization, to sharpen the recommendations and connect new possibilities to what already matters to you. Every change it makes is recorded as that assistant acting for you.' },
-  { n: 8, verb: 'Verify', title: 'See what was used, what changed, and what is still only a recommendation or a plan.',
-    body: 'Discriminantly records every change and shows where each record came from. Recommendations stay marked as recommendations until you keep them. The application is where you review and manage all of it.' },
+  { n: 1, verb: 'Notice', title: 'Save something you noticed',
+    body: 'See a tool, book, maker, idea, or product you want to remember? Save it as a **note** and add a quick line about why it caught your eye.\n\nIt’s yours to keep—not a claim that you own it, bought it, or recommend it.' },
+  { n: 2, verb: 'Locate', title: 'Save a place you want to remember',
+    body: 'See a restaurant, shop, hotel, or view you might want to visit? Save it as a **place**.\n\nDiscriminantly can add its address and map location when it finds one. You can save a place long before you go—or even if you never go.' },
+  { n: 3, verb: 'Experience', title: 'Remember where you’ve been',
+    body: 'When you actually visit a place, add a **check-in**.\n\nAdd the date, a few days if it was a longer stay, and anything you want to remember about it. A saved place or a plan doesn’t mean you went; a check-in means you did.' },
+  { n: 4, verb: 'Organize', title: 'Keep related things together',
+    body: 'Group notes and places into **collections**—a city, a theme, a future trip, or anything else that makes sense to you.\n\nA restaurant can be in “Kyoto,” “Ramen,” and “Next Japan trip” at the same time.' },
+  { n: 5, verb: 'Compose', title: 'Turn your saves into a trip',
+    body: 'Start a trip from scratch, from places you’ve already saved, or both.\n\nTell Discriminantly where you’re going, what you like, and how long you’ll be there. If you’ve connected an AI assistant, it can suggest places and arrange them into days and stops. Your own saved places help shape the plan.\n\nAdding a place to a trip means you’re considering it—not that you’ve been or recommend it.' },
+  { n: 6, verb: 'Plan together', title: 'Plan with other people',
+    body: 'Share a trip by link so someone can view it and make their own copy. Or invite them to plan it with you as an editor or viewer.\n\nYour private notes, check-ins, and other saved records stay yours. If you add a private place to a shared trip, Discriminantly asks before making its name and address visible to collaborators.' },
+  { n: 7, verb: 'Work with AI', title: 'Use the AI you already use',
+    body: 'Connect the AI assistant you already use. It can recommend places, build plans, and—when you allow it—use your saved places and notes to make suggestions more relevant.\n\nYou stay in control: connect or disconnect an assistant whenever you want, and every change it makes is clearly attributed to that assistant.' },
 ];
+// The six kinds of record and the control list, in the same plain voice, for /how-it-works.
+const records = [
+  { key: 'note', what: 'A note remembers something you noticed: a product, maker, book, idea, or interest. You can add why it matters to you.', not: 'A note does not mean you own, like, bought, or endorse it.' },
+  { key: 'mark', what: 'A place, or Travel Mark, remembers somewhere you might want to go—or somewhere you want to remember: a restaurant, shop, hotel, view, or neighbourhood.', not: 'Saving a place does not mean you’ve been there or recommend it.' },
+  { key: 'checkin', what: 'A check-in records a real visit: when you went, how long you stayed, and anything you want to remember.', not: 'Only you can say you went somewhere. A plan, note, or mention never becomes a check-in automatically.' },
+  { key: 'collection', what: 'A collection groups related notes and places under a name you choose—like “Kyoto,” “Coffee,” or “Next summer.”', not: 'A collection organizes things. It doesn’t make any claim about them.' },
+  { key: 'itinerary', what: 'An itinerary is a plan: places and ideas arranged into days and stops.', not: 'You can start one from a request, from saved places, or both. You can share it or build it with others. A plan is an intention—not proof that you went.' },
+  { key: 'warrant', what: 'A warrant is a deliberate recommendation: a way of saying, “I stand behind this.”', not: 'You choose when to give one. Liking something, owning it, or visiting it does not automatically create a warrant.' },
+];
+const control = {
+  items: [
+    ['Your records are yours.', 'Saving, visiting, owning, and recommending are separate actions.'],
+    ['Place details are clearly sourced.', 'If Discriminantly finds an address or map location, it says so.'],
+    ['AI suggestions stay suggestions', 'until you decide to keep them.'],
+    ['Plans start private.', 'You choose what to share and with whom.'],
+    ['AI access is yours to grant or revoke.', ''],
+    ['Changes are visible.', 'You can see who—or which assistant—changed what.'],
+    ['Private stays private.', 'If a private place becomes part of a shared trip, Discriminantly asks before showing its name and address to collaborators.'],
+  ],
+  line: 'Saving something does not book it. A recommendation does not mean you own or visited something. An itinerary is a plan, not a completed trip.',
+};
+
 
 const boundaries = [
   'Saving something does not purchase or book it.',
@@ -366,4 +391,4 @@ const questions = [
 const updated = { '/': '2026-10-14', '/activity': '2026-10-13', '/how-it-works': '2026-10-14', '/notes': '2026-10-14', '/travel-marks': '2026-10-14', '/check-ins': '2026-10-13', '/collections': '2026-10-14', '/itineraries': '2026-10-14', '/warrants': '2026-10-13',
   '/ai': '2026-10-14', '/ai/chatgpt': '2026-10-14', '/ai/claude': '2026-10-14', '/ai/muse': '2026-10-14', '/ai/other': '2026-10-14', '/guides': '2026-10-14', '/about': '2026-10-14', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-13' };
 
-module.exports = { faq, shots, site, nav, utility, objects, objectPages, platforms, steps, boundaries, demo, together, guides, questions, updated };
+module.exports = { faq, shots, site, nav, utility, objects, objectPages, platforms, steps, howItWorks, records, control, boundaries, demo, together, guides, questions, updated };

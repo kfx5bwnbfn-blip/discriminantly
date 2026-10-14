@@ -1673,6 +1673,7 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .pub-prog-verb { font-family: var(--slab); font-weight: 600; font-size: .72rem; letter-spacing: .18em; text-transform: uppercase; }
 .pub-prog-title { grid-column: 2; margin: 0 0 .3rem; }
 .pub-prog-step .pub-p { grid-column: 2; margin: 0; }
+.pub-prog-step .pub-p + .pub-p { margin-top: .6rem; }
 /* guide head, quote, final */
 .pub-guide-head { text-align: center; }
 .pub-guide-mark .wl-ai-logo img { width: 4rem; height: 4rem; object-fit: contain; }

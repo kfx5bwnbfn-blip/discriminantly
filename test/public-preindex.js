@@ -54,15 +54,15 @@ const desc = (h) => (/<meta name="description" content="([^"]*)"/.exec(h) || [])
 
   // ---- P1.2 how-it-works transitions ----
   const how = await get('/how-it-works');
-  ok('how-it-works: lede no longer says each step leaves a record', !/Each one leaves a record/.test(how.t) && /an existing record is not required/.test(how.t));
-  ok('how-it-works: names intro no longer says each step leaves a record', !/Each step leaves a record with a name/.test(how.t) && /Six kinds of record, each with one meaning\./.test(how.t));
-  ok('how-it-works: still eight numbered steps and six definitions', (ld(how.t)[0]['@graph'].find((x) => x['@type'] === 'HowTo').step || []).length === 8 && (how.t.match(/<div class="pub-object"><dt>/g) || []).length === 6);
+  ok('how-it-works: lede no longer says each step leaves a record', !/Each one leaves a record/.test(how.t) && /You don’t need an existing collection to begin/.test(how.t));
+  ok('how-it-works: names intro no longer says each step leaves a record', !/Each step leaves a record with a name/.test(how.t) && /The six kinds of records\./.test(how.t));
+  ok('how-it-works: seven numbered steps and six definitions', (ld(how.t)[0]['@graph'].find((x) => x['@type'] === 'HowTo').step || []).length === 7 && (how.t.match(/<div class="pub-object"><dt>/g) || []).length === 6);
 
   // ---- P1.3 shared private place disclosure, consistent ----
   const AGENT = 'A private Travel Mark remains private. If it is added as a Stop in a shared itinerary, its place name and address may become visible to collaborators after the member confirms. The originating mark, private commentary and unrelated records remain private.';
   const ag = await get('/agent-guidance'), md = await get('/agent-guidance.md'), llms = await get('/llms.txt');
   const plain = (s) => s.replace(/&#39;|&rsquo;|’/g, '’');
-  ok('disclosure: /how-it-works carries the homepage sentence', /may become visible to collaborators, after you confirm/.test(how.t) && /originating mark, your private commentary and the rest of your record remain private/.test(how.t));
+  ok('disclosure: /how-it-works carries the homepage sentence', /Discriminantly asks before making its name and address visible to collaborators/.test(how.t) && /Discriminantly asks before showing its name and address to collaborators/.test(how.t));
   ok('disclosure: /agent-guidance, .md and llms.txt carry the same sentence', [ag.t, md.t, llms.t].every((t) => plain(t).includes(AGENT)));
   ok('disclosure: no unqualified "visible only to the member" claim remains', ![ag.t, md.t, llms.t].some((t) => /Private records are visible only to the member and to clients/.test(t)));
 
