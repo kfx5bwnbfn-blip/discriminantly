@@ -29,6 +29,7 @@ const site = {
 
 // Global menu, in order. `children` are crawlable links too.
 const nav = [
+  { label: 'Home', href: '/' },
   { label: 'How it works', href: '/how-it-works' },
   { label: 'Use with AI', href: '/ai', children: [
     { label: 'ChatGPT', href: '/ai/chatgpt' },
@@ -37,6 +38,7 @@ const nav = [
     { label: 'Other AI assistants', href: '/ai/other' },
   ] },
   { label: 'Guides', href: '/guides' },
+  { label: 'Public activity', href: '/activity' },
   { label: 'About Discriminantly', href: '/about' },
   { label: 'Support', href: '/support' },
 ];

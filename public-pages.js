@@ -214,10 +214,10 @@ ${sec('names', 'The names', 'Six kinds of record, each with one meaning.', `<dl 
   </dl>
   <ul class="pub-cols2 pub-ctrl">
     <li><b>Private or public</b>, per record. Plans start private.</li>
-    <li class="pub-ctrl-wide"><b>Shared plans</b>: ${esc(C.together.disclosure)}</li>
     <li><b>AI access is authorized</b>, by you, until you revoke it.</li>
     <li><b>The application</b> is where you review, adjust and remove.</li>
     <li><b>Provenance stays visible</b>: who, or which assistant, changed what.</li>
+    <li class="pub-ctrl-wide"><b>Shared plans</b>: ${esc(C.together.disclosure)}</li>
   </ul>
   <p class="pub-bounds-line" id="boundaries">${C.boundaries.map((b) => esc(b)).join(' <span aria-hidden="true">·</span> ')}</p>
 </section>

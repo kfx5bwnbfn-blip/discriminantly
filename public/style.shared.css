@@ -1776,32 +1776,53 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 /* v2.90.3: last-tested line on the platform pages */
 .pub-tested { margin: 1.1rem 0 .3rem; font-size: .92rem; line-height: 1.5; }
 .pub-tested .lbl { margin-right: .4rem; }
-/* v2.91.1: one measure for the inner public pages. The hero and the closing
-   action are centred on the page; every section sits in the same 48rem
-   column, left-aligned, so headings, text, lists, tiles and captures line up
-   on one edge instead of drifting between centred and left. */
-.is-public:not(.is-pub-home) .pub-sec { max-width: 48rem; }
-.is-public:not(.is-pub-home) .pub-sec.pub-shell { padding: 1.6rem 1.4rem 1.5rem; }
-.is-public:not(.is-pub-home) .pub-crumbs { max-width: 48rem; }
-.is-public:not(.is-pub-home) .pub-p, .is-public:not(.is-pub-home) .pub-list, .is-public:not(.is-pub-home) .pub-fine { max-width: none; }
-.is-public:not(.is-pub-home) .pub-example, .is-public:not(.is-pub-home) .pub-quote { max-width: 36rem; }
-.pub-phone-row { justify-content: flex-start; gap: 1.4rem 1.5rem; }
-.pub-phone-row .pub-shot-app { max-width: 13rem; flex: 0 1 13rem; }
-.pub-phone-row .pub-shot-cap { text-align: left; }
-/* platform pages: the mark is a fixed 3.5rem whatever its source (inline svg or image) */
-.pub-guide-head { text-align: left; }
-.pub-guide-mark { margin-bottom: .8rem; }
-.pub-guide-mark .wl-ai-logo { display: inline-flex; width: 3.5rem; height: 3.5rem; align-items: center; justify-content: center; }
-.pub-guide-mark .wl-ai-logo img, .pub-guide-mark .wl-ai-logo svg, .pub-guide-mark svg, .pub-guide-mark img { width: 3.5rem; height: 3.5rem; max-width: 3.5rem; max-height: 3.5rem; object-fit: contain; }
-.pub-guide-head .pub-facts { max-width: none; margin-left: 0; margin-right: 0; }
-.pub-guide-head .pub-facts-wide { grid-template-columns: 1fr 1fr; }
-.pub-guide-head .pub-facts-wide > div:first-child { grid-column: 1 / -1; }
-.pub-ai-chip .wl-ai-logo svg { width: 3rem; height: 3rem; max-width: 3rem; max-height: 3rem; }
-.pub-plat-row .wl-ai-logo svg { max-width: 2.2rem; max-height: 2.2rem; }
-.pub-p-center { text-align: left; margin-left: 0; max-width: none; }
-.pub-ai-chips { margin-top: .6rem; }
+/* v2.91.1: one axis for every public page. Everything centres on the page:
+   eyebrow, heading and paragraphs are centred text in a 44rem measure;
+   lists, facts, steps and definitions are centred blocks with left-aligned
+   text; captures, tiles and chips centre as a group. The alternating
+   how-it-works steps and the two-column grids centre as blocks too. */
+.is-public .pub-sec { max-width: 50rem; text-align: center; }
+.is-public .pub-sec.pub-shell { padding: 1.8rem 1.6rem 1.6rem; }
+.is-public .pub-crumbs { max-width: 50rem; }
+.is-public .pub-crumbs ol { justify-content: center; }
+.is-public .pub-eyebrow, .is-public .pub-h2, .is-public .pub-h3 { text-align: center; }
+.is-public .pub-p, .is-public .pub-fine, .is-public .pub-rule-line, .is-public .pub-bounds-line, .is-public .pub-keep-intro, .is-public .pub-tested { max-width: 44rem; margin-left: auto; margin-right: auto; text-align: center; }
+.is-public .pub-list, .is-public .pub-steps, .is-public .pub-defs, .is-public .pub-facts, .is-public .pub-objects, .is-public .pub-cols2, .is-public .pub-defs-grid, .is-public .pub-quote, .is-public .pub-example, .is-public .pub-demo-tile, .is-public .pub-illus-label, .is-public .pub-demo-grid, .is-public .pub-prog, .is-public .pub-plats { text-align: left; margin-left: auto; margin-right: auto; }
+.is-public .pub-list, .is-public .pub-steps { max-width: 38rem; }
+.is-public .pub-guides, .is-public .pub-bounds { max-width: 40rem; }
+.is-public .pub-defs, .is-public .pub-objects, .is-public .pub-cols2, .is-public .pub-defs-grid, .is-public .pub-demo-grid { max-width: 44rem; }
+.is-public .pub-facts { max-width: 40rem; }
+.is-public .pub-facts-wide { grid-template-columns: 1fr 1fr; }
+.is-public .pub-facts-wide > div:first-child { grid-column: 1 / -1; }
+.is-public .pub-quote, .is-public .pub-example { max-width: 34rem; }
+.is-public .pub-illus-label { justify-content: center; max-width: 34rem; }
+.is-public .pub-phone-row { justify-content: center; gap: 1.4rem 1.6rem; }
+.is-public .pub-phone-row .pub-shot-app { max-width: 13rem; flex: 0 1 13rem; }
+.is-public .pub-phone-row .pub-shot-cap { text-align: center; }
+.is-public .pub-prog-visual { max-width: none; }
+.is-public .pub-prog-visual .pub-prog-text { text-align: left; }
+.is-public .pub-prog-visual .pub-prog-text .pub-p, .is-public .pub-prog-step .pub-p { text-align: left; margin-left: 0; max-width: none; }
+.is-public .pub-prog-visual .pub-prog-head { justify-content: flex-start; }
+.is-public .pub-prog-visual .pub-h3, .is-public .pub-prog-title { text-align: left; }
+.is-public .pub-prog-visual .pub-prog-step:nth-child(4) .pub-prog-text, .is-public .pub-prog-visual .pub-prog-step:nth-child(8) .pub-prog-text { text-align: center; }
+.is-public .pub-prog-visual .pub-prog-step:nth-child(4) .pub-prog-head, .is-public .pub-prog-visual .pub-prog-step:nth-child(8) .pub-prog-head { justify-content: center; }
+.is-public .pub-prog-visual .pub-prog-step:nth-child(4) .pub-h3, .is-public .pub-prog-visual .pub-prog-step:nth-child(8) .pub-h3, .is-public .pub-prog-visual .pub-prog-step:nth-child(4) .pub-p, .is-public .pub-prog-visual .pub-prog-step:nth-child(8) .pub-p { text-align: center; margin-left: auto; margin-right: auto; }
+.is-public .pub-prog-visual .pub-prog-step:nth-child(4) .pub-prog-visual-col, .is-public .pub-prog-visual .pub-prog-step:nth-child(8) .pub-prog-visual-col { justify-content: center; }
+.is-public .pub-demo-grid .pub-h3 { text-align: left; }
+.is-public .pub-demo-grid .pub-demo-tile { margin-left: 0; margin-right: 0; }
+.is-public .pub-guide-head { text-align: center; }
+.is-public .pub-guide-mark { margin-bottom: .6rem; }
+.is-public .pub-guide-mark .wl-ai-logo { display: inline-flex; width: 3.5rem; height: 3.5rem; align-items: center; justify-content: center; }
+.is-public .pub-guide-mark .wl-ai-logo img, .is-public .pub-guide-mark .wl-ai-logo svg, .is-public .pub-guide-mark svg, .is-public .pub-guide-mark img { width: 3.5rem; height: 3.5rem; max-width: 3.5rem; max-height: 3.5rem; object-fit: contain; }
+.is-public .pub-ai-chip .wl-ai-logo svg { width: 3rem; height: 3rem; max-width: 3rem; max-height: 3rem; }
+.is-public .pub-plat-row .wl-ai-logo svg { max-width: 2.2rem; max-height: 2.2rem; }
+.is-public .pub-plats-compact { max-width: 44rem; }
+.is-public .pub-ai-chips { margin-top: 1rem; }
+.is-public .pub-p-center { text-align: center; }
+.is-public .pub-cta-row, .is-public .pub-final-acts { text-align: center; }
+.is-public .pub-objects-brief .pub-object { text-align: left; }
 @media (max-width: 52rem) {
-  .pub-guide-head .pub-facts-wide { grid-template-columns: 1fr; }
-  .pub-phone-row { justify-content: center; }
-  .pub-phone-row .pub-shot-cap { text-align: center; }
+  .is-public .pub-facts-wide { grid-template-columns: 1fr; }
+  .is-public .pub-prog-visual .pub-prog-text, .is-public .pub-prog-visual .pub-h3, .is-public .pub-prog-visual .pub-prog-text .pub-p { text-align: center; }
+  .is-public .pub-prog-visual .pub-prog-head { justify-content: center; }
 }
