@@ -76,7 +76,7 @@ async function appleRound({ next = '', link = false, sub, email, user = null, j 
   // 1b. Masthead and rail; back to the page signed in from.
   const notePage = await (await go('/o/1')).text();
   ok('masthead: Sign in with Apple beside Sign in, both returning to this page', /<form class="signin"[^>]*>[\s\S]*?<input type="hidden" name="next" value="\/o\/1">[\s\S]*?<a class="link caps signin-apple" href="\/auth\/apple\?next=%2Fo%2F1">Sign in with Apple<\/a><\/form>/.test(notePage));
-  ok('rail: Continue with Apple under Create an account, then Sign in', /Create an account<\/a><\/p>\s*<p class="auth-or[^"]*"><span>or<\/span><\/p><p class="signup signup-apple"><a class="btn3d block apple-btn" href="\/auth\/apple">Continue with Apple<\/a><\/p><p class="fine center rail-signin">/.test(await (await go('/activity')).text()));
+  ok('rail: Continue with Apple under Create an account, then Sign in', /<div class="signup signup-pair"><a class="btn3d block" href="\/join">Create an account<\/a><p class="auth-or[^"]*"><span>or<\/span><\/p><a class="btn3d block apple-btn" href="\/auth\/apple">Continue with Apple<\/a><\/div><p class="fine center rail-signin">/.test(await (await go('/activity')).text()));
   ok('page next: only same-site paths, never sign-in pages or other hosts', !/name="next" value="\/\/evil/.test(await (await go('/login?next=//evil.example/x')).text()) && !/name="next" value="\/join"/.test(await (await go('/login?next=/join')).text()) && /name="next" value="\/o\/1"/.test(await (await go('/login?next=/o/1')).text()));
 
   // 2. Start: Apple's authorize URL, with a state, a nonce and a flow cookie.

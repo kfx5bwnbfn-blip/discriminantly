@@ -10320,8 +10320,9 @@ const pages = {
     } else {
       rail = `<p class="rail-title">Start remembering:</p>
       <ol class="steps"><li><span>1</span>Save what catches your eye</li><li><span>2</span>Remember where you've been</li><li><span>3</span>Connect to your AI</li></ol>
-      <p class="signup"><a class="btn3d block" href="/join">Create an account</a></p>
-      ${APPLE.enabled() ? `<p class="auth-or fine center rail-or"><span>or</span></p><p class="signup signup-apple"><a class="btn3d block apple-btn" href="/auth/apple">${appleMark()}Continue with Apple</a></p><p class="fine center rail-signin">Already a member? <a href="/login">Sign in</a></p>` : ''}
+      ${APPLE.enabled()
+        ? `<div class="signup signup-pair"><a class="btn3d block" href="/join">Create an account</a><p class="auth-or fine center rail-or"><span>or</span></p><a class="btn3d block apple-btn" href="/auth/apple">${appleMark()}Continue with Apple</a></div><p class="fine center rail-signin">Already a member? <a href="/login">Sign in</a></p>`
+        : '<p class="signup"><a class="btn3d block" href="/join">Create an account</a></p>'}
 `;
     }
     const body = `

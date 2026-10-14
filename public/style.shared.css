@@ -1898,7 +1898,7 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .signin .signin-apple { align-self: baseline; font-family: var(--slab); font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; line-height: 1; white-space: nowrap; text-decoration: none; color: inherit; }
 body[data-skin="modern"] .masthead .signin .signin-apple { color: var(--m-ink-2); }
 body[data-skin="modern"] .masthead .signin .signin-apple:hover { color: var(--m-ink); }
-.rail-or { margin: -.7rem 0 .25rem !important; line-height: 1; }
-.signup.signup-apple { margin-bottom: .6rem; }
+.rail-or { margin: .5rem 0 .5rem !important; line-height: 1; }
+.signup.signup-pair { margin-bottom: .7rem; }
 .rail-signin { margin: .8rem 0 0 !important; }
 @media (max-width: 52rem) { .signin .signin-pipe { display: none; } .signin .signin-apple { flex-basis: 100%; text-align: center; } }
