@@ -1705,6 +1705,12 @@ body.is-public:not(.is-in) { padding-top: 0; }
 .pub-shot-tile .pub-demo-tile { max-width: none; }
 .pub-shot-phone { max-width: 13rem; }
 .pub-shot-phone .phone-body { display: block; position: relative; }
+/* v2.90.1: phone captures on the record and guide pages, with their captions */
+.pub-phone-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 1.6rem 2rem; margin: .4rem 0 .2rem; }
+.pub-phone-row .pub-shot-app { max-width: 14rem; flex: 0 1 14rem; }
+.pub-shot-cap { text-align: center; font-size: .86rem; line-height: 1.5; text-transform: none; letter-spacing: 0; font-style: italic; }
+.pub-phone-row .phone img { display: block; width: 100%; height: auto; }
+.pub-shot-app .phone-notch { display: none; }
 .pub-about-splash .splash-sub { max-width: 34rem; }
 .pub-about-h { font-size: 1.9rem; }
 @media (max-width: 52rem) {

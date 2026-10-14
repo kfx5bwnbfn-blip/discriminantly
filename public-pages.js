@@ -62,6 +62,12 @@ function create(d) {
   const cta = (me) => me ? `<a class="btn3d btn-solid pub-cta-big" href="/">Open Discriminantly</a>` : `<a class="btn3d btn-solid pub-cta-big" href="/join">Get started</a>`;
   const eyebrow = (t) => `<p class="lbl pub-eyebrow">${t}</p>`;
   const sec = (id, eye, h2, inner, cls = '') => `<section class="pub-sec ${cls}" id="${id}" aria-labelledby="${id}-h">${eye ? eyebrow(eye) : ''}<h2 class="pub-h2" id="${id}-h">${h2}</h2>${inner}</section>`;
+
+  // Phone captures from the application, with captions that state the record and its non-implications.
+  const phoneShot = (key, { lazy = true } = {}) => { const s = C.shots[key]; if (!s) return '';
+    return `<figure class="pub-shot pub-shot-phone pub-shot-app"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/${s.file}.webp"><img src="/how/${s.file}.jpg" alt="${esc(s.alt)}" width="${s.w}" height="${s.h}"${lazy ? ' loading="lazy" decoding="async"' : ''}></picture></span></span><figcaption class="welcome-caption pub-shot-cap">${esc(s.caption)}</figcaption></figure>`; };
+  const phoneRow = (keys) => keys && keys.length ? `<div class="pub-phone-row pub-phone-row-${keys.length}">${keys.map((k) => phoneShot(k)).join('')}</div>` : '';
+  const shotsLd = (keys) => (keys || []).map((k) => C.shots[k]).filter(Boolean).map((s) => ({ '@type': 'ImageObject', contentUrl: PUBLIC_ORIGIN + '/how/' + s.file + '.jpg', url: PUBLIC_ORIGIN + '/how/' + s.file + '.jpg', width: s.w, height: s.h, caption: s.caption, description: s.alt, representativeOfPage: false }));
   const illus = `<p class="pub-illus-label"><span class="lbl">${C.demo.label}</span> <span class="fine">Invented records, shown to explain the product. Not a real member.</span></p>`;
   const platformRow = (p) => `<article class="pub-plat" id="${p.key}" aria-labelledby="plat-${p.key}">
     <div class="pub-plat-head">${aiLogo(p.key)}<h3 class="pub-h3" id="plat-${p.key}">${esc(p.name)}${p.by ? ` <span class="pub-by">by ${esc(p.by)}</span>` : ''}</h3></div>
@@ -231,6 +237,7 @@ ${sec('checkin', 'Mark and Check-in', 'The mark is the place. The check-in is th
 ${sec('belongs', 'Where a mark can sit', 'Collections and itineraries.', `<p class="pub-p">A mark can belong to any number of collections, and can be a stop in any number of itineraries. Adding a place to a plan keeps it as a mark if it was not one already. Removing a stop from a plan leaves the mark where it is.</p>`)}
 ${sec('ai', 'With an authorized AI', 'Retrieved, and added, when you ask.', `<p class="pub-p">A connected assistant can find your marks, by place, city or the words you used, and can keep a new one when you ask it to. It is asked to look the place up first, so a mark carries a real address and map position rather than a guess. Every mark an assistant keeps is recorded as that assistant acting for you.</p>`)}
 ${sec('privacy', 'Private or public', 'Your choice, per mark.', `<p class="pub-p">A mark is visible to other members unless you mark it private. A private mark is seen only by you and by assistants you have connected. Check-ins follow the privacy of the mark they belong to. If a private mark is added as a stop in a plan you share, the place details in that plan (its name and address) may become visible to collaborators, after you confirm. The mark itself, your reason for keeping it, your check-ins and the rest of your record stay private.</p>`)}
+${sec('shots', 'In the application', 'From members’ own records, on a phone.', phoneRow(['new-travel-mark', 'travel-mark-private', 'travel-mark-map-checkin']), 'itin-shell pub-shell')}
 ${sec('enrich', 'Enrichment and experience', 'What was looked up, and what you said.', `<p class="pub-p">A mark’s address and map position may be looked up for you, and are recorded as looked up. Your reason for keeping it, and your check-ins, are yours and are recorded as yours. The two are kept apart, so a researched fact is never presented as your experience.</p>`)}
 ${sec('example', 'An example', 'What a travel mark looks like.', `${illus}
   <div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">Travel Mark</span><span class="pub-demo-title">Kissa Hoshikawa</span><span class="pub-demo-meta">Kyoto, Japan · kept 5 March · address and map position looked up</span><span class="pub-demo-why">A kissaten with a long counter. Siphon coffee.</span><span class="pub-demo-meta">1 check-in: visited 6 March. In the collection “Kyoto”. A stop in “Kyoto, two slow days”.</span></div>`, 'itin-shell pub-shell')}
@@ -240,7 +247,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
       description: 'A travel mark is a place worth remembering in Discriminantly: what it is, how it differs from a check-in, how it sits in collections and itineraries, and what it does not prove.',
       h1: 'Travel Marks', lede: 'A place worth remembering, kept with its name and where it is. Not yet a visit.', body,
       card: '/card/page/travel-marks.png', crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
-      ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }] });
+      ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(['new-travel-mark', 'travel-mark-private', 'travel-mark-map-checkin'])] });
   }
 
   // ---- 4. Use with AI hub -----------------------------------------------------
@@ -331,13 +338,14 @@ ${sec('records', 'The records', 'What each kind of record means.', `<ul class="p
       const body = `
 ${sec('answer', 'The short answer', esc(g.q), `<p class="pub-p pub-answer">${esc(g.answer)}</p>`, 'itin-shell pub-shell')}
 ${g.sections.map(([h, t], i) => sec('s' + (i + 1), '', esc(h), `<p class="pub-p">${esc(t)}</p>`)).join('')}
+${g.shots ? sec('shots', 'In the application', 'What it looks like on a phone.', phoneRow(g.shots), 'itin-shell pub-shell') : ''}
 ${g.example ? sec('example', 'An example', 'What it looks like.', `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(g.example.kind)}</span><span class="pub-demo-title">${esc(g.example.title)}</span><span class="pub-demo-meta">${esc(g.example.meta)}</span><span class="pub-demo-why">${esc(g.example.why)}</span></div>`, 'itin-shell pub-shell') : ''}
 ${sec('more', 'Related', 'Where to read on.', `<ul class="pub-list pub-guides">${g.links.map(([h, l]) => `<li><a href="${esc(h)}">${esc(l)}</a></li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/guides">All guides</a></p></section>`;
       return page(res, me, req, { path: '/guides/' + g.slug, title: g.title, description: metaDesc(g.answer), h1: g.title, lede: g.q, body,
         card: `/card/page/guide-${g.slug}.png`, crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }, { name: g.title, href: '/guides/' + g.slug }],
         ld: [{ '@type': 'Article', '@id': PUBLIC_ORIGIN + '/guides/' + g.slug + '#article', headline: g.title, description: metaDesc(g.answer), author: { '@id': PUBLIC_ORIGIN + '/#org' }, publisher: { '@id': PUBLIC_ORIGIN + '/#org' }, mainEntityOfPage: PUBLIC_ORIGIN + '/guides/' + g.slug },
-             { '@type': 'Question', name: g.q, acceptedAnswer: { '@type': 'Answer', text: g.answer }, url: PUBLIC_ORIGIN + '/guides/' + g.slug + '#answer' }] });
+             { '@type': 'Question', name: g.q, acceptedAnswer: { '@type': 'Answer', text: g.answer }, url: PUBLIC_ORIGIN + '/guides/' + g.slug + '#answer' }, ...shotsLd(g.shots)] });
     };
   }
   const metaDesc = (t) => { const x = String(t).replace(/\s+/g, ' ').trim(); return x.length <= 158 ? x : x.slice(0, 157).replace(/\s+\S*$/, '') + '\u2026'; };
@@ -352,6 +360,7 @@ ${sec('asserts', 'What keeping one asserts', 'Exactly this.', `<p class="pub-p">
 ${sec('not', 'What it does not assert', 'And never implies.', `<p class="pub-p">${esc(d.not)}</p>`)}
 ${sec('relates', 'How it relates to the others', 'Separate records, separate meanings.', `<p class="pub-p">${esc(d.relates)}</p>`)}
 ${sec('appears', 'Where it appears', 'In the application.', `<p class="pub-p">${esc(d.appears)}</p>`)}
+${d.shots ? sec('shots', 'In the application', 'From the member’s own record, on a phone.', phoneRow(d.shots), 'itin-shell pub-shell') : ''}
 ${sec('ai', 'With an authorized AI', 'Retrieved, and added, when you ask.', `<p class="pub-p">${esc(d.ai)}</p>`)}
 ${sec('privacy', 'Privacy and provenance', 'Per record.', `<p class="pub-p">${esc(d.privacy)}</p>`)}
 ${sec('example', 'An example', `What a ${esc(o.one.toLowerCase())} looks like.`, `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(d.example.kind)}</span><span class="pub-demo-title">${esc(d.example.title)}</span><span class="pub-demo-meta">${esc(d.example.meta)}</span><span class="pub-demo-why">${esc(d.example.why)}</span></div>`, 'itin-shell pub-shell')}
@@ -360,7 +369,7 @@ ${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
       return page(res, me, req, { path: d.path, title: o.name, description: metaDesc(`${o.what} ${o.not}`), h1: o.name, lede: d.lede, body,
         card: `/card/page/${d.path.slice(1)}.png`, crumbs: [HOME_CRUMB, { name: 'What you keep', href: '/how-it-works#names' }, { name: o.name, href: d.path }],
-        ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }] });
+        ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(d.shots)] });
     };
   }
 

@@ -48,8 +48,43 @@ const utility = [
 
 // What you keep: ordinary language first, then the product's name.
 // First-class pages for each record type (Travel Marks has its own renderer).
+
+// Phone captures from the application (iPhone, modern skin, dark). Alt text
+// describes what is on screen; the caption states what the record is and what
+// it does not imply, in the same terms the pages use. Member handles shown are
+// members' own public records, as anyone signed out would see them.
+const shots = {
+  'note-owned': { file: 'phone-note-owned', w: 720, h: 1247,
+    alt: 'A public note in Discriminantly on a phone: a coffee grinder, the member’s reason for keeping it, a link, and the Owned switch turned on',
+    caption: 'A public note, with its ownership record. The note says the grinder was worth remembering; the separate Owned switch records that the member owns it. Neither implies a recommendation.' },
+  'note-private-warranted': { file: 'phone-note-private-warranted', w: 720, h: 1247,
+    alt: 'A privately noted shaving soap in Discriminantly on a phone, with a warrant seal in the corner and the Owned switch turned on',
+    caption: 'A private note that is both owned and warranted. The seal is the warrant, a deliberate endorsement; the switch is the ownership record; the note itself is only the record that it was worth keeping. Private, so visible to the member and the AI they have connected.' },
+  'new-note': { file: 'phone-new-note', w: 720, h: 1247,
+    alt: 'The form for a new note in Discriminantly: collection, a link to paste, an image, title, comments, hashtags, and the Private and Owned switches',
+    caption: 'Keeping a note. A pasted link fills the title, text and picture; privacy, ownership and a warrant are separate switches, each off unless the member sets it.' },
+  'new-travel-mark': { file: 'phone-new-travel-mark', w: 720, h: 1247,
+    alt: 'The form for a new travel mark in Discriminantly: search for a place, then place, city, country, address, why it is worth returning to, hashtags, coordinates and a link',
+    caption: 'Keeping a travel mark. A place search fills the address and map position, recorded as looked up; the reason it is worth returning to is the member’s own. Keeping it does not say the member has been.' },
+  'travel-mark-private': { file: 'phone-travel-mark-private', w: 720, h: 1247,
+    alt: 'A privately marked seafood restaurant in Lisbon in Discriminantly on a phone: photo, city, address, a description, hashtags and a link',
+    caption: 'A private travel mark: a Lisbon restaurant worth remembering, with its address, the member’s note on why, and tags. A mark records that a place was worth keeping, not that the member went or recommends it.' },
+  'travel-mark-map-checkin': { file: 'phone-travel-mark-map-checkin', w: 720, h: 1247,
+    alt: 'A public travel mark for a botanical garden in Phoenix in Discriminantly on a phone, with its map, and Directions and Check in buttons',
+    caption: 'A public travel mark with its map. Check in is the separate act that records a visit, on the day the member says they were there; Directions opens the place in a maps app. Until a check-in exists, the mark proves no visit.' },
+  'itinerary-private-stop': { file: 'phone-itinerary-private-stop', w: 720, h: 1247,
+    alt: 'A privately planned itinerary in Discriminantly on a phone: a day plan in an Italian city, its first morning stop a privately marked pasticceria, shown as a card with photo and address',
+    caption: 'A private itinerary with a private travel mark as its first stop. The plan is kept; it is not a record of going. If this plan were shared, collaborators would see the stop’s name and address after the member confirms, and nothing else of the member’s record.' },
+  'itinerary-phoenix': { file: 'phone-itinerary-phoenix', w: 720, h: 1247,
+    alt: 'A privately planned two-day Phoenix itinerary in Discriminantly on a phone, with a day heading, the first stop Taliesin West, and Directions, Check in and Share buttons',
+    caption: 'An itinerary arranged into days and stops, with a Share button for a link or an invitation. Each stop is a travel mark; checking in at one records the visit against the mark, not the plan.' },
+  'profile-collections': { file: 'phone-profile-collections', w: 720, h: 1247,
+    alt: 'A member profile in Discriminantly on a phone: counts of marks, itineraries, notes and ensembles, then the member’s collections as tiles with a cover image and a count',
+    caption: 'Collections on a profile, each a named group of notes with a cover and a count. A collection organizes records; membership in one says nothing about owning, liking or recommending.' },
+};
+
 const objectPages = {
-  note: { path: '/notes', lede: 'A thing worth remembering, in your own words. Not a claim to own, like or endorse it.',
+  note: { shots: ['note-owned', 'new-note', 'note-private-warranted'], path: '/notes', lede: 'A thing worth remembering, in your own words. Not a claim to own, like or endorse it.',
     asserts: 'Keeping a note asserts one thing: you thought it worth remembering. The headline and the line beneath are yours; tags, a link and a picture go with it.',
     not: 'It does not assert that you own it, bought it, like it, use it or recommend it. Owning is a separate record you make deliberately. Recommending is a warrant. Neither is ever inferred from a note’s existence or its wording.',
     relates: 'A note can sit in any number of collections, and can be attached to a stop in an itinerary (a coffee to buy at a roaster, say). It is never a place: places are travel marks.',
@@ -58,7 +93,7 @@ const objectPages = {
     privacy: 'Public by default, visible to other members and anyone with the link; private when you say so, then visible only to you and assistants you have connected. Every change records who made it.',
     example: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March · in “Ceramics” · public', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
     proves: ['A note does not prove you own the thing. An ownership record does.', 'A note does not prove you recommend it. A warrant does.', 'A note in a plan does not prove you bought it on the trip.'] },
-  checkin: { path: '/check-ins', lede: 'The record that you were actually there. Added only by you, only when you went.',
+  checkin: { shots: ['travel-mark-map-checkin'], path: '/check-ins', lede: 'The record that you were actually there. Added only by you, only when you went.',
     asserts: 'A check-in asserts a visit: a date, or a stay with a first and last day, on a travel mark, with anything you want to say about it. A visit whose date you cannot recall is recorded as a visit with an unknown date.',
     not: 'It asserts nothing about liking the place, recommending it or planning to return. It is never created from a plan, a mark, a photo, a mention or an assistant’s guess.',
     relates: 'A check-in belongs to one travel mark. Several visits to the same place are several check-ins. A plan’s stop never becomes a check-in on its own.',
@@ -67,7 +102,7 @@ const objectPages = {
     privacy: 'A check-in is as public as its mark. Deleting a check-in removes it; the history of changes keeps that it existed.',
     example: { kind: 'Check-in', title: 'Kissa Hoshikawa', meta: 'Visited 6 March 2026 · one morning', why: 'Went in the morning. Quiet. Would return.' },
     proves: ['A check-in proves a visit, as you recorded it. Nothing proves a visit otherwise.', 'A check-in does not prove endorsement.', 'A stay of several days is one check-in with a range, not several visits.'] },
-  collection: { path: '/collections', lede: 'Records, grouped under a name you choose. Organization, with no claim attached.',
+  collection: { shots: ['profile-collections'], path: '/collections', lede: 'Records, grouped under a name you choose. Organization, with no claim attached.',
     asserts: 'A collection asserts only that you chose to group these notes or marks together: a city, a theme, a trip, a kind of thing.',
     not: 'Being in a collection adds no claim about any record in it: not owned, not visited, not endorsed, not even liked. A collection named “Favourites” is a name, not a warrant.',
     relates: 'Collections hold notes, or marks. A record can sit in several collections. Collections are not plans: a trip you intend to take is an itinerary.',
@@ -76,7 +111,7 @@ const objectPages = {
     privacy: 'A collection’s name is visible to others only through the public records it contains. Private records stay private inside any collection.',
     example: { kind: 'Collection', title: 'Kyoto', meta: '2 travel marks · 1 note', why: 'Kissa Hoshikawa · Gojozaka pottery walk · Hagi teabowl, Yamane kiln' },
     proves: ['A collection proves nothing about its members except that you grouped them.'] },
-  itinerary: { path: '/itineraries', lede: 'Places and ideas arranged into days and stops. A plan, kept; never a record of going.',
+  itinerary: { shots: ['itinerary-phoenix', 'itinerary-private-stop'], path: '/itineraries', lede: 'Places and ideas arranged into days and stops. A plan, kept; never a record of going.',
     asserts: 'An itinerary asserts an intention: these places, in this order, on these days or without days yet. Stops can be your existing marks, new places, or labels to resolve later.',
     not: 'It does not assert that you went, that you will go, or that you recommend any stop. A completed trip is recorded by check-ins on the places you visited, not by the plan.',
     relates: 'Adding a place to a plan keeps it as a travel mark if it was not one already; adding an existing mark reuses it. A stop can carry an attached note. Recommendations an assistant makes for the plan stay recommendations until kept.',
@@ -85,7 +120,7 @@ const objectPages = {
     privacy: 'Plans start private. A plan can be shared by link for viewing and copying, or by invitation for working on together; neither shares the rest of your record. Publishing makes a plan visible to everyone.',
     example: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · shared with one friend', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter' },
     proves: ['An itinerary does not prove the trip happened.', 'A stop does not prove a visit; a check-in does.', 'A stop does not prove a recommendation; a warrant does.'] },
-  warrant: { path: '/warrants', lede: 'A deliberate seal: you stand behind this. Given on purpose, never inferred.',
+  warrant: { shots: ['note-private-warranted'], path: '/warrants', lede: 'A deliberate seal: you stand behind this. Given on purpose, never inferred.',
     asserts: 'A warrant asserts your endorsement of a note or a travel mark: you stand behind it. On a public record it is announced to the feed by default; you can give it quietly.',
     not: 'A warrant is never inferred from praise in a description, from owning something, from repeat visits or from any other record. Withdrawing a warrant removes the endorsement; the history keeps that you gave and withdrew it.',
     relates: 'A warrant sits on a note or a mark. It is independent of owning (a thing) and of visiting (a place): you can warrant something you do not own, or a place you have not checked in to, if you choose.',
@@ -217,7 +252,7 @@ const together = {
 // Guides: real task pages, each answering one unbranded question with the
 // product's actual mechanics. `q` is the question the page answers directly.
 const guides = [
-  { slug: 'keep-objects-and-interests', title: 'Keep and organize objects and interests', q: 'How can I keep a personal record of objects and places?',
+  { slug: 'keep-objects-and-interests', shots: ['new-note', 'note-owned'], title: 'Keep and organize objects and interests', q: 'How can I keep a personal record of objects and places?',
     answer: 'Keep each thing as a Note: a headline, a line on why it matters to you, tags, a link and a picture. Keep each place as a Travel Mark. Group either into Collections. The record is yours, private or public per item, and nothing about owning, liking or endorsing is assumed from keeping.',
     sections: [
       ['What a note is for', 'A note is for a thing you want to remember: an object, a maker, an idea, an interest. It carries a headline, a short description in your own words, tags, a link if there is one, and a picture. Every note has a picture; a link’s own image is fetched for you when you give one.'],
@@ -228,7 +263,7 @@ const guides = [
       ['With an AI', 'A connected assistant can keep a note for you when you ask (“keep this kettle in my notes”), find your notes, and adjust them. It is told to write in your voice, propose tags, and never to record ownership or endorsement unless you say so. Everything it keeps is recorded as that assistant acting for you.'],
     ], example: { kind: 'Note', title: 'Hagi teabowl, Yamane kiln', meta: 'Kept 4 March · in “Ceramics” · private', why: 'Soft glaze, a lip that pours well. From a small kiln we found by chance.' },
     links: [['/notes', 'Notes'], ['/collections', 'Collections'], ['/warrants', 'Warrants']] },
-  { slug: 'remember-places', title: 'Remember places without claiming a visit', q: 'How can I save places I want to visit without pretending I have been?',
+  { slug: 'remember-places', shots: ['new-travel-mark', 'travel-mark-map-checkin'], title: 'Remember places without claiming a visit', q: 'How can I save places I want to visit without pretending I have been?',
     answer: 'Keep a place as a Travel Mark. A mark records that the place is worth remembering or considering, with its name and, when a lookup finds it, its address and map position. It never records a visit. A visit is a Check-in, which only you add, and only when you went.',
     sections: [
       ['The mark', 'A travel mark is a place: a restaurant, a shop, a hotel, a view. Give it a name and a city; Discriminantly looks the place up and records the address and coordinates as looked-up facts, marked as such, apart from anything you wrote. You can keep a place years before any visit, or never go at all.'],
@@ -238,7 +273,7 @@ const guides = [
       ['With an AI', 'A connected assistant can keep a mark when you ask, after looking the place up so the address is real rather than guessed; find your marks by city or by the words you used; and record a check-in only when you tell it you went.'],
     ], example: { kind: 'Travel Mark', title: 'Kissa Hoshikawa', meta: 'Kyoto, Japan · kept 5 March · address looked up · no check-ins', why: 'A kissaten with a long counter. Siphon coffee.' },
     links: [['/travel-marks', 'Travel Marks'], ['/check-ins', 'Check-ins']] },
-  { slug: 'plan-from-what-you-keep', title: 'Plan a trip from places and interests already kept', q: 'How can I plan trips from places I have already saved?',
+  { slug: 'plan-from-what-you-keep', shots: ['itinerary-phoenix'], title: 'Plan a trip from places and interests already kept', q: 'How can I plan trips from places I have already saved?',
     answer: 'Start an itinerary and add stops from the travel marks you already keep, then bring in new places you are considering. A connected AI can build the first draft from your record: it reuses places you kept, suggests others as recommendations, and the plan is saved in Discriminantly where you refine it.',
     sections: [
       ['Start from the record', 'An itinerary is days and stops. A stop can be one of your existing marks, a new place, or a label to resolve later (“somewhere for lunch”). Adding a new place to a plan keeps it as a mark; adding an existing mark reuses it, so one place is never kept twice.'],
@@ -248,7 +283,7 @@ const guides = [
       ['A plan is not a trip', 'An itinerary is an intention. It never becomes a record of having gone. When you do go, add check-ins to the places you visited; those enrich the record the next plan starts from.'],
     ], example: { kind: 'Itinerary', title: 'Kyoto, two slow days', meta: 'Day 1 · 3 stops · 2 reused from your marks, 1 recommended', why: 'Kissa Hoshikawa → Gojozaka pottery walk → an evening counter (recommended, not kept)' },
     links: [['/itineraries', 'Itineraries'], ['/travel-marks', 'Travel Marks'], ['/ai', 'Use with AI']] },
-  { slug: 'share-or-build-an-itinerary-together', title: 'Share or collaboratively build an itinerary', q: 'How can friends build an itinerary together without sharing all their private data?',
+  { slug: 'share-or-build-an-itinerary-together', shots: ['itinerary-private-stop'], title: 'Share or collaboratively build an itinerary', q: 'How can friends build an itinerary together without sharing all their private data?',
     answer: 'Two ways. A share link lets anyone with it view a plan’s days, stops and places, and copy it into their own account. An invitation adds someone to the same plan, as an editor or a viewer. Neither shares your notes, check-ins, warrants or anything else in your record.',
     sections: [
       ['Share for viewing and adoption', 'Make a link for a plan. Anyone who has it sees the plan’s structure: days, stops, places by name and city. They can make it theirs: an independent copy in their own account, with places resolved against their own marks. The original does not change, and nothing of yours comes with the copy except the places’ identities. You can revoke a link at any time; a copy already made stays with the person who made it.'],
@@ -282,4 +317,4 @@ const questions = [
 const updated = { '/': '2026-10-13', '/activity': '2026-10-13', '/how-it-works': '2026-10-13', '/notes': '2026-10-13', '/travel-marks': '2026-10-13', '/check-ins': '2026-10-13', '/collections': '2026-10-13', '/itineraries': '2026-10-13', '/warrants': '2026-10-13',
   '/ai': '2026-10-13', '/ai/chatgpt': '2026-10-13', '/ai/claude': '2026-10-13', '/ai/muse': '2026-10-13', '/ai/other': '2026-10-13', '/guides': '2026-10-13', '/about': '2026-10-13', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-13' };
 
-module.exports = { site, nav, utility, objects, objectPages, platforms, steps, boundaries, demo, together, guides, questions, updated };
+module.exports = { shots, site, nav, utility, objects, objectPages, platforms, steps, boundaries, demo, together, guides, questions, updated };

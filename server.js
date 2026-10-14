@@ -14551,7 +14551,7 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
     return fs.createReadStream(f).pipe(res);
   }
-  if (/^\/how\/[a-z-]+\.jpg$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
+  if ((mt = /^\/how\/[a-z-]+\.(jpg|webp)$/.exec(p)) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': mt[1] === 'webp' ? 'image/webp' : 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   // Pass 2: WebP variants of the hero screenshots, generated from the JPEGs.
   if (/^\/welcome-shot-(modern|itin)-(light|dark)(-1000)?\.webp$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   if (STATIC[p]) {
