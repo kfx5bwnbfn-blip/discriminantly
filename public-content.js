@@ -28,7 +28,15 @@ const site = {
   identity: 'Discriminantly is an independent AI startup building a personal record controlled by the person—not the model they happen to use.',
   identityFormal: 'Discriminantly is an independent AI startup and an AI-connected personal record for interests, places, travels and plans.',
   architecture: 'The record is held by Discriminantly. AI platforms are authorized clients of it rather than owners of its semantics.',
-  capture: 'No separate filing routine: tell your AI what is worth saving, in your own words, while it is already part of the conversation. The record holds what you asked to save, as you put it.',
+  // "What you save" on the homepage (Brian, 14 Oct 2026, verbatim).
+  save: {
+    h2: 'Your places, your taste, your plans.',
+    body: [
+      'Save a restaurant you want to try, a shop you loved, a product you’re curious about, or a note for later. Mark places you’ve been, or mean to go. Build trip plans with friends.',
+      'Over time, those saves become a personal record of your taste and travels. Connect it to AI when you want help: ask it to remember something in your own words, get recommendations based on what you’ve saved, or turn your ideas into a plan.',
+    ],
+    line: 'No complicated filing system. Just save what matters, then use it when you’re ready.',
+  },
   trust: 'Private or public, record by record. Choose which AI assistants may access your account, revoke them at any time, and see what each one changed.',
   stance: 'Discriminantly is a complete application, and the durable home of your record. ChatGPT, Claude, Muse and other compatible assistants are authorized ways of working with it—not owners of the record or its meaning.',
   description: 'Save the places and things you notice by talking to the AI you already use, get recommendations, and turn them into day-by-day plans you can share, copy or build with friends.',

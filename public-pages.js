@@ -131,11 +131,10 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
 
 <section class="pub-sec pub-keep" id="keep" aria-labelledby="keep-h">
   ${eyebrow('What you save')}
-  <h2 class="pub-h2" id="keep-h">Six kinds of record. Each means one thing.</h2>
-  <p class="pub-p pub-keep-intro">${esc(C.site.proposition[1])}</p>
-  <p class="pub-p pub-keep-intro pub-keep-capture">${esc(C.site.capture)}</p>
+  <h2 class="pub-h2" id="keep-h">${esc(C.site.save.h2)}</h2>
+  ${C.site.save.body.map((t) => `<p class="pub-p pub-keep-intro">${esc(t)}</p>`).join('')}
+  <p class="pub-p pub-keep-intro pub-keep-capture">${esc(C.site.save.line)}</p>
   <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name"><a href="${o.href}">${esc(o.name)}</a></span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
-  <p class="pub-rule-line">A saved object is not owned. A saved place is not visited. A plan is not a trip.</p>
 </section>
 
 ${sec('useful', 'Notice something now. Bring it into a plan when you need it.', 'Noticed over time. Useful when you need it.', `
