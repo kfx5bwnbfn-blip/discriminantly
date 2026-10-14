@@ -137,40 +137,38 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
   <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name"><a href="${o.href}">${esc(o.name)}</a></span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
 </section>
 
-${sec('useful', 'Notice something now. Bring it into a plan when you need it.', 'Noticed over time. Useful when you need it.', `
-  <p class="pub-p pub-useful-frame">Restaurants, shops, objects, links and experiences noticed at different moments no longer stay scattered across chats, screenshots, tabs and bookmarks. When you need them, a connected AI can bring the relevant ones back, combine them with new recommendations and shape them into a plan. One workflow, not a required order: you can also begin with a direct request and nothing saved.</p>
-  ${illus}
-  <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>
-  <p class="pub-demo-sum">An assistant can start from your request alone. When you have relevant records, it can use that evidence to make the plan more personal. The plan is saved in Discriminantly, shared or built with others, and the next trip has more to draw on.</p>`, 'itin-shell pub-shell')}
+${sec('useful', 'What you keep becomes useful', 'Save it now. Plan with it later.', `
+  <p class="pub-p pub-useful-frame">Save restaurants, shops, places, products, and ideas as you find them. When it’s time to plan a trip, they’re already there—ready to become an itinerary you can share and build with friends.</p>
+  <p class="pub-p pub-useful-frame">You can also start with a request alone. Your saved places and things simply make the plan more personal.</p>
+  <p class="pub-illus-label"><span class="lbl">Example: from a few saved things to a Kyoto plan</span> <span class="fine">These records are invented to show how it works.</span></p>
+  <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>`, 'itin-shell pub-shell')}
 
 <section class="pub-sec" id="possible" aria-labelledby="possible-h">
   ${eyebrow('What becomes possible')}
-  <h2 class="pub-h2" id="possible-h">Save. Find. Plan. Share. Return.</h2>
+  <h2 class="pub-h2" id="possible-h">Your record gets more useful over time.</h2>
   <ul class="pub-cols2">
-    <li><b>Save it in conversation</b>, while you are already talking to your AI. No separate app to open.</li>
-    <li><b>Find it again</b> by place, kind or your own words, without remembering where it was filed.</li>
-    <li><b>Recommendations from what you ask for</b>, sharpened by what you have saved and experienced.</li>
-    <li><b>Bring saved and newly discovered places into one plan</b>: start fresh, start from your record, or combine both.</li>
-    <li><b>Share, copy or build it together</b>: a link to view and copy, or an invitation to edit the same plan.</li>
-    <li><b>Return</b> with check-ins that record the visits you actually made, and make the next plan better.</li>
+    <li><b>Find it again.</b> Search by place, type of thing, or the words you used when you saved it.</li>
+    <li><b>Keep it organized.</b> Edit, group, and choose what stays private.</li>
+    <li><b>Get sharper recommendations.</b> Ask for ideas, and AI can draw on what you’ve saved and experienced.</li>
+    <li><b>Start a plan your way.</b> Begin from scratch, from saved places, or both.</li>
+    <li><b>Keep plans out of the chat.</b> They live in Discriminantly, ready to revisit and refine.</li>
+    <li><b>Make the next trip better.</b> Check-ins show where you’ve actually been.</li>
   </ul>
 </section>
 
 ${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
-  <div class="pub-two">
-    <div><h3 class="pub-h3">${esc(C.together.view.title)}</h3><p class="pub-p">A link shows the plan’s days, stops and places. Anyone with it can make their own copy. Yours doesn’t change.</p></div>
-    <div><h3 class="pub-h3">${esc(C.together.collaborate.title)}</h3><p class="pub-p">An invitation adds someone to the same plan, as editor or viewer. Every change is recorded under who made it.</p></div>
-  </div>
-  <p class="pub-rule-line">Your notes, visits, warrants and private records stay yours. ${esc(C.together.disclosure)}</p>
+  <p class="pub-p">Share a plan by link, or invite friends to build it with you. Collaborators can add places, arrange stops, and keep any place as their own. Every change is attributed to the person who made it.</p>
+  <p class="pub-p"><b>You stay in control.</b> Your notes, visits, and private records remain yours. If you add a private place to a shared plan, we’ll ask before making its name and address visible to collaborators. The rest of your record stays private.</p>
   ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000, { lazy: true }), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
-${sec('ai', 'Use it with AI', 'Save, find, discover and plan with the assistant you prefer.', `
-  <p class="pub-p">Use the AI assistant you already prefer to save what catches your attention, find it again, discover what fits and build a plan. The record stays in Discriminantly, so compatible assistants can work with the same material when you authorize them. It is a durable personal record, not a chat history: connect the assistant you choose, revoke its access when you choose, and see what each one added here, recorded as that assistant acting for you.</p>
+${sec('ai', 'Use it with AI', 'Use the AI you already use.', `
+  <p class="pub-p">Your Discriminantly record isn’t locked inside one chatbot. Connect ChatGPT, Claude, or another compatible assistant, and it can help you save, recommend, and plan from the same place. Revoke access whenever you want.</p>
   <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>`)}
 
 
 <section class="pub-sec pub-final" id="start" aria-label="Get started">
-  <p class="pub-trust pub-final-lead">Save what you notice by saying so. Plan from scratch or from what you’ve saved. Share a plan, copy one, or build it with friends.</p>
+  ${eyebrow('Ready when you are')}
+  <p class="pub-trust pub-final-lead">Save what catches your eye now. When you’re ready to travel, turn it into a plan you can share, refine, and build with others.</p>
   <p class="pub-trust" id="trust">${esc(C.site.trust)}</p>
   <p class="pub-final-acts">${cta(me)}</p>
   <p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/ai">Use with AI</a></p>
