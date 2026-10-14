@@ -110,7 +110,7 @@ function create(d) {
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
   <p class="pub-splash-acts">${me ? '<a class="btn splash-enter" href="/">Open Discriminantly</a>' : '<a class="btn splash-enter" href="/join">Get started</a>'}<a class="link caps pub-see" href="/how-it-works">See how it works</a></p>
 </section>
-${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and what an AI just added', 1920, 1000))}
+${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', 2000, 1174))}
 
 <section class="pub-sec pub-keep" id="keep" aria-labelledby="keep-h">
   ${eyebrow('What you keep')}
