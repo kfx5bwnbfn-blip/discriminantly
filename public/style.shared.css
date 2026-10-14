@@ -1826,3 +1826,12 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
   .is-public .pub-prog-visual .pub-prog-text, .is-public .pub-prog-visual .pub-h3, .is-public .pub-prog-visual .pub-prog-text .pub-p { text-align: center; }
   .is-public .pub-prog-visual .pub-prog-head { justify-content: center; }
 }
+/* v2.91.3: the base sheet's `main > * { margin: 0 }` was overriding the
+   sections' auto margins, so every section, the breadcrumbs and the hero sat
+   flush-left in the page column and centred within their own narrower box.
+   Centre them in the column, in both skins. */
+.is-public main.wrap > .pub-sec, .is-public main.wrap > .pub-crumbs, .is-public main.wrap > .pub-hero, .is-public main.wrap > .pub-final, .is-public main.wrap > .splash { margin-left: auto !important; margin-right: auto !important; }
+.is-public main.wrap > .pub-sec { margin-top: 3.2rem; }
+.is-public main.wrap > .pub-crumbs { margin-top: 1.2rem; }
+.is-public main.wrap > .pub-hero { margin-top: 2.4rem; margin-bottom: 1.4rem; }
+.is-public main.wrap > .pub-final { margin-top: 3.4rem; }
