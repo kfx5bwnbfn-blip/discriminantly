@@ -11,7 +11,7 @@
 const C = require('./public-content');
 
 function create(d) {
-  const { layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, publisher } = d;
+  const { layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON } = d;
   // Structured data shared by every public page. Only facts the pages state.
   const ORG = { '@type': 'Organization', '@id': PUBLIC_ORIGIN + '/#org', name: C.site.name, url: PUBLIC_ORIGIN + '/', logo: { '@type': 'ImageObject', url: PUBLIC_ORIGIN + '/icon-512.png', width: 512, height: 512 } };
   const SITE = { '@type': 'WebSite', '@id': PUBLIC_ORIGIN + '/#site', name: C.site.name, url: PUBLIC_ORIGIN + '/', description: C.site.description, publisher: { '@id': PUBLIC_ORIGIN + '/#org' } };
@@ -310,7 +310,6 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
 
   // ---- 7. About ----------------------------------------------------------------
   function about(req, res, me) {
-    const who = publisher();
     const body = `
 <section class="splash pub-splash pub-about-splash" aria-label="Discriminantly">
   <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
@@ -321,7 +320,7 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
 ${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
 ${sec('why', 'Why it exists', 'Taste accumulates. Most of it is lost.', `<p class="pub-p">The things you notice, the places you mean to return to, the trips you half-plan in a conversation: most of it is scattered across notes, screenshots and chats, and none of it is there the next time you need it. Discriminantly gives those things one durable home, with the meaning of each kept straight: a note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">Because the record is durable and exact, an AI you authorize can start from it. Recommendations shaped by what you have actually kept and experienced are different from recommendations shaped by a guess about you.</p>`)}
 ${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design kept intact as a skin for anyone who wants it.</p>`)}
-${sec('who', 'Who makes it', who ? esc(who) + '.' : 'An independent maker.', `<p class="pub-p">Discriminantly is designed, built and operated by ${who ? esc(who) : 'its founder'}, as an individual. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
+${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">Discriminantly is designed, built and operated independently, by one person, as a personal project that others are welcome to use. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
 ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/privacy">Privacy</a></p></section>`;
     return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'What Discriminantly is, why it exists, where it came from and who makes it.', body, cls: 'is-pub-about',
