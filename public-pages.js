@@ -273,8 +273,9 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
   ${pair2}
   <p class="welcome-caption welcome-caption-close">Your record stays in Discriminantly. An assistant you have authorized can retrieve from it and add to it; what it adds shows up here, recorded as that assistant acting for you. Installation, sign-in, approval behaviour and what each model does with the tools vary by platform, so each has its own page.</p>
 </section>
-<section class="pub-sec itin-shell pub-shell" id="platforms" aria-labelledby="platforms-h">${eyebrow('Platforms')}<h2 class="pub-h2" id="platforms-h">Status, by client.</h2>
-  <div class="pub-plats">${C.platforms.map(platformRow).join('')}</div>
+<section class="pub-sec itin-shell pub-shell" id="platforms" aria-labelledby="platforms-h">${eyebrow('Platforms')}<h2 class="pub-h2" id="platforms-h">Choose your assistant.</h2>
+  <p class="pub-p pub-p-center">Each has its own page: how to connect, what to expect, and where it stands.</p>
+  <div class="pub-ai-chips">${C.platforms.map((p) => `<a class="pub-ai-chip" id="${p.key}" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-ai-chip-name">${esc(p.name)}</span><span class="pub-ai-chip-status">${esc(p.chip || p.availability)}</span><span class="pub-ai-chip-go caps">Guide →</span></a>`).join('')}</div>
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/ai', title: 'Use with AI',

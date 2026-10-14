@@ -1549,6 +1549,16 @@ body[data-skin="modern"] .flash-done { background: var(--m-ink); color: var(--m-
 .pub-menu[open] > summary svg.pub-menu-ico { display: none; }
 /* no sign-in bar on public pages, so no space reserved for it */
 body.is-public:not(.is-in) { padding-top: 0; }
+/* v2.90.2: the public header inside the home-screen app. Signed out it is the
+   topmost bar, so it reserves the status bar itself; signed in the fixed
+   search bar is above it, so it sticks below that bar instead of under it. */
+.is-app body.is-public:not(.is-in) .pub-head-in { padding-top: calc(.7rem + env(safe-area-inset-top, 0px)); }
+.is-app body.is-public:not(.is-in) .pub-menu-panel { top: calc(100% + .6rem); }
+body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-index: 5; }
+@media (max-width: 52rem) { body.is-public.is-in .pub-head { top: var(--bar-h, var(--m-searchbar-h, 52px)); } }
+@media (display-mode: standalone) and (min-width: 52.01rem) {
+  .is-app body.is-public:not(.is-in) .pub-head-in { padding-top: calc(.7rem + max(env(safe-area-inset-top, 0px), 24px)); }
+}
 .pub-menu-panel { position: absolute; right: 0; top: calc(100% + .6rem); min-width: 17rem; padding: .9rem 1.1rem 1rem; border-radius: 18px; z-index: 50; }
 .pub-menu-list, .pub-menu-list ul { list-style: none; margin: 0; padding: 0; }
 .pub-menu-list > li > a { display: block; padding: .5rem 0; font-size: 1.05rem; text-decoration: none; color: inherit; }
@@ -1623,6 +1633,18 @@ body.is-public:not(.is-in) { padding-top: 0; }
 .pub-example { max-width: 34rem; }
 /* platforms */
 .pub-plats { display: grid; gap: 1rem; }
+/* v2.90.2: the AI hub routes with chips; the facts live on each platform's page */
+.pub-ai-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: .9rem; margin-top: 1.1rem; }
+.pub-ai-chip { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .35rem; padding: 1.3rem .9rem 1.1rem; border-radius: 18px; text-decoration: none; color: inherit; }
+.pub-ai-chip .wl-ai-logo { width: 3rem; height: 3rem; display: inline-flex; align-items: center; justify-content: center; margin-bottom: .3rem; }
+.pub-ai-chip .wl-ai-logo img, .pub-ai-chip .wl-ai-logo svg { width: 3rem; height: 3rem; display: block; object-fit: contain; }
+.pub-ai-chip-name { font-size: 1.15rem; line-height: 1.2; }
+.pub-ai-chip-status { font-family: var(--slab); font-weight: 600; font-size: .58rem; letter-spacing: .12em; text-transform: uppercase; opacity: .78; line-height: 1.5; }
+.pub-ai-chip-go { margin-top: .4rem; font-size: .66rem; }
+.pub-ai-chip:hover .pub-ai-chip-name, .pub-ai-chip:focus-visible .pub-ai-chip-name { text-decoration: underline; }
+.pub-ai-chip:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.pub-p-center { text-align: center; max-width: 36rem; margin-left: auto; margin-right: auto; }
+@media (max-width: 52rem) { .pub-ai-chips { grid-template-columns: 1fr 1fr; gap: .7rem; } .pub-ai-chip { padding: 1.1rem .7rem .9rem; } }
 .pub-plat { padding: 1.2rem 1.3rem; border-radius: 16px; }
 .pub-plat-head { display: flex; align-items: center; gap: .8rem; margin-bottom: .4rem; }
 .pub-plat-head .wl-ai-logo { width: 2.2rem; height: 2.2rem; flex: none; display: inline-flex; align-items: center; justify-content: center; }

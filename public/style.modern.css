@@ -2628,6 +2628,10 @@ body[data-skin="modern"] .pub-demo-ask { background: var(--m-accent); color: #17
 body[data-skin="modern"] .pub-demo-reply { color: var(--m-ink-2); }
 body[data-skin="modern"] .pub-plat, body[data-skin="modern"] .pub-plat-row, body[data-skin="modern"] .pub-quote { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
 body[data-skin="modern"] .pub-plat-row { transition: background .2s var(--m-ease); }
+body[data-skin="modern"] .pub-ai-chip { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); transition: background .2s var(--m-ease), transform .2s var(--m-ease); }
+body[data-skin="modern"] .pub-ai-chip:hover { background: var(--m-glass-hi, var(--m-glass)); transform: translateY(-2px); }
+body[data-skin="modern"] .pub-ai-chip-status { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-ai-chip-go { color: var(--m-accent, inherit); }
 body[data-skin="modern"] .pub-plat-row:hover { background: var(--m-glass-2); }
 body[data-skin="modern"] .pub-plat-row-status { color: var(--m-accent); }
 body[data-skin="modern"] .pub-badge .lbl { border-color: var(--m-line-2); color: var(--m-ink-2); }
