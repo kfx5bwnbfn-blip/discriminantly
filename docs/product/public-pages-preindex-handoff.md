@@ -208,7 +208,9 @@ No production data was written. The only production interaction was one read-onl
 - **The earlier v2.51 Claude validation:** the record does not date it. The git history from before the workspace reset is gone, so it is not cited as a date.
 - **Muse 12 October 2026:** from the project record (live connection, read and write through a key).
 
-## 9. Priority 2: privacy-safe dynamic sitemap (recommended design; not implemented)
+## 9. Priority 2: member records in the sitemap — decided: never
+
+**Decision (Brian, 14 October 2026):** the sitemap lists public-facing editorial pages only. Member profiles and records (notes, marks, check-ins, collections, itineraries, ensembles), their cards, and the activity feed built from them are never included, in the sitemap or in llms.txt's page list. The design below is kept only as a record of what was considered.
 
 **Why not now:** both reasons are product decisions, not technical gaps.
 
@@ -244,7 +246,7 @@ No production data was written. The only production interaction was one read-onl
 
 **Beta follow-ups:**
 
-- The bare-domain forward at GoDaddy (§2): a two-minute owner action; the Cloudflare fallback only if the `https://` test fails.
+- **Done 13 October 2026:** Brian set the bare-domain 301 forward at GoDaddy (§2). It is not verifiable from the sandbox, whose proxy blocks the bare host. Confirm `https://discriminantly.com/` and a deep path such as `/notes` in a browser; use the Cloudflare fallback only if the `https://` version warns.
 
 - A directory-listing check for ChatGPT (§8); optionally, Discriminantly's own read-only ChatGPT test.
 - The operator's name on the policy pages, from `PUBLISHER_NAME` (flagged since v2.89.2).
@@ -256,7 +258,6 @@ No production data was written. The only production interaction was one read-onl
 
 **Later opportunities:**
 
-- The dynamic record sitemap (§9), after the consent decision and Meta's approval.
 - An edge cache in front of Railway.
 - The AEO baseline run in `indexing-prep.md`, after submission.
 

@@ -433,7 +433,10 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
   }
 
   // ---- 8. Machine-readable files, from the same model ---------------------------
-  const PUBLIC_PATHS = ['/', '/how-it-works', '/notes', '/travel-marks', '/check-ins', '/collections', '/itineraries', '/warrants', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', ...C.guides.map((g) => '/guides/' + g.slug), '/about', '/agent-guidance', '/activity', '/privacy', '/terms', '/support'];
+  // Editorial pages only. Member profiles and records (notes, marks, check-ins,
+  // collections, itineraries, ensembles) and the activity feed built from them
+  // never enter the sitemap or llms.txt (Brian, 14 Oct 2026).
+  const PUBLIC_PATHS = ['/', '/how-it-works', '/notes', '/travel-marks', '/check-ins', '/collections', '/itineraries', '/warrants', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', ...C.guides.map((g) => '/guides/' + g.slug), '/about', '/agent-guidance', '/privacy', '/terms', '/support'];
   const text = (req, res, body, type = 'text/plain; charset=utf-8') => (sendZ ? sendZ.bind(null, req) : send)(res, body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600', Vary: 'Accept-Encoding' });
   // Card specs for the editorial pages, by key.
   const cardPages = Object.assign({

@@ -113,8 +113,12 @@ const desc = (h) => (/<meta name="description" content="([^"]*)"/.exec(h) || [])
   const sm = (await get('/sitemap.xml')).t, locs = [...sm.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   const off = locs.filter((u) => !u.startsWith(ORIGIN + '/'));
   const non200 = []; for (const u of locs) { const r = await fetch(BASE + u.slice(ORIGIN.length), { redirect: 'manual' }); if (r.status !== 200) non200.push(u + ' ' + r.status); }
-  ok(`sitemap: ${locs.length} URLs, all on ${ORIGIN}`, locs.length >= 25 && off.length === 0, off.join(', '));
+  ok(`sitemap: ${locs.length} URLs, all on ${ORIGIN}`, locs.length >= 24 && off.length === 0, off.join(', '));
   ok('sitemap: every URL returns 200', non200.length === 0, non200.join(', '));
+  const MEMBER = /\/(u|o|m|t|e|c|i|s|j|card)\/|\/activity\b|[?&](c|tab|q|t)=/;
+  ok('sitemap: editorial pages only, never a member profile, record, card or the activity feed', locs.every((u) => !MEMBER.test(u.slice(ORIGIN.length))), locs.filter((u) => MEMBER.test(u.slice(ORIGIN.length))).join(', '));
+  const llmsPages = ((await get('/llms.txt')).t.split('## Pages')[1] || '').split('##')[0];
+  ok('llms.txt: its page list follows the same rule', llmsPages.includes(ORIGIN + '/how-it-works') && !MEMBER.test(llmsPages.replace(new RegExp(ORIGIN.replace(/\./g, '\\.'), 'g'), '')));
 
   // ---- no private data in public HTML, metadata, sitemap, machine files or cards ----
   const owner = db.prepare("SELECT id FROM users WHERE id<>? ORDER BY id LIMIT 1").get(uid).id;
