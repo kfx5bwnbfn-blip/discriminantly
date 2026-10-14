@@ -73,7 +73,7 @@ const platforms = [
     availability: 'Live', method: 'Discriminantly plugin', auth: 'Sign in to Discriminantly when ChatGPT asks',
     directory: 'Listed in ChatGPT’s plugin directory',
     summary: 'Install the Discriminantly plugin from ChatGPT’s plugin directory, connect it by signing in, and ask.',
-    steps: ['In ChatGPT, open Plugins (in the sidebar, or at chatgpt.com/plugins).', 'Search for Discriminantly and choose Install plugin.', 'Choose Connect when asked, and sign in to Discriminantly.', 'In a chat, mention @Discriminantly and say what you’d like.'],
+    steps: ['Open the Discriminantly plugin\u2019s page in ChatGPT and choose Install plugin.', 'Choose Connect when asked, and sign in to Discriminantly.', 'In a chat, mention @Discriminantly and say what you\u2019d like.'],
     guide: '/ai/chatgpt',
     verified: 'Plugin approved by OpenAI and published by Discriminantly, 9 October 2026.' },
   { key: 'claude', name: 'Claude', by: 'Anthropic',

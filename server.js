@@ -10048,7 +10048,7 @@ function welcomeCard(me) {
   // the address may break only after the scheme, never mid-word; Copy copies it whole
   const addr = `<span class="wl-addr"><code class="wl-url">${esc(mcpUrl).replace('://', '://<wbr>')}</code>${copy(mcpUrl, 'Copy address')}</span>`;
   const chatgptSteps = pluginUrl
-    ? `${steps(['In ChatGPT, open <b>Plugins</b> (in the sidebar, or at chatgpt.com/plugins).', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b> when asked, and sign in to Discriminantly.', 'In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.'])}<p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
+    ? `${steps([`Open the <a class="link" href="${esc(pluginUrl)}" rel="noopener">Discriminantly plugin in ChatGPT</a> and choose <b>Install plugin</b>.`, 'Choose <b>Connect</b> when asked, and sign in to Discriminantly.', 'In a chat, type <b>@Discriminantly</b> and say what you\u2019d like.'])}<p class="center"><a class="btn3d" href="${esc(pluginUrl)}" rel="noopener">Open in ChatGPT</a></p>`
     : `<p class="lbl wl-soon">Coming to ChatGPT\u2019s plugin directory</p>${steps(['In ChatGPT, open <b>Plugins</b>.', 'Search for <b>Discriminantly</b> and choose <b>Install plugin</b>.', 'Choose <b>Connect</b>, and sign in to Discriminantly.'])}`;
   const claudeSteps = `${steps(['In Claude, go to <b>Customize \u203a Connectors</b>, choose <b>+</b>, then <b>Add custom connector</b>.', `Name it <b>Discriminantly</b> and paste this address: ${addr}`, 'Choose <b>Add</b>, then <b>Connect</b>, and sign in to Discriminantly.', 'In a chat, turn it on under <b>+ \u203a Connectors</b>.'])}<p class="fine wl-note">On Claude\u2019s free plan you can add one custom connector. On Team and Enterprise, an owner adds it first.</p>`;
   const otherSteps = `${steps(['In your AI\u2019s settings, add a remote MCP server (often called a connector or integration).', `Use this address: ${addr}`, 'When asked, sign in to Discriminantly. It connects with OAuth, so there is no key to copy.', 'Turn it on in a chat, then just ask.'])}<p class="fine wl-note">Works with any client that supports remote MCP servers with OAuth sign-in.</p>`;
@@ -11537,7 +11537,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['x-forwarded-host'] || req.headers.host}`;
 // Public pages (review build) share the app's layout, skins and icons.
 let PUB_ = null;
-const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, publisher: PUBLISHER }));
+const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl: () => (process.env.CHATGPT_PLUGIN_URL || '').trim() }));
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 // One shared description for every `image` parameter, so the warning can't
