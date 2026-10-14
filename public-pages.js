@@ -273,7 +273,7 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
   ${eyebrow('Starting out')}
   <h2 class="pub-h2" id="no-record-needed-h">No record needed to begin.</h2>
   <p class="pub-p">You do not need an existing Discriminantly record to begin. Ask your assistant for recommendations or a plan from a destination, interests and constraints. As you keep places, objects and experiences, that record gives later recommendations more personal direction.</p>
-  <p class="pub-p">Recommendations and conversational planning happen in the assistant you connect. Discriminantly holds the durable record: what you keep, what you plan, and where each came from. ${esc(C.site.stance.replace(/^Discriminantly is a complete application, and the durable home of your record\. /, ''))}</p>
+  <p class="pub-p">Recommendations and conversational planning happen in the assistant you connect. Discriminantly holds the durable record: what you keep, what you plan, and where each came from. Because the record is independent of any one AI assistant, you can authorize compatible clients to work with the same Discriminantly account. ${esc(C.site.stance.replace(/^Discriminantly is a complete application, and the durable home of your record\. /, ''))}</p>
 </section>
 <section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
   <p class="splash-pair-lead" id="useful-h">What you keep becomes useful.</p>
@@ -389,6 +389,7 @@ ${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-
 
   // ---- 6c. Agent guidance --------------------------------------------------------
   const GUIDANCE = () => [
+    ['About Discriminantly', `${C.site.identityFormal} ${C.site.architecture}`],
     ['Reading grants nothing', 'Reading this site, llms.txt or this page grants no access to any member’s record. Every record described here is the member’s, and reaching it requires that member’s own authorized connection.'],
     ['Authorized access', `Clients reach a member’s record only through a connection the member made: by signing in and approving (ChatGPT, Claude and other MCP clients, at ${PUBLIC_ORIGIN}/mcp) or by a key the member created in Settings (Muse, at https://muse.discriminantly.com/mcp). Which method applies, and how to set it up, is on each platform’s page under ${PUBLIC_ORIGIN}/ai. The member can revoke any connection at any time; a revoked connection stops working immediately.`],
     ['The six records and their non-implications', C.objects.map((o) => `${o.name}: ${o.what} ${o.not}`).join(' ')],
@@ -422,12 +423,13 @@ ${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">Thi
 ${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
 ${sec('why', 'Why it exists', 'Taste accumulates. Most of it is lost.', `<p class="pub-p">The things you notice, the places you mean to return to, the trips you half-plan in a conversation: most of it is scattered across notes, screenshots and chats, and none of it is there the next time you need it. Discriminantly gives those things one durable home without another filing system to maintain: tell the AI you already use what is worth keeping, in your own words, and it is kept here, with the meaning of each kept straight. A note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">${esc(C.together.memory)}</p><p class="pub-p">Because the record is durable and exact, an AI you authorize can draw on it. Things kept at different times become useful later, when an assistant recommends, organizes or plans; recommendations shaped by what you have actually kept and experienced are different from recommendations shaped by a guess about you. The record does not belong to any one assistant: connect the compatible one you choose, revoke it when you choose, and see what each one changed. What is private or public is yours to set, record by record.</p>`)}
 ${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design kept intact as a skin for anyone who wants it.</p>`)}
-${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">Discriminantly is designed, built and operated independently, by one person, as a personal project that others are welcome to use. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
+${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">${esc(C.site.identity)} It is deliberately built and operated, and is not owned by or tied to any one AI platform. That is what lets the record live in Discriminantly while ChatGPT, Claude, Muse and other compatible assistants work with it as authorized clients, each connected and revoked by the member. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
 ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/privacy">Privacy</a></p></section>`;
-    return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'What Discriminantly is, why it exists, where it came from and who makes it.', body, cls: 'is-pub-about',
+    return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'Discriminantly is an independent AI startup building a user-controlled personal record across compatible AI assistants.', body, cls: 'is-pub-about',
       card: '/card/page/about.png', crumbs: [HOME_CRUMB, { name: 'About', href: '/about' }],
-      ld: [{ '@type': 'AboutPage', '@id': PUBLIC_ORIGIN + '/about#about', url: PUBLIC_ORIGIN + '/about', name: 'About Discriminantly', about: { '@id': PUBLIC_ORIGIN + '/#org' } }] });
+      ld: [{ '@type': 'AboutPage', '@id': PUBLIC_ORIGIN + '/about#about', url: PUBLIC_ORIGIN + '/about', name: 'About Discriminantly', about: { '@id': PUBLIC_ORIGIN + '/#org' } },
+           { '@id': PUBLIC_ORIGIN + '/#org', description: `${C.site.identityFormal} ${C.site.architecture}` }] });
   }
 
   // ---- 8. Machine-readable files, from the same model ---------------------------
@@ -452,7 +454,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
      Object.fromEntries(C.guides.map((g) => ['guide-' + g.slug, { eyebrow: 'Guide', title: g.title, line: g.q }])));
   function llms(req, res) {
     const L = [];
-    L.push(`# ${C.site.name}`, '', `> ${C.site.proposition[0]}`, '', C.site.proposition[1], '', C.site.stance, '');
+    L.push(`# ${C.site.name}`, '', `> ${C.site.proposition[0]}`, '', `${C.site.identityFormal} ${C.site.architecture}`, '', C.site.proposition[1], '', C.site.stance, '');
     L.push('## What it keeps', '', ...C.objects.map((o) => `- **${o.name}**: ${o.what} ${o.not}`), '');
     L.push('## How it works', '', ...C.steps.map((s) => `${s.n}. **${s.verb}.** ${s.title} ${s.body}`), '');
     L.push('## Using it with an AI client', '', 'No existing record is required: through a connected AI client a member can ask for recommendations or a plan from a destination, interests and constraints, and existing records sharpen the result over time. Recommendations remain recommendations until the member keeps them. Your record stays in Discriminantly. An AI client reaches it only after the member authorizes a connection, which the member can revoke in Settings. Every change an AI makes is recorded as that client acting for the member. Four facts are stated separately per client: availability, connection method, authentication, directory status.', '');

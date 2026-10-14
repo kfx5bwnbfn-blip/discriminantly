@@ -90,6 +90,18 @@ const unesc = (s) => s.replace(/&#39;/g, '\'').replace(/&amp;/g, '&').replace(/&
   ok('value: no new "Why" section, benefit grid or extra homepage section', !/Why Discriminantly/i.test(H['/']) && !/pub-benefit|pub-why/.test(H['/']) && ['promise', 'keep', 'useful', 'possible', 'together', 'ai', 'start'].every((id) => new RegExp(`id="${id}"`).test(H['/'])) && (H['/'].match(/<section /g) || []).length === 7);
   ok('value: no Perplexity claim', !P.some((p) => /Perplexity/.test(T[p])));
 
+  // Independent identity: visible once on /about, formal in machine-readable summaries, not everywhere
+  const ID = 'Discriminantly is an independent AI startup building a personal record controlled by the person—not the model they happen to use.';
+  const FORMAL = 'Discriminantly is an independent AI startup and an AI-connected personal record for interests, places, travels and plans. The record is held by Discriminantly. AI platforms are authorized clients of it rather than owners of its semantics.';
+  ok('identity: /about states it once, in "Who makes it"', T['/about'].split(ID).length === 2 && /<section class="pub-sec " id="who"[\s\S]*?independent AI startup[\s\S]*?<\/section>/.test(H['/about']));
+  ok('identity: /about description and Organization description', /<meta name="description" content="Discriminantly is an independent AI startup building a user-controlled personal record across compatible AI assistants\.">/.test(H['/about']) && graph(H['/about']).some((x) => x['@id'] === ORIGIN + '/#org' && x.description === FORMAL));
+  ok('identity: llms.txt and agent guidance (page and .md) carry the formal statement', llms.includes(FORMAL) && agentMd.includes(FORMAL) && T['/agent-guidance'].includes(FORMAL));
+  ok('identity: /ai uses "independent" once, as architecture', /Because the record is independent of any one AI assistant, you can authorize compatible clients to work with the same Discriminantly account\./.test(T['/ai']) && (T['/ai'].match(/independent/gi) || []).length === 1);
+  const allDesc = await Promise.all(['/', '/how-it-works', '/notes', '/travel-marks', '/check-ins', '/collections', '/itineraries', '/warrants', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', '/agent-guidance', '/privacy', '/terms', '/support', '/activity'].map(async (p) => [p, (/<meta name="description" content="([^"]*)"/.exec(await get(p)) || [])[1] || '']));
+  ok('identity: not in any other page description, the homepage title, or the homepage body', allDesc.every(([, d]) => !/startup|indie/i.test(d)) && !/startup|indie/i.test(T['/']) && !/startup/i.test((/<title>([^<]*)<\/title>/.exec(H['/']) || [])[1]));
+  ok('identity: no "indie", "company", size or open-framework language on the public pages', !P.some((p) => /\bindie\b|\bAI company\b|\bsmall team\b|\btiny\b|hobby|scrappy|underdog|bootstrapped|open[- ]source|open framework|model[- ]agnostic|AI wrapper/i.test(T[p])));
+  ok('identity: no homepage badge or extra section', (H['/'].match(/<section /g) || []).length === 7 && !/class="[^"]*badge[^"]*"[^>]*>\s*(Indie|Independent|Founder)/i.test(H['/']));
+
   // 12. No credentials or reviewer material in markup
   ok('12 no credentials, keys or reviewer-account material in markup', !P.some((p) => /api_token|token_hash|sk-[A-Za-z0-9]{10,}|Bearer [A-Za-z0-9]{16,}|\/mcp\/[0-9a-f]{20,}|musereview|Muse test/.test(H[p])));
 
