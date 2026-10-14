@@ -1738,3 +1738,6 @@ body.is-public:not(.is-in) { padding-top: 0; }
   .pub-keep-grid { grid-template-columns: 1fr 1fr; gap: 1.2rem 1rem; }
   .pub-demo-grid, .pub-cols2, .pub-defs-grid { grid-template-columns: 1fr; }
 }
+.pub-prog-visual .pub-prog-step:nth-child(4) .pub-shot, .pub-prog-visual .pub-prog-step:nth-child(8) .pub-shot { max-width: 100%; }
+.pub-prog-visual .pub-prog-step:nth-child(4), .pub-prog-visual .pub-prog-step:nth-child(8) { grid-template-columns: 1fr; }
+.pub-prog-visual .pub-prog-step:nth-child(8) .pub-prog-text { order: 0; }

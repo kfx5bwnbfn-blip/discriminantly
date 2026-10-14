@@ -109,7 +109,7 @@ function create(d) {
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
   <p class="pub-splash-acts">${me ? '<a class="btn splash-enter" href="/">Open Discriminantly</a>' : '<a class="btn splash-enter" href="/join">Get started</a>'}<a class="link caps pub-see" href="/how-it-works">See how it works</a></p>
 </section>
-${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', 2000, 1174))}
+${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and what an AI just added', 1920, 1000))}
 
 <section class="pub-sec pub-keep" id="keep" aria-labelledby="keep-h">
   ${eyebrow('What you keep')}
@@ -143,7 +143,7 @@ ${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
     <div><h3 class="pub-h3">${esc(C.together.collaborate.title)}</h3><p class="pub-p">An invitation adds someone to the same plan, as editor or viewer. Every change is recorded under who made it.</p></div>
   </div>
   <p class="pub-rule-line">Your notes, visits, warrants and private records stay yours. ${esc(C.together.disclosure)}</p>
-  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 2000, 1174), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
+  ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
 ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
   <p class="pub-p">Connect it; revoke it any time. What it adds appears here, recorded as that assistant acting for you.</p>
@@ -187,14 +187,14 @@ ${sec('ai', 'Use it with AI', 'The same record, from the AI you already use.', `
     };
     const tile = (kind, title, meta, lines) => `<figure class="pub-shot pub-shot-tile"><div class="pub-demo-tile pub-demo-app"><span class="lbl">${kind}</span><span class="pub-demo-title">${title}</span><span class="pub-demo-meta">${meta}</span>${lines.map((l) => `<span class="pub-demo-why">${l}</span>`).join('')}</div><figcaption class="welcome-caption">Illustrative example</figcaption></figure>`;
     const visuals = {
-      1: tile('Note', 'Hagi teabowl, Yamane kiln', 'Kept 4 March', ['Soft glaze, a lip that pours well. From a small kiln we found by chance.']),
-      2: shot('locate', 'A travel mark in the feed: Penicillin, a bar in Central, Hong Kong, with its address and Directions and Check in buttons', 500, 360),
-      3: shot('experience', 'A travel mark card with its Check in button', 1000, 345),
-      4: tile('Collection', 'Kyoto', '2 travel marks · 1 note', ['Kissa Hoshikawa', 'Gojozaka pottery walk', 'Hagi teabowl, Yamane kiln']),
-      5: shot('compose', 'An itinerary for London: Day 1, Spitalfields and Shoreditch, with its first stops', 700, 585),
-      6: shot('together', 'The same plan’s map, every stop pinned', 690, 680),
+      1: shot('notice', 'A note: a pour-over kettle, with the member’s reason for keeping it, its tags and a link', 630, 615),
+      2: shot('locate', 'A travel mark: HEX Bar in Bangkok, with its photo, address, tags, and Directions and Check in buttons', 630, 720),
+      3: shot('experience', 'A check-in on that mark: the date, and what the member said about the visit', 465, 280),
+      4: shot('organize', 'A row of collections, each with its count: bass fishing, coffee, culinary, fly fishing, fragrance, golf', 1450, 190),
+      5: shot('compose', 'An itinerary, Osaka and Kyoto in June: Day 1 and its first stop', 620, 610),
+      6: shot('together', 'The same plan’s map, every stop pinned', 710, 700),
       7: `<figure class="pub-shot pub-shot-phone"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><img src="/how/ai.jpg" alt="A trip planned in a conversation with an AI, from places kept in Discriminantly" width="900" height="1150" loading="lazy"></span></span><figcaption class="welcome-caption">From a conversation</figcaption></figure>`,
-      8: tile('History', 'Kissa Hoshikawa', 'What changed, and who changed it', ['Kept — you, 5 March', 'Address and map position looked up — Discriminantly, 5 March', 'Added to “Kyoto, two slow days” — Muse, for you, 2 November', 'Suggested: an evening counter nearby — recommendation, not kept']),
+      8: shot('verify', 'The feed’s receipt after an AI session: added through ChatGPT, one thing kept, with a link to view it', 1050, 340),
     };
     const body = `
 <section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
@@ -234,13 +234,13 @@ ${sec('not', 'What a mark does not prove', 'Keeping is not going.', `<ul class="
   // The hub routes; it does not repeat the steps. Each platform has its own page.
   function aiHub(req, res, me) {
     const sk = skinOf(me, req), md = modeOf(me, req);
-    const pick = (light, dark, alt) => sk !== 'modern' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
-      : md === 'light' ? `<img src="${light}" alt="${alt}" width="900" height="1845" loading="lazy">`
-      : md === 'dark' ? `<img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy">`
-      : `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="900" height="1845" loading="lazy"></picture>`;
+    const pick = (light, dark, alt) => sk !== 'modern' ? `<img src="${dark}" alt="${alt}" width="1920" height="1000" loading="lazy">`
+      : md === 'light' ? `<img src="${light}" alt="${alt}" width="1920" height="1000" loading="lazy">`
+      : md === 'dark' ? `<img src="${dark}" alt="${alt}" width="1920" height="1000" loading="lazy">`
+      : `<picture><source srcset="${light}" media="(prefers-color-scheme: light)"><img src="${dark}" alt="${alt}" width="1920" height="1000" loading="lazy"></picture>`;
     const phone = (img, cap) => `<figure class="phone-wrap"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span>${img}</span></span><figcaption class="welcome-caption">${cap}</figcaption></figure>`;
-    const pair1 = `<div class="phones">${phone(pick('/welcome-phone-profile-light.jpg', '/welcome-phone-profile-dark.jpg', 'A Discriminantly profile: the member\u2019s notes, travel marks and plans'), 'Your record, in Discriminantly')}${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}</div>`;
-    const pair2 = `<div class="phones">${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}${phone(pick('/welcome-phone-app-light.jpg', '/welcome-phone-app-dark.jpg', 'The same day as an itinerary in Discriminantly'), 'Saved in Discriminantly')}</div>`;
+    const pair1 = `<div class="phones">${phone(`<img src="/welcome-phone-ask.jpg" alt="Asking an AI to plan a trip from what is kept in Discriminantly" width="900" height="1845" loading="lazy">`, 'Asked for, in a conversation')}${phone(`<img src="/welcome-phone-chat.jpg" alt="A trip planned in a conversation with an AI" width="900" height="1845" loading="lazy">`, 'Planned in conversation')}</div>`;
+    const pair2 = `<div class="shot-wrap splash-shot-2"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${pick('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'The same plan saved in Discriminantly, with its map')}</div></div><p class="welcome-caption">Saved in Discriminantly</p>`;
     const body = `
 <section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
   <p class="splash-pair-lead" id="useful-h">What you keep becomes useful.</p>
