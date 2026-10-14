@@ -1751,7 +1751,8 @@ body[data-skin="modern"] .card-edit, body[data-skin="modern"] .prail-nav a > spa
 body[data-skin="modern"] .feednav a > span { color: var(--m-ink-3); }
 body[data-skin="modern"] .settings li, body[data-skin="modern"] .settings-table li { color: var(--m-ink-2); }
 body[data-skin="modern"] .seg-btn { color: var(--m-ink-2); }
-body[data-skin="modern"] .seg-btn.on { color: var(--m-bg); }
+/* The selected pill is a white gradient in both modes, so its label is always dark ink; var(--m-bg) vanished on it in light mode. */
+body[data-skin="modern"] .seg-btn.on { color: #1f2028; }
 body[data-skin="modern"] .fine a, body[data-skin="modern"] .fine.center a { color: var(--m-accent); }
 
 /* =====================================================================

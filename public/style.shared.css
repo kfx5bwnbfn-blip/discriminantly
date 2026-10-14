@@ -1852,3 +1852,7 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 
 /* v2.93: the join form's decoy field, out of sight and out of the tab order */
 .hp-field { position: absolute !important; left: -10000px !important; top: auto; width: 1px; height: 1px; overflow: hidden; }
+/* v2.94: search scope tab, the post form's Note / Travel Mark token as links */
+.search-scope { max-width: 24rem; margin: .2rem auto 1.3rem; }
+.search-scope .seg-btn { display: block; text-align: center; text-decoration: none; line-height: 1.2; }
+@media (max-width: 52rem) { .search-scope { max-width: none; margin: .2rem .2rem 1.1rem; } }
