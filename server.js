@@ -6606,7 +6606,7 @@ function activationAnalysisHtml(cohort) {
 // never taste evidence. Bounded, sanitised values only: no prompts, corpus
 // text, tokens or connector URLs. Deleted with the account (FK cascade).
 const EVENT_TYPES = new Set(['signed_in', 'signup_started', 'signup_completed', 'welcome_viewed', 'welcome_tab_viewed', 'starter_selected',
-  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action', 'receipt_viewed', 'share_viewed', 'share_adopted']);
+  'starter_copied', 'starter_launched', 'ai_connection_started', 'empty_state_action', 'receipt_viewed', 'share_viewed', 'share_adopted', 'share_welcome_dismissed']);
 const CLIENT_EVENTS = new Set(['welcome_tab_viewed', 'starter_selected', 'starter_copied', 'starter_launched', 'empty_state_action']);
 const clip = (v, n = 64) => String(v == null ? '' : v).toLowerCase().replace(/[^a-z0-9._:-]/g, '').slice(0, n);
 function recordEvent(userId, event, { anon = '', surface = '', meta = {}, dedupeMinutes = 0 } = {}) {
@@ -7826,6 +7826,14 @@ function shareAdopt(user, tok, ctx) {
     recordEvent(user.id, 'share_adopted', { surface: 'web', meta: { share: sh.uid } });
     return { it, yields, prior, share: sh };
   });
+}
+// v2.96: the onboarding card itself, on the plan a brand-new member just
+// made theirs from a share link, until they connect an AI or dismiss it.
+function planWelcomeDue(it, me) {
+  if (!me || it.user_id !== me.id || !shareLineage(it)) return false;
+  const st = welcomeState(me);
+  if (!st.arrived || st.arrived.uid !== it.uid || st.chatgpt || st.claude || st.muse || st.other) return false;
+  return !q("SELECT 1 FROM product_events WHERE user_id=? AND event='share_welcome_dismissed'").get(me.id);
 }
 // The colophon line for a plan made from a share: who shared it, if they let
 // their name show; otherwise just that it was shared.
@@ -10051,6 +10059,10 @@ const WL_DIRECT = `<p class="fine wl-direct">Or add one yourself: <a href="/new"
 function welcomeMode(me, st, url) {
   if (url && url.searchParams.get('welcome') === '1') return 'full';
   if (!st.kept) return 'full';
+  // v2.96: arrived through a shared plan, so "kept" is only that plan and its
+  // places; the orientation is still owed until an AI is connected or
+  // something is reused.
+  if (st.arrived && !(st.chatgpt || st.claude || st.muse || st.other) && !hasReused(me.id)) return 'full';
   return hasReused(me.id) ? 'none' : 'compact';
 }
 function welcomeCompact(me, st, fresh) {
@@ -10066,15 +10078,15 @@ function welcomeCompact(me, st, fresh) {
   ${STARTER_JS}
 </article>`;
 }
-function welcomeCard(me) {
+function welcomeCard(me, { plan = null } = {}) {
   const st = welcomeState(me);
   const any = st.chatgpt || st.claude || st.muse || st.other;
   // Arrived through a shared plan: they have seen what a plan is, so open on
   // connecting; Orientation stays one tab away.
   const open = any || st.viaChatGPT ? 3 : st.arrived ? 2 : 1;
   const since = new Date(st.joined).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-  const right = st.viaChatGPT ? 'You arrived from ChatGPT' : st.arrived ? 'You arrived through a shared plan' : `Since ${since}`;
-  const arrivedLink = st.arrived ? `<a class="link" href="/t/${esc(st.arrived.uid)}">${esc(st.arrived.title || 'the plan')}</a>` : '';
+  const right = plan ? 'This itinerary is now yours' : st.viaChatGPT ? 'You arrived from ChatGPT' : st.arrived ? 'You arrived through a shared plan' : `Since ${since}`;
+  const arrivedLink = plan ? 'the plan below' : st.arrived ? `<a class="link" href="/t/${esc(st.arrived.uid)}">${esc(st.arrived.title || 'the plan')}</a>` : '';
   const pluginUrl = (process.env.CHATGPT_PLUGIN_URL || '').trim();
   const mcpUrl = BASE_URL() + '/mcp';
   const next = (n, label) => `<label for="wl-s${n}" class="link caps wl-next">${label}</label>`;
@@ -10136,8 +10148,11 @@ function welcomeCard(me) {
     ${WL_DIRECT}
     <div class="wl-nav">${next(2, '\u2190 Connect your AI')}<span></span></div>
   </div>`;
-  return `<article class="card welcome-card" id="welcome" aria-label="Welcome">
-  <div class="wl-headline">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'wl-arc-' + me.id)}</div>
+  // v2.96: on the plan a new member just made theirs, the same card, with
+  // a Dismiss (the feed's copy is never dismissed; it recedes).
+  const dismiss = plan ? `<form method="post" action="/t/${plan.id}/welcome/dismiss" class="wl-dismiss"><button class="link caps" type="submit">Dismiss</button></form>` : '';
+  return `<article class="card welcome-card${plan ? ' wl-on-plan' : ''}" id="welcome" aria-label="Welcome">
+  ${dismiss}<div class="wl-headline">${arcTitle('Welcome to DISCRIMINANT\u2022LY', 'wl-arc-' + me.id)}</div>
   <p class="caps wl-since">${esc(right)}</p>
   ${[1,2,3].map((n) => `<input type="radio" name="wl-step" id="wl-s${n}" class="wl-radio"${n === open ? ' checked' : ''}>`).join('')}
   <div class="vis-tabs wl-tabs">${[[1, 'Orientation', 'Orientation'], [2, 'Connect your AI', 'Connect'], [3, 'Get started', 'Start']].map(([n, l, sh]) => `<label for="wl-s${n}" class="wl-tab"><span class="wl-num">${n} \u00b7</span><span class="wl-long">${l}</span><span class="wl-short">${sh}</span></label>`).join('')}</div>
@@ -10196,7 +10211,9 @@ const pages = {
       if (mode === 'full') {
         const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all', dedupeMinutes: 30 }); return welcomeCard(me); }, me.id);
         let last = -1; entries.forEach((e, i) => { if (e.owner === me.id) last = i; });
-        entries.splice(url.searchParams.get('welcome') === '1' ? 0 : last + 1, 0, w);   // asked for: at the top
+        // asked for, or arrived through a shared plan (the plan and its places
+        // came with the account, so they are not use): at the top
+        entries.splice(url.searchParams.get('welcome') === '1' || st.arrived ? 0 : last + 1, 0, w);
       } else if (mode === 'compact') {
         // under the member's own records, but never deeper than their fifth
         const w = lazy(me.created_at, 'welcome', () => { recordEvent(me.id, 'welcome_viewed', { surface: 'all_compact', dedupeMinutes: 30 }); return welcomeCompact(me, st, !!receipt); }, me.id);
@@ -10507,10 +10524,12 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
     const sideSugg = proposed ? '' : itinerarySuggestions(it, me);
     const colo = skinOf(me, req) === 'modern' ? itineraryColophon(it, me) : '';
     const recsCol = proposals.length ? proposalsColumn(it, proposals, me) : '';
-    const main = `<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
+    // v2.96: a member whose account was made from this plan's share link.
+    const welcomeIn = planWelcomeDue(it, me) ? welcomeCard(me, { plan: it }) : '';
+    const main = `${welcomeIn}<h3 class="strip"><a class="crumb" href="/u/${esc(author.handle)}">${esc(author.handle)}</a> \u203a <a class="crumb" href="/t${me && me.id === it.user_id ? '' : '?u=' + encodeURIComponent(author.handle)}">Itineraries</a> \u203a <span>Itinerary</span></h3>
     <div class="itin-cols${recsCol ? ' has-recs' : ''}">
       <div class="itin-main"><article class="note itin-note${proposed ? ' is-proposed' : ''}">${bylineRow}<div class="itin-shell">${head}
-      ${owner && url.searchParams.get('mine') && shareLineage(it) ? `<p class="itin-share itin-mine">This itinerary is now yours. Change anything; the original stays as it was.</p>` : ''}
+      ${owner && url.searchParams.get('mine') && !welcomeIn && shareLineage(it) ? `<p class="itin-share itin-mine">This itinerary is now yours. Change anything; the original stays as it was.</p>` : ''}
       ${conflicts.length ? `<p class="itin-conflict">${conflicts.map(esc).join('<br>')}</p>` : ''}
       ${dayBlocks}${looseBlock}${addDay}</div></article>${foot}</div>
       ${sideMap || sideSugg || colo ? `<aside class="itin-side">${sideMap}${sideSugg}${colo}</aside>` : ''}${recsCol ? `
@@ -15083,7 +15102,7 @@ async function handle(req, res) {
     if (!inv && !signupAllowed(req)) return again('Too many new accounts from this network. Please try again later.');
     const wanted = String(b.handle || '').trim() ? slug(b.handle) : ''; // slug('') is 'member', so only when one was given
     const handle = wanted.length >= 2 && !q('SELECT 1 FROM users WHERE handle=?').get(wanted) ? wanted : uniqueHandle(name.replace(/\s+/g, '') || email.split('@')[0]);
-    const source = inv ? 'invite' : nx ? signupSourceFor(nx) : jx ? 'itinerary_invitation' : 'web';
+    const source = inv ? 'invite' : nx ? signupSourceFor(nx) : jx ? (/^\/[sS]\//.test(jx) ? 'itinerary_share' : 'itinerary_invitation') : 'web';
     const r = q("INSERT INTO users(handle,name,email,pass,ui_skin,signup_source,terms_accepted_at,terms_version) VALUES(?,?,?,?,'modern',?,CURRENT_TIMESTAMP,?)").run(handle, name, email, hashPass(b.password), source, TERMS_VERSION());
     if (inv) q('UPDATE invites SET used_by=? WHERE code=?').run(r.lastInsertRowid, code);
     const sc = sourceFromCookie(req);
@@ -15091,8 +15110,18 @@ async function handle(req, res) {
       .run(r.lastInsertRowid, nx ? clientHostOf(nx) : '', sc.h, sc.s, sc.m, sc.c, sc.r, sc.l);
     recordEvent(r.lastInsertRowid, 'signup_completed', { surface: nx ? 'oauth' : 'web', meta: { source } });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, r.lastInsertRowid);
+    const cookie = { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` };
+    // v2.96: an account made from a share link gets the plan straight away --
+    // the link is what they came for -- and lands on it with a welcome.
+    // Invitations still need their explicit Accept (a role in someone else's plan).
+    const sm = jx && jx.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})$/);
+    if (sm) {
+      const nu = q('SELECT * FROM users WHERE id=?').get(r.lastInsertRowid);
+      try { const a = shareAdopt(nu, sm[1], webActor(nu)); return redirect(res, `/t/${a.it.id}?mine=1`, cookie); }
+      catch (e) { console.log(`[join] share not adopted: ${String(e.message).slice(0, 120)}`); }
+    }
     // back to the AI's authorization if they came from one; otherwise All, where Welcome is
-    return redirect(res, nx || jx || '/', { 'Set-Cookie': `sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}` });
+    return redirect(res, nx || jx || '/', cookie);
   }
 
   if (p === '/marks/new') {
@@ -15407,6 +15436,12 @@ async function handle(req, res) {
       return itinMembersPage(req, res, me, it, { flash: e.message }, 400);
     }
     return redirect(res, `/t/${it.id}/members`);
+  }
+  if ((mt = p.match(/^\/t\/(\d+)\/welcome\/dismiss$/)) && m === 'POST') {
+    if (!me) return need();
+    const it = itinById(+mt[1]); if (!it || it.user_id !== me.id) return send(res, 'Not found', 404);
+    recordEvent(me.id, 'share_welcome_dismissed', { surface: 'plan', meta: { plan: it.uid } });
+    return redirect(res, `/t/${it.id}`);
   }
   if ((mt = p.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})$/)) && m === 'GET') return sharePage(req, res, me, mt[1]);
   if ((mt = p.match(/^\/[sS]\/([A-Za-z0-9_-]{20,100})\/mine$/)) && m === 'POST') {
