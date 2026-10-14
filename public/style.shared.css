@@ -1878,3 +1878,8 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .wcell .wl-guide .wl-ai .caps, .wcell .wl-guide .wl-ai-state, .wcell .wl-guide .lbl, .wcell .wl-guide .caps { font-size: .64rem; font-weight: 600; letter-spacing: .15em; text-transform: uppercase; }
 .wcell .wl-guide .wl-ai-name { font-size: 1.25rem; font-weight: 400; letter-spacing: 0; text-transform: none; }
 .wcell .wl-guide ol.steps.wl-how li > span { font-size: .7rem; }
+/* v2.100: /ai lists sit as a left-aligned block on the centred axis; FAQ answers may hold two paragraphs */
+.is-public .pub-list-left { text-align: left; max-width: 34rem; margin: .2rem auto 1rem; padding-left: 1.2rem; }
+.is-public .pub-list-left li { margin-bottom: .35rem; line-height: 1.55; }
+.pub-faq dd .pub-p { margin: 0 0 .5rem; }
+.pub-faq dd .pub-p:last-child { margin-bottom: 0; }

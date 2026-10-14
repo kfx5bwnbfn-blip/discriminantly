@@ -374,8 +374,8 @@ const guides = [
 // Pages that answer the unbranded questions directly (one page per question).
 // Shown on /ai, and the source of that page's FAQPage data, so the two match.
 const faq = [
-  ['Do I need saved places before Discriminantly can recommend or plan?', 'No. With a connected AI, you can ask for recommendations or build an itinerary from a destination, interests and constraints even when your record is empty. Existing Notes, Travel Marks, Check-ins and Warrants can give the result more specific and personal direction.'],
-  ['Does Discriminantly only recommend places I have already saved?', 'No. A plan can use places you have already saved, introduce new recommendations, or combine both. A recommendation remains distinct from something you have deliberately kept.'],
+  ['Do I need saved places before Discriminantly can recommend or plan?', 'No. With a connected assistant, you can ask for recommendations or build an itinerary from a destination, interests, and constraints—even if your account is empty.\n\nSaved places, notes, check-ins, and recommendations can make later results more specific and personal.'],
+  ['Does Discriminantly only recommend places I’ve already saved?', 'No. A plan can use places you’ve saved, introduce new recommendations, or combine both.\n\nA recommendation stays separate from something you’ve deliberately saved.'],
 ];
 
 const questions = [

@@ -258,31 +258,54 @@ ${sec('not', 'What a mark does not prove', 'Saving is not going.', `<ul class="p
     const body = `
 <section class="pub-sec pub-start-note" id="no-record-needed" aria-labelledby="no-record-needed-h">
   ${eyebrow('Starting out')}
-  <h2 class="pub-h2" id="no-record-needed-h">No record needed to begin.</h2>
-  <p class="pub-p">A connected assistant helps you save a restaurant, shop, object, link or experience when you ask; find what you have saved; recommend new possibilities; build a plan from scratch, from saved material or both; and save the resulting itinerary in Discriminantly.</p>
-  <p class="pub-p">You do not need an existing Discriminantly record to begin. Ask your assistant for recommendations or a plan from a destination, interests and constraints. As you save places, objects and experiences, that record gives later recommendations more personal direction.</p>
-  <p class="pub-p">Recommendations and conversational planning happen in the assistant you connect. Discriminantly holds the durable record: what you save, what you plan, and where each came from. Because the record is independent of any one AI assistant, you can authorize compatible clients to work with the same Discriminantly account. ${esc(C.site.stance.replace(/^Discriminantly is a complete application, and the durable home of your record\. /, ''))}</p>
+  <h2 class="pub-h2" id="no-record-needed-h">Start with a question.</h2>
+  <p class="pub-p">You don’t need anything saved to begin.</p>
+  <p class="pub-p">Ask your connected assistant for restaurant ideas in Kyoto, a weekend plan in Montreal, or a trip built around a few things you like. It can recommend places and arrange them into a plan—even before you’ve saved anything.</p>
 </section>
+${sec('personal', 'Over time', 'Your record makes plans more personal.', `
+  <p class="pub-p">As you save places, things, and check-ins, Discriminantly builds a record of what you’ve noticed and where you’ve been.</p>
+  <p class="pub-p">When you ask for help, your assistant can use that record to make suggestions that fit you better. A plan can use places you’ve already saved, introduce new ideas, or combine both.</p>
+  <p class="pub-p">A recommendation is still just a recommendation until you decide to save it.</p>`)}
 <section class="pub-sec itin-shell pub-shell splash-pair" id="useful" aria-labelledby="useful-h">
   <p class="splash-pair-lead" id="useful-h">What you save becomes useful.</p>
   ${pair1}
   <p class="splash-pair-lead splash-pair-lead-2">Plan naturally.</p>
   ${pair2}
-  <p class="welcome-caption welcome-caption-close">Your record stays in Discriminantly. An assistant you have authorized can recommend and plan from what you ask, retrieve from your record and add to it; what it adds shows up here, recorded as that assistant acting for you. Installation, sign-in, approval behaviour and what each model does with the tools vary by platform, so each has its own page.</p>
 </section>
-<section class="pub-sec" id="faq" aria-labelledby="faq-h">${eyebrow('Questions')}<h2 class="pub-h2" id="faq-h">Before you start.</h2>
-  <dl class="pub-faq">${C.faq.map(([q, a]) => `<div><dt>${esc(q)}</dt><dd>${esc(a)}</dd></div>`).join('')}</dl>
+${sec('stays', 'Not tied to one AI', 'Your record stays in Discriminantly.', `
+  <p class="pub-p">Conversations and planning can happen in the assistant you connect. Discriminantly holds the things you save, the trips you build, and where each came from.</p>
+  <p class="pub-p">Because your record isn’t tied to one AI assistant, you can connect compatible assistants to the same Discriminantly account. ChatGPT, Claude, Muse, and other compatible assistants can work with your record—but none of them owns it.</p>`)}
+${sec('can-do', 'Once connected', 'What the assistant can do.', `
+  <p class="pub-p">Once you authorize an assistant, it can:</p>
+  <ul class="pub-list pub-list-left">
+    <li>Recommend places and things based on what you ask for.</li>
+    <li>Build a trip from a destination, interests, and constraints.</li>
+    <li>Use your saved places and notes to make suggestions more personal.</li>
+    <li>Add places, notes, or plans to Discriminantly when you ask it to.</li>
+  </ul>
+  <p class="pub-p">Anything an assistant adds shows up in Discriminantly as a change made by that assistant on your behalf.</p>`)}
+${sec('control', 'Your say', 'You stay in control.', `
+  <ul class="pub-list pub-list-left">
+    <li>Connect or disconnect an assistant whenever you want.</li>
+    <li>Choose which assistants can access your account.</li>
+    <li>See what it added or changed.</li>
+    <li>Keep your private notes, check-ins, and records private.</li>
+    <li>Decide whether a private place becomes visible in a shared trip.</li>
+  </ul>
+  <p class="fine pub-fine">Installation, sign-in, approvals, and what each model can do vary by platform. Each assistant has its own page with instructions and expectations.</p>`)}
+<section class="pub-sec" id="faq" aria-labelledby="faq-h">${eyebrow('Questions')}<h2 class="pub-h2" id="faq-h">Questions.</h2>
+  <dl class="pub-faq">${C.faq.map(([q, a]) => `<div><dt>${esc(q)}</dt><dd>${paras(a)}</dd></div>`).join('')}</dl>
 </section>
 <section class="pub-sec itin-shell pub-shell" id="platforms" aria-labelledby="platforms-h">${eyebrow('Platforms')}<h2 class="pub-h2" id="platforms-h">Choose your assistant.</h2>
-  <p class="pub-p pub-p-center">Each has its own page: how to connect, what to expect, and where it stands.</p>
+  <p class="pub-p pub-p-center">Each assistant has its own page: how to connect it, what to expect, and where it stands.</p>
   <div class="pub-ai-chips">${C.platforms.map((p) => `<a class="pub-ai-chip" id="${p.key}" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-ai-chip-name">${esc(p.name)}</span><span class="pub-ai-chip-status">${esc(p.chip || p.availability)}</span><span class="pub-ai-chip-go caps">Guide →</span></a>`).join('')}</div>
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
-      description: 'Connect ChatGPT, Claude, Muse or another AI to Discriminantly. No saved record is needed: ask for recommendations or a plan, and what you save sharpens later ones.',
-      h1: 'Use Discriminantly with AI', lede: 'Your record stays here. Once you authorize it, the assistant you already use can recommend and plan from what you ask, draw on your record to sharpen the result, and save what you choose.', body,
+      description: 'Connect the AI assistant you already use—ChatGPT, Claude, Muse or another compatible one—and it can help you find places, make recommendations, and build trips. You can start with an empty account.',
+      h1: 'Use Discriminantly with AI', lede: 'Your saved places and things stay in Discriminantly. Connect the AI assistant you already use, and it can help you find places, make recommendations, and build trips. You can start with an empty account. Ask for a plan for a destination, a type of trip, or a set of interests. As you save more, your own places and notes help future suggestions feel more personal.', body,
       card: '/card/page/ai.png', crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
-      ld: [{ '@type': 'FAQPage', '@id': PUBLIC_ORIGIN + '/ai#faq', mainEntity: C.faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) }, { '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
+      ld: [{ '@type': 'FAQPage', '@id': PUBLIC_ORIGIN + '/ai#faq', mainEntity: C.faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a.replace(/\n\n+/g, ' ') } })) }, { '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
   }
 
   // ---- 5. Platform pages (one template; Muse carries the extra facts) ---------
@@ -452,7 +475,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
     for (const p of C.platforms) L.push(`- **${p.name}** (${PUBLIC_ORIGIN}${p.guide}): ${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.${p.review ? ' ' + p.review + '.' : ''}${p.endpoint ? ' Endpoint ' + p.endpoint + ' (no trailing slash).' : ''}${p.key === 'chatgpt' && PLUGIN() ? ' Plugin page: ' + PLUGIN() + '.' : ''}`);
     L.push('', '## Boundaries', '', ...C.boundaries.map((b) => `- ${b}`), '');
     L.push('## Evidence and control', '', '- Kept, visited, owned and endorsed are separate acts; none implies another.', '- Looked-up facts (a place’s address and map position) are recorded as looked up, apart from member-authored evidence.', '- Recommendations stay recommendations until the member keeps them.', '- Itineraries are plans, not evidence of completed travel.', `- ${C.together.disclosureAgent}`, '- Privacy is per record; AI access is granted by the member and revocable; the application is where records are reviewed, adjusted and removed; provenance identifies who, or which assistant, changed what.', '');
-    L.push('## Frequently asked', '', ...C.faq.map(([q, a]) => `- **${q}** ${a}`), '');
+    L.push('## Frequently asked', '', ...C.faq.map(([q, a]) => `- **${q}** ${a.replace(/\n\n+/g, ' ')}`), '');
     L.push('## Questions these pages answer', '', ...C.questions.map(([qq, href]) => `- ${qq} ${PUBLIC_ORIGIN}${href}`), '');
     L.push('## Record types', '', ...C.objects.map((o) => `- ${o.name}: ${PUBLIC_ORIGIN}${o.href}`), '');
     L.push('## Guides', '', ...C.guides.map((g) => `- ${g.title}: ${PUBLIC_ORIGIN}/guides/${g.slug}`), '');
