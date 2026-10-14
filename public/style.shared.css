@@ -1859,3 +1859,11 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .search-scope { max-width: 24rem; margin: .2rem auto 1.3rem; }
 .search-scope .seg-btn { display: block; text-align: center; text-decoration: none; line-height: 1.2; }
 @media (max-width: 52rem) { .search-scope { max-width: none; margin: .2rem .2rem 1.1rem; } }
+
+/* v2.97: admin confirm dialog */
+.admin-dialog { border: 0; border-radius: 18px; padding: 1.4rem 1.6rem; max-width: 26rem; width: calc(100% - 2rem); box-shadow: 0 20px 60px rgba(0,0,0,.25); background: #fff; color: #1f2028; }
+.admin-dialog::backdrop { background: rgba(20,20,30,.55); backdrop-filter: blur(3px); }
+.admin-dialog-field { display: block; margin: 1rem 0; }
+.admin-dialog-field input { display: block; width: 100%; margin-top: .4rem; padding: .6rem .8rem; font-size: 1rem; border: 1px solid #c9c9d2; border-radius: 10px; }
+.admin-dialog-acts { display: flex; gap: .7rem; justify-content: flex-end; flex-wrap: wrap; margin: 0; }
+.admin-danger { background: #a3232b !important; color: #fff !important; border-color: #a3232b !important; }

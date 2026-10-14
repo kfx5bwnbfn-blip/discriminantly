@@ -3062,6 +3062,9 @@ const DONE = {
   'avatar-set': 'Profile photo updated.',
   'avatar-removed': 'Profile photo removed.',
   'account-deleted': 'Your account and everything in it have been deleted.',
+  'member-deleted': 'The account and everything in it have been deleted. A backup was taken first.',
+  'member-confirm': 'Nothing was deleted: the handle you typed didn\u2019t match.',
+  'member-not-deleted': 'Nothing was deleted. The admin account can\u2019t be deleted here, or the deletion failed; see the log.',
   'conn-revoked': 'Connection revoked. It no longer works.',
   'conn-removed': 'Connection removed.',
   'conns-removed': 'Revoked and expired connections removed.',
@@ -11225,6 +11228,30 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
 
   adminMember(req, res, me, u) {
     const log = memberActivity(u, me, 200);
+    // v2.97: delete the account from here, behind a dialog that names what
+    // goes and asks for the handle typed out. The admin account is refused.
+    const adminDeleteCell = (u) => {
+      if (isAdminUi(u)) return '';
+      const n = (t, w = 'user_id') => { try { return q(`SELECT COUNT(*) n FROM ${t} WHERE ${w}=?`).get(u.id).n; } catch { return 0; } };
+      const held = [['notes', n('objects')], ['travel marks', n('marks')], ['check-ins', n('visits')], ['itineraries', n('itineraries')], ['collections', n('collections')], ['comments', n('comments')], ['AI connections', n('connections')]].filter(([, c]) => c);
+      const what = held.length ? held.map(([l, c]) => `${c} ${c === 1 ? l.replace(/ies$/, 'y').replace(/s$/, '') : l}`).join(', ') : 'no records';
+      return `<div class="wcell wcell-wide" id="member-delete">
+      <p class="sbox-title">Delete this account</p>
+      <p class="sbox-sub">Removes @${esc(u.handle)} and everything in it: ${esc(what)}. A backup of the database is taken first. This can\u2019t be undone from the app.</p>
+      <p class="center"><button type="button" class="btn3d block" data-open-delete>Delete @${esc(u.handle)}\u2026</button></p>
+      <dialog class="admin-dialog" id="delete-dialog">
+        <form method="post" action="/admin/members/${esc(u.handle)}/delete">
+          <p class="sbox-title">Delete @${esc(u.handle)}?</p>
+          <p class="sbox-sub">Their account, ${esc(what)}, and their history go with it. Type the handle to confirm.</p>
+          <label class="admin-dialog-field"><span class="caps">Handle</span><input name="confirm" autocomplete="off" placeholder="${esc(u.handle)}" required></label>
+          <p class="admin-dialog-acts"><button type="button" class="btn3d" data-close-delete>Keep the account</button><button type="submit" class="btn3d btn-solid admin-danger">Delete the account</button></p>
+        </form>
+      </dialog>
+      <script>(function () { var d = document.getElementById('delete-dialog'), o = document.querySelector('[data-open-delete]'), c = document.querySelector('[data-close-delete]'); if (!d || !o) return;
+        o.addEventListener('click', function () { if (d.showModal) d.showModal(); else d.setAttribute('open', ''); d.querySelector('input').focus(); });
+        c.addEventListener('click', function () { d.close ? d.close() : d.removeAttribute('open'); }); })();</script>
+    </div>`;
+    };
     const body = `<h3 class="strip dark-strip">Activity</h3>
 <div class="settings admin-wide">
   <div class="wtable settings-table">
@@ -11245,6 +11272,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         <button class="btn3d block" data-admin-avatar-save style="display:none">Save photo</button>
       </form>
       ${u.avatar ? `<form method="post" action="/admin/members/${esc(u.handle)}/avatar"><input type="hidden" name="remove" value="1"><p class="center"><button class="link caps">Remove photo</button></p></form>` : ''}
+      ${adminDeleteCell(u)}
       <script>
       (function () {
         var f = document.querySelector('#member-photo .admin-avatar-form'); if (!f) return;
@@ -15826,6 +15854,21 @@ async function handle(req, res) {
     if (!okPass) return again('That password isn’t right, so nothing was deleted.');
     try { accountDelete(me.id); } catch (e) { console.error('[account] delete failed', e.message); return again('Your account couldn’t be deleted just now, and nothing was changed. Please try again, or write to support.'); }
     return redirect(res, withDone('/', 'account-deleted'), { 'Set-Cookie': 'sid=; Path=/; Max-Age=0' });
+  }
+  // v2.97: the admin deletes a member's account. Handle typed out; backup first.
+  if ((mt = p.match(/^\/admin\/members\/([a-z0-9]+)\/delete$/)) && m === 'POST') {
+    if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
+    const u = q('SELECT * FROM users WHERE handle=?').get(mt[1]);
+    if (!u) return send(res, 'Not found', 404);
+    const b = await readBody(req);
+    if (isAdminUi(u)) return redirect(res, withDone(`/admin/members/${u.handle}`, 'member-not-deleted'));
+    if (String(b.confirm || '').trim().toLowerCase().replace(/^@/, '') !== u.handle) return redirect(res, withDone(`/admin/members/${u.handle}`, 'member-confirm'));
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      console.log(`[admin] deleting @${u.handle}; backed up to ${backupTo(path.join(path.dirname(DB_PATH), 'backups', `pre-delete-${u.handle}-${stamp}.db`))}`);
+      accountDelete(u.id);
+    } catch (e) { console.error('[admin] delete failed', e.message); return redirect(res, withDone(`/admin/members/${u.handle}`, 'member-not-deleted')); }
+    return redirect(res, withDone('/admin', 'member-deleted'));
   }
   if ((mt = p.match(/^\/admin\/members\/([a-z0-9]+)$/)) && m === 'GET') {
     if (!me || !me.is_admin) return send(res, 'Not allowed', 403);
