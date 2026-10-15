@@ -2062,3 +2062,7 @@ body[data-skin="modern"] .pub-menu-join a { color: var(--m-accent); }
 @media (max-width: 52rem) { .pub-menu-panel { scroll-padding-bottom: 6rem; } .pub-menu-signin { padding-bottom: .5rem; } }
 @media (min-width: 52.01rem) { .pub-menu-panel { max-height: calc(100vh - 5.5rem); overflow: auto; } }
 .pub-menu-signin .pub-menu-label { margin-bottom: .7rem; }
+
+/* v2.104.3: a feed card far off-screen is not drawn; its height is held
+   inline by the feed script, so the page never moves (see farHide). */
+.feed-far { content-visibility: hidden; overflow: hidden; }

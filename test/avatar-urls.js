@@ -22,7 +22,7 @@ const get = (p, sid = '') => fetch(BASE + p, { redirect: 'manual', headers: sid 
   ok('setup: the stored photo is a data: URL over 100 KB', a1.length > 100000, a1.length);
   for (const [name, p] of [['profile', '/u/pic'], ['home feed', '/'], ['activity', '/activity']]) {
     const h = await (await get(p, sid)).text();
-    ok(`${name}: no photo embedded as text; bylines link /avatar/pic?v=…; the page stays small`, !/data:image/.test(h) && /src="\/avatar\/pic\?v=[0-9a-f]{10}"/.test(h) && h.length < 400000, `${h.length} bytes, data: ${(h.match(/data:image/g) || []).length}`);
+    ok(`${name}: no photo embedded as text; bylines link /avatar/pic?v=…; the page stays small`, !/src="data:image/.test(h) && /src="\/avatar\/pic\?v=[0-9a-f]{10}"/.test(h) && h.length < 400000, `${h.length} bytes, data: ${(h.match(/src="data:image/g) || []).length}`);
   }
   const src = ((await (await get('/u/pic', sid)).text()).match(/src="(\/avatar\/pic\?v=[0-9a-f]{10})"/) || [])[1];
   const r = await get(src); const buf = Buffer.from(await r.arrayBuffer()); const meta = await sharp(buf).metadata();

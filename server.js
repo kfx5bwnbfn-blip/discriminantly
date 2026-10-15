@@ -3326,6 +3326,63 @@ function readImage(file, cb) {
       });
     });
   };
+  // v2.104.3: a long feed keeps only what is near the screen alive. A card
+  // more than about two screens away stops being drawn (content-visibility),
+  // holds its exact height so nothing moves, and lets go of its pictures,
+  // which come back from the cache as it nears. On iPhone, every glass card
+  // and every decoded picture costs memory; after a few Show mores the page
+  // flashed white, then iOS closed it. Cards on and near the screen are
+  // untouched, so nothing visible changes.
+  var FAR_BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  var farSeen = typeof WeakSet === 'function' ? new WeakSet() : null, farIO = null;
+  var farHide = function (el) {
+    if (el.classList.contains('feed-far') || el.hidden) return;
+    // never hold a card at a height measured before its pictures arrived:
+    // wait for them, then release it if it is still far away
+    var pending = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete && im.getAttribute('src') && im.getAttribute('src') !== FAR_BLANK; });
+    if (pending.length) {
+      pending.forEach(function (im) { var again = function () { if (el.__far) farHide(el); }; im.addEventListener('load', again, { once: true }); im.addEventListener('error', again, { once: true }); });
+      return;
+    }
+    var h = el.getBoundingClientRect().height; if (!h) return;
+    el.style.height = h + 'px'; el.classList.add('feed-far');
+    el.querySelectorAll('img').forEach(function (im) {
+      if (im.getAttribute('src') === FAR_BLANK || !im.getAttribute('src')) return;
+      im.setAttribute('data-far-src', im.getAttribute('src'));
+      if (im.hasAttribute('srcset')) { im.setAttribute('data-far-set', im.getAttribute('srcset')); im.removeAttribute('srcset'); }
+      im.setAttribute('src', FAR_BLANK);
+    });
+  };
+  var farShow = function (el) {
+    if (!el.classList.contains('feed-far')) return;
+    el.querySelectorAll('img[data-far-src]').forEach(function (im) {
+      if (im.hasAttribute('data-far-set')) { im.setAttribute('srcset', im.getAttribute('data-far-set')); im.removeAttribute('data-far-set'); }
+      im.setAttribute('src', im.getAttribute('data-far-src')); im.removeAttribute('data-far-src');
+    });
+    el.classList.remove('feed-far');
+    // keep the held height until the pictures are back, so a card above the
+    // screen never changes size while it reloads (iOS does not re-anchor)
+    var back = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete; }), n = back.length;
+    var release = function () { if (!el.classList.contains('feed-far')) el.style.height = ''; };
+    if (!n) return release();
+    var done = function () { if (--n <= 0) release(); };
+    back.forEach(function (im) { im.addEventListener('load', done, { once: true }); im.addEventListener('error', done, { once: true }); });
+    setTimeout(release, 4000);
+  };
+  window.feedWindowReset = function () {
+    document.querySelectorAll('.feed-far').forEach(farShow);
+  };
+  var farWatch = function () {
+    if (!farSeen || !('IntersectionObserver' in window)) return;
+    if (!farIO) farIO = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { e.target.__far = !e.isIntersecting; if (e.isIntersecting) farShow(e.target); else farHide(e.target); });
+    }, { rootMargin: '1600px 0px' });
+    document.querySelectorAll('.grid .feed-col > *, .activity-feed .feed-col > *').forEach(function (el) {
+      if (farSeen.has(el)) return; farSeen.add(el); farIO.observe(el);
+    });
+  };
+  var layoutFeedTiles = window.layoutFeed;
+  window.layoutFeed = function () { layoutFeedTiles(); farWatch(); };
   // the grid is further down the page than this script, so wait for parse
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { layoutFeed(); });
   else layoutFeed();
@@ -3338,6 +3395,7 @@ function readImage(file, cb) {
     relayoutW = window.innerWidth;
     clearTimeout(relayoutTimer);
     relayoutTimer = setTimeout(function () {
+      if (window.feedWindowReset) window.feedWindowReset();
       document.querySelectorAll('.grid, .activity-feed').forEach(function (g) { g.__built = false; });
       layoutFeed();
     }, 150);
@@ -3656,6 +3714,7 @@ function readImage(file, cb) {
       }).length;
       if (!notes.length) return;                        // nothing to filter: navigate
       e.preventDefault();
+      if (window.feedWindowReset) window.feedWindowReset();
       links.forEach(function (x) { x.classList.toggle('on', x === a); });
       notes.forEach(function (n) {
         var priv = n.dataset.private === '1';
