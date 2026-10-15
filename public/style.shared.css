@@ -2041,3 +2041,24 @@ body[data-skin="modern"] .pub-menu-list + .pub-menu-label { border-top-color: va
   .is-app body.is-public.is-in .pub-menu-panel { top: var(--bar-h, var(--m-searchbar-h, 52px)); }
   .pub-menu-panel { padding-left: 1.7rem; padding-right: 1.4rem; width: min(22rem, 88vw); }
 }
+
+/* v2.103: sign in from the menu. The form sits where a member's avatar row
+   would, under the navigation; inputs match the glass panel. */
+.pub-menu-signin { margin-top: .9rem; padding-top: .9rem; border-top: 1px solid rgba(127,127,127,.25); }
+.pub-menu-signin .pub-menu-label { margin-bottom: .5rem; }
+.pub-menu-field { display: block; margin: 0 0 .55rem; }
+.pub-menu-field > span { display: block; font-family: var(--slab); font-weight: 600; font-size: .6rem; letter-spacing: .15em; text-transform: uppercase; opacity: .7; margin-bottom: .25rem; }
+.pub-menu-field > input { display: block; width: 100%; box-sizing: border-box; margin: 0; padding: .55rem .7rem; font: inherit; font-size: 16px; line-height: 1.25; border: 1px solid rgba(127,127,127,.35); border-radius: 10px; background: rgba(255,255,255,.55); color: inherit; }
+.pub-menu-field > input:focus { outline: 2px solid currentColor; outline-offset: 1px; }
+.pub-menu-signin .btn3d { width: 100%; margin: .35rem 0 0; }
+.pub-menu-join { margin: .6rem 0 0; font-size: .78rem; opacity: .8; }
+.pub-menu-join a { color: inherit; }
+body[data-skin="modern"] .pub-menu-signin { border-top-color: var(--m-rule); }
+body[data-skin="modern"] .pub-menu-field > span { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .pub-menu-field > input { background: var(--m-glass, rgba(255,255,255,.08)); border-color: var(--m-line); color: var(--m-ink); }
+body[data-skin="modern"] .pub-menu-field > input::placeholder { color: var(--m-ink-2); }
+body[data-skin="modern"] .pub-menu-join { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .pub-menu-join a { color: var(--m-accent); }
+@media (max-width: 52rem) { .pub-menu-panel { scroll-padding-bottom: 6rem; } .pub-menu-signin { padding-bottom: .5rem; } }
+@media (min-width: 52.01rem) { .pub-menu-panel { max-height: calc(100vh - 5.5rem); overflow: auto; } }
+.pub-menu-signin .pub-menu-label { margin-bottom: .7rem; }

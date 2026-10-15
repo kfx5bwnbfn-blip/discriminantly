@@ -29,6 +29,17 @@ function create(d) {
     const item = (n) => `<li><a href="${esc(n.href)}"${cur(n.href)}>${esc(n.label)}</a>${n.children ? `<ul class="pub-menu-chips">${n.children.map((c) => { const p = C.platforms.find((x) => x.guide === c.href); return `<li><a class="pub-menu-chip" href="${esc(c.href)}"${cur(c.href)}>${p ? aiLogo(p.key) : ''}<span>${esc(p ? p.name : c.label)}</span></a></li>`; }).join('')}</ul>` : ''}</li>`;
     const first = C.nav.filter((n) => ['/', '/activity'].includes(n.href)), learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)), rest = C.nav.filter((n) => !first.includes(n) && !learn.includes(n));
     const who = me ? `<a class="pub-menu-me" href="/u/${esc(me.handle)}">${me.avatar ? `<img class="pub-menu-avatar" src="${esc(me.avatar)}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>Open your feed</span></span></a>` : '';
+    // Signed out, the menu carries the sign-in form itself (v2.103): the same
+    // POST /login as the sign-in page, returning to the page they were reading.
+    // No autofocus, so opening the menu never raises the keyboard.
+    const signin = me ? '' : `<form class="pub-menu-signin" method="post" action="/login">
+            <p class="pub-menu-label">Your account</p>
+            <label class="pub-menu-field"><span>Email</span><input name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required></label>
+            <label class="pub-menu-field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+            ${path && path !== '/' ? `<input type="hidden" name="next" value="${esc(path)}">` : ''}
+            <button class="btn3d block">Sign in</button>
+            <p class="pub-menu-join">New here? <a href="/join">Create an account</a></p>
+          </form>`;
     return `<header class="pub-head${home ? ' pub-head-home' : ''}">
   <div class="wrap pub-head-in">
     <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
@@ -44,7 +55,8 @@ function create(d) {
           <ul class="pub-menu-list">${learn.map(item).join('')}</ul>
           <p class="pub-menu-label">About</p>
           <ul class="pub-menu-list">${rest.map(item).join('')}</ul>
-          <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : [C.utility[0]]).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>
+          ${signin}
+          <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : []).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>
         </nav>
       </details>
     </div>

@@ -6001,6 +6001,10 @@ const oauthNext = (n) => { const v = String(n || ''); return /^\/oauth\/authoriz
 // v2.70: an itinerary invitation is the only other place sign-in or sign-up
 // may return to. Internal path, token characters only; no host, no scheme.
 const inviteNext = (n) => { const v = String(n || ''); return /^\/[jsJS]\/[A-Za-z0-9_-]{20,100}$/.test(v) ? v : ''; };
+// v2.103: the sign-in form in the public menu returns to the page it was on.
+// A same-site path only: one leading slash, path characters, no query; never
+// the auth pages or the home page (home is where sign-in lands anyway).
+const pageNext = (n) => { const v = String(n || ''); return /^\/(?!\/)[A-Za-z0-9\-_\/]{1,120}$/.test(v) && !/^\/(login|join|logout|auth|oauth|s|j)(\/|$)/i.test(v) ? v : ''; };
 const signupSourceFor = (next) => {
   // v2.65: from the host of the client's metadata document (its client_id),
   // not words anywhere in it. The real ChatGPT client_id is not yet observed:
@@ -15101,16 +15105,16 @@ async function handle(req, res) {
 
   if (p === '/login') {
     if (m === 'GET') {
-      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')); if (me && (nx || jx)) return redirect(res, nx || jx);
+      const nx = oauthNext(url.searchParams.get('next')), jx = inviteNext(url.searchParams.get('next')), px = pageNext(url.searchParams.get('next')); if (me && (nx || jx || px)) return redirect(res, nx || jx || px);
       const set = [anonCookie(req), sourceCookieFor(req, url)].filter(Boolean); if (set.length) res.setHeader('Set-Cookie', set);
       if (nx) recordEvent(null, 'ai_connection_started', { anon: anonId(req) || (set[0] && set[0].startsWith('aid=') ? set[0].slice(4, set[0].indexOf(';')) : ''), surface: 'signin', meta: { client_host: clientHostOf(nx) }, dedupeMinutes: 30 });
-      return pages.login(req, res, me, '', nx || jx);
+      return pages.login(req, res, me, '', nx || jx || px);
     }
     const b = await readBody(req); const em = (b.email || '').toLowerCase().trim();
     // Throttled before the password is checked, with the same message whether or not the account exists.
-    if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next) || inviteNext(b.next));
+    if (loginBlocked(req, em)) return pages.login(req, res, me, 'Too many sign-in attempts. Please wait a few minutes and try again.', oauthNext(b.next) || inviteNext(b.next) || pageNext(b.next));
     const u = q('SELECT * FROM users WHERE email=?').get(em);
-    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next) || inviteNext(b.next)); }
+    if (!u || !checkPass(b.password || '', u.pass)) { loginFailed(req, em); return pages.login(req, res, me, 'That email and password do not match.', oauthNext(b.next) || inviteNext(b.next) || pageNext(b.next)); }
     loginSucceeded(req, em);
     recordEvent(u.id, 'signed_in', { surface: oauthNext(b.next) ? 'oauth' : 'web' });
     const t = token(); q('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, u.id);
@@ -15118,7 +15122,7 @@ async function handle(req, res) {
     // they meet next (logout, a second tab) do not snap to a different theme
     const lookCookies = [`skin=${skinOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${modeOf(u)}; Path=/; Max-Age=31536000; SameSite=Lax`];
     // back to the authorization that sent them here, if any; otherwise home
-    return redirect(res, oauthNext(b.next) || inviteNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
+    return redirect(res, oauthNext(b.next) || inviteNext(b.next) || pageNext(b.next) || '/', { 'Set-Cookie': [`sid=${t}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${SECURE ? '; Secure' : ''}`, ...lookCookies] });
   }
   // Private product events from the first-run surfaces (v2.65): allow-listed
   // types, bounded values, signed-in members only; dropped silently otherwise.
