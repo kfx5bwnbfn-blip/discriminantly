@@ -266,12 +266,12 @@ const steps = [
 ];
 // The six kinds of record and the control list, in the same plain voice, for /how-it-works.
 const records = [
-  { key: 'note', what: 'A note remembers something you noticed: a product, maker, book, idea, or interest. You can add why it matters to you.', not: 'A note does not mean you own, like, bought, or endorse it.' },
+  { key: 'note', what: 'A note remembers something you noticed: a product, maker, book, idea, or interest. You can add why it matters to you.', not: 'A note does not mean you own, like, bought, or endorse it.', rule: 'Saving something does not purchase or book it.' },
   { key: 'mark', what: 'A place, or Travel Mark, remembers somewhere you might want to go—or somewhere you want to remember: a restaurant, shop, hotel, view, or neighbourhood.', not: 'Saving a place does not mean you’ve been there or recommend it.' },
-  { key: 'checkin', what: 'A check-in records a real visit: when you went, how long you stayed, and anything you want to remember.', not: 'Only you can say you went somewhere. A plan, note, or mention never becomes a check-in automatically.' },
+  { key: 'checkin', what: 'A check-in records a real visit: when you went, how long you stayed, and anything you want to remember.', not: 'Only you can say you went somewhere. A plan, note, or mention never becomes a check-in automatically.', rule: 'A check-in is the only record that means you actually went.' },
   { key: 'collection', what: 'A collection groups related notes and places under a name you choose—like “Kyoto,” “Coffee,” or “Next summer.”', not: 'A collection organizes things. It doesn’t make any claim about them.' },
-  { key: 'itinerary', what: 'An itinerary is a plan: places and ideas arranged into days and stops.', not: 'You can start one from a request, from saved places, or both. You can share it or build it with others. A plan is an intention—not proof that you went.' },
-  { key: 'warrant', what: 'A warrant is a deliberate recommendation: a way of saying, “I stand behind this.”', not: 'You choose when to give one. Liking something, owning it, or visiting it does not automatically create a warrant.' },
+  { key: 'itinerary', what: 'An itinerary is a plan: places and ideas arranged into days and stops.', not: 'You can start one from a request, from saved places, or both. You can share it or build it with others. A plan is an intention—not proof that you went.', rule: 'An itinerary is a plan, not a completed trip.' },
+  { key: 'warrant', what: 'A warrant is a deliberate recommendation: a way of saying, “I stand behind this.”', not: 'You choose when to give one.', rule: 'A recommendation does not mean you own or visited something. A warrant is a deliberate recommendation, not an automatic result of liking, owning, or visiting something.' },
 ];
 const control = {
   items: [
@@ -400,7 +400,7 @@ const questions = [
 ];
 
 // When each editorial page last changed in substance (sitemap lastmod).
-const updated = { '/': '2026-10-14', '/activity': '2026-10-13', '/how-it-works': '2026-10-14', '/notes': '2026-10-14', '/travel-marks': '2026-10-14', '/check-ins': '2026-10-13', '/collections': '2026-10-14', '/itineraries': '2026-10-14', '/warrants': '2026-10-13',
-  '/ai': '2026-10-14', '/ai/chatgpt': '2026-10-14', '/ai/claude': '2026-10-14', '/ai/muse': '2026-10-14', '/ai/other': '2026-10-14', '/guides': '2026-10-14', '/about': '2026-10-14', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-13' };
+const updated = { '/': '2026-10-14', '/activity': '2026-10-13', '/how-it-works': '2026-10-15', '/notes': '2026-10-14', '/travel-marks': '2026-10-14', '/check-ins': '2026-10-13', '/collections': '2026-10-14', '/itineraries': '2026-10-14', '/warrants': '2026-10-13',
+  '/ai': '2026-10-14', '/ai/chatgpt': '2026-10-14', '/ai/claude': '2026-10-14', '/ai/muse': '2026-10-14', '/ai/other': '2026-10-14', '/guides': '2026-10-14', '/about': '2026-10-15', '/agent-guidance': '2026-10-13', '/privacy': '2026-10-13', '/terms': '2026-10-13', '/support': '2026-10-15' };
 
 module.exports = { faq, shots, site, nav, utility, objects, objectPages, platforms, steps, howItWorks, records, control, boundaries, demo, together, guides, questions, updated };

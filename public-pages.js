@@ -241,12 +241,11 @@ ${sec('ai', 'Use it with AI', 'Use the AI you already use.', `
 <section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
   <ol class="pub-prog pub-prog-visual">${C.steps.map((s) => `<li class="pub-prog-step itin-shell pub-shell" id="step-${s.n}"><div class="pub-prog-text"><div class="pub-prog-head"><span class="pub-demo-n">${s.n}</span><span class="pub-prog-verb">${esc(s.verb)}</span></div><h2 class="pub-h3 pub-prog-title">${esc(s.title)}</h2>${paras(s.body)}</div><div class="pub-prog-visual-col">${visuals[s.n]}</div></li>`).join('')}</ol>
 </section>
-${sec('names', 'The names', 'The six kinds of records.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => { const r = C.records.find((x) => x.key === o.key); return `<div class="pub-object"><dt><a href="${o.href}">${esc(o.key === 'mark' ? 'Places' : o.name)}</a></dt><dd>${esc(r.what)} <span class="pub-object-not">${esc(r.not)}</span></dd></div>`; }).join('')}</dl>`)}
+${sec('names', 'The names', 'The six kinds of records.', `<dl class="pub-objects pub-objects-brief">${C.objects.map((o) => { const r = C.records.find((x) => x.key === o.key); return `<div class="pub-object"><dt><a href="${o.href}">${esc(o.key === 'mark' ? 'Places' : o.name)}</a></dt><dd>${esc(r.what)} <span class="pub-object-not">${esc(r.not)}</span>${r.rule ? `<span class="pub-object-rule">${esc(r.rule)}</span>` : ''}</dd></div>`; }).join('')}</dl>`)}
 <section class="pub-sec" id="evidence" aria-labelledby="evidence-h">
   ${eyebrow('Evidence and control')}
   <h2 class="pub-h2" id="evidence-h">You stay in control.</h2>
   <ul class="pub-cols2 pub-ctrl">${C.control.items.map(([h, t], i) => `<li${i === C.control.items.length - 1 ? ' class="pub-ctrl-wide"' : ''}><b>${esc(h)}</b>${t ? ' ' + esc(t) : ''}</li>`).join('')}</ul>
-  <p class="pub-bounds-line" id="boundaries">${esc(C.control.line)}</p>
 </section>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
@@ -476,25 +475,65 @@ ${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">Thi
   }
   const aboutShot = (req, me) => desktopShot(req, me, { light: '/welcome-shot-modern-light.jpg', dark: '/welcome-shot-modern-dark.jpg', alt: 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', caption: 'The All feed on the desktop: members’ public notes, travel marks and plans, with your own private ones visible only to you.' });
   const settingsShot = (req, me) => desktopShot(req, me, { light: '/how/settings-light.jpg', dark: '/how/settings-dark.jpg', webp: true, h: 1175, alt: 'Settings in Discriminantly on the desktop: profile, Look and feel, and Connect to your AI with ChatGPT and Muse connected and the steps for Claude open', caption: 'Settings on the desktop. Connect to your AI lists ChatGPT, Claude, Muse and other clients, each with its own steps, and shows which are connected.' });
+  // About (v2.105): no second splash (the home page already opens with the
+  // mark and wordmark); the standard page head, a strip of facts, the desktop
+  // capture, then identity and intent. Ends with what it is not (Brian, 15 Oct).
+  const ABOUT_NOT = [
+    'Discriminantly is not a social feed built to keep you scrolling.',
+    'It is not an AI company reselling model access or attaching you to one provider.',
+    'It is not a booking site, travel agency, or marketplace.',
+  ];
+  const ABOUT_NOT_IS = 'It is a quiet place to save what you notice, remember where you’ve been, and turn it into plans with the people you choose.';
   function about(req, res, me) {
+    const facts = [['What', 'An independent AI startup'], ['Keeps', 'A personal record of interests, places, travels and plans'], ['Works with', 'ChatGPT, Claude, Muse and other compatible assistants'], ['Closed', '2016'], ['Returned', '2026'], ['Your record', 'Held by Discriminantly; AI access yours to grant and revoke']]
+      .map(([t, d]) => `<div><dt>${esc(t)}</dt><dd>${esc(d)}</dd></div>`).join('');
+    // The 2016 site, from Brian's captures: the welcome page and a note. No member names on either.
+    const shot = (name, alt, ext = 'jpg', w = 1055, h = 829) => `<picture><source type="image/webp" srcset="/about/${name}.webp"><img src="/about/${name}.${ext}" alt="${esc(alt)}" loading="lazy" decoding="async" width="${w}" height="${h}"></picture>`;
+    const original = `<div class="pub-about-originals">
+      <figure class="pub-about-original">${shot('original-welcome', 'The original discriminant.ly welcome page, 2016: “Capture. Discover. Share. the world’s fine and beautiful things”, above the activity feed')}<figcaption>The welcome page, 2016.</figcaption></figure>
+      <figure class="pub-about-original">${shot('original-note', 'A note on the original discriminant.ly, 2016: an article on collecting vintage watches, with its photograph and link')}<figcaption>A note, 2016.</figcaption></figure>
+      <figure class="pub-about-original pub-about-original-tall">${shot('original-post', 'Posting a note on the original discriminant.ly, 2016: a collection, a dropped image, title, comments, hashtags and link, and the Post note button, with the Create a new note tab below', 'png', 740, 1429)}<figcaption>Posting a note, 2016.</figcaption></figure>
+    </div>`;
     const body = `
-<section class="splash pub-splash pub-about-splash" aria-label="Discriminantly">
-  <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
-  <p class="splash-word">${C.site.wordmark}</p>
-  <h1 class="splash-h pub-about-h">About Discriminantly</h1>
-  <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
+<section class="pub-sec itin-shell pub-shell pub-guide-head pub-about-facts" id="facts" aria-labelledby="facts-h">
+  <h2 class="pub-h2 pub-sr" id="facts-h">Facts</h2>
+  <dl class="pub-facts pub-facts-wide">${facts}</dl>
+  <p class="pub-final-acts pub-about-acts">${cta(me)}<a class="link caps" href="/how-it-works">See how it works</a></p>
 </section>
 ${aboutShot(req, me)}
 ${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
 ${sec('why', 'Why it exists', 'You notice things all the time. Most of them get lost.', `<p class="pub-p">A restaurant someone mentions, a shop passed on the way somewhere, a product, a link, an experience worth repeating: people notice useful things continuously, and the ideas end up scattered across chats, screenshots, browser tabs, notes and map pins, where none of them is there the next time they would help. Discriminantly lets you save those things naturally, without another filing system to maintain: tell the AI you already use what is worth saving, in your own words, and it is recorded here with each meaning held exactly. A note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">${esc(C.together.memory)}</p><p class="pub-p">Later, those things turn into recommendations and plans. Because the record is durable and exact, an AI you authorize can draw on it. It can bring back what you saved at different times, combine it with new recommendations, and shape a plan you can share, copy or build with friends. Recommendations shaped by what you have actually saved and experienced are different from recommendations shaped by a guess about you. The record does not belong to any one assistant: connect the compatible one you choose, revoke it when you choose, and see what each one changed. What is private or public is yours to set, record by record.</p>`)}
-${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design preserved as a skin for anyone who wants it.</p>`)}
+${sec('history', 'Where it came from', 'Closed in 2016. Back in 2026.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design preserved as a skin for anyone who wants it.</p>${original}`)}
 ${sec('who', 'Who makes it', 'Made independently.', `<p class="pub-p">${esc(C.site.identity)} It is deliberately built and operated, and is not owned by or tied to any one AI platform. That is what lets the record live in Discriminantly while ChatGPT, Claude, Muse and other compatible assistants work with it as authorized clients, each connected and revoked by the member. It carries no advertising and sells no data. Questions, requests and problems go to the address on the <a href="/support">Support</a> page.</p>`)}
-${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.boundaries.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>`)}
-<section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/privacy">Privacy</a></p></section>`;
-    return page(res, me, req, { path: '/about', title: 'About Discriminantly', description: 'Discriminantly is an independent AI startup that turns the places and things you notice into plans: a personal record you control, used through the compatible AI assistants you choose.', body, cls: 'is-pub-about',
+${sec('not', 'What Discriminantly is not', 'Not a feed. Not a model. Not a marketplace.', `<ul class="pub-list pub-bounds">${ABOUT_NOT.map((b) => `<li>${esc(b)}</li>`).join('')}</ul><p class="pub-rule-line pub-about-is">${esc(ABOUT_NOT_IS)}</p>`, 'itin-shell pub-shell')}`;
+    return page(res, me, req, { path: '/about', title: 'About Discriminantly', h1: 'About Discriminantly', lede: C.site.proposition[0], body, description: 'Discriminantly is an independent AI startup that turns the places and things you notice into plans: a personal record you control, used through the compatible AI assistants you choose.',
       card: '/card/page/about.png', crumbs: [HOME_CRUMB, { name: 'About', href: '/about' }],
       ld: [{ '@type': 'AboutPage', '@id': PUBLIC_ORIGIN + '/about#about', url: PUBLIC_ORIGIN + '/about', name: 'About Discriminantly', about: { '@id': PUBLIC_ORIGIN + '/#org' } },
            { '@id': PUBLIC_ORIGIN + '/#org', description: `${C.site.identityFormal} ${C.site.architecture}` }] });
+  }
+
+  // Support (v2.105): the same approved copy as the policy template carried,
+  // laid out as a contact card, three topic cards and the assistants it
+  // connects to. The server passes the operator's contact and the MCP address.
+  function support(req, res, me, { email, mcpUrl }) {
+    const mail = `<a href="mailto:${esc(email)}">${esc(email)}</a>`;
+    const chips = C.platforms.map((p) => `<a class="pub-ai-chip" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-ai-chip-name">${esc(p.name)}</span></a>`).join('');
+    const topic = (id, icon, h, inner, cls = '') => `<article class="pub-support-card itin-shell pub-shell${cls}" id="${id}" aria-labelledby="${id}-h"><div class="pub-support-ico">${icon}</div><h2 class="pub-h3" id="${id}-h">${h}</h2>${inner}</article>`;
+    const body = `
+<section class="pub-sec pub-support-contact itin-shell pub-shell" id="contact" aria-labelledby="contact-h">
+  ${eyebrow('Contact')}
+  <h2 class="pub-h2" id="contact-h">Write to us.</h2>
+  <p class="pub-p">For help with Discriminantly, write to ${mail}.</p>
+  <p class="pub-final-acts"><a class="btn3d btn-solid pub-cta-big" href="mailto:${esc(email)}">Email support</a></p>
+</section>
+<div class="pub-support-grid">
+${topic('connect', WL_ICON.plan, 'Connecting an AI assistant', `<p class="pub-p">In your AI assistant, add Discriminantly from its apps, plugins or connectors (the name varies by assistant), sign in with your Discriminantly account, and approve access. If it asks for a server address, use <code class="pub-code">${esc(mcpUrl)}</code>. Some services, such as Muse, use a connection key instead: create one in Settings, choosing read-only if you only want the service to read, and give it to that service. The key is shown once.</p><div class="pub-ai-chips pub-support-chips">${chips}</div><p class="pub-fine"><a class="link caps" href="/guides/connect-an-ai-assistant">Step-by-step guide →</a></p>`, ' pub-support-wide')}
+${topic('disconnect', WL_ICON.warrant, 'Disconnecting', `<p class="pub-p">Open Settings, find the service under Connected AI, and choose Revoke. It loses access immediately, and your other connections keep working. If you use a personal connector address, choose Replace connector URL to stop the old address working.</p><p class="pub-fine"><a class="link caps" href="/settings/connections">Open Settings →</a></p>`)}
+${topic('account', WL_ICON.note, 'Your account and data', `<p class="pub-p">You can delete individual notes, marks, check-ins, itineraries and ensembles yourself. To delete your whole account, open Settings, go to Your data, choose Delete my account, and confirm with your handle and password. It happens immediately and cannot be undone. To get a copy of your data, write to ${mail}.</p><p class="pub-fine"><a class="link caps" href="/privacy">Privacy →</a><span aria-hidden="true"> · </span><a class="link caps" href="/terms">Terms →</a></p>`)}
+</div>`;
+    return page(res, me, req, { path: '/support', title: 'Support', fullTitle: 'Support — Discriminantly', h1: 'Help with Discriminantly', lede: 'Connecting an AI, disconnecting, your account and data.', body,
+      description: 'Help with Discriminantly: connecting an AI, disconnecting, your account and data.', card: '/card/page/support.png', crumbs: [HOME_CRUMB, { name: 'Support', href: '/support' }],
+      ld: [{ '@type': 'ContactPage', '@id': PUBLIC_ORIGIN + '/support#contact', url: PUBLIC_ORIGIN + '/support', name: 'Support' }] });
   }
 
   // ---- 8. Machine-readable files, from the same model ---------------------------
@@ -548,7 +587,7 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
     return text(req, res, ['User-agent: *', 'Allow: /', 'Disallow: /settings', 'Disallow: /admin', 'Disallow: /oauth/', 'Disallow: /mcp', 'Disallow: /logout', 'Disallow: /login', 'Disallow: /join', 'Disallow: /j/', 'Disallow: /s/', 'Disallow: /new', '', `Sitemap: ${PUBLIC_ORIGIN}/sitemap.xml`, ''].join('\n'));
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, guide, objectPage, agentGuidance, agentGuidanceText, about, llms, sitemap, robots, header, canonical, OG_IMAGE, cardPages, content: C, cacheHeaders, crumbs: crumbsHtml };
+  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, guide, objectPage, agentGuidance, agentGuidanceText, about, support, llms, sitemap, robots, header, canonical, OG_IMAGE, cardPages, content: C, cacheHeaders, crumbs: crumbsHtml };
 }
 
 module.exports = { create };

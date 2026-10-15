@@ -3046,6 +3046,7 @@ function policyPage(req, res, me, which) {
       P('<a href="/privacy">Privacy</a> \u00b7 <a href="/terms">Terms</a>'),
     ]],
   };
+  if (which === 'support') return PUB().support(req, res, me, { email, mcpUrl: PUBLIC_ORIGIN + '/mcp' });
   const [title, date, parts] = pages[which];
   // v2.88.1: the public header on the policy pages (public-facing; not the feed, not sign-in flows).
   const PP = PUB();
@@ -3291,7 +3292,7 @@ function readImage(file, cb) {
       // gather anything not already parked in a column
       [].slice.call(grid.children).forEach(function (child) {
         if (!child.classList.contains('feed-col')) grid.__items.push(child);
-        else [].slice.call(child.children).forEach(function (g) { if (grid.__items.indexOf(g) < 0) grid.__items.push(g); });
+        else [].slice.call(child.children).forEach(function (g) { if (!g.classList.contains('feed-far') && grid.__items.indexOf(g) < 0) grid.__items.push(g); });
       });
       var MIN = 480, GAP = 32;
       var n = Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN + GAP)));
@@ -3300,6 +3301,7 @@ function readImage(file, cb) {
         var cols = grid.querySelectorAll('.feed-col');
         grid.__items.forEach(function (it) {
           if (it.parentNode && it.parentNode.classList.contains('feed-col')) return;
+          if (it.__ph && it.__ph.parentNode) return;     // out of the page on purpose (feed window)
           var shortest = cols[0];
           for (var i = 1; i < cols.length; i++) if (cols[i].offsetHeight < shortest.offsetHeight) shortest = cols[i];
           shortest.appendChild(it);
@@ -3326,59 +3328,70 @@ function readImage(file, cb) {
       });
     });
   };
-  // v2.104.3: a long feed keeps only what is near the screen alive. A card
-  // more than about two screens away stops being drawn (content-visibility),
-  // holds its exact height so nothing moves, and lets go of its pictures,
-  // which come back from the cache as it nears. On iPhone, every glass card
-  // and every decoded picture costs memory; after a few Show mores the page
-  // flashed white, then iOS closed it. Cards on and near the screen are
+  // v2.104.4 (replaces v2.104.3): a long feed keeps only what is near the
+  // screen in the page. A card more than about two screens away is taken out
+  // of the document and a spacer of exactly its height put in its place, so
+  // nothing moves; its pictures are let go and come back from the cache as it
+  // nears. Taking the card out (not content-visibility, which older iPhones
+  // lack and which freed nothing in measurement) is what returns the memory:
+  // 125 cards, 833 MB -> ~410 MB in Chromium. Cards near the screen are
   // untouched, so nothing visible changes.
   var FAR_BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   var farSeen = typeof WeakSet === 'function' ? new WeakSet() : null, farIO = null;
   var farHide = function (el) {
-    if (el.classList.contains('feed-far') || el.hidden) return;
+    if (el.__ph || el.hidden || !el.parentNode) return;
     // never hold a card at a height measured before its pictures arrived:
-    // wait for them, then release it if it is still far away
-    var pending = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete && im.getAttribute('src') && im.getAttribute('src') !== FAR_BLANK; });
+    // wait for them, then take it out if it is still far away
+    // a picture with declared dimensions already holds its space; only one of
+    // unknown size (hot-linked) can change the card's height when it arrives
+    var pending = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete && im.getAttribute('src') && !(im.getAttribute('width') && im.getAttribute('height')); });
     if (pending.length) {
       pending.forEach(function (im) { var again = function () { if (el.__far) farHide(el); }; im.addEventListener('load', again, { once: true }); im.addEventListener('error', again, { once: true }); });
       return;
     }
     var h = el.getBoundingClientRect().height; if (!h) return;
-    el.style.height = h + 'px'; el.classList.add('feed-far');
+    var ph = document.createElement('div'); ph.className = 'feed-far'; ph.style.height = h + 'px'; ph.__card = el; el.__ph = ph;
     el.querySelectorAll('img').forEach(function (im) {
-      if (im.getAttribute('src') === FAR_BLANK || !im.getAttribute('src')) return;
+      if (!im.getAttribute('src') || im.getAttribute('src') === FAR_BLANK) return;
       im.setAttribute('data-far-src', im.getAttribute('src'));
       if (im.hasAttribute('srcset')) { im.setAttribute('data-far-set', im.getAttribute('srcset')); im.removeAttribute('srcset'); }
       im.setAttribute('src', FAR_BLANK);
     });
+    el.parentNode.replaceChild(ph, el);
+    if (farIO) farIO.observe(ph);
   };
-  var farShow = function (el) {
-    if (!el.classList.contains('feed-far')) return;
+  var farShow = function (ph) {
+    var el = ph.__card; if (!el || !ph.parentNode) return;
     el.querySelectorAll('img[data-far-src]').forEach(function (im) {
       if (im.hasAttribute('data-far-set')) { im.setAttribute('srcset', im.getAttribute('data-far-set')); im.removeAttribute('data-far-set'); }
       im.setAttribute('src', im.getAttribute('data-far-src')); im.removeAttribute('data-far-src');
     });
-    el.classList.remove('feed-far');
-    // keep the held height until the pictures are back, so a card above the
-    // screen never changes size while it reloads (iOS does not re-anchor)
-    var back = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete; }), n = back.length;
-    var release = function () { if (!el.classList.contains('feed-far')) el.style.height = ''; };
+    // keep the spacer's height on the card until its pictures are back, so a
+    // card above the screen never changes size while it reloads
+    el.style.height = ph.style.height; el.__ph = null;
+    if (farIO) farIO.unobserve(ph);
+    ph.parentNode.replaceChild(el, ph);
+    var back = [].filter.call(el.querySelectorAll('img'), function (im) { return !im.complete && !(im.getAttribute('width') && im.getAttribute('height')); }), n = back.length;
+    var release = function () { if (!el.__ph) el.style.height = ''; };
     if (!n) return release();
     var done = function () { if (--n <= 0) release(); };
     back.forEach(function (im) { im.addEventListener('load', done, { once: true }); im.addEventListener('error', done, { once: true }); });
     setTimeout(release, 4000);
   };
   window.feedWindowReset = function () {
-    document.querySelectorAll('.feed-far').forEach(farShow);
+    document.querySelectorAll('.feed-far').forEach(function (ph) { farShow(ph); });
   };
   var farWatch = function () {
     if (!farSeen || !('IntersectionObserver' in window)) return;
     if (!farIO) farIO = new IntersectionObserver(function (es) {
-      es.forEach(function (e) { e.target.__far = !e.isIntersecting; if (e.isIntersecting) farShow(e.target); else farHide(e.target); });
-    }, { rootMargin: '1600px 0px' });
+      es.forEach(function (e) {
+        var t = e.target;
+        if (t.classList.contains('feed-far')) { if (e.isIntersecting) farShow(t); return; }
+        t.__far = !e.isIntersecting; if (!e.isIntersecting) farHide(t);
+      });
+    }, { rootMargin: (matchMedia('(max-width: 52rem)').matches ? 1200 : 1600) + 'px 0px' });   // phones: a tighter window, fewer glass cards alive
     document.querySelectorAll('.grid .feed-col > *, .activity-feed .feed-col > *').forEach(function (el) {
-      if (farSeen.has(el)) return; farSeen.add(el); farIO.observe(el);
+      if (el.classList.contains('feed-far') || farSeen.has(el)) return; farSeen.add(el); farIO.observe(el);
     });
   };
   var layoutFeedTiles = window.layoutFeed;
@@ -4419,9 +4432,23 @@ function rendition(img, w) {
   return job;
 }
 const removeRenditions = (uid) => { for (const w of RENDITION_WIDTHS) { try { fs.unlinkSync(renditionPath(uid, w)); } catch {} } };
-// srcset for an image the server owns; external URLs and anything else get none
+// srcset for an image the server owns; external URLs and anything else get none.
+// v2.104.4: a feed card asks for the 800px rendition on a phone (62vw of a
+// 390pt screen at 3x = 725px, so the browser picks 800w, not 1200w). Every
+// decoded picture costs its pixels x4 bytes for as long as the page lives
+// (~4.3 MB at 1200w, ~1.9 MB at 800w), and a long feed holds many. A record's
+// own page still gets the full-width rendition.
+const FEED_SIZES = '(max-width: 52rem) 62vw, 480px';
 const imgSet = (src, sizes = '(max-width: 52rem) 100vw, 480px') => (sharpLib && /^\/i\/[0-9a-f-]{36}$/i.test(String(src || '')))
-  ? ` srcset="${RENDITION_WIDTHS.map((w) => `${src}?w=${w} ${w}w`).join(', ')}" sizes="${sizes}"` : '';
+  ? ` srcset="${RENDITION_WIDTHS.map((w) => `${src}?w=${w} ${w}w`).join(', ')}" sizes="${sizes}"${imgDims(src)}` : imgDims(src);
+// v2.104.4: a stored picture's size, so the card reserves its space before the
+// picture arrives (no shifting as a feed loads, and a far card's held height
+// is right). CSS still sizes the picture; the attributes only fix the ratio.
+const imgDims = (src) => {
+  const uid = /^\/i\/([0-9a-f-]{36})$/i.exec(String(src || '')); if (!uid) return '';
+  const d = q('SELECT width, height FROM images WHERE uid=?').get(uid[1]);
+  return d && d.width && d.height ? ` width="${d.width}" height="${d.height}"` : '';
+};
 
 // The bytes of an image row, wherever they are.
 function imageBytes(row) {
@@ -4778,7 +4805,7 @@ function markCard(m, me, full = false) {
       <p class="who"><a href="/u/${esc(m.handle)}">${esc(m.handle)}</a> ${m.private ? '<span class="who-private">privately marked</span>' : 'marked'}</p>
       ${cs.length ? `<p class="colls">${cs.map((c) => `<a href="/u/${esc(m.handle)}?tab=marks&c=${c.id}">${esc(c.name)}</a>`).join(' · ')}</p>` : ''}
       <${full ? 'h1' : 'h2'} class="mark-title"><a href="/m/${m.id}">${arcTitle(m.name, m.id)}</a></${full ? 'h1' : 'h2'}>
-      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img loading="lazy" decoding="async" src="${esc(m.image)}"${imgSet(m.image)} alt="${esc(m.name)}"></a>` : ''}
+      ${m.image ? `<a class="mark-photo" href="/m/${m.id}"><img loading="lazy" decoding="async" src="${esc(m.image)}"${imgSet(m.image, full ? undefined : FEED_SIZES)} alt="${esc(m.name)}"></a>` : ''}
       ${placeLine(m) ? `<p class="mark-where">${esc(placeLine(m))}</p>` : ''}
       ${m.address ? `<p class="mark-address">${esc(m.address)}</p>` : ''}
       ${full ? '' : '<div class="mark-more" aria-hidden="true"><div class="mark-more-inner">'}
@@ -9067,7 +9094,7 @@ function objectCard(o, me, full = false) {
         return inner ? `<div class="noteit">${inner}</div>` : '';
       })()}
     </div>
-    ${o.image ? `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image)} alt="${esc(o.name)}"></a>` : ''}
+    ${o.image ? `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)} alt="${esc(o.name)}"></a>` : ''}
     ${(() => {
       // Owned is private evidence: rendered only for the member themselves,
       // and only where they actually have a relationship to the object.
@@ -14793,7 +14820,7 @@ async function handle(req, res) {
     res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' });
     return fs.createReadStream(f).pipe(res);
   }
-  if ((mt = /^\/how\/[a-z-]+\.(jpg|webp)$/.exec(p)) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': mt[1] === 'webp' ? 'image/webp' : 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
+  if ((mt = /^\/(?:how|about)\/[a-z-]+\.(jpg|webp|png)$/.exec(p)) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': mt[1] === 'webp' ? 'image/webp' : mt[1] === 'png' ? 'image/png' : 'image/jpeg', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   // Pass 2: WebP variants of the hero screenshots, generated from the JPEGs.
   if (/^\/welcome-shot-(modern|itin)-(light|dark)(-1000)?\.webp$/.test(p) && fs.existsSync(path.join(__dirname, 'public', p))) { res.writeHead(200, { 'Content-Type': 'image/webp', 'Cache-Control': 'public, max-age=86400' }); return fs.createReadStream(path.join(__dirname, 'public', p)).pipe(res); }
   if (STATIC[p]) {

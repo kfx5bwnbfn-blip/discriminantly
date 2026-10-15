@@ -1742,8 +1742,8 @@ console.log('\nimage renditions');
   ok('RD2 the original is the fallback: no sharp, an unconvertible type, or a failed conversion serves the original', /catch \{ sharpLib = null;/.test(SRC) && /if \(!sharpLib \|\| !img \|\| !RENDITIONABLE\.has\(img\.mime\)/.test(SRC) && /\.catch\(\(e\) => \{ console\.error\(`rendition/.test(SRC));
   ok('RD3 never enlarged, and never larger than the original (except types a browser cannot show)', /withoutEnlargement: true/.test(SRC) && /if \(out\.length >= src\.length && img\.mime !== 'image\/heic'/.test(SRC));
   ok('RD4 renditions are files beside the original, never database rows', /const renditionPath = \(uid, w\) => imagePath\(uid\) \+ `-w\$\{w\}\.webp`;/.test(SRC) && !/INSERT INTO image_renditions/.test(SRC));
-  ok('RD5 cards offer a srcset only for images the server owns', SRC.includes("const imgSet = (src, sizes = '(max-width: 52rem) 100vw, 480px') => (sharpLib && /^\\/i\\/[0-9a-f-]{36}$/i.test(String(src || '')))")
-     && SRC.includes('src="${esc(o.image)}"${imgSet(o.image)}') && SRC.includes('src="${esc(m.image)}"${imgSet(m.image)}'));
+  ok('RD5 cards offer a srcset only for images the server owns (feed cards at the feed sizes, v2.104.4)', SRC.includes("const imgSet = (src, sizes = '(max-width: 52rem) 100vw, 480px') => (sharpLib && /^\\/i\\/[0-9a-f-]{36}$/i.test(String(src || '')))")
+     && SRC.includes('src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)}') && SRC.includes('src="${esc(m.image)}"${imgSet(m.image, full ? undefined : FEED_SIZES)}'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
