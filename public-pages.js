@@ -12,6 +12,7 @@ const C = require('./public-content');
 
 function create(d) {
   const { layout, send, sendZ, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl } = d;
+  const avatarSrc = d.avatarSrc || ((u) => (u && u.avatar) || '');
   const PLUGIN = () => (pluginUrl && pluginUrl()) || '';
   // Structured data shared by every public page. Only facts the pages state.
   const ORG = { '@type': 'Organization', '@id': PUBLIC_ORIGIN + '/#org', name: C.site.name, url: PUBLIC_ORIGIN + '/', logo: { '@type': 'ImageObject', url: PUBLIC_ORIGIN + '/icon-512.png', width: 512, height: 512 } };
@@ -28,7 +29,7 @@ function create(d) {
     const cur = (href) => href === path ? ' aria-current="page"' : '';
     const item = (n) => `<li><a href="${esc(n.href)}"${cur(n.href)}>${esc(n.label)}</a>${n.children ? `<ul class="pub-menu-chips">${n.children.map((c) => { const p = C.platforms.find((x) => x.guide === c.href); return `<li><a class="pub-menu-chip" href="${esc(c.href)}"${cur(c.href)}>${p ? aiLogo(p.key) : ''}<span>${esc(p ? p.name : c.label)}</span></a></li>`; }).join('')}</ul>` : ''}</li>`;
     const first = C.nav.filter((n) => ['/', '/activity'].includes(n.href)), learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)), rest = C.nav.filter((n) => !first.includes(n) && !learn.includes(n));
-    const who = me ? `<a class="pub-menu-me" href="/u/${esc(me.handle)}">${me.avatar ? `<img class="pub-menu-avatar" src="${esc(me.avatar)}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>Open your feed</span></span></a>` : '';
+    const who = me ? `<a class="pub-menu-me" href="/u/${esc(me.handle)}">${me.avatar && avatarSrc(me) ? `<img class="pub-menu-avatar" src="${esc(avatarSrc(me))}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>Open your feed</span></span></a>` : '';
     // Signed out, the menu carries the sign-in form itself (v2.103): the same
     // POST /login as the sign-in page, returning to the page they were reading.
     // No autofocus, so opening the menu never raises the keyboard.

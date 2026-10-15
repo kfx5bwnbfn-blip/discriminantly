@@ -1337,11 +1337,11 @@ console.log('\nadoption');
   ok('K1a the guard sees the single-record reads it allows', raw.length >= 8, String(raw.length));
   ok('K1 every-row reads are single-record lookups only, on the web and behind MCP', lists.length === 0,
      lists.map((m) => m[0].slice(0, 60)).join(' | '));
-  ok('K1b OBJ_SQL and MARK_SQL keep their meaning (every row), for single-record reads',
-     /const OBJ_SQL = 'SELECT o\.\*, u\.handle, u\.name uname, u\.avatar FROM objects o JOIN users u ON u\.id=o\.user_id';/.test(SRC)
-     && /const MARK_SQL = 'SELECT m\.\*, u\.handle, u\.name uname, u\.avatar FROM marks m JOIN users u ON u\.id=m\.user_id';/.test(SRC));
+  ok('K1b OBJ_SQL and MARK_SQL keep their meaning (every row), for single-record reads (author photo as a fingerprint, v2.104.2)',
+     /const OBJ_SQL = 'SELECT o\.\*, u\.handle, u\.name uname, ' \+ AVATAR_COL \+ ' FROM objects o JOIN users u ON u\.id=o\.user_id';/.test(SRC)
+     && /const MARK_SQL = 'SELECT m\.\*, u\.handle, u\.name uname, ' \+ AVATAR_COL \+ ' FROM marks m JOIN users u ON u\.id=m\.user_id';/.test(SRC));
   ok('K1c the projection constants read the adopted views',
-     /const ADOPTED_OBJ_SQL = '[^']*FROM adopted_objects o /.test(SRC) && /const ADOPTED_MARK_SQL = '[^']*FROM adopted_marks m /.test(SRC));
+     /const ADOPTED_OBJ_SQL = '[^']*' \+ AVATAR_COL \+ ' FROM adopted_objects o /.test(SRC) && /const ADOPTED_MARK_SQL = '[^']*' \+ AVATAR_COL \+ ' FROM adopted_marks m /.test(SRC));
 
   // K1d: the submitted MCP corpus reads, behind their unchanged contracts
   const tool = (n) => SRC.slice(SRC.indexOf(`if (name === '${n}')`), SRC.indexOf('\n  if (name ===', SRC.indexOf(`if (name === '${n}')`) + 10));

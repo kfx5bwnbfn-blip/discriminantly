@@ -1709,7 +1709,22 @@ if (process.argv.includes('--backup')) {
 // to run again. Bounded, since a few queries build their SQL from lists.
 const Q_CACHE = new Map();
 const q = (sql) => { let st = Q_CACHE.get(sql); if (!st) { if (Q_CACHE.size >= 1500) Q_CACHE.clear(); st = db.prepare(sql); Q_CACHE.set(sql, st); } return st; };
-const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="" loading="lazy" decoding="async">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
+// v2.104.2: an uploaded profile photo is stored as a data: URL. Written into
+// every byline it made a 25-card feed 7 MB and crashed iOS after a few "Show
+// more"s. Pages now link to /avatar/<handle>, a small cached rendition, keyed
+// by a fingerprint of the stored photo so a new photo gets a new address.
+// Feed queries select only that fingerprint (AVATAR_COL), never the photo.
+const avatarFp = (a) => a.startsWith('avref:') ? a.slice(6) : a.length + ':' + a.slice(-24);
+const avatarSrc = (u) => {
+  const a = String((u && u.avatar) || '');
+  if (!a) return '';
+  if ((a.startsWith('data:') || a.startsWith('avref:')) && u.handle)
+    return `/avatar/${encodeURIComponent(u.handle)}?v=${crypto.createHash('sha1').update(avatarFp(a)).digest('hex').slice(0, 10)}`;
+  return a.startsWith('avref:') ? '' : a;
+};
+const AVATAR_CACHE = new Map();
+const AVATAR_COL = "CASE WHEN u.avatar LIKE 'data:%' THEN 'avref:' || length(u.avatar) || ':' || substr(u.avatar, -24) ELSE u.avatar END avatar";
+const avatar = (u, cls = 'avatar') => avatarSrc(u) ? `<img class="${cls}" src="${esc(avatarSrc(u))}" alt="" loading="lazy" decoding="async">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
 // Collections organise the member's OWN Notes. The delete is scoped to this
 // member's collections: the previous unscoped `DELETE ... WHERE object_id=?`
@@ -4194,8 +4209,8 @@ function emptyState(me, kind, subject = null) {
 // ---------- travel marks ----------
 // As OBJ_SQL below: MARK_SQL is every row, for single-record reads;
 // ADOPTED_MARK_SQL is the member's corpus.
-const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM marks m JOIN users u ON u.id=m.user_id';
-const ADOPTED_MARK_SQL = 'SELECT m.*, u.handle, u.name uname, u.avatar FROM adopted_marks m JOIN users u ON u.id=m.user_id';
+const MARK_SQL = 'SELECT m.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM marks m JOIN users u ON u.id=m.user_id';
+const ADOPTED_MARK_SQL = 'SELECT m.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM adopted_marks m JOIN users u ON u.id=m.user_id';
 const markCollections = (id) => q('SELECT c.id, c.name FROM mark_collections mc JOIN collections c ON c.id=mc.collection_id WHERE mc.mark_id=? ORDER BY c.name').all(id);
 // Undated visits have no position in time, so they follow every dated one.
 const markVisits = (id) => q('SELECT v.*, u.handle FROM visits v JOIN users u ON u.id=v.user_id WHERE v.mark_id=? ORDER BY v.date_known DESC, v.visited_on DESC, v.id DESC').all(id);
@@ -8904,8 +8919,8 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
 // or uid, which is then shown through canView('object', ...). Everything that
 // lists, counts, searches or publishes the member's corpus, on the web and
 // behind the submitted MCP tools alike, reads ADOPTED_OBJ_SQL (test K1).
-const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM objects o JOIN users u ON u.id=o.user_id';
-const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, u.avatar FROM adopted_objects o JOIN users u ON u.id=o.user_id';
+const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM objects o JOIN users u ON u.id=o.user_id';
+const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM adopted_objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
 // is social metadata about the announcement, not part of what a warrant means.
@@ -11813,7 +11828,7 @@ async function cardSpec(key) {
 
 // Public pages (review build) share the app's layout, skins and icons.
 let PUB_ = null;
-const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, sendZ, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, pluginUrl: () => (process.env.CHATGPT_PLUGIN_URL || '').trim() }));
+const PUB = () => PUB_ || (PUB_ = require('./public-pages').create({ layout, send, sendZ, esc, PUBLIC_ORIGIN, skinOf, modeOf, aiLogo, WL_ICON, avatarSrc, pluginUrl: () => (process.env.CHATGPT_PLUGIN_URL || '').trim() }));
 
 // ---------- MCP endpoint (Streamable HTTP, JSON-RPC) ----------
 // One shared description for every `image` parameter, so the warning can't
@@ -14686,6 +14701,26 @@ async function handle(req, res) {
   }
   // v2.72.2: the AI platforms' own marks for the Welcome card, dropped into
   // public/ai-logos/ from each brand's kit (see aiLogo). Fixed names only.
+  // v2.104.2: a member's uploaded photo as a small cached image (see avatarSrc).
+  if ((mt = p.match(/^\/avatar\/([^/]{1,64})$/)) && m === 'GET') {
+    const u = q('SELECT handle, avatar FROM users WHERE handle=?').get(decodeURIComponent(mt[1]));
+    const a = u ? String(u.avatar || '') : '';
+    if (!a) return send(res, 'Not found', 404);
+    if (!a.startsWith('data:')) { res.writeHead(302, { Location: a, 'Cache-Control': 'public, max-age=300' }); return res.end(); }
+    const fp = avatarFp(a), hit = AVATAR_CACHE.get(u.handle);
+    let out = hit && hit.fp === fp ? hit : null;
+    if (!out) {
+      const dm = /^data:(image\/[a-z+.-]+);base64,(.*)$/s.exec(a);
+      if (!dm) return send(res, 'Not found', 404);
+      let buf = Buffer.from(dm[2], 'base64'), type = dm[1];
+      if (sharpLib) { try { buf = await sharpLib(buf).rotate().resize(320, 320, { fit: 'cover' }).webp({ quality: 82 }).toBuffer(); type = 'image/webp'; } catch {} }
+      out = { fp, buf, type }; AVATAR_CACHE.set(u.handle, out);
+      if (AVATAR_CACHE.size > 500) AVATAR_CACHE.delete(AVATAR_CACHE.keys().next().value);
+    }
+    res.writeHead(200, { 'Content-Type': out.type, 'Content-Length': out.buf.length,
+      'Cache-Control': url.searchParams.has('v') ? 'public, max-age=31536000, immutable' : 'public, max-age=300' });
+    return res.end(out.buf);
+  }
   if ((mt = p.match(/^\/ai-logos\/(chatgpt|claude|muse|other)\.(svg|png|webp)$/))) {
     const f = path.join(AI_LOGO_DIR, `${mt[1]}.${mt[2]}`);
     if (!fs.existsSync(f)) return send(res, 'Not found', 404);
