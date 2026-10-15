@@ -87,10 +87,15 @@ function create(d) {
   // Public editorial HTML may be cached by shared caches only for signed-out
   // visitors; a signed-in render (its header says Open Discriminantly) never is.
   const cacheHeaders = (me) => me ? { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Accept-Encoding' } : { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600', Vary: 'Cookie, Accept-Encoding' };
-  const page = (res, me, req, { path, title, fullTitle = null, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [], card = null }) => {
+  // A phone capture above a page's headline (v2.101): the page's first image,
+  // loaded eagerly, with its caption and an ImageObject of its own.
+  const heroShot = (key) => { const s = C.shots[key]; if (!s) return '';
+    return `<figure class="pub-shot pub-shot-phone pub-shot-app pub-hero-shot"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/${s.file}.webp"><img src="/how/${s.file}.jpg" alt="${esc(s.alt)}" width="${s.w}" height="${s.h}" fetchpriority="high" decoding="async"></picture></span></span><figcaption class="welcome-caption pub-shot-cap">${esc(s.caption)}</figcaption></figure>`; };
+  const page = (res, me, req, { path, title, fullTitle = null, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [], card = null, hero = null }) => {
+    if (hero) ld = [...ld, ...shotsLd([hero])];
     const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: fullTitle || title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
     return (sendZ ? sendZ.bind(null, req) : send)(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
-      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
+      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
       pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home }) } }), 200, cacheHeaders(me));
   };
 
@@ -136,7 +141,7 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
   <h2 class="pub-h2" id="keep-h">${esc(C.site.save.h2)}</h2>
   ${C.site.save.body.map((t) => `<p class="pub-p pub-keep-intro">${esc(t)}</p>`).join('')}
   <p class="pub-p pub-keep-intro pub-keep-capture">${esc(C.site.save.line)}</p>
-  <ul class="pub-keep-grid">${C.objects.map((o) => `<li class="pub-keep-item" id="keep-${o.key}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name"><a href="${o.href}">${esc(o.name)}</a></span><span class="pub-keep-short">${short[o.key]}</span></li>`).join('')}</ul>
+  <ul class="pub-keep-grid">${C.objects.map((o) => { const pv = C.shots[(C.objectPages[o.key] || {}).shots ? C.objectPages[o.key].shots[0] : '']; return `<li class="pub-keep-item" id="keep-${o.key}"><a class="pub-keep-link" href="${o.href}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name">${esc(o.name)}</span></a><span class="pub-keep-short">${short[o.key]}</span>${pv ? `<span class="pub-keep-preview" aria-hidden="true"><img src="/how/${pv.file}.webp" alt="" width="${pv.w}" height="${pv.h}" loading="lazy" decoding="async"></span>` : ''}</li>`; }).join('')}</ul>
 </section>
 
 ${sec('useful', 'What you keep becomes useful', 'Save it now. Plan with it later.', `
@@ -184,20 +189,21 @@ ${sec('ai', 'Use it with AI', 'Use the AI you already use.', `
   // screenshots where one exists, otherwise an illustrative tile.
   function howItWorks(req, res, me) {
     const sk = skinOf(me, req), md = modeOf(me, req);
-    const shot = (name, alt, w, h) => {
+    const cap = (n) => esc((C.steps.find((s) => s.n === n) || {}).caption || 'From the application');
+    const shot = (name, alt, w, h, n) => {
       const L = `/how/${name}-light.jpg`, D = `/how/${name}-dark.jpg`;
       const img = sk !== 'modern' ? `<img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : md === 'light' ? `<img src="${L}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : md === 'dark' ? `<img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy">` : `<picture><source srcset="${L}" media="(prefers-color-scheme: light)"><img src="${D}" alt="${alt}" width="${w}" height="${h}" loading="lazy"></picture>`;
-      return `<figure class="pub-shot"><div class="pub-shot-frame">${img}</div><figcaption class="welcome-caption">From the application</figcaption></figure>`;
+      return `<figure class="pub-shot"><div class="pub-shot-frame">${img}</div><figcaption class="welcome-caption pub-step-cap">${n ? cap(n) : 'From the application'}</figcaption></figure>`;
     };
     const tile = (kind, title, meta, lines) => `<figure class="pub-shot pub-shot-tile"><div class="pub-demo-tile pub-demo-app"><span class="lbl">${kind}</span><span class="pub-demo-title">${title}</span><span class="pub-demo-meta">${meta}</span>${lines.map((l) => `<span class="pub-demo-why">${l}</span>`).join('')}</div><figcaption class="welcome-caption">Illustrative example</figcaption></figure>`;
     const visuals = {
-      1: shot('notice', 'A note: a pour-over kettle, with the member’s reason for saving it, its tags and a link', 630, 615),
-      2: `<figure class="pub-shot pub-shot-phone pub-shot-app"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/phone-travel-mark-private.webp"><img src="/how/phone-travel-mark-private.jpg" alt="${esc(C.shots['travel-mark-private'].alt)}" width="720" height="1247" loading="lazy" decoding="async"></picture></span></span><figcaption class="welcome-caption">From the application</figcaption></figure>`,
-      3: shot('experience', 'A check-in on that mark: the date, and what the member said about the visit', 465, 280),
-      4: shot('organize', 'A row of collections, each with its count: bass fishing, coffee, culinary, fly fishing, fragrance, golf', 1450, 190),
-      5: shot('compose', 'An itinerary, Osaka and Kyoto in June: Day 1 and its first stop', 620, 610),
-      6: shot('together', 'The same plan’s map, every stop pinned', 710, 700),
-      7: `<figure class="pub-shot pub-shot-phone"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><img src="/how/ai.jpg" alt="A trip planned in a conversation with an AI, from places saved in Discriminantly" width="900" height="1150" loading="lazy"></span></span><figcaption class="welcome-caption">From a conversation</figcaption></figure>`,
+      1: shot('notice', 'A note: a pour-over kettle, with the member’s reason for saving it, its tags and a link', 630, 615, 1),
+      2: `<figure class="pub-shot pub-shot-phone pub-shot-app"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/phone-travel-mark-private.webp"><img src="/how/phone-travel-mark-private.jpg" alt="${esc(C.shots['travel-mark-private'].alt)}" width="720" height="1247" loading="lazy" decoding="async"></picture></span></span><figcaption class="welcome-caption pub-step-cap">${cap(2)}</figcaption></figure>`,
+      3: shot('experience', 'A check-in on that mark: the date, and what the member said about the visit', 465, 280, 3),
+      4: shot('organize', 'A row of collections, each with its count: bass fishing, coffee, culinary, fly fishing, fragrance, golf', 1450, 190, 4),
+      5: shot('compose', 'An itinerary, Osaka and Kyoto in June: Day 1 and its first stop', 620, 610, 5),
+      6: shot('together', 'The same plan’s map, every stop pinned', 710, 700, 6),
+      7: `<figure class="pub-shot pub-shot-phone"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><img src="/how/ai.jpg" alt="A trip planned in a conversation with an AI, from places saved in Discriminantly" width="900" height="1150" loading="lazy"></span></span><figcaption class="welcome-caption pub-step-cap">${cap(7)}</figcaption></figure>`,
     };
     const body = `
 <section class="pub-sec pub-shell-plain" id="progression" aria-label="The progression">
@@ -213,7 +219,7 @@ ${sec('names', 'The names', 'The six kinds of records.', `<dl class="pub-objects
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">Use with AI</a></p></section>`;
     return page(res, me, req, { path: '/how-it-works', title: 'How Discriminantly works',
       description: 'Save the places and things you notice, remember where you’ve been, and turn it all into trips you can share or plan with friends. Seven steps, the six kinds of records, and how you stay in control.',
-      h1: 'How Discriminantly works', lede: `${C.howItWorks.lede} ${C.howItWorks.start}`, body,
+      h1: 'How Discriminantly works', lede: `${C.howItWorks.lede} ${C.howItWorks.start}`, body, hero: 'itinerary-phoenix',
       card: '/card/page/how-it-works.png', crumbs: [HOME_CRUMB, { name: 'How it works', href: '/how-it-works' }],
       ld: [{ '@type': 'HowTo', name: 'How Discriminantly works', description: `${C.howItWorks.lede} ${C.howItWorks.start}`, step: C.steps.map((st) => ({ '@type': 'HowToStep', position: st.n, name: `${st.verb}: ${st.title}`, text: st.body.replace(/\*\*/g, '').replace(/\n\n+/g, ' '), url: PUBLIC_ORIGIN + '/how-it-works#step-' + st.n })) }] });
   }
@@ -304,7 +310,7 @@ ${sec('control', 'Your say', 'You stay in control.', `
     return page(res, me, req, { path: '/ai', title: 'Use with AI',
       description: 'Connect the AI assistant you already use—ChatGPT, Claude, Muse or another compatible one—and it can help you find places, make recommendations, and build trips. You can start with an empty account.',
       h1: 'Use Discriminantly with AI', lede: 'Your saved places and things stay in Discriminantly. Connect the AI assistant you already use, and it can help you find places, make recommendations, and build trips. You can start with an empty account. Ask for a plan for a destination, a type of trip, or a set of interests. As you save more, your own places and notes help future suggestions feel more personal.', body,
-      card: '/card/page/ai.png', crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }],
+      card: '/card/page/ai.png', crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }], hero: 'settings-connect',
       ld: [{ '@type': 'FAQPage', '@id': PUBLIC_ORIGIN + '/ai#faq', mainEntity: C.faq.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a.replace(/\n\n+/g, ' ') } })) }, { '@type': 'ItemList', name: 'AI clients', itemListElement: C.platforms.map((p, i) => ({ '@type': 'ListItem', position: i + 1, name: p.name, url: PUBLIC_ORIGIN + p.guide, description: `${p.availability}. ${p.method}. ${p.auth}. ${p.directory}.` })) }] });
   }
 
@@ -330,7 +336,7 @@ ${sec('control', 'Your say', 'You stay in control.', `
   <h2 class="pub-h2" id="facts-h">The facts.</h2>
   <dl class="pub-facts pub-facts-wide">${facts}</dl>
 </section>
-${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}`)}
+${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}${key === 'muse' ? settingsShot(req, me) : ''}`)}
 ${p.asks ? sec('ask', 'What you can ask', 'Start from a request, use your record, save what matters.', `<p class="pub-p">An empty account can begin with recommendations and planning; it simply has no records of yours to contribute yet. As you save things, requests can draw on them.</p><dl class="pub-asks">${p.asks.map(([h, t]) => `<div><dt>${esc(h)}</dt><dd><blockquote class="pub-quote"><p>${esc(t)}</p></blockquote></dd></div>`).join('')}</dl><p class="fine pub-fine">Suggested places stay recommendations until you keep them. A plan is not a record of going.${p.asksNote ? ' ' + esc(p.asksNote) : ''}</p>`) : ''}
 ${p.verify ? sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once ${key === 'chatgpt' ? 'the plugin is connected' : 'the connector is in place'}, send ${esc(p.name)} this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote>${p.verifyExpect ? `<h3 class="pub-h3">What you should see</h3><p class="pub-p">${esc(p.verifyExpect)}</p><h3 class="pub-h3">If access is refused or nothing comes back</h3><ul class="pub-list">${p.trouble.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><h3 class="pub-h3">Disconnecting</h3><p class="pub-p">${esc(p.revoke)}</p>` : `<p class="pub-p">${esc(p.name)} should list the travel marks you have saved, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`}${p.lastTested ? `<p class="pub-tested"><span class="lbl">Last tested</span> <time>${esc(p.lastTested)}</time>, by ${esc(p.lastTestedBy || 'Discriminantly')}: ${esc(p.lastTestedBasis)}.</p>` : ''}${p.reviewNote ? `<p class="fine pub-fine">${esc(p.reviewNote)}</p>` : ''}`) : ''}
 ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>${p.provenance ? esc(p.provenance) : `What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.`}</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them. The one disclosed exception is a private travel mark used as a stop in a plan you share, whose name and address may appear to collaborators after you confirm.</li></ul>`)}
@@ -354,7 +360,7 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
     const body = `${sec('list', 'Guides', 'Things you do in Discriminantly.', `<ul class="pub-list pub-guides">${C.guides.map((g) => `<li><a href="/guides/${g.slug}">${esc(g.title)}</a> — ${esc(g.q)}</li>`).join('')}</ul>`)}
 ${sec('records', 'The records', 'What each kind of record means.', `<ul class="pub-list pub-guides">${C.objects.map((o) => `<li><a href="${o.href}">${esc(o.name)}</a> — ${esc(o.what)}</li>`).join('')}</ul>`)}`;
     return page(res, me, req, { path: '/guides', title: 'Guides', description: 'Guides to working in Discriminantly: save objects and interests, remember places without claiming a visit, plan a trip from what you have saved, share or build an itinerary together, connect an AI assistant.', h1: 'Guides', lede: 'Short, plain guides to the things you do here, each answering one question.', body,
-      card: '/card/page/guides.png', crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }],
+      card: '/card/page/guides.png', crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }], hero: 'new-note',
       ld: [{ '@type': 'ItemList', name: 'Guides', itemListElement: C.guides.map((g, i) => ({ '@type': 'ListItem', position: i + 1, name: g.title, url: PUBLIC_ORIGIN + '/guides/' + g.slug })) }] });
   }
   function guide(slug) {
@@ -362,10 +368,12 @@ ${sec('records', 'The records', 'What each kind of record means.', `<ul class="p
     return (req, res, me) => {
       const body = `
 ${sec('answer', 'The short answer', esc(g.q), `<p class="pub-p pub-answer">${esc(g.answer)}</p>`, 'itin-shell pub-shell')}
+${g.slug === 'connect-an-ai-assistant' ? settingsShot(req, me) : ''}
 ${g.sections.map(([h, t], i) => sec('s' + (i + 1), '', esc(h), `<p class="pub-p">${esc(t)}</p>`)).join('')}
 ${g.shots ? sec('shots', 'In the application', 'What it looks like on a phone.', phoneRow(g.shots), 'itin-shell pub-shell') : ''}
 ${g.example ? sec('example', 'An example', 'What it looks like.', `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(g.example.kind)}</span><span class="pub-demo-title">${esc(g.example.title)}</span><span class="pub-demo-meta">${esc(g.example.meta)}</span><span class="pub-demo-why">${esc(g.example.why)}</span></div>`, 'itin-shell pub-shell') : ''}
 ${sec('more', 'Related', 'Where to read on.', `<ul class="pub-list pub-guides">${g.links.map(([h, l]) => `<li><a href="${esc(h)}">${esc(l)}</a></li>`).join('')}</ul>`)}
+<p class="fine pub-fine pub-updated">Last updated <time datetime="${esc(updatedOn('/guides/' + g.slug))}">${esc(longDate(updatedOn('/guides/' + g.slug)))}</time>.</p>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/guides">All guides</a></p></section>`;
       return page(res, me, req, { path: '/guides/' + g.slug, title: g.title, description: g.desc || metaDesc(g.answer), h1: g.title, lede: g.q, body,
         card: `/card/page/guide-${g.slug}.png`, crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }, { name: g.title, href: '/guides/' + g.slug }],
@@ -423,6 +431,18 @@ ${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">Thi
   }
 
   // ---- 7. About ----------------------------------------------------------------
+  // A framed desktop capture (light and dark variants, chosen like the
+  // homepage's), with a caption. `base` names /how/<base>-(light|dark).(jpg|webp)
+  // or an absolute pair.
+  function desktopShot(req, me, { light, dark, webp = null, alt, caption, w = 2000, h = 1174 }) {
+    const sk = skinOf(me, req), md = modeOf(me, req);
+    const img = (src) => `<img src="${src}" alt="${esc(alt)}" width="${w}" height="${h}" loading="lazy" decoding="async">`;
+    const one = (src) => webp ? `<picture><source type="image/webp" srcset="${src.replace(/\.jpg$/, '.webp')}">${img(src)}</picture>` : img(src);
+    const pic = sk !== 'modern' ? one(dark) : md === 'light' ? one(light) : md === 'dark' ? one(dark) : `<picture>${webp ? `<source type="image/webp" srcset="${light.replace(/\.jpg$/, '.webp')}" media="(prefers-color-scheme: light)">` : ''}<source srcset="${light}" media="(prefers-color-scheme: light)">${webp ? `<source type="image/webp" srcset="${dark.replace(/\.jpg$/, '.webp')}">` : ''}${img(dark)}</picture>`;
+    return `<figure class="pub-about-shot pub-desktop-shot"><div class="shot-wrap"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${pic}</div></div><figcaption class="welcome-caption pub-shot-cap">${esc(caption)}</figcaption></figure>`;
+  }
+  const aboutShot = (req, me) => desktopShot(req, me, { light: '/welcome-shot-modern-light.jpg', dark: '/welcome-shot-modern-dark.jpg', alt: 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', caption: 'The All feed on the desktop: members’ public notes, travel marks and plans, with your own private ones visible only to you.' });
+  const settingsShot = (req, me) => desktopShot(req, me, { light: '/how/settings-light.jpg', dark: '/how/settings-dark.jpg', webp: true, h: 1175, alt: 'Settings in Discriminantly on the desktop: profile, Look and feel, and Connect to your AI with ChatGPT and Muse connected and the steps for Claude open', caption: 'Settings on the desktop. Connect to your AI lists ChatGPT, Claude, Muse and other clients, each with its own steps, and shows which are connected.' });
   function about(req, res, me) {
     const body = `
 <section class="splash pub-splash pub-about-splash" aria-label="Discriminantly">
@@ -431,6 +451,7 @@ ${sec('text', 'Plain text', 'The same guidance, as text.', `<p class="pub-p">Thi
   <h1 class="splash-h pub-about-h">About Discriminantly</h1>
   <p class="splash-sub pub-prop-1">${esc(C.site.proposition[0])}</p>
 </section>
+${aboutShot(req, me)}
 ${sec('what', 'What it is', 'A record, not a feed.', `<p class="pub-p">${esc(C.site.proposition[1])}</p><p class="pub-p">${esc(C.site.stance)}</p>`, 'itin-shell pub-shell')}
 ${sec('why', 'Why it exists', 'You notice things all the time. Most of them get lost.', `<p class="pub-p">A restaurant someone mentions, a shop passed on the way somewhere, a product, a link, an experience worth repeating: people notice useful things continuously, and the ideas end up scattered across chats, screenshots, browser tabs, notes and map pins, where none of them is there the next time they would help. Discriminantly lets you save those things naturally, without another filing system to maintain: tell the AI you already use what is worth saving, in your own words, and it is recorded here with each meaning held exactly. A note is a thing worth remembering, a mark is a place, a check-in is a visit, a warrant is an endorsement. Nothing is assumed from anything else.</p><p class="pub-p">${esc(C.together.memory)}</p><p class="pub-p">Later, those things turn into recommendations and plans. Because the record is durable and exact, an AI you authorize can draw on it. It can bring back what you saved at different times, combine it with new recommendations, and shape a plan you can share, copy or build with friends. Recommendations shaped by what you have actually saved and experienced are different from recommendations shaped by a guess about you. The record does not belong to any one assistant: connect the compatible one you choose, revoke it when you choose, and see what each one changed. What is private or public is yours to set, record by record.</p>`)}
 ${sec('history', 'Where it came from', 'Twice made.', `<p class="pub-p">Discriminantly began as a small community for noting fine things and the people who made them. It closed in 2016. It returned in 2026, rebuilt around the member’s own record and the AI they already use, with the original design preserved as a skin for anyone who wants it.</p>`)}
@@ -448,6 +469,8 @@ ${sec('not', 'What it is not', 'Plainly.', `<ul class="pub-list pub-bounds">${C.
   // collections, itineraries, ensembles) and the activity feed built from them
   // never enter the sitemap or llms.txt (Brian, 14 Oct 2026).
   const PUBLIC_PATHS = ['/', '/how-it-works', '/notes', '/travel-marks', '/check-ins', '/collections', '/itineraries', '/warrants', '/ai', '/ai/chatgpt', '/ai/claude', '/ai/muse', '/ai/other', '/guides', ...C.guides.map((g) => '/guides/' + g.slug), '/about', '/agent-guidance', '/privacy', '/terms', '/support'];
+  const updatedOn = (p) => C.updated[p] || C.updated[p.replace(/\/guides\/.*/, '/guides')] || '2026-10-13';
+  const longDate = (iso) => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
   const text = (req, res, body, type = 'text/plain; charset=utf-8') => (sendZ ? sendZ.bind(null, req) : send)(res, body, 200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=3600', Vary: 'Accept-Encoding' });
   // Card specs for the editorial pages, by key.
   const cardPages = Object.assign({

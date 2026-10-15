@@ -1883,3 +1883,41 @@ body.is-public.is-in .pub-head { top: var(--bar-h, var(--searchbar-h, 65px)); z-
 .is-public .pub-list-left li { margin-bottom: .35rem; line-height: 1.55; }
 .pub-faq dd .pub-p { margin: 0 0 .5rem; }
 .pub-faq dd .pub-p:last-child { margin-bottom: 0; }
+
+/* v2.101: a phone capture above a page's headline */
+.pub-hero-with-shot { max-width: 44rem; }
+.pub-hero-shot { margin: 0 auto 1.6rem; max-width: 17rem; }
+.pub-hero-shot .pub-shot-cap { margin-top: .9rem; font-size: .9rem; line-height: 1.5; }
+@media (max-width: 52rem) { .pub-hero-shot { max-width: 14.5rem; } }
+/* v2.101: the six record glyphs on the homepage sit in circular glass chips */
+.pub-keep-ico { width: 4.6rem; height: 4.6rem; border-radius: 50%; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 10px 24px -12px rgba(0,0,0,.45); margin-bottom: .25rem; }
+.pub-keep-ico svg { width: 2.3rem; height: 2.5rem; }
+body[data-skin="modern"] .pub-keep-ico { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+body[data-skin="modern"] .pub-keep-item:hover .pub-keep-ico { background: var(--m-glass-hi, var(--m-glass-2)); }
+.pub-keep-ico { transition: background .2s ease, transform .2s ease; }
+.pub-keep-item:hover .pub-keep-ico { transform: translateY(-2px); }
+
+/* v2.101: hero under the lede; chipped platform logos; step captions; last-updated; hover previews; entrance */
+.pub-hero-with-shot .pub-hero-shot { margin-top: 1.6rem; margin-bottom: .2rem; }
+.pub-about-shot { margin: 0 auto 2.2rem; max-width: 60rem; }
+.pub-about-shot .pub-shot-cap { text-align: center; margin-top: .9rem; font-size: .9rem; }
+.pub-ai-chip .wl-ai-logo { width: 4rem; height: 4rem; border-radius: 50%; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 10px 24px -12px rgba(0,0,0,.45); margin-bottom: .5rem; }
+.pub-ai-chip .wl-ai-logo img, .pub-ai-chip .wl-ai-logo svg { width: 2.3rem; height: 2.3rem; }
+body[data-skin="modern"] .pub-ai-chip .wl-ai-logo { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+.pub-step-cap { max-width: 22rem; margin-left: auto; margin-right: auto; line-height: 1.45; }
+.pub-updated { margin: 1.4rem auto 0; opacity: .7; }
+.pub-keep-item { position: relative; }
+.pub-keep-link { display: flex; flex-direction: column; align-items: center; gap: .35rem; color: inherit; text-decoration: none; }
+.pub-keep-link:hover .pub-keep-name, .pub-keep-link:focus-visible .pub-keep-name { text-decoration: underline; }
+.pub-keep-preview { display: none; position: absolute; left: 50%; bottom: calc(100% + .4rem); transform: translateX(-50%) translateY(6px); width: 9.5rem; border-radius: 1.1rem; overflow: hidden; box-shadow: 0 18px 40px -14px rgba(0,0,0,.55); z-index: 5; opacity: 0; pointer-events: none; transition: opacity .18s ease, transform .18s ease; }
+.pub-keep-preview img { display: block; width: 100%; height: auto; }
+@media (hover: hover) and (min-width: 52rem) {
+  .pub-keep-preview { display: block; }
+  .pub-keep-item:hover .pub-keep-preview, .pub-keep-link:focus-visible ~ .pub-keep-preview { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pub-hero-shot, .pub-keep-item, .pub-about-shot { animation: pub-rise .6s ease both; }
+  .pub-keep-item:nth-child(2) { animation-delay: .06s; } .pub-keep-item:nth-child(3) { animation-delay: .12s; }
+  .pub-keep-item:nth-child(4) { animation-delay: .18s; } .pub-keep-item:nth-child(5) { animation-delay: .24s; } .pub-keep-item:nth-child(6) { animation-delay: .3s; }
+}
+@keyframes pub-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }

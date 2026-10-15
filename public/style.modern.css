@@ -2651,3 +2651,4 @@ body[data-skin="modern"] .pub-keep-short, body[data-skin="modern"] .pub-rule-lin
 body[data-skin="modern"] .pub-defs-grid dt { color: var(--m-ink); }
 /* the OpenAI mark is supplied in black; on dark glass it is inverted (a colour change only, no redraw) */
 body[data-skin="modern"][data-mode="dark"] .wl-ai-logo img[src*="/chatgpt."], body[data-skin="modern"][data-mode="system"]:not(.m-light) .wl-ai-logo img[src*="/chatgpt."] { filter: invert(1); }
+html.m-light body[data-skin="modern"][data-mode="system"] .wl-ai-logo img[src*="/chatgpt."] { filter: none; }   /* .m-light sits on <html>; a light system theme keeps the black mark */
