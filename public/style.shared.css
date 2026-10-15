@@ -2023,3 +2023,14 @@ body[data-skin="modern"] .pub-menu-list + .pub-menu-label { border-top-color: va
 .pub-menu-chip .wl-ai-logo img[src*="/chatgpt."] { transform: scale(1.35); }
 .pub-menu-chip .wl-ai-mono svg { width: 1.15rem; height: 1.15rem; }
 .pub-menu-list ul a.pub-menu-chip { display: flex; align-items: center; gap: .6rem; padding: .5rem .8rem .5rem .6rem; font-size: .95rem; opacity: 1; }
+/* v2.102.1: breathing room on the left of the menu; the phone sheet inside the
+   home-screen app. An older app rule set the panel's top to "below the header"
+   for the dropdown; with the sheet fixed that put it below the screen. */
+.pub-menu-panel { padding-left: 1.5rem; padding-right: 1.3rem; }
+.pub-menu-list > li > a { margin: 0; padding-left: .75rem; padding-right: .6rem; }
+.pub-menu-list > li > a[aria-current="page"]::before { left: .1rem; }
+@media (max-width: 52rem) {
+  .is-app body.is-public:not(.is-in) .pub-menu-panel { top: 0; }
+  .is-app body.is-public.is-in .pub-menu-panel { top: var(--bar-h, var(--m-searchbar-h, 52px)); }
+  .pub-menu-panel { padding-left: 1.7rem; padding-right: 1.4rem; width: min(22rem, 88vw); }
+}
