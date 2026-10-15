@@ -3079,6 +3079,15 @@ function applyAliases(html) {
 // A handle written so the alias substitution never replaces it (for the one
 // place that must show the real one: the admin's own setting).
 const realHandle = (h) => `&#${String(h).charCodeAt(0)};${esc(String(h).slice(1))}`;
+// v2.106: the application's menu in the search bar, built by the public
+// pages module so the public and signed-in menus share one panel and script.
+function appMenuHtml(me, req) {
+  if (!me) return '';
+  let path = ''; try { path = new URL(req && req.url ? req.url : '/', 'http://x').pathname; } catch {}
+  let st = null, counts = null; try { st = welcomeState(me); } catch {}
+  try { const c = profileCounts(me, me); counts = { notes: c.visible.length, marks: c.markCount, itineraries: c.itinCount, ensembles: c.ensCount, followers: c.fc.followers, following: c.fc.following, warrants: c.warrantCount }; } catch {}
+  return PUB().appMenu(me, { path, st, counts });
+}
 function layout(opts) { return applyAliases(layoutPage(opts)); }
 // v2.76: acknowledgements after an action. A redirect carries ?done=<key>;
 // only keys in this map are shown (never text from the URL), as a toast that
@@ -3199,7 +3208,7 @@ ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&
   <a class="iconrail-btn iconrail-compose" id="compose-btn" href="/new" title="Post a note or travel mark">${ICONS.lens}</a>
   ${isAdminUi(me) ? `<a href="/admin" title="Admin" class="iconrail-admin ${nav === 'admin' ? 'on' : ''}">${ICONS.key}</a>` : ''}
 </nav>
-<div class="searchbar" id="searchbar"><div class="wrap"><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant\u2022ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form></div></div>
+<div class="searchbar" id="searchbar"><div class="wrap sb-row"><a class="sb-mark" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"></a><form method="get" action="/"><input type="search" name="q" placeholder="Search discriminant\u2022ly" aria-label="Search discriminant.ly" id="searchinput" autocapitalize="sentences"></form>${appMenuHtml(me, req)}</div></div>
 <script>
 (function () {
   var si = document.getElementById('searchinput'), sb = document.getElementById('searchbar');
@@ -4925,8 +4934,9 @@ function markForm(me, m = {}, { err = '', picked = null, idp = 'mk', seg = false
 </script>`;
 }
 
-function profileRail(u, me, tab) {
-  const owner = me && me.id === u.id;
+// The counts the profile rail shows, as `me` may see them (v2.106: shared
+// with the application's menu, which shows the member their own).
+function profileCounts(u, me) {
   const visible = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=?').all(u.id).filter((o) => canSee(o, me));
   const fc = followCounts(u.id);
   const markCount = q('SELECT COUNT(*) c FROM adopted_marks WHERE user_id=?' + (me && me.id === u.id ? '' : ' AND private=0')).get(u.id).c;
@@ -4944,6 +4954,11 @@ function profileRail(u, me, tab) {
       : [...markUids].filter((uid) => { const m = q('SELECT private FROM adopted_marks WHERE uid=?').get(uid); return m && !m.private; }).length;
     return objN + markN;
   })();
+  return { visible, fc, markCount, ensCount, itinCount, warrantCount };
+}
+function profileRail(u, me, tab) {
+  const owner = me && me.id === u.id;
+  const { visible, fc, markCount, ensCount, itinCount, warrantCount } = profileCounts(u, me);
   const following = me && me.id !== u.id && isFollowing(me.id, u.id);
   const link = (t) => `/u/${esc(u.handle)}?tab=${t}`;
   return `<aside class="rail profile-rail">

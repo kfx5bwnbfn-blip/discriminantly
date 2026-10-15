@@ -41,6 +41,7 @@ body[data-skin="modern"] {
   --m-field: rgba(0,0,0,.28);
   --m-image-bed: rgba(0,0,0,.25);
   --m-sheet: rgba(28,30,38,.94);         /* modal material: heavy, so content beneath recedes */
+  --m-menu: rgba(24,26,34,.58);          /* the menu: glass, so the page shows through the blur (v2.106) */
   --m-scrim: rgba(0,0,0,.5);
   --m-r: 26px; --m-r2: 18px; --m-r3: 12px;
   --m-ease: cubic-bezier(.2,.7,.2,1);
@@ -67,6 +68,7 @@ html.m-light body[data-skin="modern"][data-mode="system"] {
   --m-field: rgba(255,255,255,.7);
   --m-image-bed: rgba(0,0,0,.05);
   --m-sheet: rgba(248,248,250,.96);
+  --m-menu: rgba(246,246,250,.62);
   --m-scrim: rgba(20,22,28,.35);
   color-scheme: light;
 }
@@ -1769,8 +1771,14 @@ body[data-skin="modern"] .fine a, body[data-skin="modern"] .fine.center a { colo
    lvh equals that same full height. vh is kept as a fallback.
    ===================================================================== */
 body[data-skin="modern"] > .m-backdrop {
-  position: fixed; left: 0; top: 0; width: 100vw;
-  height: 100vh; height: 100lvh;      /* lvh = chrome-retracted height; standalone matches it */
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0; width: auto;
+  /* v2.106: stretched to the viewport's real edges (top/bottom), with lvh as
+     a floor. Sized by lvh alone it came up short inside the home-screen app
+     on iOS 26, leaving a band of the flat base colour across the foot of the
+     screen (Brian's capture, 15 Oct). Standalone has no retractable chrome,
+     so the gradient geometry is unchanged there; Safari's layer may extend
+     below the toolbar, which is hidden anyway. */
+  min-height: 100vh; min-height: 100lvh;
   z-index: -1; pointer-events: none;
   background-color: var(--m-bg);
   background-image: var(--m-fields);  /* the field stack, held as a custom property */
@@ -2614,7 +2622,7 @@ body[data-skin="modern"][data-mode="dark"] .pub-brand img, body[data-skin="moder
 html.m-light body[data-skin="modern"][data-mode="system"] .pub-brand img { filter: none; }
 body[data-skin="modern"] .pub-menu > summary { background: var(--m-glass-2); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line); transition: background .2s var(--m-ease); }
 body[data-skin="modern"] .pub-menu > summary:hover, body[data-skin="modern"] .pub-menu[open] > summary { background: var(--m-glass-3); }
-body[data-skin="modern"] .pub-menu-panel { background: var(--m-sheet); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+body[data-skin="modern"] .pub-menu-panel { background: linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0) 40%), var(--m-menu, var(--m-sheet)); color: var(--m-ink); box-shadow: inset 0 1px 0 var(--m-line-2), inset 0 0 0 1px var(--m-rule), var(--m-shadow); -webkit-backdrop-filter: blur(44px) saturate(1.7); backdrop-filter: blur(44px) saturate(1.7); }
 body[data-skin="modern"] .pub-menu-list ul a { color: var(--m-ink-2); }
 body[data-skin="modern"] .pub-menu-util { border-top-color: var(--m-rule); }
 body[data-skin="modern"] .pub-menu-util a { color: var(--m-ink-2); }
@@ -2652,3 +2660,21 @@ body[data-skin="modern"] .pub-defs-grid dt { color: var(--m-ink); }
 /* the OpenAI mark is supplied in black; on dark glass it is inverted (a colour change only, no redraw) */
 body[data-skin="modern"][data-mode="dark"] .wl-ai-logo img[src*="/chatgpt."], body[data-skin="modern"][data-mode="system"]:not(.m-light) .wl-ai-logo img[src*="/chatgpt."] { filter: invert(1); }
 html.m-light body[data-skin="modern"][data-mode="system"] .wl-ai-logo img[src*="/chatgpt."] { filter: none; }   /* .m-light sits on <html>; a light system theme keeps the black mark */
+
+/* v2.106: the profile rail's groups inside the application's menu, at menu
+   scale. The same components (.wtable/.wcell, .pgrp-group/.pgrp-solo/.pgrp-label)
+   and the same active treatment; only the measurements change. */
+body[data-skin="modern"] .app-menu .pgrp-nav { display: grid; gap: .5rem; margin: .6rem 0 .2rem; }
+body[data-skin="modern"] .app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable { box-shadow: inset 0 1px 0 var(--m-line); border-radius: 14px; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { padding: .55rem .3rem .6rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wcell b { font-size: 1.15rem; margin-bottom: .22rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wcell span { font-size: .5rem; letter-spacing: .12em; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-label { padding: .3rem .4rem 0; font-size: .62rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo { min-height: 0; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide { padding: .55rem .3rem .6rem; min-height: 2.9rem; justify-content: center; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide span { font-size: .5rem; letter-spacing: .12em; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell.on:not(.wcell-wide) { background: var(--m-glass-2); }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo:has(.wcell.on) { background: var(--m-glass-2); }
+body[data-skin="modern"] .app-menu .pgrp-nav .wcell.on span::after { top: calc(100% + .22rem); }

@@ -25,14 +25,38 @@ function create(d) {
   const OG_IMAGE = PUBLIC_ORIGIN + '/icon-512.png';
 
   // ---- header ---------------------------------------------------------------
-  function header(me, { home = false, path = '' } = {}) {
-    const cur = (href) => href === path ? ' aria-current="page"' : '';
-    const item = (n) => `<li><a href="${esc(n.href)}"${cur(n.href)}>${esc(n.label)}</a>${n.children ? `<ul class="pub-menu-chips">${n.children.map((c) => { const p = C.platforms.find((x) => x.guide === c.href); return `<li><a class="pub-menu-chip" href="${esc(c.href)}"${cur(c.href)}>${p ? aiLogo(p.key) : ''}<span>${esc(p ? p.name : c.label)}</span></a></li>`; }).join('')}</ul>` : ''}</li>`;
+  // One menu (v2.106): the same <details> panel, button, dim and script serve
+  // the public header and, signed in, the application's search bar. Only the
+  // contents differ: `menuPanel` builds them by state.
+  const MENU_BTN = `<summary class="pub-menu-btn" aria-controls="pub-menu-panel" aria-label="Menu"><svg class="pub-menu-ico" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><svg class="pub-menu-x" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary>`;
+  const MENU_SCRIPT = `<script>
+  (function () {
+    var d = document.getElementById('pub-menu'); if (!d) return;
+    var s = d.querySelector('summary');
+    function sync() { s.setAttribute('aria-expanded', d.open ? 'true' : 'false'); }
+    sync(); d.addEventListener('toggle', sync);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && d.open) { d.open = false; s.focus(); } });
+    document.addEventListener('click', function (e) { if (d.open && (!d.contains(e.target) || e.target.classList.contains('pub-menu-dim'))) d.open = false; });
+    d.addEventListener('toggle', function () { document.body.classList.toggle('pub-menu-open', d.open); });
+    var h = d.closest('.pub-head'); if (h && h.classList.contains('pub-head-home')) {
+      var stuck = function () { h.classList.toggle('is-stuck', window.scrollY > 8); };
+      stuck(); window.addEventListener('scroll', stuck, { passive: true });
+    }
+  })();
+  </script>`;
+  const item = (path) => { const cur = (href) => href === path ? ' aria-current="page"' : ''; return (n) => `<li><a href="${esc(n.href)}"${cur(n.href)}>${esc(n.label)}</a>${n.children ? `<ul class="pub-menu-chips">${n.children.map((c) => { const p = C.platforms.find((x) => x.guide === c.href); return `<li><a class="pub-menu-chip" href="${esc(c.href)}"${cur(c.href)}>${p ? aiLogo(p.key) : ''}<span>${esc(p ? p.name : c.label)}</span></a></li>`; }).join('')}</ul>` : ''}</li>`; };
+  const meRow = (me, sub = 'Open your feed', href = null) => me ? `<a class="pub-menu-me" href="${esc(href || '/u/' + me.handle)}">${me.avatar && avatarSrc(me) ? `<img class="pub-menu-avatar" src="${esc(avatarSrc(me))}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>${esc(sub)}</span></span></a>` : '';
+  const menuShell = (inner, cls = '') => `<details class="pub-menu${cls}" id="pub-menu">
+        ${MENU_BTN}
+        <div class="pub-menu-dim" aria-hidden="true"></div>
+        <nav class="pub-menu-panel" id="pub-menu-panel" aria-label="Site">
+{inner}
+        </nav>
+      </details>`.replace('{inner}', inner);
+  // The public menu's contents: site navigation, then (signed out) the sign-in form.
+  function publicPanel(me, path) {
+    const it = item(path);
     const first = C.nav.filter((n) => ['/', '/activity'].includes(n.href)), learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)), rest = C.nav.filter((n) => !first.includes(n) && !learn.includes(n));
-    const who = me ? `<a class="pub-menu-me" href="/u/${esc(me.handle)}">${me.avatar && avatarSrc(me) ? `<img class="pub-menu-avatar" src="${esc(avatarSrc(me))}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>Open your feed</span></span></a>` : '';
-    // Signed out, the menu carries the sign-in form itself (v2.103): the same
-    // POST /login as the sign-in page, returning to the page they were reading.
-    // No autofocus, so opening the menu never raises the keyboard.
     const signin = me ? '' : `<form class="pub-menu-signin" method="post" action="/login">
             <p class="pub-menu-label">Your account</p>
             <label class="pub-menu-field"><span>Email</span><input name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required></label>
@@ -41,28 +65,67 @@ function create(d) {
             <button class="btn3d block">Sign in</button>
             <p class="pub-menu-join">New here? <a href="/join">Create an account</a></p>
           </form>`;
+    return `          ${meRow(me)}
+          <ul class="pub-menu-list">${first.map(it).join('')}</ul>
+          <p class="pub-menu-label">Learn</p>
+          <ul class="pub-menu-list">${learn.map(it).join('')}</ul>
+          <p class="pub-menu-label">About</p>
+          <ul class="pub-menu-list">${rest.map(it).join('')}</ul>
+          ${signin}
+          <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : []).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>`;
+  }
+  // The application's menu (v2.106, Brian): the member first (avatar row to
+  // their profile, then their profile's tabs), their AI by state (an
+  // unconnected assistant links to its connect guide in Settings; with nothing
+  // connected the group leads with Connect your AI), Learn, Help, then
+  // Settings and Sign out. The icon rail keeps Home, Profile, Settings and
+  // Search; this is everything else.
+  function appPanel(me, path, st, counts) {
+    const it = item(path);
+    const u = '/u/' + encodeURIComponent(me.handle);
+    // the profile rail's own groups, names and chips (Brian, 15 Oct), in the
+    // rail's real components (.wtable/.wcell, .pgrp-*), scaled to the panel
+    const n = (k) => counts && counts[k] != null ? counts[k] : '';
+    const cur = (href) => href === path ? ' on' : '';
+    const cell = (href, count, name) => `<a class="wcell${cur(href)}" href="${esc(href)}"><b>${count}</b><span>${esc(name)}</span></a>`;
+    const group = (label, items) => `<div class="wtable pgrp-group"><p class="pgrp-label">${esc(label)}</p>${items.map(([h, c, nm]) => cell(h, c, nm)).join('')}</div>`;
+    const solo = (href, count, name) => `<div class="wtable pgrp-solo"><a class="wcell wcell-wide${cur(href)}" href="${esc(href)}">${count === null ? '' : `<b>${count}</b>`}<span>${esc(name)}</span></a></div>`;
+    const youNav = `<div class="pgrp-nav app-pgrp">
+            <div class="app-pgrp-row">${solo(u, null, 'All activity')}${solo(u + '?tab=warrants', n('warrants'), 'Warrants')}</div>
+            ${group('Places', [[u + '?tab=marks', n('marks'), 'Marks'], ['/t', n('itineraries'), 'Itineraries']])}
+            ${group('Things', [[u + '?tab=notes', n('notes'), 'Notes'], [u + '?tab=ensembles', n('ensembles'), 'Ensembles']])}
+            ${group('People', [[u + '?tab=followers', n('followers'), 'Followers'], [u + '?tab=following', n('following'), 'Following']])}
+          </div>`;
+    const connected = (p) => !!(st && st[p.key]);
+    const anyAi = C.platforms.some(connected);
+    const ai = `<ul class="pub-menu-chips pub-menu-ai">${C.platforms.map((p) => `<li><a class="pub-menu-chip${connected(p) ? ' is-connected' : ''}" href="${connected(p) ? '/settings/connections' : '/settings#connect-guide'}">${aiLogo(p.key)}<span>${esc(p.name)}</span>${connected(p) ? '<i class="pub-menu-ok" aria-label="Connected">\u2713</i>' : ''}</a></li>`).join('')}</ul>`;
+    const aiGroup = `<p class="pub-menu-label">Your AI</p>${anyAi ? '' : `<ul class="pub-menu-list"><li><a class="pub-menu-lead" href="/settings#connect-guide">Connect your AI</a></li></ul>`}${ai}`;
+    const learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)).map((n) => ({ label: n.label, href: n.href }));
+    const help = [{ label: 'Support', href: '/support' }, { label: 'Privacy', href: '/privacy' }, { label: 'Terms', href: '/terms' }];
+    return `          ${meRow(me, 'Your profile')}
+          ${youNav}
+          ${anyAi ? '' : aiGroup}
+          <p class="pub-menu-label">Learn</p>
+          <ul class="pub-menu-list">${learn.map(it).join('')}</ul>
+          ${anyAi ? aiGroup : ''}
+          <p class="pub-menu-label">Help</p>
+          <ul class="pub-menu-list">${help.map(it).join('')}</ul>
+          <div class="pub-menu-util"><a href="/settings">Settings</a><form method="post" action="/logout" class="pub-menu-out"><button type="submit" class="link caps">Sign out</button></form></div>`;
+  }
+  // The application's search bar carries the mark, the search field and the menu (v2.106).
+  function appMenu(me, { path = '', st = null, counts = null } = {}) {
+    return menuShell(appPanel(me, path, st, counts), ' app-menu') + MENU_SCRIPT;
+  }
+  function header(me, { home = false, path = '' } = {}) {
     return `<header class="pub-head${home ? ' pub-head-home' : ''}">
   <div class="wrap pub-head-in">
     <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
     <div class="pub-acts">
-      ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : '<a class="btn3d pub-cta" href="/join">Get started</a>'}
-      <details class="pub-menu" id="pub-menu">
-        <summary class="pub-menu-btn" aria-controls="pub-menu-panel" aria-label="Menu"><svg class="pub-menu-ico" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><svg class="pub-menu-x" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary>
-        <div class="pub-menu-dim" aria-hidden="true"></div>
-        <nav class="pub-menu-panel" id="pub-menu-panel" aria-label="Site">
-          ${who}
-          <ul class="pub-menu-list">${first.map(item).join('')}</ul>
-          <p class="pub-menu-label">Learn</p>
-          <ul class="pub-menu-list">${learn.map(item).join('')}</ul>
-          <p class="pub-menu-label">About</p>
-          <ul class="pub-menu-list">${rest.map(item).join('')}</ul>
-          ${signin}
-          <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : []).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>
-        </nav>
-      </details>
+      ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : `<a class="btn3d pub-cta" href="/join">Get started</a>
+      ${menuShell(publicPanel(me, path))}`}
     </div>
   </div>
-  <script>
+${me ? '' : `  <script>
   (function () {
     var d = document.getElementById('pub-menu'); if (!d) return;
     var s = d.querySelector('summary');
@@ -77,7 +140,7 @@ function create(d) {
     }
   })();
   </script>
-</header>`;
+`}</header>`;
   }
   const foot = `<footer class="welcome-foot fine"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/support">Support</a></footer>`;
 
@@ -587,7 +650,7 @@ ${topic('account', WL_ICON.note, 'Your account and data', `<p class="pub-p">You 
     return text(req, res, ['User-agent: *', 'Allow: /', 'Disallow: /settings', 'Disallow: /admin', 'Disallow: /oauth/', 'Disallow: /mcp', 'Disallow: /logout', 'Disallow: /login', 'Disallow: /join', 'Disallow: /j/', 'Disallow: /s/', 'Disallow: /new', '', `Sitemap: ${PUBLIC_ORIGIN}/sitemap.xml`, ''].join('\n'));
   }
 
-  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, guide, objectPage, agentGuidance, agentGuidanceText, about, support, llms, sitemap, robots, header, canonical, OG_IMAGE, cardPages, content: C, cacheHeaders, crumbs: crumbsHtml };
+  return { home, howItWorks, travelMarks, aiHub, muse, chatgpt, claude, other, guides, guide, objectPage, agentGuidance, agentGuidanceText, about, support, appMenu, llms, sitemap, robots, header, canonical, OG_IMAGE, cardPages, content: C, cacheHeaders, crumbs: crumbsHtml };
 }
 
 module.exports = { create };

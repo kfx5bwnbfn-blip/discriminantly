@@ -1366,7 +1366,8 @@ console.log('\nadoption');
   const resurf = body('function resurfaceCandidate(', 'function resurfaceCard(');
   ok('K2d resurfacing reads only the projection', /adopted_marks/.test(resurf) && !/q\(OBJ_SQL|q\(MARK_SQL \+ `/.test(resurf));
   const rail = body('function profileRail(', 'const following =');
-  ok('K2e profile counts count the projection', /ADOPTED_OBJ_SQL/.test(rail) && /FROM adopted_marks/.test(rail) && /FROM adopted_itineraries/.test(rail));
+  const counts = SRC.slice(SRC.indexOf('function profileCounts('), SRC.indexOf('\n}\n', SRC.indexOf('function profileCounts(')));   // v2.106: the rail's counts, shared with the menu
+  ok('K2e profile counts count the projection', /ADOPTED_OBJ_SQL/.test(counts) && /FROM adopted_marks/.test(counts) && /FROM adopted_itineraries/.test(counts) && /profileCounts\(u, me\)/.test(rail || SRC.slice(SRC.indexOf('function profileRail('), SRC.indexOf('<ul class="prail-nav">'))));
   ok('K2f an image is public only through a public record in the corpus',
      /function imageIsPublic\(img\) \{[\s\S]{0,400}FROM adopted_objects WHERE private=0[\s\S]{0,200}FROM adopted_marks WHERE private=0/.test(SRC));
 
