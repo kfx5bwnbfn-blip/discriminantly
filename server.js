@@ -3028,10 +3028,14 @@ function policyPage(req, res, me, which) {
   const pub = artifactPub({ path: '/' + which, title, description, card: '/card/page/' + which + '.png',
     breadcrumb: [{ name: 'Discriminantly', href: '/' }, { name: title, href: '/' + which }],
     ld: [which === 'support' ? { '@type': 'ContactPage', '@id': PUBLIC_ORIGIN + '/support#contact', url: PUBLIC_ORIGIN + '/support', name: 'Support' } : { '@type': 'WebPage', '@id': PUBLIC_ORIGIN + '/' + which + '#page', url: PUBLIC_ORIGIN + '/' + which, name: title }] });
-  pub.header = PP.header(me);
+  pub.header = PP.header(me, { path: '/' + which });
   const cache = PP.cacheHeaders(me);
+  // v2.102: section ids and a table of contents on the long pages.
+  let n = 0; const heads = [];
+  const html = parts.join('').replace(/<h2 class="policy-h">([^<]*)<\/h2>/g, (m, t) => { n++; heads.push([n, t]); return `<h2 class="policy-h" id="s${n}">${t}</h2>`; });
+  const toc = heads.length > 3 ? `<nav class="policy-toc" aria-label="On this page"><p class="lbl">On this page</p><ol>${heads.map(([i, t]) => `<li><a href="#s${i}">${t}</a></li>`).join('')}</ol></nav>` : '';
   return sendZ(req, res, layout({ title, me, req, cls: 'is-public', pub,
-    body: `${PP.crumbs([{ name: 'Discriminantly', href: '/' }, { name: title, href: '/' + which }])}<h1 class="strip">${title}</h1><div class="settings policy">${date}${parts.join('')}</div>` }), 200, cache);
+    body: `${PP.crumbs([{ name: 'Discriminantly', href: '/' }, { name: title, href: '/' + which }])}<h1 class="strip">${title}</h1><div class="settings policy">${date}${toc}${html}</div>` }), 200, cache);
 }
 
 // Screenshot aliases (v2.65.4): every page's visible text shows an alias in
@@ -3084,7 +3088,7 @@ function layoutPage({ title, body, me, flash, cls = '', nav = '', req = null, pu
   const pubHead = pub ? [
     pub.description ? `<meta name="description" content="${esc(pub.description)}">` : '',
     pub.canonical ? `<link rel="canonical" href="${esc(pub.canonical)}">` : '',
-    pub.noindex ? '<meta name="robots" content="noindex,follow">' : '',
+    pub.noindex ? `<meta name="robots" content="${pub.noindex === 'corpus' ? 'noindex,nofollow' : 'noindex,follow'}">` : '',
     pub.og ? `<meta property="og:type" content="${esc(pub.og.type || 'website')}"><meta property="og:site_name" content="Discriminantly"><meta property="og:title" content="${esc(pub.og.title || title)}"><meta property="og:description" content="${esc(pub.og.description || pub.description || '')}"><meta property="og:url" content="${esc(pub.canonical || '')}"><meta property="og:image" content="${esc(pub.og.image || '')}">${pub.og.imageWidth ? `<meta property="og:image:width" content="${pub.og.imageWidth}"><meta property="og:image:height" content="${pub.og.imageHeight}">` : ''}<meta name="twitter:card" content="${pub.og.card || 'summary_large_image'}"><meta name="twitter:title" content="${esc(pub.og.title || title)}"><meta name="twitter:description" content="${esc(pub.og.description || pub.description || '')}"><meta name="twitter:image" content="${esc(pub.og.image || '')}">` : '',
   ].join('\n') : '';
   const pubLd = pub && pub.ld ? `<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@graph': pub.ld }).replace(/</g, '\\u003c')}</script>` : '';
@@ -11721,8 +11725,13 @@ const baseUrl = (req) => `${req.headers['x-forwarded-proto'] || 'http'}://${req.
 const absUrl = (u) => !u ? '' : /^https?:\/\//i.test(u) ? u : PUBLIC_ORIGIN + (u.startsWith('/') ? u : '/' + u);
 const metaText = (s, n = 160) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length <= n ? t : t.slice(0, n - 1).replace(/\s+\S*$/, '') + '\u2026'; };
 const CARD_W = 1200, CARD_H = 630;
+// Member profiles, records (notes, marks, itineraries, ensembles, collections)
+// and the activity feed built from them are never indexed (Brian, 15 Oct 2026):
+// shareable by link and card, but kept out of search results.
+const CORPUS_PATH = /^\/(u|o|m|t|e|c)\/|^\/activity(\?|$)/;
 function artifactPub({ path, title, description, type = 'article', image = '', card = '', ld = [], noindex = false, breadcrumb = null }) {
   const canonical = PUBLIC_ORIGIN + path;
+  if (CORPUS_PATH.test(path)) noindex = 'corpus';
   // A public image of the record itself makes the best preview; otherwise the
   // page's generated card, which carries only the same public fields.
   const og = { type, title, description, image: image ? absUrl(image) : PUBLIC_ORIGIN + (card || '/card/site.png'), card: 'summary_large_image' };
@@ -14569,6 +14578,7 @@ async function handle(req, res) {
   }
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
+  if (CORPUS_PATH.test(p)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   // HEAD is routed as GET, with the body suppressed — uptime checks and link
   // checkers use it, and it should answer like the GET it mirrors.
   const isHead = req.method === 'HEAD';

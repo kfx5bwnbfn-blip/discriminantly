@@ -1921,3 +1921,105 @@ body[data-skin="modern"] .pub-ai-chip .wl-ai-logo { background: var(--m-glass-2)
   .pub-keep-item:nth-child(4) { animation-delay: .18s; } .pub-keep-item:nth-child(5) { animation-delay: .24s; } .pub-keep-item:nth-child(6) { animation-delay: .3s; }
 }
 @keyframes pub-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ===== v2.102: interior pass ===== */
+/* eyebrows as small glass pills */
+.pub-eyebrow { display: inline-block; padding: .38rem .8rem .34rem; border-radius: 999px; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.16); margin-bottom: .7rem; }
+.is-public .pub-sec > .pub-eyebrow, .is-public .pub-keep > .pub-eyebrow { display: table; margin-left: auto; margin-right: auto; }
+body[data-skin="modern"] .pub-eyebrow { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+/* rule lines as pull quotes */
+.pub-rule-line, .pub-bounds-line { font-size: 1.22rem; line-height: 1.5; font-style: italic; letter-spacing: .005em; margin-top: 2rem; margin-bottom: .6rem; opacity: 1; }
+.pub-bounds-line { font-size: 1.05rem; margin-bottom: 1.8rem; }
+/* platform facts as tiles; the ask quotes carry the assistant's mark */
+.is-public .pub-guide-head .pub-facts { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; max-width: 40rem; align-items: start; }
+.is-public .pub-guide-head .pub-facts > div { padding: .8rem .95rem; border-radius: 14px; background: rgba(255,255,255,.07); box-shadow: inset 0 1px 0 rgba(255,255,255,.14); }
+body[data-skin="modern"] .pub-guide-head .pub-facts > div { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+.is-public .pub-guide-mark .wl-ai-logo { width: 4.6rem; height: 4.6rem; border-radius: 50%; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 10px 24px -12px rgba(0,0,0,.45); }
+.is-public .pub-guide-mark .wl-ai-logo img, .is-public .pub-guide-mark .wl-ai-logo svg { width: 2.5rem; height: 2.5rem; }
+body[data-skin="modern"] .pub-guide-mark .wl-ai-logo { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+.pub-quote-ask { position: relative; padding-left: 3.4rem; }
+.pub-quote-mark { position: absolute; left: .9rem; top: .85rem; width: 1.8rem; height: 1.8rem; display: inline-flex; align-items: center; justify-content: center; }
+.pub-quote-mark .wl-ai-logo, .pub-quote-mark .wl-ai-logo img, .pub-quote-mark .wl-ai-logo svg { width: 1.8rem; height: 1.8rem; display: block; object-fit: contain; }
+/* proves / does not prove */
+.pub-proof { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; max-width: 44rem; margin: .4rem auto 0; text-align: left; }
+.pub-proof-col { padding: 1rem 1.1rem 1.1rem; border-radius: 16px; background: rgba(255,255,255,.07); box-shadow: inset 0 1px 0 rgba(255,255,255,.14); }
+body[data-skin="modern"] .pub-proof-col { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+.pub-proof-col:only-child { grid-column: 1 / -1; }
+.pub-proof-lbl { margin: 0 0 .5rem; }
+.pub-proof ul { list-style: none; margin: 0; padding: 0; }
+.pub-proof li { position: relative; padding-left: 1.5rem; margin: 0 0 .5rem; line-height: 1.5; font-size: 1.02rem; }
+.pub-proof li::before { position: absolute; left: 0; top: .05rem; font-weight: 600; }
+.pub-proof-yes li::before { content: "✓"; }
+.pub-proof-no li::before { content: "—"; opacity: .6; }
+/* guide reading rail (wide screens only) */
+.pub-guide-rail { display: none; }
+@media (min-width: 80rem) {
+  .pub-guide-rail { display: block; position: fixed; left: max(1.2rem, calc(50vw - 42rem)); top: 9rem; width: 12rem; font-size: .88rem; line-height: 1.4; z-index: 4; }
+  .pub-guide-rail .lbl { margin: 0 0 .5rem; }
+  .pub-guide-rail ol { list-style: none; margin: 0; padding: 0 0 0 .75rem; border-left: 1px solid rgba(127,127,127,.35); }
+  .pub-guide-rail li { margin: 0 0 .45rem; }
+  .pub-guide-rail a { color: inherit; text-decoration: none; opacity: .75; }
+  .pub-guide-rail a:hover { opacity: 1; text-decoration: underline; }
+}
+/* policy table of contents */
+.policy-toc { margin: 0 0 1.4rem; padding: .9rem 1.1rem; border-radius: 14px; background: rgba(255,255,255,.07); box-shadow: inset 0 1px 0 rgba(255,255,255,.14); }
+body[data-skin="modern"] .policy-toc { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+.policy-toc .lbl { margin: 0 0 .4rem; }
+.policy-toc ol { margin: 0; padding-left: 1.2rem; columns: 2; column-gap: 1.5rem; font-size: .92rem; line-height: 1.5; }
+.policy-toc a { color: inherit; text-decoration: none; }
+.policy-toc a:hover { text-decoration: underline; }
+@media (max-width: 52rem) { .pub-proof { grid-template-columns: 1fr; } .is-public .pub-guide-head .pub-facts { grid-template-columns: 1fr; } .policy-toc ol { columns: 1; } }
+/* ===== the menu ===== */
+.pub-menu-label { margin: .2rem 0 .25rem; font-family: var(--slab); font-weight: 600; font-size: .6rem; letter-spacing: .18em; text-transform: uppercase; opacity: .6; }
+.pub-menu-list + .pub-menu-label { margin-top: .8rem; padding-top: .8rem; border-top: 1px solid rgba(127,127,127,.25); }
+.pub-menu-list > li > a { font-size: 1.15rem; line-height: 1.3; padding: .5rem .6rem; margin: 0 -.6rem; border-radius: 10px; transition: background .15s ease; }
+.pub-menu-list > li > a:hover { text-decoration: none; background: rgba(127,127,127,.12); }
+.pub-menu-list a[aria-current="page"] { position: relative; }
+.pub-menu-list > li > a[aria-current="page"]::before { content: ""; position: absolute; left: -.2rem; top: 50%; width: .4rem; height: .4rem; border-radius: 50%; background: currentColor; transform: translateY(-50%); }
+.pub-menu-chips { display: flex; flex-direction: column; gap: .3rem; margin: .15rem 0 .6rem .2rem !important; }
+.pub-menu-chips li { margin: 0; }
+.pub-menu-chip { display: flex; align-items: center; gap: .6rem; padding: .5rem .8rem .5rem .6rem; border-radius: 12px; font-size: .95rem; line-height: 1.2; text-decoration: none; color: inherit; background: rgba(127,127,127,.12); opacity: 1 !important; }
+.pub-menu-chip .wl-ai-logo { flex: none; width: 1.15rem; height: 1.15rem; display: inline-flex; align-items: center; justify-content: center; }
+.pub-menu-chip .wl-ai-logo img, .pub-menu-chip .wl-ai-logo svg { width: 1.15rem; height: 1.15rem; display: block; object-fit: contain; }
+.pub-menu-chip span { flex: 1; }
+.pub-menu-chip:hover { text-decoration: none !important; background: rgba(127,127,127,.22); }
+.pub-menu-chip[aria-current="page"] { box-shadow: inset 0 0 0 1.5px currentColor; }
+.pub-menu-me { display: flex; align-items: center; gap: .7rem; margin: -.1rem 0 .9rem; padding: .55rem .6rem; border-radius: 12px; text-decoration: none; color: inherit; background: rgba(127,127,127,.12); }
+.pub-menu-avatar { width: 2.25rem; height: 2.25rem; border-radius: 50%; object-fit: cover; display: inline-grid; place-items: center; font-size: 1rem; background: rgba(127,127,127,.25); }
+.pub-menu-who { display: flex; flex-direction: column; line-height: 1.25; }
+.pub-menu-who b { font-weight: 600; } .pub-menu-who span { font-size: .8rem; opacity: .7; }
+.pub-menu-dim { display: none; }
+@media (prefers-reduced-motion: no-preference) { .pub-menu[open] > .pub-menu-panel { animation: pub-menu-in .18s ease both; } }
+@keyframes pub-menu-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+body[data-skin="modern"] .pub-menu-panel { background: var(--m-glass-2); -webkit-backdrop-filter: blur(28px) saturate(1.3); backdrop-filter: blur(28px) saturate(1.3); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); }
+body[data-skin="modern"] .pub-menu-list > li > a { color: var(--m-ink); }
+body[data-skin="modern"] .pub-menu-list > li > a:hover { background: var(--m-glass-2); }
+body[data-skin="modern"] .pub-menu-list > li > a[aria-current="page"] { color: var(--m-accent, inherit); }
+body[data-skin="modern"] .pub-menu-chip, body[data-skin="modern"] .pub-menu-me { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); color: var(--m-ink); }
+body[data-skin="modern"] .pub-menu-chip:hover { background: var(--m-glass-3); }
+body[data-skin="modern"] .pub-menu-label { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .pub-menu-list + .pub-menu-label { border-top-color: var(--m-rule); }
+@media (max-width: 52rem) {
+  .pub-menu-dim { display: block; position: fixed; inset: 0; background: rgba(10,10,16,.45); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); z-index: 40; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+  .pub-menu[open] .pub-menu-dim { opacity: 1; pointer-events: auto; }
+  .pub-menu-panel { position: fixed; top: 0; right: 0; bottom: 0; left: auto; width: min(21rem, 86vw); max-height: none; border-radius: 22px 0 0 22px; padding: calc(1rem + env(safe-area-inset-top, 0px)) 1.2rem calc(1.2rem + env(safe-area-inset-bottom, 0px)); overflow: auto; z-index: 60; }
+  @media (prefers-reduced-motion: no-preference) { .pub-menu[open] > .pub-menu-panel { animation: pub-menu-slide .22s ease both; } }
+  @keyframes pub-menu-slide { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+  .pub-menu[open] > summary { position: relative; z-index: 70; }
+  body.pub-menu-open { overflow: hidden; }
+}
+/* while the phone sheet is open the header drops its blur, so the fixed sheet and dim can escape it (a backdrop-filter makes the header a containing block for fixed children) */
+@media (max-width: 52rem) {
+  body.pub-menu-open .pub-head, body[data-skin="modern"].pub-menu-open .pub-head, body[data-skin="modern"].pub-menu-open .pub-head-home.is-stuck { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+  .pub-menu-chip .wl-ai-logo { overflow: hidden; border-radius: 50%; }
+}
+.pub-menu-chip .wl-ai-logo svg, .pub-menu-chip .wl-ai-logo img { max-width: 1.15rem; max-height: 1.15rem; }
+@media (max-width: 52rem) {
+  body.is-public.is-in .pub-menu-panel { top: var(--bar-h, var(--m-searchbar-h, 52px)); border-top-right-radius: 0; }
+  .pub-menu-panel { z-index: 1000; } .pub-menu-dim { z-index: 990; } .pub-menu[open] > summary { z-index: 1001; }
+}
+.pub-menu-chip .wl-ai-logo { line-height: 0; margin: 0; position: relative; top: 0; }
+.pub-menu-chip .wl-ai-logo img, .pub-menu-chip .wl-ai-logo svg { vertical-align: middle; }
+.pub-menu-chip .wl-ai-logo img[src*="/chatgpt."] { transform: scale(1.35); }
+.pub-menu-chip .wl-ai-mono svg { width: 1.15rem; height: 1.15rem; }
+.pub-menu-list ul a.pub-menu-chip { display: flex; align-items: center; gap: .6rem; padding: .5rem .8rem .5rem .6rem; font-size: .95rem; opacity: 1; }

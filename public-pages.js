@@ -24,8 +24,11 @@ function create(d) {
   const OG_IMAGE = PUBLIC_ORIGIN + '/icon-512.png';
 
   // ---- header ---------------------------------------------------------------
-  function header(me, { home = false } = {}) {
-    const item = (n) => `<li><a href="${esc(n.href)}">${esc(n.label)}</a>${n.children ? `<ul>${n.children.map((c) => `<li><a href="${esc(c.href)}">${esc(c.label)}</a></li>`).join('')}</ul>` : ''}</li>`;
+  function header(me, { home = false, path = '' } = {}) {
+    const cur = (href) => href === path ? ' aria-current="page"' : '';
+    const item = (n) => `<li><a href="${esc(n.href)}"${cur(n.href)}>${esc(n.label)}</a>${n.children ? `<ul class="pub-menu-chips">${n.children.map((c) => { const p = C.platforms.find((x) => x.guide === c.href); return `<li><a class="pub-menu-chip" href="${esc(c.href)}"${cur(c.href)}>${p ? aiLogo(p.key) : ''}<span>${esc(p ? p.name : c.label)}</span></a></li>`; }).join('')}</ul>` : ''}</li>`;
+    const first = C.nav.filter((n) => ['/', '/activity'].includes(n.href)), learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)), rest = C.nav.filter((n) => !first.includes(n) && !learn.includes(n));
+    const who = me ? `<a class="pub-menu-me" href="/u/${esc(me.handle)}">${me.avatar ? `<img class="pub-menu-avatar" src="${esc(me.avatar)}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial">${esc((me.handle || '?')[0].toUpperCase())}</span>`}<span class="pub-menu-who"><b>@${esc(me.handle)}</b><span>Open your feed</span></span></a>` : '';
     return `<header class="pub-head${home ? ' pub-head-home' : ''}">
   <div class="wrap pub-head-in">
     <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
@@ -33,8 +36,14 @@ function create(d) {
       ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : '<a class="btn3d pub-cta" href="/join">Get started</a>'}
       <details class="pub-menu" id="pub-menu">
         <summary class="pub-menu-btn" aria-controls="pub-menu-panel" aria-label="Menu"><svg class="pub-menu-ico" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M3 5.5h14M3 10h14M3 14.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><svg class="pub-menu-x" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></summary>
+        <div class="pub-menu-dim" aria-hidden="true"></div>
         <nav class="pub-menu-panel" id="pub-menu-panel" aria-label="Site">
-          <ul class="pub-menu-list">${C.nav.map(item).join('')}</ul>
+          ${who}
+          <ul class="pub-menu-list">${first.map(item).join('')}</ul>
+          <p class="pub-menu-label">Learn</p>
+          <ul class="pub-menu-list">${learn.map(item).join('')}</ul>
+          <p class="pub-menu-label">About</p>
+          <ul class="pub-menu-list">${rest.map(item).join('')}</ul>
           <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : [C.utility[0]]).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>
         </nav>
       </details>
@@ -47,7 +56,8 @@ function create(d) {
     function sync() { s.setAttribute('aria-expanded', d.open ? 'true' : 'false'); }
     sync(); d.addEventListener('toggle', sync);
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && d.open) { d.open = false; s.focus(); } });
-    document.addEventListener('click', function (e) { if (d.open && !d.contains(e.target)) d.open = false; });
+    document.addEventListener('click', function (e) { if (d.open && (!d.contains(e.target) || e.target.classList.contains('pub-menu-dim'))) d.open = false; });
+    d.addEventListener('toggle', function () { document.body.classList.toggle('pub-menu-open', d.open); });
     var h = d.closest('.pub-head'); if (h && h.classList.contains('pub-head-home')) {
       var stuck = function () { h.classList.toggle('is-stuck', window.scrollY > 8); };
       stuck(); window.addEventListener('scroll', stuck, { passive: true });
@@ -68,6 +78,9 @@ function create(d) {
   // Phone captures from the application, with captions that state the record and its non-implications.
   const phoneShot = (key, { lazy = true } = {}) => { const s = C.shots[key]; if (!s) return '';
     return `<figure class="pub-shot pub-shot-phone pub-shot-app"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/${s.file}.webp"><img src="/how/${s.file}.jpg" alt="${esc(s.alt)}" width="${s.w}" height="${s.h}"${lazy ? ' loading="lazy" decoding="async"' : ''}></picture></span></span><figcaption class="welcome-caption pub-shot-cap">${esc(s.caption)}</figcaption></figure>`; };
+  // Proves / does-not-prove statements as a pair of card columns.
+  const proofCards = (items) => { const yes = items.filter((x) => /\bproves\b/.test(x) && !/does not prove|proves nothing|never|not prove/.test(x)), no = items.filter((x) => !yes.includes(x));
+    return `<div class="pub-proof">${yes.length ? `<div class="pub-proof-col pub-proof-yes"><p class="lbl pub-proof-lbl">Proves</p><ul>${yes.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}<div class="pub-proof-col pub-proof-no"><p class="lbl pub-proof-lbl">Does not prove</p><ul>${no.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div></div>`; };
   const phoneRow = (keys) => keys && keys.length ? `<div class="pub-phone-row pub-phone-row-${keys.length}">${keys.map((k) => phoneShot(k)).join('')}</div>` : '';
   const shotsLd = (keys) => (keys || []).map((k) => C.shots[k]).filter(Boolean).map((s) => ({ '@type': 'ImageObject', contentUrl: PUBLIC_ORIGIN + '/how/' + s.file + '.jpg', url: PUBLIC_ORIGIN + '/how/' + s.file + '.jpg', width: s.w, height: s.h, caption: s.caption, description: s.alt, representativeOfPage: false }));
   const illus = `<p class="pub-illus-label"><span class="lbl">${C.demo.label}</span> <span class="fine">Invented records, shown to explain the product. Not a real member.</span></p>`;
@@ -96,7 +109,7 @@ function create(d) {
     const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: fullTitle || title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
     return (sendZ ? sendZ.bind(null, req) : send)(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
       body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
-      pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home }) } }), 200, cacheHeaders(me));
+      pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home, path }) } }), 200, cacheHeaders(me));
   };
 
   // ---- 1. Home ----------------------------------------------------------------
@@ -233,17 +246,17 @@ ${sec('checkin', 'Mark and Check-in', 'The mark is the place. The check-in is th
 ${sec('belongs', 'Where a mark can sit', 'Collections and itineraries.', `<p class="pub-p">A mark can belong to any number of collections, and can be a stop in any number of itineraries. Adding a place to a plan keeps it as a mark if it was not one already. Removing a stop from a plan leaves the mark where it is.</p>`)}
 ${sec('ai', 'With an authorized AI', 'Retrieved, and added, when you ask.', `<p class="pub-p">A connected assistant can find your marks, by place, city or the words you used, and can save a new one when you ask it to. It is asked to look the place up first, so a mark carries a real address and map position rather than a guess. Every mark an assistant adds is recorded as that assistant acting for you.</p>`)}
 ${sec('privacy', 'Private or public', 'Your choice, per mark.', `<p class="pub-p">A mark is visible to other members unless you mark it private. A private mark is seen only by you and by assistants you have connected. Check-ins follow the privacy of the mark they belong to. If a private mark is added as a stop in a plan you share, the place details in that plan (its name and address) may become visible to collaborators, after you confirm. The mark itself, your reason for saving it, your check-ins and the rest of your record stay private.</p>`)}
-${sec('shots', 'In the application', 'From members’ own records, on a phone.', phoneRow(['new-travel-mark', 'travel-mark-private', 'travel-mark-map-checkin']), 'itin-shell pub-shell')}
+${sec('shots', 'In the application', 'From members’ own records, on a phone.', phoneRow(['new-travel-mark', 'travel-mark-map-checkin']), 'itin-shell pub-shell')}
 ${sec('enrich', 'Enrichment and experience', 'What was looked up, and what you said.', `<p class="pub-p">A mark’s address and map position may be looked up for you, and are recorded as looked up. Your reason for saving it, and your check-ins, are yours and are recorded as yours. The two are held apart, so a researched fact is never presented as your experience.</p>`)}
 ${sec('example', 'An example', 'What a travel mark looks like.', `${illus}
   <div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">Travel Mark</span><span class="pub-demo-title">Kissa Hoshikawa</span><span class="pub-demo-meta">Kyoto, Japan · kept 5 March · address and map position looked up</span><span class="pub-demo-why">A kissaten with a long counter. Siphon coffee.</span><span class="pub-demo-meta">1 check-in: visited 6 March. In the collection “Kyoto”. A stop in “Kyoto, two slow days”.</span></div>`, 'itin-shell pub-shell')}
-${sec('not', 'What a mark does not prove', 'Saving is not going.', `<ul class="pub-list pub-bounds"><li>A mark does not prove you visited. A check-in does.</li><li>A mark does not prove you recommend the place. A warrant does.</li><li>A mark in a plan does not prove the plan happened.</li><li>A looked-up address is a fact about the place, not a statement by you.</li></ul>`)}
+${sec('not', 'What a mark proves, and does not', 'Saving is not going.', proofCards(['A mark proves a place was worth saving, as you put it.', 'A mark does not prove you visited. A check-in does.', 'A mark does not prove you recommend the place. A warrant does.', 'A mark in a plan does not prove the plan happened.', 'A looked-up address is a fact about the place, not a statement by you.']))}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/travel-marks', title: 'Travel Marks',
       description: 'A travel mark is a place worth remembering in Discriminantly: what it is, how it differs from a check-in, how it sits in collections and itineraries, and what it does not prove.',
-      h1: 'Travel Marks', lede: 'A place worth remembering, saved with its name and where it is. Not yet a visit.', body,
+      h1: 'Travel Marks', lede: 'A place worth remembering, saved with its name and where it is. Not yet a visit.', body, hero: 'travel-mark-private',
       card: '/card/page/travel-marks.png', crumbs: [HOME_CRUMB, { name: 'What you save', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
-      ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(['new-travel-mark', 'travel-mark-private', 'travel-mark-map-checkin'])] });
+      ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(['new-travel-mark', 'travel-mark-map-checkin'])] });
   }
 
   // ---- 4. Use with AI hub -----------------------------------------------------
@@ -337,7 +350,7 @@ ${sec('control', 'Your say', 'You stay in control.', `
   <dl class="pub-facts pub-facts-wide">${facts}</dl>
 </section>
 ${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}${key === 'muse' ? settingsShot(req, me) : ''}`)}
-${p.asks ? sec('ask', 'What you can ask', 'Start from a request, use your record, save what matters.', `<p class="pub-p">An empty account can begin with recommendations and planning; it simply has no records of yours to contribute yet. As you save things, requests can draw on them.</p><dl class="pub-asks">${p.asks.map(([h, t]) => `<div><dt>${esc(h)}</dt><dd><blockquote class="pub-quote"><p>${esc(t)}</p></blockquote></dd></div>`).join('')}</dl><p class="fine pub-fine">Suggested places stay recommendations until you keep them. A plan is not a record of going.${p.asksNote ? ' ' + esc(p.asksNote) : ''}</p>`) : ''}
+${p.asks ? sec('ask', 'What you can ask', 'Start from a request, use your record, save what matters.', `<p class="pub-p">An empty account can begin with recommendations and planning; it simply has no records of yours to contribute yet. As you save things, requests can draw on them.</p><dl class="pub-asks">${p.asks.map(([h, t]) => `<div><dt>${esc(h)}</dt><dd><blockquote class="pub-quote pub-quote-ask"><span class="pub-quote-mark">${aiLogo(p.key)}</span><p>${esc(t)}</p></blockquote></dd></div>`).join('')}</dl><p class="fine pub-fine">Suggested places stay recommendations until you keep them. A plan is not a record of going.${p.asksNote ? ' ' + esc(p.asksNote) : ''}</p>`) : ''}
 ${p.verify ? sec('verify', 'Verify it', 'Ask for something that changes nothing.', `<p class="pub-p">Once ${key === 'chatgpt' ? 'the plugin is connected' : 'the connector is in place'}, send ${esc(p.name)} this:</p><blockquote class="pub-quote"><p>${esc(p.verify)}</p></blockquote>${p.verifyExpect ? `<h3 class="pub-h3">What you should see</h3><p class="pub-p">${esc(p.verifyExpect)}</p><h3 class="pub-h3">If access is refused or nothing comes back</h3><ul class="pub-list">${p.trouble.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><h3 class="pub-h3">Disconnecting</h3><p class="pub-p">${esc(p.revoke)}</p>` : `<p class="pub-p">${esc(p.name)} should list the travel marks you have saved, and nothing in your account should change. If it is refused, the key is missing, mistyped or revoked: make a new one in Settings.</p>`}${p.lastTested ? `<p class="pub-tested"><span class="lbl">Last tested</span> <time>${esc(p.lastTested)}</time>, by ${esc(p.lastTestedBy || 'Discriminantly')}: ${esc(p.lastTestedBasis)}.</p>` : ''}${p.reviewNote ? `<p class="fine pub-fine">${esc(p.reviewNote)}</p>` : ''}`) : ''}
 ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<ul class="pub-list"><li>The key is shown once when it is made and stored only in hashed form.</li><li>Each connection has its own key. Revoking one in Settings takes effect immediately and leaves the others working.</li><li>A <b>read-only</b> key lets Muse look things up but refuses anything that would change your record.</li><li>Everything Muse adds is recorded as Muse acting for you, and shows up in Discriminantly like anything else.</li></ul>`) : sec('after', 'Once connected', 'The same record, from either side.', `<ul class="pub-list"><li>${p.provenance ? esc(p.provenance) : `What ${esc(p.name)} adds appears in Discriminantly, recorded as ${esc(p.name)} acting for you.`}</li><li>You can disconnect at any time in Settings \u203a Connect to your AI. Access ends immediately; nothing is deleted.</li><li>Private records stay private: only you and the assistants you have connected can see them. The one disclosed exception is a private travel mark used as a stop in a plan you share, whose name and address may appear to collaborators after you confirm.</li></ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/ai">All platforms</a></p></section>`;
@@ -348,7 +361,7 @@ ${key === 'muse' ? sec('keys', 'About the key', 'A credential you control.', `<u
         muse: 'Connect Meta\u2019s Muse to Discriminantly as a custom connector with an API key: the endpoint, how to make a key in Settings, the setup steps and a prompt to verify the connection.',
         other: 'Add Discriminantly to any AI client that supports a remote MCP server with sign-in. Compatibility varies and must be verified.' };
       const ledes = { chatgpt: 'A plugin in ChatGPT\u2019s directory, connected by signing in to Discriminantly.', claude: 'A custom connector, connected by signing in to Discriminantly.', muse: 'A custom connector, authenticated with a key you make in Discriminantly\u2019s Settings.', other: 'A remote MCP server with sign-in. Whether a given client works is something to test.' };
-      return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body,
+      return page(res, me, req, { path: PLATFORM_PATH[key], title: titles[key], description: descs[key], h1: titles[key], lede: ledes[key], body, hero: key === 'chatgpt' ? 'chat-plan' : 'settings-connect',
         card: `/card/page/${key}.png`, crumbs: [HOME_CRUMB, { name: 'Use with AI', href: '/ai' }, { name: p.name, href: PLATFORM_PATH[key] }],
         ld: [{ '@type': 'HowTo', name: titles[key], description: descs[key], step: p.steps.map((t, i) => ({ '@type': 'HowToStep', position: i + 1, text: t })) }] });
     };
@@ -368,17 +381,18 @@ ${sec('records', 'The records', 'What each kind of record means.', `<ul class="p
     return (req, res, me) => {
       const body = `
 ${sec('answer', 'The short answer', esc(g.q), `<p class="pub-p pub-answer">${esc(g.answer)}</p>`, 'itin-shell pub-shell')}
+<nav class="pub-guide-rail" aria-label="On this page"><p class="lbl">On this page</p><ol>${[['answer', 'The short answer'], ...g.sections.map(([h], i) => ['s' + (i + 1), h]), ...(g.shots && g.shots.length > 1 ? [['shots', 'In the application']] : []), ...(g.example ? [['example', 'An example']] : []), ['more', 'Related']].map(([id, h]) => `<li><a href="#${id}">${esc(h)}</a></li>`).join('')}</ol></nav>
 ${g.slug === 'connect-an-ai-assistant' ? settingsShot(req, me) : ''}
 ${g.sections.map(([h, t], i) => sec('s' + (i + 1), '', esc(h), `<p class="pub-p">${esc(t)}</p>`)).join('')}
-${g.shots ? sec('shots', 'In the application', 'What it looks like on a phone.', phoneRow(g.shots), 'itin-shell pub-shell') : ''}
+${g.shots && g.shots.length > 1 ? sec('shots', 'In the application', 'What it looks like on a phone.', phoneRow(g.shots.slice(1)), 'itin-shell pub-shell') : ''}
 ${g.example ? sec('example', 'An example', 'What it looks like.', `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(g.example.kind)}</span><span class="pub-demo-title">${esc(g.example.title)}</span><span class="pub-demo-meta">${esc(g.example.meta)}</span><span class="pub-demo-why">${esc(g.example.why)}</span></div>`, 'itin-shell pub-shell') : ''}
 ${sec('more', 'Related', 'Where to read on.', `<ul class="pub-list pub-guides">${g.links.map(([h, l]) => `<li><a href="${esc(h)}">${esc(l)}</a></li>`).join('')}</ul>`)}
 <p class="fine pub-fine pub-updated">Last updated <time datetime="${esc(updatedOn('/guides/' + g.slug))}">${esc(longDate(updatedOn('/guides/' + g.slug)))}</time>.</p>
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/guides">All guides</a></p></section>`;
-      return page(res, me, req, { path: '/guides/' + g.slug, title: g.title, description: g.desc || metaDesc(g.answer), h1: g.title, lede: g.q, body,
+      return page(res, me, req, { path: '/guides/' + g.slug, title: g.title, description: g.desc || metaDesc(g.answer), h1: g.title, lede: g.q, body, hero: g.shots && g.shots[0],
         card: `/card/page/guide-${g.slug}.png`, crumbs: [HOME_CRUMB, { name: 'Guides', href: '/guides' }, { name: g.title, href: '/guides/' + g.slug }],
         ld: [{ '@type': 'Article', '@id': PUBLIC_ORIGIN + '/guides/' + g.slug + '#article', headline: g.title, description: g.desc || metaDesc(g.answer), author: { '@id': PUBLIC_ORIGIN + '/#org' }, publisher: { '@id': PUBLIC_ORIGIN + '/#org' }, mainEntityOfPage: PUBLIC_ORIGIN + '/guides/' + g.slug },
-             { '@type': 'Question', name: g.q, acceptedAnswer: { '@type': 'Answer', text: g.answer }, url: PUBLIC_ORIGIN + '/guides/' + g.slug + '#answer' }, ...shotsLd(g.shots)] });
+             { '@type': 'Question', name: g.q, acceptedAnswer: { '@type': 'Answer', text: g.answer }, url: PUBLIC_ORIGIN + '/guides/' + g.slug + '#answer' }, ...shotsLd((g.shots || []).slice(1))] });
     };
   }
   const metaDesc = (t) => { const x = String(t).replace(/\s+/g, ' ').trim(); return x.length <= 158 ? x : x.slice(0, 157).replace(/\s+\S*$/, '') + '\u2026'; };
@@ -393,16 +407,16 @@ ${sec('asserts', 'What keeping one asserts', 'Exactly this.', `<p class="pub-p">
 ${sec('not', 'What it does not assert', 'And never implies.', `<p class="pub-p">${esc(d.not)}</p>`)}
 ${sec('relates', 'How it relates to the others', 'Separate records, separate meanings.', `<p class="pub-p">${esc(d.relates)}</p>`)}
 ${sec('appears', 'Where it appears', 'In the application.', `<p class="pub-p">${esc(d.appears)}</p>`)}
-${d.shots ? sec('shots', 'In the application', 'From the member’s own record, on a phone.', phoneRow(d.shots), 'itin-shell pub-shell') : ''}
+${d.shots && d.shots.length > 1 ? sec('shots', 'In the application', 'From the member’s own record, on a phone.', phoneRow(d.shots.slice(1)), 'itin-shell pub-shell') : ''}
 ${sec('ai', 'With an authorized AI', 'Retrieved, and added, when you ask.', `<p class="pub-p">${esc(d.ai)}</p>`)}
 ${sec('privacy', 'Privacy and provenance', 'Per record.', `<p class="pub-p">${esc(d.privacy)}</p>`)}
 ${sec('example', 'An example', `What a ${esc(o.one.toLowerCase())} looks like.`, `${illus}<div class="pub-demo-tile pub-demo-app pub-example"><span class="lbl">${esc(d.example.kind)}</span><span class="pub-demo-title">${esc(d.example.title)}</span><span class="pub-demo-meta">${esc(d.example.meta)}</span><span class="pub-demo-why">${esc(d.example.why)}</span></div>`, 'itin-shell pub-shell')}
-${sec('proves', `What a ${esc(o.one.toLowerCase())} does not prove`, 'Plainly.', `<ul class="pub-list pub-bounds">${d.proves.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>`)}
+${sec('proves', `What a ${esc(o.one.toLowerCase())} proves, and does not`, 'Plainly.', proofCards(d.proves))}
 ${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-list pub-guides">${C.objects.filter((x) => x.key !== key).map((x) => `<li><a href="${x.href}">${esc(x.name)}</a> — ${esc(x.plain)}</li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
-      return page(res, me, req, { path: d.path, title: o.name, description: d.desc || metaDesc(`${o.what} ${o.not}`), h1: o.name, lede: d.lede, body,
+      return page(res, me, req, { path: d.path, title: o.name, description: d.desc || metaDesc(`${o.what} ${o.not}`), h1: o.name, lede: d.lede, body, hero: d.shots && d.shots[0],
         card: `/card/page/${d.path.slice(1)}.png`, crumbs: [HOME_CRUMB, { name: 'What you save', href: '/how-it-works#names' }, { name: o.name, href: d.path }],
-        ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(d.shots)] });
+        ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd((d.shots || []).slice(1))] });
     };
   }
 
