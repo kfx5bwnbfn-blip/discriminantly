@@ -101,14 +101,14 @@ const form = (o, cookie) => ({ method: 'POST', headers: { 'content-type': 'appli
   ok('AS1 unconnected: four starters, each with Copy and Connect first; no launch link', (h.match(/class="wl-prompt wl-starter[^"]*" data-starter="/g) || []).length === 4 && /data-wl-pick="plan"/.test(h) && !/claude:\/\/claude\.ai\/new/.test(h));
   db.prepare("INSERT INTO connections(uid,user_id,token_hash,client_name,client_label) VALUES('c1',?,'h1','Claude','Claude')").run(campaign);
   h = await (await fetch(B + '/', { headers: { cookie: csid } })).text();
-  ok('AS2 Claude connected: Copy plus Open in Claude Desktop (the documented claude:// link), no Connect first', /href="claude:\/\/claude\.ai\/new\?q=I%E2%80%99m%20planning/.test(h) && !/data-wl-pick=/.test(h));
+  ok('AS2 Claude connected: Copy plus Open in Claude Desktop (the documented claude:// link), no Connect first', /href="claude:\/\/claude\.ai\/new\?q=[^"]+"[^>]*>Open in Claude Desktop/.test(h) && !/data-wl-pick=/.test(h));
   db.prepare("UPDATE connections SET client_name='ChatGPT', client_label='ChatGPT' WHERE uid='c1'").run();
   h = await (await fetch(B + '/', { headers: { cookie: csid } })).text();
   ok('AS3 ChatGPT connected: Copy only (no documented launch link)', /data-wl-copy="/.test(h) && !/claude:\/\//.test(h) && !/data-wl-pick=/.test(h));
   h = await (await fetch(B + '/t', { headers: { cookie: csid } })).text();
-  ok('AE5 empty Itineraries: plan with your AI, or start a plan here', /Plan a trip, a day, or an afternoon\./.test(h) && /href="\/t\?new=1#itin-create"/.test(h) && /data-wl-copy="I\u2019m planning/.test(h));
+  ok('AE5 empty Itineraries: plan with your AI, or start a plan here', /Plan a trip, a day, or an afternoon\./.test(h) && /href="\/t\?new=1#itin-create"/.test(h) && /data-wl-copy="Help me plan /.test(h));
   h = await (await fetch(B + '/u/fromcampaign?tab=marks', { headers: { cookie: csid } })).text();
-  ok('AE6 empty Marks: add a place, or ask your AI', /Keep a place worth returning to\./.test(h) && /href="\/marks\/new"/.test(h) && /There\u2019s a place I want to remember/.test(h));
+  ok('AE6 empty Marks: add a place, or ask your AI', /Keep a place worth returning to\./.test(h) && /href="\/marks\/new"/.test(h) && /data-wl-copy="Keep \[restaurant or shop\] in \[city\]/.test(h));
   h = await (await fetch(B + '/t?new=1', { headers: { cookie: csid } })).text();
   ok('AE7 Start a plan here opens the create form', /<details class="itin-create" id="itin-create" open>/.test(h));
   // login throttle

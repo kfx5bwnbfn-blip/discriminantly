@@ -3314,8 +3314,13 @@ function readImage(file, cb) {
   // the grid is further down the page than this script, so wait for parse
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function () { layoutFeed(); });
   else layoutFeed();
-  var relayoutTimer;
+  var relayoutTimer, relayoutW = window.innerWidth;
   window.addEventListener('resize', function () {
+    // v2.104.1: re-tile only when the width changes. On a phone the address
+    // bar hides and shows while scrolling, a height-only resize, and each one
+    // used to tear down and rebuild the whole feed (it looked like a reload).
+    if (window.innerWidth === relayoutW) return;
+    relayoutW = window.innerWidth;
     clearTimeout(relayoutTimer);
     relayoutTimer = setTimeout(function () {
       document.querySelectorAll('.grid, .activity-feed').forEach(function (g) { g.__built = false; });
@@ -8153,6 +8158,16 @@ function canSeeStop(stop, itin, me) {
   if (mk.private) return { see: false };                                      // private: nothing
   return { see: true, owner: false, mark: mk };
 }
+// v2.104.1: what a public plan discloses outside the page body (its
+// structured data, meta description and share card) is exactly what a
+// signed-out visitor may see on it: the same rule as the page (canSeeStop),
+// so a private or suspended stop never reaches page source or a crawler.
+function publicStopNames(it) {
+  if (it.private) return [];
+  return q('SELECT * FROM itinerary_stops WHERE itinerary_id=? ORDER BY id').all(it.id)
+    .map((st) => { const v = canSeeStop(st, it, null); return v.see ? ((v.mark && v.mark.name) || st.place_name || st.label) : ''; })
+    .filter(Boolean);
+}
 // A Stop de-resolved because its Mark was deleted (migration 054) is an
 // ordinary unresolved Stop; this only lets the page keep saying it was once
 // marked, from the Stop's own history. The latest change to its mark decides.
@@ -9473,10 +9488,12 @@ function itineraryGeo(it, me) {
   // never from any participant's Marks.
   if (itinShared(it)) return itinRole(it, me) ? q(`SELECT uid stop_uid, label, position, group_id, place_lat lat, place_lng lng,
       COALESCE(NULLIF(place_name, ''), label) name FROM itinerary_stops WHERE itinerary_id=? AND place_lat IS NOT NULL AND place_lng IS NOT NULL`).all(it.id) : [];
-  const rows = q(`SELECT s.uid stop_uid, s.label, s.position, s.group_id, m.* FROM itinerary_stops s
+  // v2.104.1: the stop's own visibility, not an assumed 'visible', so a stop
+  // its owner suspended is off the map for everyone else as it is off the page.
+  const rows = q(`SELECT s.uid stop_uid, s.label, s.position, s.group_id, s.visibility stop_visibility, m.* FROM itinerary_stops s
                   JOIN marks m ON m.uid = s.mark_uid
                   WHERE s.itinerary_id=? AND m.lat IS NOT NULL AND m.lng IS NOT NULL`).all(it.id)
-    .filter((r) => canSeeStop({ visibility: 'visible', resolution: 'linked', mark_uid: r.uid }, it, me).see);
+    .filter((r) => canSeeStop({ visibility: r.stop_visibility, resolution: 'linked', mark_uid: r.uid }, it, me).see);
   return rows;
 }
 
@@ -9600,7 +9617,7 @@ function itinerarySuggestions(it, me) {
   const seen = new Set();
   marks = [...marks, ...byPlace].filter((m) => !inItin.has(m.uid) && !seen.has(m.uid) && (seen.add(m.uid), true));
 
-  const notes = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id).filter((o) => {
+  const notes = q(ADOPTED_OBJ_SQL + ' WHERE o.user_id=? ORDER BY o.id DESC').all(me.id).filter((o) => {
     const hay = `${o.tags || ''} ${o.name || ''} ${o.category || ''}`.toLowerCase();
     return [...words].some((w) => hay.includes(w));
   });
@@ -10205,8 +10222,8 @@ const pages = {
     // entries are excluded by the query and again by canSee below.
     const mineToo = !!me;
     let rows = mineToo
-      ? q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC LIMIT 200').all(me.id)
-      : q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC LIMIT 200').all();
+      ? q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 OR o.user_id=? ORDER BY o.id DESC').all(me.id)
+      : q(ADOPTED_OBJ_SQL + ' WHERE o.private=0 ORDER BY o.id DESC').all();
     if (feed === 'following') { const ids = new Set(q('SELECT followee_id id FROM follows WHERE follower_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (feed === 'followers') { const ids = new Set(q('SELECT follower_id id FROM follows WHERE followee_id=?').all(me.id).map((r) => r.id)); rows = rows.filter((o) => ids.has(o.user_id)); }
     if (tag) rows = rows.filter((o) => tagList(o.tags).includes(tag));
@@ -10224,7 +10241,7 @@ const pages = {
     // Itineraries are first-class feed objects: the same visibility rule as a
     // note or a mark (canSee), shown as the article shell truncated.
     const itins = feed === 'all'
-      ? q('SELECT * FROM adopted_itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC LIMIT 60').all(...(me ? [me.id] : []))
+      ? q('SELECT * FROM adopted_itineraries WHERE ' + (me ? '(private=0 OR user_id=?)' : 'private=0') + ' ORDER BY id DESC').all(...(me ? [me.id] : []))
       : [];
     const lazy = (at, key, draw, owner = 0) => ({ at, key, owner, get html() { return this._h ?? (this._h = draw()); } });
     const entries = [...rows.map((o) => lazy(o.created_at, 'note:' + o.id, () => objectCard(o, me), o.user_id)),
@@ -10572,8 +10589,7 @@ ${me && me.id === o.user_id && prospectiveOf('object', o) ? '' : `<div class="se
   <section class="feed profile-feed itin-page">${main}</section>
 </div>`;
     const pub = it.private ? { noindex: true } : (() => {
-      const stops = q('SELECT s.label, s.place_name, m.name AS mark_name FROM itinerary_stops s LEFT JOIN marks m ON m.uid = s.mark_uid WHERE s.itinerary_id=? ORDER BY s.id').all(it.id)
-        .map((s) => s.mark_name || s.place_name || s.label).filter(Boolean);
+      const stops = publicStopNames(it);
       return artifactPub({ path: base, title: it.title || 'Itinerary', type: 'article',
         description: metaText(`${it.title || 'An itinerary'}: a plan by @${author.handle} on Discriminantly with ${stops.length} ${stops.length === 1 ? 'stop' : 'stops'}${it.context ? '. ' + it.context : ''}. A plan, not a record of having gone.`),
         card: cardPath('t', it.id, stops.length),
@@ -11137,19 +11153,22 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
     })();
     </script>`;
     } else {
+      // v2.104.1: every kind in full (places, plans, follows used to stop at
+      // 20-30), so scrolling All reaches the member's oldest record; pageOf
+      // renders 25 at a time.
       const acts = [];
       for (const o of visible) acts.push({ at: o.created_at, card: o });
       for (const n of q(`SELECT created_at, id, name, private, user_id FROM adopted_objects
-        WHERE user_id=? AND renoted_from_uid IS NOT NULL ORDER BY created_at DESC LIMIT 30`).all(u.id))
+        WHERE user_id=? AND renoted_from_uid IS NOT NULL ORDER BY created_at DESC`).all(u.id))
         if (canSee(n, me)) acts.push({ at: n.created_at, html: `collected <a href="/o/${n.id}">${esc(n.name)}</a>` });
       // Same visibility rule as the Marks tab and as notes and itineraries in
       // this feed (canSee), so a mark shown in one place is shown in the other.
-      for (const x of q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC LIMIT 30').all(u.id))
+      for (const x of q(ADOPTED_MARK_SQL + ' WHERE m.user_id=? ORDER BY m.id DESC').all(u.id))
         if (canSee(x, me)) acts.push({ at: x.created_at, card: null, html: null, mark: x });
-      for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC LIMIT 20').all(u.id))
+      for (const f of q('SELECT f.created_at, u2.* FROM follows f JOIN users u2 ON u2.id=f.followee_id WHERE f.follower_id=? ORDER BY f.created_at DESC').all(u.id))
         acts.push({ at: f.created_at, follow: f });
       // itineraries: first-class, same visibility rule as marks and notes
-      for (const it of q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC LIMIT 20').all(u.id))
+      for (const it of q('SELECT * FROM adopted_itineraries WHERE user_id=? ORDER BY id DESC').all(u.id))
         if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const apg = pageOf(acts, url);
@@ -11781,7 +11800,7 @@ async function cardSpec(key) {
   if (kind === 'm') { const mk = q(MARK_SQL + ' WHERE m.id=?').get(+id); if (!mk || !canView('mark', mk, null)) return null; const a = q('SELECT handle FROM users WHERE id=?').get(mk.user_id);
     return { eyebrow: 'Travel Mark', title: mk.name, line: metaText(`${[mk.locality, mk.country].filter(Boolean).join(', ')}${mk.locality || mk.country ? '. ' : ''}Kept by @${a.handle}${mk.why ? ': ' + mk.why : ''}`, 150), image: publicImageFile(mk.image) }; }
   if (kind === 't') { const it = q('SELECT * FROM itineraries WHERE id=?').get(+id); if (!it || !canView('itinerary', it, null)) return null; const a = q('SELECT handle FROM users WHERE id=?').get(it.user_id);
-    const n = q('SELECT COUNT(*) n FROM itinerary_stops WHERE itinerary_id=?').get(it.id).n;
+    const n = publicStopNames(it).length;
     return { eyebrow: 'Itinerary', title: it.title || 'Itinerary', line: metaText(`A plan by @${a.handle}, ${n} ${n === 1 ? 'stop' : 'stops'}${it.context ? '. ' + it.context : ''}`, 150) }; }
   if (kind === 'e') { const e = q('SELECT * FROM ensembles WHERE id=?').get(+id); if (!e || !ensCanSee(e, null) || e.private) return null; const a = q('SELECT handle FROM users WHERE id=?').get(e.user_id);
     const v = ensembleView(e, null); const prim = v.artifacts.find((x) => x.is_primary) || v.artifacts[0];

@@ -1204,7 +1204,7 @@ console.log('\nprofile feed');
 {
   const i = SRC.indexOf('  user(req, res, me, handle, url) {'), b = SRC.slice(i, i + 40000);
   ok('PF1 the All feed shows marks by the same rule as notes, itineraries and the Marks tab (canSee)',
-     /for \(const x of q\(ADOPTED_MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC LIMIT 30'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
+     /for \(const x of q\(ADOPTED_MARK_SQL \+ ' WHERE m\.user_id=\? ORDER BY m\.id DESC'\)\.all\(u\.id\)\)\s*if \(canSee\(x, me\)\) acts\.push/.test(b)
      && !/if \(!x\.private \|\| owner\) acts\.push/.test(b));
 }
 
@@ -1600,9 +1600,9 @@ console.log('\nmuse capture origin');
 console.log('\nwelcome');
 {
   // v2.68: the card is chosen by durable state (full / compact / none); the full card keeps its v2.64 placement
-  ok('WL1 Welcome is a feed entry on All only (signed in, unfiltered), placed under the member\u2019s own oldest record, never pinned',
+  ok('WL1 Welcome is a feed entry on All only (signed in, unfiltered), placed under the member\u2019s own oldest record (at the top when asked for, or after arriving through a shared plan, v2.96), never pinned',
      /if \(me && feed === 'all' && !s && !tag\) \{\s*const st = welcomeState\(me\), mode = welcomeMode\(me, st, url\);\s*if \(mode === 'full'\) \{\s*const w = lazy\(me\.created_at, 'welcome', \(\) => \{ recordEvent\(me\.id, 'welcome_viewed', \{ surface: 'all', dedupeMinutes: 30 \}\); return welcomeCard\(me\); \}, me\.id\);/.test(SRC)
-     && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);\s*entries\.splice\(url\.searchParams\.get\('welcome'\) === '1' \? 0 : last \+ 1, 0, w\);/.test(SRC));
+     && /entries\.forEach\(\(e, i\) => \{ if \(e\.owner === me\.id\) last = i; \}\);(?:\s*\/\/[^\n]*)*\s*entries\.splice\(url\.searchParams\.get\('welcome'\) === '1' \|\| st\.arrived \? 0 : last \+ 1, 0, w\);/.test(SRC));
   {
     const wm = SRC.slice(SRC.indexOf('function welcomeMode('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeMode(')));
     ok('WL5 the Welcome mode is derived from state: nothing kept -> full; reused -> none; otherwise compact (no stored onboarding flag)',
@@ -1618,13 +1618,16 @@ console.log('\nwelcome');
        /const receipt = me && feed === 'all' && !s && !tag \? latestReceipt\(me\) : null;/.test(SRC));
   }
   const f = SRC.slice(SRC.indexOf('function welcomeCard('), SRC.indexOf('\n}\n', SRC.indexOf('function welcomeCard(')));
-  ok('WL2 no dismiss or completion mechanics', !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '')));
+  ok('WL2 the feed\u2019s Welcome has no dismiss or completion mechanics; only the copy on an adopted plan carries a Dismiss (v2.96)',
+     /const dismiss = plan \? `<form method="post" action="\/t\/\$\{plan\.id\}\/welcome\/dismiss"/.test(f)
+     && !/dismiss|complete|onboard/i.test(f.replace(/Welcome/g, '').replace(/^.*\bdismiss\b.*$/gim, '').replace(/^.*>Dismiss<.*$/gm, '')));
   ok('WL3 connection state comes from the member\u2019s live connections, per AI',
      /const live = conns\.filter\(\(c\) => !c\.revoked_at\);/.test(SRC) && /chatgpt\|openai/.test(SRC) && /claude\|anthropic/.test(SRC));
-  ok('WL4 the ChatGPT steps appear only once the listing exists (CHATGPT_PLUGIN_URL); until then, a truthful "coming" note',
-     /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(f) && /Coming to ChatGPT\\u2019s plugin directory/.test(f) && /pluginUrl\s*\?[\s\S]{0,400}Open in ChatGPT/.test(f));
+  const g = SRC.slice(SRC.indexOf('function connectGuide('), SRC.indexOf('\n}\n', SRC.indexOf('function connectGuide(')));
+  ok('WL4 the ChatGPT steps appear only once the listing exists (CHATGPT_PLUGIN_URL); until then, a truthful "coming" note (in the shared connect guide the card renders, v2.98)',
+     /connectGuide\(/.test(f) && /const pluginUrl = \(process\.env\.CHATGPT_PLUGIN_URL \|\| ''\)\.trim\(\);/.test(g) && /Coming to ChatGPT\\u2019s plugin directory/.test(g) && /pluginUrl\s*\?[\s\S]{0,400}Open in ChatGPT/.test(g));
   ok('WL5 current Claude wording: Customize \u203a Connectors, Add custom connector, + \u203a Connectors',
-     /Customize \\u203a Connectors/.test(f) && /Add custom connector/.test(f) && /\+ \\u203a Connectors/.test(f));
+     /Customize \\u203a Connectors/.test(g) && /Add custom connector/.test(g) && /\+ \\u203a Connectors/.test(g));
   ok('WL6 built from the skin\u2019s own components (arcTitle headline, sbox-title, sbox-sub, btn3d, link caps), with three separate tiles',
      ['arcTitle(', 'sbox-title', 'sbox-sub', 'btn3d', 'link caps'].every((c) => f.includes(c)) && !/wtable wl-kinds|wcell wl-kind/.test(f)
      && /\[\[1, 'Orientation', 'Orientation'\], \[2, 'Connect your AI', 'Connect'\], \[3, 'Get started', 'Start'\]\]/.test(f));
