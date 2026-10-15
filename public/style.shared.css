@@ -1924,9 +1924,16 @@ body[data-skin="modern"] .pub-ai-chip .wl-ai-logo { background: var(--m-glass-2)
 
 /* ===== v2.102: interior pass ===== */
 /* eyebrows as small glass pills */
-.pub-eyebrow { display: inline-block; padding: .38rem .8rem .34rem; border-radius: 999px; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.16); margin-bottom: .7rem; }
-.is-public .pub-sec > .pub-eyebrow, .is-public .pub-keep > .pub-eyebrow { display: table; margin-left: auto; margin-right: auto; }
-body[data-skin="modern"] .pub-eyebrow { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+/* eyebrows: small caps between two hairlines, not a pill (Brian, 15 Oct) */
+.is-public .pub-eyebrow { display: flex; align-items: center; justify-content: center; gap: .9rem; margin: 0 auto .7rem; max-width: 30rem; letter-spacing: .2em; }
+.is-public .pub-eyebrow::before, .is-public .pub-eyebrow::after { content: ""; flex: 0 1 3.2rem; height: 1px; background: currentColor; opacity: .3; }
+body[data-skin="modern"] .pub-eyebrow { color: var(--m-accent, var(--m-ink-2)); opacity: 1; }
+body[data-skin="modern"] .pub-eyebrow::before, body[data-skin="modern"] .pub-eyebrow::after { opacity: .35; }
+.is-public .pub-eyebrow > span, .is-public .pub-eyebrow { white-space: normal; }
+@media (max-width: 52rem) {
+  .is-public .pub-eyebrow { gap: .7rem; letter-spacing: .16em; max-width: none; }
+  .is-public .pub-eyebrow::before, .is-public .pub-eyebrow::after { flex: 0 0 1.4rem; }
+}
 /* rule lines as pull quotes */
 .pub-rule-line, .pub-bounds-line { font-size: 1.22rem; line-height: 1.5; font-style: italic; letter-spacing: .005em; margin-top: 2rem; margin-bottom: .6rem; opacity: 1; }
 .pub-bounds-line { font-size: 1.05rem; margin-bottom: 1.8rem; }
