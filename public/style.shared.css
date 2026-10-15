@@ -1916,7 +1916,7 @@ body[data-skin="modern"] .pub-ai-chip .wl-ai-logo { background: var(--m-glass-2)
   .pub-keep-item:hover .pub-keep-preview, .pub-keep-link:focus-visible ~ .pub-keep-preview { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .pub-hero-shot, .pub-keep-item, .pub-about-shot { animation: pub-rise .6s ease both; }
+  .pub-keep-item, .pub-about-shot { animation: pub-rise .6s ease both; } /* the hero shows at once: it is the largest paint (v2.104) */
   .pub-keep-item:nth-child(2) { animation-delay: .06s; } .pub-keep-item:nth-child(3) { animation-delay: .12s; }
   .pub-keep-item:nth-child(4) { animation-delay: .18s; } .pub-keep-item:nth-child(5) { animation-delay: .24s; } .pub-keep-item:nth-child(6) { animation-delay: .3s; }
 }

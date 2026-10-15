@@ -1686,6 +1686,12 @@ function runMigrations() {
   }
 }
 runMigrations();
+// v2.104: give the query planner statistics about the data. Without them it
+// checks "is this still adopted" by the slow route (about 15x slower for a
+// member's own counts and feed). PRAGMA optimize only writes the planner's
+// statistics table and touches no data; re-run every six hours as data grows.
+const planStats = (full) => { try { db.exec(full ? 'PRAGMA optimize=0x10002' : 'PRAGMA optimize'); } catch (e) { try { if (full) db.exec('ANALYZE'); } catch {} } };
+planStats(true); setInterval(() => planStats(false), 6 * 3600e3).unref();
 // v2.70: `node server.js --place-backfill-report` prints what the stop place
 // backfill would still change (a dry run; 0 after the migration) and exits.
 if (process.argv.includes('--place-backfill-report')) { console.log(JSON.stringify(stopPlaceBackfill({ dryRun: true }))); process.exit(0); }
@@ -1697,7 +1703,12 @@ if (process.argv.includes('--backup')) {
   console.log(`Wrote ${backupTo(target)}`);
   process.exit(0);
 }
-const q = (sql) => db.prepare(sql);
+// v2.104: prepared statements are reused rather than re-prepared on every
+// call (a feed render prepares a few hundred). The database handle is never
+// replaced, and no statement is iterated, so a cached statement is always safe
+// to run again. Bounded, since a few queries build their SQL from lists.
+const Q_CACHE = new Map();
+const q = (sql) => { let st = Q_CACHE.get(sql); if (!st) { if (Q_CACHE.size >= 1500) Q_CACHE.clear(); st = db.prepare(sql); Q_CACHE.set(sql, st); } return st; };
 const avatar = (u, cls = 'avatar') => u.avatar ? `<img class="${cls}" src="${esc(u.avatar)}" alt="" loading="lazy" decoding="async">` : `<span class="${cls} avatar-initial">${esc((u.handle || '?')[0].toUpperCase())}</span>`;
 const stackDate = (t) => { const d = new Date(t + 'Z'); return `<time class="stackdate" datetime="${t}"><span class="mon">${d.toLocaleDateString('en-CA', { month: 'short' })}</span><span class="day">${d.getDate()}</span><span class="yr">${d.getFullYear()}</span></time>`; };
 // Collections organise the member's OWN Notes. The delete is scoped to this
@@ -3153,9 +3164,8 @@ window.addEventListener('appinstalled', function () {
 });
 </script>
 <title>${esc(pub && pub.title ? pub.title : title ? title + ' — discriminant.ly' : 'discriminant.ly')}</title>${pubHead}
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://use.typekit.net"><link rel="preconnect" href="https://use.typekit.net" crossorigin><link rel="preconnect" href="https://p.typekit.net">
 <link rel="stylesheet" href="https://use.typekit.net/fbk5zyg.css">
-<link href="https://fonts.googleapis.com/css2?family=Rokkitt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" type="image/png" href="/favicon.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="icon" sizes="192x192" href="/icon-192.png">

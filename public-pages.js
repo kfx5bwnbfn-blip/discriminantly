@@ -109,6 +109,12 @@ function create(d) {
     <p class="pub-plat-act"><a class="link caps" href="${esc(p.guide)}">Guide →</a>${p.key === 'chatgpt' && PLUGIN() ? ` <a class="link caps" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT ↗</a>` : ''}</p>
   </article>`;
   const stepsList = (items) => `<ol class="steps wl-how pub-steps">${items.map((t, n) => `<li><span>${n + 1}</span><div>${t}</div></li>`).join('')}</ol>`;
+  // Instant navigation between public pages (v2.104): Chrome and Edge start
+  // loading a public page when the pointer rests on its link or a finger presses
+  // it, so the page is usually ready on release. Signed-out only, an explicit
+  // list of editorial pages, nothing with an account, a share, or a database
+  // feed behind it. Browsers without speculation rules ignore the block.
+  const SPECULATE = `<script type="speculationrules">${JSON.stringify({ prerender: [{ where: { href_matches: ['/', '/how-it-works', '/travel-marks', '/ai', '/ai/*', '/guides', '/guides/*', '/notes', '/check-ins', '/collections', '/itineraries', '/warrants', '/about', '/support', '/privacy', '/terms'] }, eagerness: 'moderate' }] })}</script>`;
   // Public editorial HTML may be cached by shared caches only for signed-out
   // visitors; a signed-in render (its header says Open Discriminantly) never is.
   const cacheHeaders = (me) => me ? { 'Cache-Control': 'private, no-store', Vary: 'Cookie, Accept-Encoding' } : { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600', Vary: 'Cookie, Accept-Encoding' };
@@ -120,7 +126,7 @@ function create(d) {
     if (hero) ld = [...ld, ...shotsLd([hero])];
     const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: fullTitle || title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
     return (sendZ ? sendZ.bind(null, req) : send)(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
-      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}`,
+      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}${me ? '' : SPECULATE}`,
       pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home, path }) } }), 200, cacheHeaders(me));
   };
 
