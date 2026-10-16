@@ -3936,7 +3936,7 @@ function readImage(file, cb) {
     window.addEventListener('orientationchange', syncBar);
     window.addEventListener('pageshow', syncBar);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(syncBar);
-    if (window.ResizeObserver) new ResizeObserver(syncBar).observe(bar);
+    if (window.ResizeObserver) new ResizeObserver(syncBar).observe(bar, { box: 'border-box' });   // padding (the status-bar allowance) counts
   })();
 
 </script>

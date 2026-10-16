@@ -24,7 +24,7 @@
    bar slid under it. Reserve the status bar explicitly at tablet widths. ---- */
 @media (display-mode: standalone) and (min-width: 52.01rem) {
   .is-app .searchbar { padding-top: calc(.55rem + max(env(safe-area-inset-top, 0px), 24px)); }
-  .is-app .iconrail { top: calc(var(--searchbar-h, 52px) + max(env(safe-area-inset-top, 0px), 24px)); }
+  .is-app .iconrail { top: var(--bar-h, calc(var(--searchbar-h, 52px) + max(env(safe-area-inset-top, 0px), 24px))); }
 }
 
 /* Cards carry their own `display: grid` (classic) — the browser's UA rule for
@@ -2121,10 +2121,15 @@ body[data-skin="modern"] .searchbar .app-menu > summary { color: var(--m-ink); }
 .app-menu .pub-menu-out button { font-family: var(--slab); font-weight: 600; font-size: .64rem; letter-spacing: .15em; text-transform: uppercase; background: none; border: 0; padding: 0; color: inherit; cursor: pointer; }
 /* desktop: the panel drops from the bar's right edge, capped to the viewport */
 .searchbar .app-menu .pub-menu-panel { right: 0; top: calc(100% + .5rem); }
-/* phone: the sheet sits below the fixed search bar; the bar drops its blur while open (a backdrop-filter would contain the fixed sheet) */
+/* At every width the bar drops its own blur while the menu is open: a
+   backdrop-filter on the bar is the backdrop root for everything inside it, so
+   the panel's blur could only see the bar -- on desktop it rendered as clear
+   tinted glass with the cards sharp behind it. */
+body.pub-menu-open .searchbar, body[data-skin="modern"].pub-menu-open .searchbar,
+body.pub-menu-open .pub-head, body[data-skin="modern"].pub-menu-open .pub-head, body[data-skin="modern"].pub-menu-open .pub-head-home.is-stuck { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+/* phone: the sheet sits below the fixed search bar */
 @media (max-width: 52rem) {
   body.is-in .app-menu .pub-menu-panel { top: var(--bar-h, var(--m-searchbar-h, 52px)); border-top-right-radius: 0; }
-  body.pub-menu-open .searchbar, body[data-skin="modern"].pub-menu-open .searchbar { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
   .app-menu .pub-menu-dim { top: var(--bar-h, var(--m-searchbar-h, 52px)); }
 }
 .pub-menu-chips { list-style: none; margin: 0; padding: 0; }
@@ -2185,3 +2190,15 @@ body[data-skin="modern"] .app-pgrp + .pub-menu-label { border-top-color: var(--m
 .app-menu .pgrp-nav button.wcell { font: inherit; background: transparent; border: 0; width: 100%; cursor: pointer; color: inherit; }
 .app-menu .pgrp-nav .pgrp-solo:has(.app-pgrp-face) .wcell-wide { padding-top: .45rem; }
 @media (max-width: 52rem) { .pub-menu-start { margin-right: 3.1rem; } }   /* clear of the close button on the phone sheet */
+
+/* ---- tablet and desktop: everything under the bar follows its MEASURED
+   height (--bar-h, set by the page script). The home-screen app on a tablet
+   adds the status-bar allowance to the bar, which made it 24px taller than
+   the fixed 65px the page was padded by -- so the rail and the feed started
+   underneath it. ---- */
+@media (min-width: 52.01rem) {
+  body.is-in { padding-top: var(--bar-h, var(--searchbar-h)); }
+  .iconrail { top: var(--bar-h, var(--searchbar-h)); }
+  .curtain { top: var(--bar-h, var(--searchbar-h)); }
+  .cols > .rail { top: var(--bar-h, var(--searchbar-h)); max-height: calc(100vh - var(--bar-h, var(--searchbar-h))); }
+}

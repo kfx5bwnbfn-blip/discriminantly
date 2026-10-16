@@ -2693,3 +2693,12 @@ body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-label { padding-top: .15rem; 
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { border-bottom: 0; }
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group > .wcell:nth-child(2) { border-right: 1px solid var(--m-rule); }
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group > .wcell:nth-child(3) { border-right: 0; }
+
+/* ---- the menu on desktop: denser glass. On a phone the panel covers the page
+   and the blur reads as material; on a wide screen it floats over busy cards,
+   and at .58 the text behind competed with the menu's own. ---- */
+@media (min-width: 52.01rem) {
+  body[data-skin="modern"] { --m-menu: rgba(24,26,34,.84); }
+  body[data-skin="modern"][data-mode="light"],
+  html.m-light body[data-skin="modern"][data-mode="system"] { --m-menu: rgba(246,246,250,.88); }
+}
