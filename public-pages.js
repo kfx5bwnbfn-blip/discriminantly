@@ -65,7 +65,7 @@ function create(d) {
             <button class="btn3d block">Sign in</button>
             <p class="pub-menu-join">New here? <a href="/join">Create an account</a></p>
           </form>`;
-    return `          ${meRow(me)}
+    return `          ${me ? meRow(me) : '<p class="pub-menu-start"><a class="btn3d btn-solid" href="/join">Get started</a></p>'}
           <ul class="pub-menu-list">${first.map(it).join('')}</ul>
           <p class="pub-menu-label">Learn</p>
           <ul class="pub-menu-list">${learn.map(it).join('')}</ul>
@@ -89,14 +89,17 @@ function create(d) {
     const cur = (href) => href === path ? ' on' : '';
     const cell = (href, count, name) => `<a class="wcell${cur(href)}" href="${esc(href)}"><b>${count}</b><span>${esc(name)}</span></a>`;
     const group = (label, items) => `<div class="wtable pgrp-group"><p class="pgrp-label">${esc(label)}</p>${items.map(([h, c, nm]) => cell(h, c, nm)).join('')}</div>`;
-    const solo = (href, count, name) => `<div class="wtable pgrp-solo"><a class="wcell wcell-wide${cur(href)}" href="${esc(href)}">${count === null ? '' : `<b>${count}</b>`}<span>${esc(name)}</span></a></div>`;
+    const solo = (href, count, name, lead = '') => `<div class="wtable pgrp-solo"><a class="wcell wcell-wide${cur(href)}" href="${esc(href)}">${lead}${count === null ? '' : `<b>${count}</b>`}<span>${esc(name)}</span></a></div>`;
+    const face = me.avatar && avatarSrc(me) ? `<img class="pub-menu-avatar app-pgrp-face" src="${esc(avatarSrc(me))}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial app-pgrp-face">${esc((me.handle || '?')[0].toUpperCase())}</span>`;
+    const logout = `<div class="wtable pgrp-solo"><form method="post" action="/logout" class="app-pgrp-form"><button type="submit" class="wcell wcell-wide"><span>Logout</span></button></form></div>`;
     // the rail's order: All activity, Places, Things, People, Warrants; every card the same height
     const youNav = `<div class="pgrp-nav app-pgrp">
-            ${solo(u, null, 'All activity')}
+            ${solo(u, null, 'All activity', face)}
             ${group('Places', [[u + '?tab=marks', n('marks'), 'Marks'], ['/t', n('itineraries'), 'Itineraries']])}
             ${group('Things', [[u + '?tab=notes', n('notes'), 'Notes'], [u + '?tab=ensembles', n('ensembles'), 'Ensembles']])}
             ${group('People', [[u + '?tab=followers', n('followers'), 'Followers'], [u + '?tab=following', n('following'), 'Following']])}
             ${solo(u + '?tab=warrants', n('warrants'), 'Warrants')}
+            ${logout}
           </div>`;
     const connected = (p) => !!(st && st[p.key]);
     const anyAi = C.platforms.some(connected);
@@ -105,7 +108,6 @@ function create(d) {
     const learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)).map((n) => ({ label: n.label, href: n.href }));
     const help = [{ label: 'Support', href: '/support' }, { label: 'Privacy', href: '/privacy' }, { label: 'Terms', href: '/terms' }];
     return `          <ul class="pub-menu-list">${[{ label: 'Home', href: '/' }, { label: 'Settings', href: '/settings' }].map(it).join('')}</ul>
-          ${meRow(me, 'Your profile')}
           ${youNav}
           ${anyAi ? '' : aiGroup}
           <p class="pub-menu-label">Learn</p>
@@ -113,7 +115,7 @@ function create(d) {
           ${anyAi ? aiGroup : ''}
           <p class="pub-menu-label">Help</p>
           <ul class="pub-menu-list">${help.map(it).join('')}</ul>
-          <div class="pub-menu-util"><form method="post" action="/logout" class="pub-menu-out"><button type="submit" class="link caps">Sign out</button></form></div>`;
+`;
   }
   // The application's search bar carries the mark, the search field and the menu (v2.106).
   function appMenu(me, { path = '', st = null, counts = null } = {}) {
@@ -123,12 +125,13 @@ function create(d) {
     // Signed in (v2.106.3), the search bar already carries the mark and the
     // menu, so a public page gets no second masthead.
     if (me) return '';
-    return `<header class="pub-head${home ? ' pub-head-home' : ''}">
+    // Signed out (v2.107): the centred mark-and-wordmark lockup the activity
+    // page's masthead uses, the menu at the right; Get started lives in the menu.
+    return `<header class="pub-head${home ? ' pub-head-home' : ''} pub-head-lockup">
   <div class="wrap pub-head-in">
-    <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
+    <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23"><span class="pub-word">${C.site.wordmark}</span></a>
     <div class="pub-acts">
-      ${me ? '<a class="btn3d pub-cta" href="/">Open Discriminantly</a>' : `<a class="btn3d pub-cta" href="/join">Get started</a>
-      ${menuShell(publicPanel(me, path))}`}
+      ${menuShell(publicPanel(me, path))}
     </div>
   </div>
 ${me ? '' : `  <script>
@@ -227,9 +230,7 @@ ${me ? '' : `  <script>
     const chat = (c) => `<div class="pub-demo-tile pub-demo-chat"><span class="lbl">In a conversation</span><span class="pub-demo-ask">${esc(c.ask)}</span><span class="pub-demo-reply">${esc(c.reply)}</span></div>`;
     const short = { note: 'Things worth remembering.', mark: 'Places worth remembering or considering.', checkin: 'The visits you actually made.', collection: 'Records, grouped your way.', itinerary: 'Plans, by day and stop.', warrant: 'What you stand behind.' };
     const body = `
-<section class="splash pub-splash" id="promise" aria-label="Discriminantly">
-  <img class="splash-mark" src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="60" height="80">
-  <p class="splash-word">${C.site.wordmark}</p>
+<section class="splash pub-splash pub-splash-plain" id="promise" aria-label="Discriminantly">
   <h1 class="splash-h">${esc(C.site.brandLine)}</h1>
   <p class="splash-sub pub-prop-1">${esc(C.site.opening)}</p>
   <p class="splash-sub pub-prop-plain">${esc(C.site.plain)}</p>
