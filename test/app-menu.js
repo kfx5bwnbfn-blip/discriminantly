@@ -28,7 +28,7 @@ const get = (p, sid = '') => fetch(BASE + p, { redirect: 'manual', headers: sid 
   ok('Claude connected: no lead row; Your AI after Learn; Claude marked connected and pointing at Connections; others at the guide', !/Connect your AI/.test(b) && b.indexOf('Learn') < b.indexOf('Your AI') && /is-connected" href="\/settings\/connections"><span class="wl-ai-logo"[^]*?Claude/.test(b) && /pub-menu-ok/.test(b) && (b.match(/href="\/settings#connect-guide"/g) || []).length === 3);
   ok('the current page is marked (a chip: .on; a row: aria-current)', /class="wcell on" href="\/t"/.test(b) && /href="\/support"/.test(b) && /aria-current="page"/.test(bar(await get('/support', conn.sid))));
   h = await get('/about', conn.sid);
-  ok('public pages, signed in: one menu, in the search bar; the public header keeps the brand and Open Discriminantly', !/<details class="pub-menu" id="pub-menu">/.test(h) && /pub-menu app-menu/.test(h) && (h.match(/id="pub-menu"/g) || []).length === 1 && /Open Discriminantly/.test(h));
+  ok('public pages, signed in: no public masthead at all; the search bar is the one bar and carries the one menu', !/<header class="pub-head/.test(h) && !/pub-cta"/.test(h) && /pub-menu app-menu/.test(h) && (h.match(/id="pub-menu"/g) || []).length === 1 && /sb-mark/.test(h));
   ok('signed out: no search bar, the public menu only', !/sb-mark/.test(await get('/about')) && !/app-menu/.test(await get('/')));
   srv.kill(); fs.rmSync(DIR, { recursive: true, force: true });
   console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

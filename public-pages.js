@@ -120,6 +120,9 @@ function create(d) {
     return menuShell(appPanel(me, path, st, counts), ' app-menu') + MENU_SCRIPT;
   }
   function header(me, { home = false, path = '' } = {}) {
+    // Signed in (v2.106.3), the search bar already carries the mark and the
+    // menu, so a public page gets no second masthead.
+    if (me) return '';
     return `<header class="pub-head${home ? ' pub-head-home' : ''}">
   <div class="wrap pub-head-in">
     <a class="pub-brand" href="/" aria-label="Discriminantly home"><img src="/mark.png" srcset="/mark.png 1x, /mark@4x.png 4x" alt="" width="17" height="23">${home ? '' : `<span class="pub-word">${C.site.wordmark}</span>`}</a>
