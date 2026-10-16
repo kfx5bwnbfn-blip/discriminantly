@@ -2683,3 +2683,13 @@ body[data-skin="modern"] .app-menu .pgrp-nav .wcell.on span::after { top: calc(1
   body[data-skin="modern"] .app-menu .pgrp-nav { display: grid; overflow: visible; padding: 0; margin: .35rem 0 0; gap: .35rem; scroll-snap-type: none; }
   body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-group, body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo { flex: none; min-height: 0; }
 }
+/* v2.106.2: the rail's order, stacked, every card the same height (grid rows share the tallest) */
+body[data-skin="modern"] .app-menu .pgrp-nav { grid-auto-rows: 1fr; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide { min-height: 0; height: 100%; box-sizing: border-box; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { padding: .3rem .3rem .35rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wcell b { font-size: 1rem; margin-bottom: .1rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-label { padding-top: .15rem; }
+/* no hairlines under the cells (they drew a stub under the left cell only); keep the one divider between a pair */
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { border-bottom: 0; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group > .wcell:nth-child(2) { border-right: 1px solid var(--m-rule); }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group > .wcell:nth-child(3) { border-right: 0; }

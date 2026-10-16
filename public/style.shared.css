@@ -2146,7 +2146,7 @@ body[data-skin="modern"] .app-menu .pub-menu-sub { opacity: .8; }
 .app-menu .pub-menu-sub, .app-menu .pub-menu-list + .pub-menu-sub { padding-left: .75rem; margin-top: .7rem; margin-bottom: .1rem; }
 /* classic skin: the menu's profile chips as plain rows (the classic rail is a list) */
 .app-menu .pgrp-nav { display: grid; gap: .35rem; margin: .35rem 0 0; }
-.app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
+
 .app-menu .pgrp-nav .pgrp-label { grid-column: 1 / -1; margin: 0; padding: .3rem .4rem 0; text-align: center; font-size: .62rem; font-style: italic; opacity: .7; }
 .app-menu .pgrp-nav .wtable.pgrp-group { display: grid; grid-template-columns: 1fr 1fr; }
 .app-menu .pgrp-nav .wcell { padding: .55rem .3rem .6rem; }
@@ -2157,3 +2157,11 @@ body[data-skin="modern"] .app-pgrp + .pub-menu-label { border-top-color: var(--m
 
 /* the avatar row sits closer to the chips beneath it */
 .app-menu .pub-menu-me { margin-bottom: .2rem; }
+.app-menu .pgrp-nav { grid-auto-rows: 1fr; }
+/* the signed-in sheet sits below the bar, so it needs no status-bar allowance; the avatar row starts close to the top */
+@media (max-width: 52rem) { .app-menu .pub-menu-panel { padding-top: .8rem; } }
+.app-menu .pub-menu-me { margin-top: 0; }
+.app-menu .pgrp-nav .wtable > .wcell { border-bottom: 0; }
+
+/* Home and Settings lead; the avatar row follows them with a little air */
+.app-menu .pub-menu-list + .pub-menu-me { margin-top: .55rem; }

@@ -90,11 +90,13 @@ function create(d) {
     const cell = (href, count, name) => `<a class="wcell${cur(href)}" href="${esc(href)}"><b>${count}</b><span>${esc(name)}</span></a>`;
     const group = (label, items) => `<div class="wtable pgrp-group"><p class="pgrp-label">${esc(label)}</p>${items.map(([h, c, nm]) => cell(h, c, nm)).join('')}</div>`;
     const solo = (href, count, name) => `<div class="wtable pgrp-solo"><a class="wcell wcell-wide${cur(href)}" href="${esc(href)}">${count === null ? '' : `<b>${count}</b>`}<span>${esc(name)}</span></a></div>`;
+    // the rail's order: All activity, Places, Things, People, Warrants; every card the same height
     const youNav = `<div class="pgrp-nav app-pgrp">
-            <div class="app-pgrp-row">${solo(u, null, 'All activity')}${solo(u + '?tab=warrants', n('warrants'), 'Warrants')}</div>
+            ${solo(u, null, 'All activity')}
             ${group('Places', [[u + '?tab=marks', n('marks'), 'Marks'], ['/t', n('itineraries'), 'Itineraries']])}
             ${group('Things', [[u + '?tab=notes', n('notes'), 'Notes'], [u + '?tab=ensembles', n('ensembles'), 'Ensembles']])}
             ${group('People', [[u + '?tab=followers', n('followers'), 'Followers'], [u + '?tab=following', n('following'), 'Following']])}
+            ${solo(u + '?tab=warrants', n('warrants'), 'Warrants')}
           </div>`;
     const connected = (p) => !!(st && st[p.key]);
     const anyAi = C.platforms.some(connected);
@@ -102,7 +104,8 @@ function create(d) {
     const aiGroup = `<p class="pub-menu-label">Your AI</p>${anyAi ? '' : `<ul class="pub-menu-list"><li><a class="pub-menu-lead" href="/settings#connect-guide">Connect your AI</a></li></ul>`}${ai}`;
     const learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)).map((n) => ({ label: n.label, href: n.href }));
     const help = [{ label: 'Support', href: '/support' }, { label: 'Privacy', href: '/privacy' }, { label: 'Terms', href: '/terms' }];
-    return `          ${meRow(me, 'Your profile')}
+    return `          <ul class="pub-menu-list">${[{ label: 'Home', href: '/' }, { label: 'Settings', href: '/settings' }].map(it).join('')}</ul>
+          ${meRow(me, 'Your profile')}
           ${youNav}
           ${anyAi ? '' : aiGroup}
           <p class="pub-menu-label">Learn</p>
@@ -110,7 +113,7 @@ function create(d) {
           ${anyAi ? aiGroup : ''}
           <p class="pub-menu-label">Help</p>
           <ul class="pub-menu-list">${help.map(it).join('')}</ul>
-          <div class="pub-menu-util"><a href="/settings">Settings</a><form method="post" action="/logout" class="pub-menu-out"><button type="submit" class="link caps">Sign out</button></form></div>`;
+          <div class="pub-menu-util"><form method="post" action="/logout" class="pub-menu-out"><button type="submit" class="link caps">Sign out</button></form></div>`;
   }
   // The application's search bar carries the mark, the search field and the menu (v2.106).
   function appMenu(me, { path = '', st = null, counts = null } = {}) {
