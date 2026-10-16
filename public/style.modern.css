@@ -2664,17 +2664,22 @@ html.m-light body[data-skin="modern"][data-mode="system"] .wl-ai-logo img[src*="
 /* v2.106: the profile rail's groups inside the application's menu, at menu
    scale. The same components (.wtable/.wcell, .pgrp-group/.pgrp-solo/.pgrp-label)
    and the same active treatment; only the measurements change. */
-body[data-skin="modern"] .app-menu .pgrp-nav { display: grid; gap: .5rem; margin: .6rem 0 .2rem; }
-body[data-skin="modern"] .app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav { display: grid; gap: .35rem; margin: .35rem 0 0; }
+body[data-skin="modern"] .app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable { box-shadow: inset 0 1px 0 var(--m-line); border-radius: 14px; }
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group { grid-template-columns: minmax(0,1fr) minmax(0,1fr); }
-body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { padding: .55rem .3rem .6rem; }
-body[data-skin="modern"] .app-menu .pgrp-nav .wcell b { font-size: 1.15rem; margin-bottom: .22rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell { padding: .35rem .3rem .4rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .wcell b { font-size: 1.05rem; margin-bottom: .12rem; }
 body[data-skin="modern"] .app-menu .pgrp-nav .wcell span { font-size: .5rem; letter-spacing: .12em; }
-body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-label { padding: .3rem .4rem 0; font-size: .62rem; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-label { padding: .2rem .4rem 0; font-size: .6rem; }
 body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo { min-height: 0; }
-body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide { padding: .55rem .3rem .6rem; min-height: 2.9rem; justify-content: center; }
+body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide { padding: .35rem .3rem .4rem; min-height: 2.3rem; justify-content: center; }
 body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo .wcell-wide span { font-size: .5rem; letter-spacing: .12em; }
 body[data-skin="modern"] .app-menu .pgrp-nav .wtable > .wcell.on:not(.wcell-wide) { background: var(--m-glass-2); }
 body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo:has(.wcell.on) { background: var(--m-glass-2); }
 body[data-skin="modern"] .app-menu .pgrp-nav .wcell.on span::after { top: calc(100% + .22rem); }
+/* in the menu the groups stack (no phone scroller), so none of the scroller's padding or negative margins apply */
+@media (max-width: 52rem) {
+  body[data-skin="modern"] .app-menu .pgrp-nav { display: grid; overflow: visible; padding: 0; margin: .35rem 0 0; gap: .35rem; scroll-snap-type: none; }
+  body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-group, body[data-skin="modern"] .app-menu .pgrp-nav .pgrp-solo { flex: none; min-height: 0; }
+}

@@ -2145,12 +2145,15 @@ body[data-skin="modern"] .app-menu .pub-menu-sub { opacity: .8; }
 /* sub-group labels share the rows' left edge, so the You section is one column: All activity, PLACES, Marks… */
 .app-menu .pub-menu-sub, .app-menu .pub-menu-list + .pub-menu-sub { padding-left: .75rem; margin-top: .7rem; margin-bottom: .1rem; }
 /* classic skin: the menu's profile chips as plain rows (the classic rail is a list) */
-.app-menu .pgrp-nav { display: grid; gap: .5rem; margin: .6rem 0 .2rem; }
-.app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.app-menu .pgrp-nav { display: grid; gap: .35rem; margin: .35rem 0 0; }
+.app-menu .app-pgrp-row { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }
 .app-menu .pgrp-nav .pgrp-label { grid-column: 1 / -1; margin: 0; padding: .3rem .4rem 0; text-align: center; font-size: .62rem; font-style: italic; opacity: .7; }
 .app-menu .pgrp-nav .wtable.pgrp-group { display: grid; grid-template-columns: 1fr 1fr; }
 .app-menu .pgrp-nav .wcell { padding: .55rem .3rem .6rem; }
 .app-menu .pgrp-nav .wcell b { font-size: 1.15rem; margin-bottom: .22rem; }
 .app-menu .pgrp-nav .wcell span { font-size: .5rem; }
-.app-pgrp + .pub-menu-label { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid rgba(127,127,127,.25); }
+.app-pgrp + .pub-menu-label { margin-top: .7rem; padding-top: .65rem; border-top: 1px solid rgba(127,127,127,.25); }
 body[data-skin="modern"] .app-pgrp + .pub-menu-label { border-top-color: var(--m-rule); }
+
+/* the avatar row sits closer to the chips beneath it */
+.app-menu .pub-menu-me { margin-bottom: .2rem; }
