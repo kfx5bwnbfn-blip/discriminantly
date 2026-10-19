@@ -226,8 +226,14 @@ ${me ? '' : `  <script>
       return `<picture><source type="image/webp" srcset="${webp(b(light), w)}" sizes="${SIZES}" media="(prefers-color-scheme: light)"><source srcset="${light}" media="(prefers-color-scheme: light)"><source type="image/webp" srcset="${webp(b(dark), w)}" sizes="${SIZES}">${img(dark)}</picture>`;
     };
     const frame = (img, cls = '') => `<div class="shot-wrap ${cls}"><div class="shot-shadow"></div><div class="shot-frame"><div class="shot-chrome"><span></span><span></span><span></span></div>${img}</div></div>`;
-    const tile = (a) => `<div class="pub-demo-tile pub-demo-app"><span class="lbl">${esc(a.kind)}</span><span class="pub-demo-title">${esc(a.title)}</span><span class="pub-demo-meta">${esc(a.meta)}</span><span class="pub-demo-why">${esc(a.why)}</span></div>`;
-    const chat = (c) => `<div class="pub-demo-tile pub-demo-chat"><span class="lbl">In a conversation</span><span class="pub-demo-ask">${esc(c.ask)}</span><span class="pub-demo-reply">${esc(c.reply)}</span></div>`;
+    // The example as a timeline of the product's own cards: each record type
+    // with its glyph and date block, a conversation as a conversation, and the
+    // plan as a plan (stops on a rail).
+    const KIND = { 'Note': 'note', 'Travel Mark': 'mark', 'Check-in': 'checkin', 'Itinerary': 'itinerary' };
+    const dateBlock = (meta) => { const m = /(\d{1,2}) (March|April|May|June|July|August|September|October|November|December|January|February)/.exec(meta || ''); return m ? `<span class="pub-story-date" aria-hidden="true"><b>${m[2].slice(0, 3)}</b><i>${m[1]}</i></span>` : ''; };
+    const tile = (a) => { const k = KIND[a.kind] || 'note'; const stops = k === 'itinerary' ? a.why.split(' → ') : null;
+      return `<div class="pub-story-card pub-story-${k}"><span class="pub-story-kind"><span class="pub-story-glyph">${GLYPH[k]}</span><span class="lbl">${esc(a.kind)}</span></span>${dateBlock(a.meta)}<span class="pub-story-title">${esc(a.title)}</span><span class="pub-story-meta">${esc(a.meta)}</span>${stops ? `<ol class="pub-story-stops">${stops.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : `<span class="pub-story-why">${esc(a.why)}</span>`}</div>`; };
+    const chat = (c) => `<div class="pub-story-card pub-story-chat"><span class="pub-story-kind"><span class="pub-story-glyph">${aiLogo('other')}</span><span class="lbl">In a conversation</span></span><span class="pub-story-ask">${esc(c.ask)}</span><span class="pub-story-reply">${aiLogo('other')}<span>${esc(c.reply)}</span></span></div>`;
     const short = { note: 'Things worth remembering.', mark: 'Places worth remembering or considering.', checkin: 'The visits you actually made.', collection: 'Records, grouped your way.', itinerary: 'Plans, by day and stop.', warrant: 'What you stand behind.' };
     const body = `
 <section class="splash pub-splash pub-splash-plain" id="promise" aria-label="Discriminantly">
@@ -250,7 +256,7 @@ ${sec('useful', 'What you keep becomes useful', 'Save now. Plan later.', `
   <p class="pub-p pub-useful-frame">Capture a place or idea the moment you encounter it. When you are ready to travel, your saves are already there—ready to become an itinerary you can refine, share, and build with others.</p>
   <p class="pub-p pub-useful-frame">You can also start with a destination and a request. Your saved places and notes simply make the plan more personal.</p>
   <p class="pub-illus-label"><span class="lbl">Example: from a few saved things to a Kyoto plan</span> <span class="fine">These records are invented to show how it works.</span></p>
-  <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>`, 'itin-shell pub-shell')}
+  <ol class="pub-story">${C.demo.beats.map((b, i) => `<li class="pub-story-beat"><div class="pub-story-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>`, 'itin-shell pub-shell')}
 
 <section class="pub-sec" id="possible" aria-labelledby="possible-h">
   ${eyebrow('What becomes possible')}
@@ -421,21 +427,24 @@ ${sec('control', 'Your say', 'You stay in control.', `
     return (req, res, me) => {
       const p = C.platforms.find((x) => x.key === key);
       const facts = [
-        p.endpoint ? `<div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>` : key === 'chatgpt' ? (PLUGIN() ? `<div><dt>Plugin page</dt><dd><a class="link caps" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT ↗</a></dd></div>` : '') : (key !== 'muse' ? `<div><dt>Address</dt><dd><code class="pub-code">https://www.discriminantly.com/mcp</code></dd></div>` : ''),
         `<div><dt>Connection</dt><dd>${esc(p.method)}</dd></div>`,
         `<div><dt>Authentication</dt><dd>${esc(p.auth)}</dd></div>`,
         key === 'muse' ? `<div><dt>Key creation</dt><dd>Discriminantly \u2192 Settings \u203a Connect to your AI \u2192 name the connection <b>Muse</b> \u2192 Create a connection</dd></div><div><dt>OAuth</dt><dd>Not supported for this route</dd></div>` : '',
         p.reviewDetail ? `<div><dt>Status on the Muse platform</dt><dd>${esc(p.reviewDetail)}</dd></div>` : '',
         p.basis ? `<div><dt>Verification</dt><dd>${esc(p.basis)}</dd></div>` : '',
-        `<div><dt>Availability</dt><dd>${esc(p.availability)}</dd></div>`,
+        `<div><dt>Availability</dt><dd><span class="pub-status${/^live/i.test(p.availability) ? ' is-live' : ''}">${esc(p.availability)}</span></dd></div>`,
         `<div><dt>Directory</dt><dd>${esc(p.directory)}</dd></div>`,
+        p.endpoint ? `<div><dt>Endpoint</dt><dd><code class="pub-code">${esc(p.endpoint)}</code> <span class="fine">(no trailing slash)</span></dd></div>` : key === 'chatgpt' ? (PLUGIN() ? `<div><dt>Plugin page</dt><dd><a class="link caps" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT ↗</a></dd></div>` : '') : (key !== 'muse' ? `<div><dt>Address</dt><dd><code class="pub-code">https://www.discriminantly.com/mcp</code></dd></div>` : ''),
       ].join('');
       const body = `
 <section class="pub-sec itin-shell pub-shell pub-guide-head" id="facts" aria-labelledby="facts-h">
-  <div class="pub-guide-mark">${aiLogo(key)}</div>
-  <p class="pub-badge"><span class="lbl">${esc(p.badge || p.method)}</span>${p.review ? ` <span class="lbl">${esc(p.review)}</span>` : ''}</p>
-  <h2 class="pub-h2" id="facts-h">The facts.</h2>
-  <dl class="pub-facts pub-facts-wide">${facts}</dl>
+  <div class="pub-plate">
+    <div class="pub-plate-head">
+      <div class="pub-guide-mark">${aiLogo(key)}</div>
+      <div class="pub-plate-id"><p class="pub-plate-eyebrow"><span class="lbl">${esc(p.badge || p.method)}</span>${p.review ? `<span class="lbl pub-plate-review">${esc(p.review)}</span>` : ''}</p><h2 class="pub-h2 pub-plate-name" id="facts-h">${esc(p.name)}</h2></div>
+    </div>
+    <dl class="pub-facts pub-facts-wide pub-ledger">${facts}</dl>
+  </div>
 </section>
 ${sec('setup', 'Setup', `${p.steps.length} steps.`, `${stepsList(p.steps.map((t, i) => key === 'chatgpt' && i === 0 && PLUGIN() ? `Open the <a href="${esc(PLUGIN())}" rel="noopener">Discriminantly plugin’s page in ChatGPT</a> and choose Install plugin.` : esc(t)))}${key === 'chatgpt' && PLUGIN() ? `<p class="center"><a class="btn3d" href="${esc(PLUGIN())}" rel="noopener">Open in ChatGPT</a></p>` : ''}${p.note ? `<p class="fine pub-fine">${esc(p.note)}</p>` : ''}${key === 'muse' ? settingsShot(req, me) : ''}`)}
 ${p.asks ? sec('ask', 'What you can ask', 'Start from a request, use your record, save what matters.', `<p class="pub-p">An empty account can begin with recommendations and planning; it simply has no records of yours to contribute yet. As you save things, requests can draw on them.</p><dl class="pub-asks">${p.asks.map(([h, t]) => `<div><dt>${esc(h)}</dt><dd><blockquote class="pub-quote pub-quote-ask"><span class="pub-quote-mark">${aiLogo(p.key)}</span><p>${esc(t)}</p></blockquote></dd></div>`).join('')}</dl><p class="fine pub-fine">Suggested places stay recommendations until you keep them. A plan is not a record of going.${p.asksNote ? ' ' + esc(p.asksNote) : ''}</p>`) : ''}
