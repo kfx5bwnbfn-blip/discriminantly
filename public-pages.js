@@ -231,9 +231,9 @@ ${me ? '' : `  <script>
     const short = { note: 'Things worth remembering.', mark: 'Places worth remembering or considering.', checkin: 'The visits you actually made.', collection: 'Records, grouped your way.', itinerary: 'Plans, by day and stop.', warrant: 'What you stand behind.' };
     const body = `
 <section class="splash pub-splash pub-splash-plain" id="promise" aria-label="Discriminantly">
-  <h1 class="splash-h">${esc(C.site.brandLine)}</h1>
-  <p class="splash-sub pub-prop-1">${esc(C.site.opening)}</p>
-  <p class="splash-sub pub-prop-plain">${esc(C.site.plain)}</p>
+  <h1 class="splash-h">${esc(C.site.home.h1)}</h1>
+  <p class="splash-sub pub-prop-1">${esc(C.site.home.opening)}</p>
+  <p class="splash-sub pub-prop-plain">${esc(C.site.home.plain)}</p>
   <p class="pub-splash-acts">${me ? '<a class="btn splash-enter" href="/">Open Discriminantly</a>' : '<a class="btn splash-enter" href="/join">Get started</a>'}<a class="link caps pub-see" href="/how-it-works">See how it works</a></p>
 </section>
 ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 'Discriminantly on the desktop: the All feed, with notes, travel marks and a plan', 2000, 1174))}
@@ -246,39 +246,39 @@ ${frame(shot('/welcome-shot-modern-light.jpg', '/welcome-shot-modern-dark.jpg', 
   <ul class="pub-keep-grid">${C.objects.map((o) => { const pv = C.shots[(C.objectPages[o.key] || {}).shots ? C.objectPages[o.key].shots[0] : '']; return `<li class="pub-keep-item" id="keep-${o.key}"><a class="pub-keep-link" href="${o.href}"><span class="wl-ico pub-keep-ico">${GLYPH[o.key]}</span><span class="pub-keep-name">${esc(o.name)}</span></a><span class="pub-keep-short">${short[o.key]}</span>${pv ? `<span class="pub-keep-preview" aria-hidden="true"><img src="/how/${pv.file}.webp" alt="" width="${pv.w}" height="${pv.h}" loading="lazy" decoding="async"></span>` : ''}</li>`; }).join('')}</ul>
 </section>
 
-${sec('useful', 'What you keep becomes useful', 'Save it now. Plan with it later.', `
-  <p class="pub-p pub-useful-frame">Save restaurants, shops, places, products, and ideas as you find them. When it’s time to plan a trip, they’re already there—ready to become an itinerary you can share and build with friends.</p>
-  <p class="pub-p pub-useful-frame">You can also start with a request alone. Your saved places and things simply make the plan more personal.</p>
+${sec('useful', 'What you keep becomes useful', 'Save now. Plan later.', `
+  <p class="pub-p pub-useful-frame">Capture a place or idea the moment you encounter it. When you are ready to travel, your saves are already there—ready to become an itinerary you can refine, share, and build with others.</p>
+  <p class="pub-p pub-useful-frame">You can also start with a destination and a request. Your saved places and notes simply make the plan more personal.</p>
   <p class="pub-illus-label"><span class="lbl">Example: from a few saved things to a Kyoto plan</span> <span class="fine">These records are invented to show how it works.</span></p>
   <ol class="pub-demo pub-demo-grid">${C.demo.beats.map((b, i) => `<li class="pub-demo-beat"><div class="pub-demo-step"><span class="pub-demo-n">${i + 1}</span><h3 class="pub-h3">${esc(b.step)}</h3></div>${b.app ? tile(b.app) : chat(b.chat)}</li>`).join('')}</ol>`, 'itin-shell pub-shell')}
 
 <section class="pub-sec" id="possible" aria-labelledby="possible-h">
   ${eyebrow('What becomes possible')}
-  <h2 class="pub-h2" id="possible-h">Your record gets more useful over time.</h2>
+  <h2 class="pub-h2" id="possible-h">Your record gets more useful every time you use it.</h2>
   <ul class="pub-cols2">
     <li><b>Find it again.</b> Search by place, type of thing, or the words you used when you saved it.</li>
-    <li><b>Keep it organized.</b> Edit, group, and choose what stays private.</li>
-    <li><b>Get sharper recommendations.</b> Ask for ideas, and AI can draw on what you’ve saved and experienced.</li>
-    <li><b>Start a plan your way.</b> Begin from scratch, from saved places, or both.</li>
-    <li><b>Keep plans out of the chat.</b> They live in Discriminantly, ready to revisit and refine.</li>
-    <li><b>Make the next trip better.</b> Check-ins show where you’ve actually been.</li>
+    <li><b>See what you have actually done.</b> Check-ins separate the places you considered from the places you visited.</li>
+    <li><b>Get recommendations that know you.</b> Ask an AI assistant for ideas grounded in your own saves and experiences.</li>
+    <li><b>Turn intentions into plans.</b> Start from scratch, from saved places, or both—and keep the plan in Discriminantly, not buried in a chat.</li>
+    <li><b>Make the next trip better.</b> Your past visits give future plans useful context.</li>
   </ul>
 </section>
 
-${sec('together', 'Plan together', 'Share a plan, or build one with others.', `
-  <p class="pub-p">Share a plan by link, or invite friends to build it with you. Collaborators can add places, arrange stops, and keep any place as their own. Every change is attributed to the person who made it.</p>
-  <p class="pub-p"><b>You stay in control.</b> Your notes, visits, and private records remain yours. If you add a private place to a shared plan, we’ll ask before making its name and address visible to collaborators. The rest of your record stays private.</p>
+${sec('together', 'Plan together', 'Plan alone. Share when ready. Build together when useful.', `
+  <p class="pub-p">Share an itinerary by link, or invite friends to add places, arrange stops, and build the plan with you. Every change is attributed to the person who made it.</p>
+  <p class="pub-p">Your notes, visits, and private records stay yours. If a private place enters a shared plan, Discriminantly asks before revealing its details.</p>
   ${frame(shot('/welcome-shot-itin-light.jpg', '/welcome-shot-itin-dark.jpg', 'An itinerary in Discriminantly, with its map and the travel marks near it', 1920, 1000, { lazy: true }), 'splash-shot-2 pub-frame-2')}`, 'itin-shell pub-shell')}
 
-${sec('ai', 'Use it with AI', 'Use the AI you already use.', `
-  <p class="pub-p">Your Discriminantly record isn’t locked inside one chatbot. Connect ChatGPT, Claude, or another compatible assistant, and it can help you save, recommend, and plan from the same place. Revoke access whenever you want.</p>
+${sec('ai', 'Use it with AI', 'Use the AI assistant you already have.', `
+  <p class="pub-p">Connect ChatGPT, Claude, or another compatible assistant to save, recommend, and plan without starting from a blank chat. Your Discriminantly record gives the assistant context; you decide what it can access.</p>
+  <p class="pub-p">Revoke access at any time, and see exactly what each assistant changed.</p>
   <div class="pub-plats pub-plats-compact">${C.platforms.map((p) => `<a class="pub-plat-row" href="${esc(p.guide)}">${aiLogo(p.key)}<span class="pub-plat-row-name">${esc(p.name)}</span><span class="pub-plat-row-status">${esc(p.availability)}${p.review ? ' · ' + esc(p.review) : ''}</span><span class="pub-plat-row-how">${esc(p.method)} · ${esc(p.auth)}</span></a>`).join('')}</div>`)}
 
 
 <section class="pub-sec pub-final" id="start" aria-label="Get started">
-  ${eyebrow('Ready when you are')}
-  <p class="pub-trust pub-final-lead">Save what catches your eye now. When you’re ready to travel, turn it into a plan you can share, refine, and build with others.</p>
-  <p class="pub-trust" id="trust">${esc(C.site.trust)}</p>
+  ${eyebrow('Ready when you are.')}
+  <p class="pub-trust pub-final-lead">Save what catches your eye today. When you are ready to go, turn it into a plan you can share, refine, and build with others.</p>
+  <p class="pub-trust" id="trust">Private or public, record by record. You choose which AI assistants have access—and can revoke them at any time.</p>
   <p class="pub-final-acts">${cta(me)}</p>
   <p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a><span aria-hidden="true"> · </span><a class="link caps" href="/ai">Use with AI</a></p>
 </section>`;

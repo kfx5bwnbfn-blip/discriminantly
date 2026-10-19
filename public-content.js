@@ -24,16 +24,24 @@ const site = {
   // The homepage opening (brief, 14 Oct 2026): the useful outcome first, then how.
   opening: 'Discriminantly turns the places and things you notice—and the new possibilities your AI discovers—into plans you can share, copy and build together.',
   plain: 'Save what catches your eye just by telling the AI assistant you already use. Start with a blank slate or draw on what you’ve saved, add recommendations, and shape it all into a day-by-day itinerary.',
+  // The homepage hero (Brian's copy brief, 19 Oct 2026, verbatim). Homepage
+  // only: brandLine, opening and plain above still feed the social cards,
+  // structured data, /about's card and llms.txt, which the brief left alone.
+  home: {
+    h1: 'Stop losing the places and things you want to remember.',
+    opening: 'Discriminantly turns what you notice—restaurants, shops, makers, ideas, and places—into a personal record you can search, revisit, and turn into trips.',
+    plain: 'Save in seconds from the AI assistant you already use. Later, turn your saves into a day-by-day itinerary you can share, copy, and build with friends.',
+  },
   // Identity. Visible once, on /about; the formal version is for machine-readable summaries.
   identity: 'Discriminantly is an independent AI startup building a personal record controlled by the person—not the model they happen to use.',
   identityFormal: 'Discriminantly is an independent AI startup and an AI-connected personal record for interests, places, travels and plans.',
   architecture: 'The record is held by Discriminantly. AI platforms are authorized clients of it rather than owners of its semantics.',
   // "What you save" on the homepage (Brian, 14 Oct 2026, verbatim).
   save: {
-    h2: 'Your places, your taste, your plans.',
+    h2: 'One place for the things you notice.',
     body: [
-      'Save a restaurant you want to try, a shop you loved, a product you’re curious about, or a note for later. Mark places you’ve been, or mean to go. Build trip plans with friends.',
-      'Over time, those saves become a personal record of your taste and travels. Connect it to AI when you want help: ask it to remember something in your own words, get recommendations based on what you’ve saved, or turn your ideas into a plan.',
+      'Save the restaurant someone mentioned, the shop you loved, the maker you want to follow, or the idea you do not want to forget. Mark where you have been—and where you mean to go.',
+      'Over time, your saves become a searchable record of your taste, travels, and intentions. Connect an AI assistant when you want recommendations or help turning them into a plan.',
     ],
     line: 'No complicated filing system. Just save what matters, then use it when you’re ready.',
   },

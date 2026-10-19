@@ -2202,3 +2202,7 @@ body[data-skin="modern"] .app-pgrp + .pub-menu-label { border-top-color: var(--m
   .curtain { top: var(--bar-h, var(--searchbar-h)); }
   .cols > .rail { top: var(--bar-h, var(--searchbar-h)); max-height: calc(100vh - var(--bar-h, var(--searchbar-h))); }
 }
+
+/* ---- homepage hero headline: sentence case (19 Oct). The tracking was set
+   for capitals; lower case reads better without it. ---- */
+body #promise.pub-splash .splash-h, body[data-skin] #promise.pub-splash .splash-h { text-transform: none; letter-spacing: 0; text-wrap: balance; }
