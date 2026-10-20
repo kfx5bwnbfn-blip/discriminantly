@@ -2189,7 +2189,6 @@ body[data-skin="modern"] .app-pgrp + .pub-menu-label { border-top-color: var(--m
 .app-pgrp-form { display: contents; }
 .app-menu .pgrp-nav button.wcell { font: inherit; background: transparent; border: 0; width: 100%; cursor: pointer; color: inherit; }
 .app-menu .pgrp-nav .pgrp-solo:has(.app-pgrp-face) .wcell-wide { padding-top: .45rem; }
-@media (max-width: 52rem) { .pub-menu-start { margin-right: 3.1rem; } }   /* clear of the close button on the phone sheet */
 
 /* ---- tablet and desktop: everything under the bar follows its MEASURED
    height (--bar-h, set by the page script). The home-screen app on a tablet
@@ -2285,3 +2284,43 @@ body[data-skin="modern"] .pub-plate-eyebrow .lbl, body[data-skin="modern"] .pub-
 .is-public .pub-story .pub-h3 { font-weight: 500; }
 .pub-story-stops::before { opacity: .45; }
 .pub-story-stops li::before { opacity: .7; }
+
+/* ---- the welcome hero in glass (20 Oct): headline, both paragraphs and the
+   two actions in one panel; the icons in "What you save" softened from ink. */
+.pub-splash-glass { max-width: 46rem; margin-left: auto; margin-right: auto; padding: 2.9rem 2rem 1.2rem; border-radius: 26px; box-sizing: border-box;
+  background: rgba(255,255,255,.07); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 24px 60px -30px rgba(0,0,0,.6); }
+body[data-skin="modern"] .pub-splash-glass { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4); }
+.pub-splash-glass .splash-sub { max-width: 38rem; margin-left: auto; margin-right: auto; }
+@media (max-width: 52rem) { .pub-splash-glass { margin-left: 12px; margin-right: 12px; padding: 2.2rem 1.1rem .9rem; border-radius: 22px; } }
+body[data-skin="modern"] .pub-keep-ico svg { opacity: .74; }
+.is-welcome main > .pub-splash-glass, .pub-splash-glass { margin-bottom: 2.4rem; }
+@media (max-width: 52rem) { .is-welcome main > .pub-splash-glass, .pub-splash-glass { margin-bottom: 1.8rem; } }
+
+/* ---- signed out: the account group leads the menu (20 Oct) ------------------
+   The label sits on the first line, clear of the phone sheet's close button;
+   Get started spans the panel beneath it; the sign-in fields follow in the
+   same group under a small "or sign in". */
+.pub-menu-account { margin: 0 0 .9rem; padding-bottom: .9rem; border-bottom: 1px solid rgba(127,127,127,.25); }
+body[data-skin="modern"] .pub-menu-account { border-bottom-color: var(--m-rule); }
+.pub-menu-account .pub-menu-label { margin: 0 0 .55rem; }
+.pub-menu-account .pub-menu-start { margin: 0 0 .7rem; }
+.pub-menu-account .pub-menu-signin { margin-top: 0; padding-top: 0; border-top: 0; }
+.pub-menu-or { display: flex; align-items: center; gap: .6rem; margin: 0 0 .6rem; font-family: var(--slab); font-weight: 600; font-size: .6rem; letter-spacing: .15em; text-transform: uppercase; opacity: .7; }
+.pub-menu-or::before, .pub-menu-or::after { content: ""; flex: 1; height: 1px; background: currentColor; opacity: .35; }
+body[data-skin="modern"] .pub-menu-or { color: var(--m-ink-2); opacity: 1; }
+@media (max-width: 52rem) { .pub-menu-account .pub-menu-label { padding-right: 3.1rem; line-height: 1.6rem; } }
+/* the welcome rule's own padding outranks the glass panel's; restate it */
+.is-welcome main > .pub-splash-glass { padding: 3.2rem 2rem 1.6rem; }
+.is-welcome main > .pub-splash-glass .pub-splash-acts { margin-bottom: .2rem; }
+@media (max-width: 52rem) { .is-welcome main > .pub-splash-glass { padding: 2.6rem 1.1rem 1.4rem; } }
+
+/* ---- signed in: the menu's footer is who you are and the way out ---- */
+.app-menu-foot { justify-content: space-between; align-items: center; margin-top: 1rem; border-top-color: rgba(127,127,127,.25); }
+.app-menu-foot .app-menu-who { font-family: var(--slab); font-weight: 600; font-size: .64rem; letter-spacing: .15em; text-transform: uppercase; opacity: .7; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-menu-foot button { font-family: var(--slab); font-weight: 600; font-size: .64rem; letter-spacing: .15em; text-transform: uppercase; background: none; border: 1px solid currentColor; border-radius: 999px; padding: .4rem .9rem; color: inherit; cursor: pointer; flex: none; }
+body[data-skin="modern"] .app-menu-foot { border-top-color: var(--m-rule); }
+body[data-skin="modern"] .app-menu-foot .app-menu-who { color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .app-menu-foot button { border-color: var(--m-line); color: var(--m-ink); background: var(--m-glass); }
+body[data-skin="modern"] .app-menu-foot button:hover { background: var(--m-glass-2); }
+.app-menu-foot { flex-wrap: nowrap; gap: .8rem; }
+.app-menu-foot .app-menu-who { flex: 1 1 auto; }

@@ -17,8 +17,8 @@ const sidOf = (r) => ((r.headers.get('set-cookie') || '').match(/sid=([^;]+)/) |
   const h = await (await req('/how-it-works')).text();
   const form = (h.match(/<form class="pub-menu-signin"[\s\S]*?<\/form>/) || [''])[0];
   ok('signed out: the menu carries a sign-in form posting to /login', /method="post" action="\/login"/.test(form) && /name="email" type="email" autocomplete="email"/.test(form) && /name="password" type="password" autocomplete="current-password"/.test(form));
-  ok('the form remembers the page, has no autofocus, and links to join', /name="next" value="\/how-it-works"/.test(form) && !/autofocus/.test(form) && /href="\/join"/.test(form));
-  ok('the form sits inside the menu panel, under the navigation, and the old Sign in link is gone', h.indexOf('pub-menu-signin') > h.indexOf('pub-menu-label">About') && h.indexOf('pub-menu-signin') < h.indexOf('</nav>') && !/pub-menu-util"><a href="\/login"/.test(h));
+  ok('the form remembers the page, has no autofocus; Get started sits beside it in the account group', /name="next" value="\/how-it-works"/.test(form) && !/autofocus/.test(form) && /pub-menu-account[\s\S]*href="\/join"[\s\S]*pub-menu-signin/.test(h));
+  ok('the form sits inside the menu panel, in the account group above the navigation, and the old Sign in link is gone', h.indexOf('pub-menu-signin') < h.indexOf('pub-menu-label">Learn') && h.indexOf('pub-menu-signin') < h.indexOf('</nav>') && !/pub-menu-util"><a href="\/login"/.test(h));
   ok('the home page form carries no next (sign-in lands on the feed anyway)', !/pub-menu-signin[\s\S]*?name="next"[\s\S]*?<\/form>/.test(await (await req('/')).text()));
   const sid0 = (() => { const t = require('crypto').randomBytes(12).toString('hex'); db.prepare('INSERT INTO sessions(token,user_id) VALUES(?,?)').run(t, admin.id); return t; })();
   ok('signed in: no form; the avatar row and Settings instead', !/pub-menu-signin/.test(await (await req('/how-it-works', { sid: sid0 })).text()));

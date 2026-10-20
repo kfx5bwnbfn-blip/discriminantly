@@ -57,21 +57,24 @@ function create(d) {
   function publicPanel(me, path) {
     const it = item(path);
     const first = C.nav.filter((n) => ['/', '/activity'].includes(n.href)), learn = C.nav.filter((n) => ['/how-it-works', '/ai', '/guides'].includes(n.href)), rest = C.nav.filter((n) => !first.includes(n) && !learn.includes(n));
-    const signin = me ? '' : `<form class="pub-menu-signin" method="post" action="/login">
+    // Signed out (20 Oct, Brian): the account first -- Get started, then the
+    // sign-in fields in the same group -- and the navigation under it.
+    const account = me ? meRow(me) : `<div class="pub-menu-account">
             <p class="pub-menu-label">Your account</p>
+            <p class="pub-menu-start"><a class="btn3d btn-solid" href="/join">Get started</a></p>
+            <form class="pub-menu-signin" method="post" action="/login">
+            <p class="pub-menu-or"><span>or sign in</span></p>
             <label class="pub-menu-field"><span>Email</span><input name="email" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required></label>
             <label class="pub-menu-field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
             ${path && path !== '/' ? `<input type="hidden" name="next" value="${esc(path)}">` : ''}
             <button class="btn3d block">Sign in</button>
-            <p class="pub-menu-join">New here? <a href="/join">Create an account</a></p>
-          </form>`;
-    return `          ${me ? meRow(me) : '<p class="pub-menu-start"><a class="btn3d btn-solid" href="/join">Get started</a></p>'}
+          </form></div>`;
+    return `          ${account}
           <ul class="pub-menu-list">${first.map(it).join('')}</ul>
           <p class="pub-menu-label">Learn</p>
           <ul class="pub-menu-list">${learn.map(it).join('')}</ul>
           <p class="pub-menu-label">About</p>
           <ul class="pub-menu-list">${rest.map(it).join('')}</ul>
-          ${signin}
           <div class="pub-menu-util">${(me ? [{ label: 'Settings', href: '/settings' }] : []).concat(C.utility.slice(1)).map((u) => `<a href="${esc(u.href)}">${esc(u.label)}</a>`).join('')}</div>`;
   }
   // The application's menu (v2.106, Brian): the member first (avatar row to
@@ -91,7 +94,10 @@ function create(d) {
     const group = (label, items) => `<div class="wtable pgrp-group"><p class="pgrp-label">${esc(label)}</p>${items.map(([h, c, nm]) => cell(h, c, nm)).join('')}</div>`;
     const solo = (href, count, name, lead = '') => `<div class="wtable pgrp-solo"><a class="wcell wcell-wide${cur(href)}" href="${esc(href)}">${lead}${count === null ? '' : `<b>${count}</b>`}<span>${esc(name)}</span></a></div>`;
     const face = me.avatar && avatarSrc(me) ? `<img class="pub-menu-avatar app-pgrp-face" src="${esc(avatarSrc(me))}" alt="" width="36" height="36">` : `<span class="pub-menu-avatar pub-menu-initial app-pgrp-face">${esc((me.handle || '?')[0].toUpperCase())}</span>`;
-    const logout = `<div class="wtable pgrp-solo"><form method="post" action="/logout" class="app-pgrp-form"><button type="submit" class="wcell wcell-wide"><span>Logout</span></button></form></div>`;
+    // Logout as the menu's footer (20 Oct): who is signed in on the left, the
+    // action on the right, in the utility row's small capitals -- a utility,
+    // not a destination, so it does not dress as one.
+    const logout = `<form method="post" action="/logout" class="pub-menu-util app-menu-foot"><span class="app-menu-who" title="Signed in as @${esc(me.handle)}">@${esc(me.handle)}</span><button type="submit">Log out</button></form>`;
     // the rail's order: All activity, Places, Things, People, Warrants; every card the same height
     const youNav = `<div class="pgrp-nav app-pgrp">
             ${solo(u, null, 'All activity', face)}
@@ -99,7 +105,6 @@ function create(d) {
             ${group('Things', [[u + '?tab=notes', n('notes'), 'Notes'], [u + '?tab=ensembles', n('ensembles'), 'Ensembles']])}
             ${group('People', [[u + '?tab=followers', n('followers'), 'Followers'], [u + '?tab=following', n('following'), 'Following']])}
             ${solo(u + '?tab=warrants', n('warrants'), 'Warrants')}
-            ${logout}
           </div>`;
     const connected = (p) => !!(st && st[p.key]);
     const anyAi = C.platforms.some(connected);
@@ -115,6 +120,7 @@ function create(d) {
           ${anyAi ? aiGroup : ''}
           <p class="pub-menu-label">Help</p>
           <ul class="pub-menu-list">${help.map(it).join('')}</ul>
+          ${logout}
 `;
   }
   // The application's search bar carries the mark, the search field and the menu (v2.106).
@@ -206,9 +212,15 @@ ${me ? '' : `  <script>
   // ---- 1. Home ----------------------------------------------------------------
   // Glyphs for the two record types the welcome card has none for, in its frame.
   const GLYPH = {
-    note: WL_ICON.note, mark: WL_ICON.mark, itinerary: WL_ICON.plan, warrant: WL_ICON.warrant,
-    checkin: `<svg viewBox="0 0 44 48" aria-hidden="true"><rect x="7" y="10" width="30" height="30" rx="5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M7 19h30M15 6v8M29 6v8" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M15 29l5 5 9-10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-    collection: `<svg viewBox="0 0 44 48" aria-hidden="true"><rect x="8" y="22" width="28" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="3"/><path d="M12 16h20M16 10h12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+    note: WL_ICON.note, mark: WL_ICON.mark, warrant: WL_ICON.warrant,
+    // a plan: the spine, three stops, a line for each (the welcome card keeps the fuller version)
+    itinerary: `<svg viewBox="0 0 44 48" aria-hidden="true"><path d="M13 8v32" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="13" cy="12" r="3.4" fill="currentColor"/><circle cx="13" cy="24" r="3.4" fill="currentColor"/><circle cx="13" cy="36" r="3.4" fill="currentColor"/><path d="M22 12h12M22 24h12M22 36h12" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>`,
+    // the travel mark's pin, the visit ticked inside it: a place you went
+    checkin: `<svg viewBox="0 0 44 48" aria-hidden="true"><defs><linearGradient id="wl-g-ck" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><circle cx="22" cy="15" r="11.4" fill="url(#wl-g-ck)"/><circle cx="22" cy="15" r="11.4" fill="none" stroke="currentColor" stroke-width="3"/><path d="M16.6 15.4l3.6 3.6 7.4-7.6" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 26.4 22 30.6" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><circle cx="22" cy="34.6" r="2.3" fill="currentColor"/><circle cx="22" cy="40" r="1.7" fill="currentColor"/><circle cx="22" cy="45" r="1.3" fill="currentColor"/></svg>`,
+
+    // a shelf: the kept thing in the middle, dividers either side
+    collection: `<svg viewBox="0 0 44 48" aria-hidden="true"><defs><linearGradient id="wl-g-co" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".38"/><stop offset=".55" stop-color="#fff" stop-opacity=".05"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs><rect x="15" y="13" width="14" height="22" rx="3.5" fill="url(#wl-g-co)"/><rect x="15" y="13" width="14" height="22" rx="3.5" fill="none" stroke="currentColor" stroke-width="3"/><path d="M9 16v16M35 16v16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M3 20v8M41 20v8" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" opacity=".8"/></svg>`,
+
   };
   function home(req, res, me) {
     // The two desktop frames: webp at two widths beside the jpeg, light and
@@ -236,7 +248,7 @@ ${me ? '' : `  <script>
     const chat = (c) => `<div class="pub-story-card pub-story-chat"><span class="pub-story-kind"><span class="pub-story-glyph">${aiLogo('other')}</span><span class="lbl">In a conversation</span></span><span class="pub-story-ask">${esc(c.ask)}</span><span class="pub-story-reply">${aiLogo('other')}<span>${esc(c.reply)}</span></span></div>`;
     const short = { note: 'Things worth remembering.', mark: 'Places worth remembering or considering.', checkin: 'The visits you actually made.', collection: 'Records, grouped your way.', itinerary: 'Plans, by day and stop.', warrant: 'What you stand behind.' };
     const body = `
-<section class="splash pub-splash pub-splash-plain" id="promise" aria-label="Discriminantly">
+<section class="splash pub-splash pub-splash-plain pub-splash-glass" id="promise" aria-label="Discriminantly">
   <h1 class="splash-h">${esc(C.site.home.h1)}</h1>
   <p class="splash-sub pub-prop-1">${esc(C.site.home.opening)}</p>
   <p class="splash-sub pub-prop-plain">${esc(C.site.home.plain)}</p>
