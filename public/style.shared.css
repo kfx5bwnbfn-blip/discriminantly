@@ -2288,8 +2288,11 @@ body[data-skin="modern"] .pub-plate-eyebrow .lbl, body[data-skin="modern"] .pub-
 /* ---- the welcome hero in glass (20 Oct): headline, both paragraphs and the
    two actions in one panel; the icons in "What you save" softened from ink. */
 .pub-splash-glass { max-width: 46rem; margin-left: auto; margin-right: auto; padding: 2.9rem 2rem 1.2rem; border-radius: 26px; box-sizing: border-box;
-  background: rgba(255,255,255,.07); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 24px 60px -30px rgba(0,0,0,.6); }
-body[data-skin="modern"] .pub-splash-glass { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), var(--m-shadow); -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4); }
+  background: rgba(255,255,255,.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+/* the subtler material (Brian, 20 Oct): a faint tint and a hairline, no blur,
+   no lift -- the panel frames the words without competing with them */
+body[data-skin="modern"] .pub-splash-glass { background: rgba(255,255,255,.035); box-shadow: inset 0 0 0 1px var(--m-rule), inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"][data-mode="light"] .pub-splash-glass, html.m-light body[data-skin="modern"][data-mode="system"] .pub-splash-glass { background: rgba(255,255,255,.22); }
 .pub-splash-glass .splash-sub { max-width: 38rem; margin-left: auto; margin-right: auto; }
 @media (max-width: 52rem) { .pub-splash-glass { margin-left: 12px; margin-right: 12px; padding: 2.2rem 1.1rem .9rem; border-radius: 22px; } }
 body[data-skin="modern"] .pub-keep-ico svg { opacity: .74; }
