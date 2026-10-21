@@ -2071,11 +2071,12 @@ function seededPick(seedStr, list) {
   return list[h % list.length];
 }
 
-// A record surfaced recently is not eligible again, in any type, for 60 days.
-const RESURFACE_COOLDOWN_DAYS = 60;
+// A record surfaced recently is not eligible again, in any type, for 14 days
+// (60 until v2.112; Brian, 21 Oct: the block went quiet for too long).
+const RESURFACE_COOLDOWN_DAYS = 14;
 // Today is deliberately excluded from the cooldown: a record surfaced this
 // morning must stay eligible for the rest of the day, or the block vanishes on
-// the first refresh. The cooldown starts tomorrow and runs for 60 days.
+// the first refresh. The cooldown starts tomorrow and runs for 14 days.
 const recentlySurfaced = (userId) => new Set(
   q(`SELECT subject_type || ':' || subject_id k FROM resurfaced
      WHERE user_id=? AND surfaced_on > date('now', ?) AND surfaced_on < date('now')`)
