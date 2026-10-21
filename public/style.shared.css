@@ -2327,3 +2327,7 @@ body[data-skin="modern"] .app-menu-foot button { border-color: var(--m-line); co
 body[data-skin="modern"] .app-menu-foot button:hover { background: var(--m-glass-2); }
 .app-menu-foot { flex-wrap: nowrap; gap: .8rem; }
 .app-menu-foot .app-menu-who { flex: 1 1 auto; }
+
+/* ---- the record pages carry their record's glyph above the title (20 Oct) ---- */
+.pub-hero-ico { display: inline-flex; margin: 0 auto .9rem; }
+.pub-hero-ico svg { width: 2.3rem; height: 2.5rem; }

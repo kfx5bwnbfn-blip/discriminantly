@@ -201,11 +201,11 @@ ${me ? '' : `  <script>
   // loaded eagerly, with its caption and an ImageObject of its own.
   const heroShot = (key) => { const s = C.shots[key]; if (!s) return '';
     return `<figure class="pub-shot pub-shot-phone pub-shot-app pub-hero-shot"><span class="phone-body"><span class="phone-shadow"></span><span class="phone"><span class="phone-notch"></span><picture><source type="image/webp" srcset="/how/${s.file}.webp"><img src="/how/${s.file}.jpg" alt="${esc(s.alt)}" width="${s.w}" height="${s.h}" fetchpriority="high" decoding="async"></picture></span></span><figcaption class="welcome-caption pub-shot-cap">${esc(s.caption)}</figcaption></figure>`; };
-  const page = (res, me, req, { path, title, fullTitle = null, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [], card = null, hero = null }) => {
+  const page = (res, me, req, { path, title, fullTitle = null, description, h1, lede, body, home = false, cls = '', crumbs = null, ld = [], card = null, hero = null, glyph = null }) => {
     if (hero) ld = [...ld, ...shotsLd([hero])];
     const graph = [ORG, SITE, { '@type': 'WebPage', '@id': canonical(path), url: canonical(path), name: fullTitle || title, description, isPartOf: { '@id': PUBLIC_ORIGIN + '/#site' }, inLanguage: 'en', ...(crumbsLd(crumbs) ? { breadcrumb: crumbsLd(crumbs) } : {}) }, ...ld];
     return (sendZ ? sendZ.bind(null, req) : send)(res, layout({ title, me, req, cls: `is-welcome is-public ${cls}`,
-      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}"><h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}${me ? '' : SPECULATE}`,
+      body: `${crumbsHtml(crumbs)}${h1 ? `<section class="pub-hero${hero ? ' pub-hero-with-shot' : ''}">${glyph ? `<span class="wl-ico pub-keep-ico pub-hero-ico" aria-hidden="true">${glyph}</span>` : ''}<h1 class="pub-h1">${h1}</h1>${lede ? `<p class="pub-lede">${lede}</p>` : ''}${hero ? heroShot(hero) : ''}</section>` : ''}${body}${foot}${ldScript(graph)}${me ? '' : SPECULATE}`,
       pub: { title: fullTitle || `${title} — Discriminantly`, description, canonical: canonical(path), og: { title: fullTitle ? fullTitle.replace(/ — Discriminantly$/, '') : title, description, image: PUBLIC_ORIGIN + (card || '/card/site.png'), imageWidth: 1200, imageHeight: 630, card: 'summary_large_image' }, header: header(me, { home, path }) } }), 200, cacheHeaders(me));
   };
 
@@ -360,7 +360,7 @@ ${sec('not', 'What a mark proves, and does not', 'Saving is not going.', proofCa
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
     return page(res, me, req, { path: '/travel-marks', title: 'Travel Marks',
       description: 'A travel mark is a place worth remembering in Discriminantly: what it is, how it differs from a check-in, how it sits in collections and itineraries, and what it does not prove.',
-      h1: 'Travel Marks', lede: 'A place worth remembering, saved with its name and where it is. Not yet a visit.', body, hero: 'travel-mark-private',
+      h1: 'Travel Marks', glyph: GLYPH.mark, lede: 'A place worth remembering, saved with its name and where it is. Not yet a visit.', body, hero: 'travel-mark-private',
       card: '/card/page/travel-marks.png', crumbs: [HOME_CRUMB, { name: 'What you save', href: '/how-it-works#names' }, { name: 'Travel Marks', href: '/travel-marks' }],
       ld: [{ '@type': 'DefinedTerm', name: 'Travel Mark', description: o.what, url: PUBLIC_ORIGIN + '/travel-marks', inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd(['new-travel-mark', 'travel-mark-map-checkin'])] });
   }
@@ -523,7 +523,7 @@ ${sec('example', 'An example', `What a ${esc(o.one.toLowerCase())} looks like.`,
 ${sec('proves', `What a ${esc(o.one.toLowerCase())} proves, and does not`, 'Plainly.', proofCards(d.proves))}
 ${sec('others', 'The other records', 'Each with its own page.', `<ul class="pub-list pub-guides">${C.objects.filter((x) => x.key !== key).map((x) => `<li><a href="${x.href}">${esc(x.name)}</a> — ${esc(x.plain)}</li>`).join('')}</ul>`)}
 <section class="pub-sec pub-final" id="start" aria-label="Get started"><p class="pub-final-acts">${cta(me)}</p><p class="pub-final-sub"><a class="link caps" href="/how-it-works">See how it works</a></p></section>`;
-      return page(res, me, req, { path: d.path, title: o.name, description: d.desc || metaDesc(`${o.what} ${o.not}`), h1: o.name, lede: d.lede, body, hero: d.shots && d.shots[0],
+      return page(res, me, req, { path: d.path, title: o.name, description: d.desc || metaDesc(`${o.what} ${o.not}`), h1: o.name, glyph: GLYPH[key], lede: d.lede, body, hero: d.shots && d.shots[0],
         card: `/card/page/${d.path.slice(1)}.png`, crumbs: [HOME_CRUMB, { name: 'What you save', href: '/how-it-works#names' }, { name: o.name, href: d.path }],
         ld: [{ '@type': 'DefinedTerm', name: o.one, description: o.what, url: PUBLIC_ORIGIN + d.path, inDefinedTermSet: { '@type': 'DefinedTermSet', name: 'Discriminantly records', url: PUBLIC_ORIGIN + '/how-it-works#names' } }, ...shotsLd((d.shots || []).slice(1))] });
     };
