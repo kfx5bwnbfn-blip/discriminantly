@@ -2702,3 +2702,7 @@ body[data-skin="modern"] .app-menu .pgrp-nav .wtable.pgrp-group > .wcell:nth-chi
   body[data-skin="modern"][data-mode="light"],
   html.m-light body[data-skin="modern"][data-mode="system"] { --m-menu: rgba(246,246,250,.88); }
 }
+
+/* ---- a full-width picture meets the card's header square-edged (v2.113.1).
+   Lives here, after the phone rule above that rounds it, so it wins. ---- */
+@media (max-width: 52rem) { body[data-skin="modern"] .note.has-image:not(.travelmark) .figure { border-radius: 0; } }

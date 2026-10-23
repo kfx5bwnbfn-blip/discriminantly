@@ -2379,5 +2379,3 @@ body[data-skin="modern"] .pic-tile { background: var(--m-glass); box-shadow: ins
 body[data-skin="modern"] .pic-add { border-color: var(--m-line); color: var(--m-ink-2); opacity: 1; }
 body[data-skin="modern"] .pic-hint { color: var(--m-ink-2); opacity: 1; }
 .nf-image .nf-cover-badge { left: .7rem; top: .7rem; }
-/* ---- a full-width picture meets the card's header square-edged (20 Oct) ---- */
-@media (max-width: 52rem) { body[data-skin="modern"] .note.has-image:not(.travelmark) .figure { border-radius: 0; } }
