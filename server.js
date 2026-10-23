@@ -5490,6 +5490,9 @@ const imageUrlOf = (rec) => {
   if (v.startsWith('/seed/')) return PUBLIC_ORIGIN + v;
   return null;
 };
+// v2.114: every picture of a note, the cover first, each in the same
+// image_uid / image_url form as the single picture fields.
+const noteImagesOf = (o) => noteImages(o).map((image) => ({ image_uid: imageUidOf({ image }), image_url: imageUrlOf({ image }) }));
 const imageUidOf = (rec) => {
   const v = (rec && rec.image) || '';
   return v.startsWith('/i/') ? v.slice(3) : null;
@@ -12340,6 +12343,8 @@ const OS_RECENT_NOTE = { type: 'object', additionalProperties: false,
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
     image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
+    images: { type: 'array', description: 'Every picture of the note in order, the cover first (so images[0] matches image_uid/image_url). A note can carry up to 8. Each is the same image_uid / image_url pair; pass any image_uid to view_images or create_pending_ensemble.',
+      items: { type: 'object', additionalProperties: false, required: ['image_uid', 'image_url'], properties: { image_uid: { type: ['string', 'null'] }, image_url: { type: ['string', 'null'] } } } },
     already_renoted: OS_RENOTED, provenance: OS_PROVENANCE } };
 // Three-valued on purpose. state:null means NEVER ASSERTED — not 'no', not
 // disapproval. Consumers must not collapse null with 'released'/'revoked'.
@@ -12359,6 +12364,8 @@ const OS_MY_NOTE = { type: 'object', additionalProperties: false,
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
     image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
+    images: { type: 'array', description: 'Every picture of the note in order, the cover first (so images[0] matches image_uid/image_url). A note can carry up to 8. Each is the same image_uid / image_url pair; pass any image_uid to view_images or create_pending_ensemble.',
+      items: { type: 'object', additionalProperties: false, required: ['image_uid', 'image_url'], properties: { image_uid: { type: ['string', 'null'] }, image_url: { type: ['string', 'null'] } } } },
     renoted_from_uid: { type: ['string', 'null'] }, owned: OS_OWNED, warrant: OS_WARRANT, equivalent_notes: OS_EQUIVALENT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'why', 'tags', 'private', 'has_image', 'image_uid', 'image_url', 'owned', 'warrant', 'provenance'],
@@ -12368,6 +12375,8 @@ const OS_SEARCH_NOTE = { type: 'object', additionalProperties: false,
     has_image: { type: 'boolean', description: 'Whether this record already has a picture stored in Discriminantly.' },
     image_uid: { type: ['string', 'null'], description: 'The stored image, when there is one. Pass this straight to create_pending_ensemble as image_uid, or to view_images to look at it. An image the member already has NEVER needs uploading again.' },
     image_url: { type: ['string', 'null'], description: 'Set instead of image_uid on older records whose picture was linked to an outside site rather than stored here. Fetch it yourself to look at the thing, and if you need it in an Ensemble, ingest it once with upload_image and use the uid that returns. Exactly one of image_uid / image_url is set when has_image is true.' },
+    images: { type: 'array', description: 'Every picture of the note in order, the cover first (so images[0] matches image_uid/image_url). A note can carry up to 8. Each is the same image_uid / image_url pair; pass any image_uid to view_images or create_pending_ensemble.',
+      items: { type: 'object', additionalProperties: false, required: ['image_uid', 'image_url'], properties: { image_uid: { type: ['string', 'null'] }, image_url: { type: ['string', 'null'] } } } },
     owned: OS_OWNED, warrant: OS_WARRANT, provenance: OS_PROVENANCE } };
 const OS_SEARCH_MARK = { type: 'object', additionalProperties: false,
   required: ['type', 'uid', 'id', 'name', 'locality', 'country', 'why', 'tags', 'private', 'remarked_from_uid', 'warrant', 'provenance'],
@@ -12602,6 +12611,7 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Lowercase tags, e.g. ["kitchen","copper","france"]' },
       link: { type: 'string', description: 'URL where the object can be found' },
       image: { type: 'string', description: IMAGE_FIELD_DESC + ' Required — every note carries an image.' },
+      images: { type: 'array', items: { type: 'string' }, description: 'Further pictures of the same thing, beyond `image` (which stays the cover): each an https:// URL or a /i/<id> reference from upload_image, in the order they should appear. Up to 7. A picture the member already has in Discriminantly is referenced by its /i/<id>, never uploaded again.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'Names of the collections to file this note under, created if new; a note may sit in several. Check my_collections first and reuse an existing name exactly — a near-miss makes a SECOND collection rather than adding to the existing one.' },
       private: { type: 'boolean', description: 'True to keep the note visible only to the member' },
       allow_duplicate: { type: 'boolean', description: 'Set true only after the member confirms this is genuinely different from a similarly-named note the tool flagged.' } } } ,
@@ -12621,6 +12631,7 @@ const TOOLS = [
       tags: { type: 'array', items: { type: 'string' }, description: 'Replaces the full set of tags, lowercase, e.g. ["kitchen","copper"].' },
       link: { type: 'string', description: 'Replaces the URL where the object can be found.' },
       image: { type: 'string', description: IMAGE_FIELD_DESC },
+      images: { type: 'array', items: { type: 'string' }, description: 'Replaces the note\'s further pictures (those beyond the cover) with this list, in order: each an https:// URL or a /i/<id> reference from upload_image. Up to 7. An empty list removes them all; omit the field to leave them as they are. To change the cover, pass `image`.' },
       collections: { type: 'array', items: { type: 'string' }, description: 'REPLACES the note\'s whole set of collections — what you pass becomes the complete list, so anything omitted is removed. To add one, pass the existing names back along with the new one. An empty array files it under nothing.' },
       private: { type: 'boolean', description: 'True hides the note from everyone but the member; false publishes it.' } } } ,
     outputSchema: OS_WRITE },
@@ -13256,6 +13267,21 @@ function ignoredArgsNotice(name, ignored) {
     + 'Tell the member what did not change; do not describe it as done.';
 }
 
+// v2.114: a list of picture refs for a note's further pictures. Each is
+// resolved like the single `image`: an uploaded /i/<id> is checked for
+// ownership, an https:// link is fetched in (or kept as a link when the site
+// refuses), anything else is an error.
+async function resolveImageList(userId, list, ctx) {
+  if (!Array.isArray(list)) throw new Error('images must be an array of image references.');
+  const out = [];
+  for (const ref of list.slice(0, NOTE_IMAGES_MAX - 1)) {
+    const v = String(ref || '').trim(); if (!v) continue;
+    try { const uid = await resolveAssetRef(userId, { image: v }, ctx, 'upload', 'A note picture'); if (uid) out.push(`/i/${uid}`); }
+    catch (e) { if (/^https?:\/\//i.test(v)) out.push(v); else throw e; }
+  }
+  return out;
+}
+
 async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor = null) {
   // Every AI-originated write in this dispatcher attributes itself through the
   // connection that made the call. Shadowing the module-level helper keeps the
@@ -13316,7 +13342,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
       try { q(`INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url) VALUES('object',?,?)`).run(r.id, noteImage);
             q("DELETE FROM linked_image_backlog WHERE row_id=-1").run(); } catch {}
     }
-    return wr(`Noted as #${r.id}: ${a.headline}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`,
+    let extraNote = '';
+    if (a.images !== undefined) {
+      const extras = setNoteExtraImages(user.id, r.id, noteImage, await resolveImageList(user.id, a.images, mcpActor(user)), mcpActor(user));
+      if (extras.length) extraNote = ` with ${extras.length + 1} pictures`;
+    }
+    return wr(`Noted as #${r.id}: ${a.headline}${extraNote}${a.private ? ' (private)' : ''}${Array.isArray(a.collections) && a.collections.length ? ' in ' + a.collections.join(', ') : ''}`,
       'created', 'note', r.id, r.uid, a.headline);
   }
   if (name === 'recent_notes') {
@@ -13325,7 +13356,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, handle: o.handle, private: !!o.private,
-        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
+        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o), images: noteImagesOf(o),
         already_renoted: alreadyRenoted(user.id, o.uid),
         // another member's note: who or what made it, and when, is not the
         // caller's business; their own notes keep their provenance
@@ -13344,7 +13375,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     return { text: rows.map(fmt).join('\n') || 'No notes yet.',
       structured: { items: rows.map((o) => ({ type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why,
         tags: o.tags, url: o.url, private: !!o.private,
-        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
+        has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o), images: noteImagesOf(o),
         renoted_from_uid: o.renoted_from_uid || null,
         owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid),
         equivalent_notes: equivalentNotes(user.id, o.uid),
@@ -13373,6 +13404,12 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
     }
     const priv = a.private !== undefined ? (a.private ? 1 : 0) : o.private;
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?').run(name_, why, tags, url, image, priv, o.id);
+    if (a.images !== undefined) setNoteExtraImages(user.id, o.id, image, await resolveImageList(user.id, a.images, mcpActor(user)), mcpActor(user));
+    else if (image !== o.image) {
+      // a new cover that was among the further pictures leaves that list
+      const left = noteExtraImages(o.id).map((x) => x.image).filter((x) => x !== image);
+      if (left.length !== noteExtraImages(o.id).length) setNoteExtraImages(user.id, o.id, image, left, mcpActor(user));
+    }
     if (Array.isArray(a.collections)) setCollections(user.id, o.id, a.collections);
     recordProvenance('object', o.uid, 'edited', mcpActor(user), { source_kind: 'manual' });
     return wr(`Updated #${o.id}: ${name_}`, 'edited', 'note', o.id, o.uid, name_);
@@ -13938,7 +13975,7 @@ async function mcpCall(user, conn, name, a = {}, authMethod = undefined, actor =
         .forEach((o) => hits.push({ at: o.created_at,
           line: `NOTE #${o.id} ${o.name} — ${o.why}${o.tags ? ` [${o.tags}]` : ''}`,
           item: { type: 'object', uid: o.uid, id: o.id, name: o.name, why: o.why, tags: o.tags, private: !!o.private,
-            has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o),
+            has_image: !!o.image, image_uid: imageUidOf(o), image_url: imageUrlOf(o), images: noteImagesOf(o),
                   owned: ownedState(user.id, o.id), warrant: warrantState(user.id, 'object', o.uid) } }));
     }
     if (kind !== 'note') {
@@ -14806,7 +14843,7 @@ BEFORE ANSWERING ABOUT THEIR CATALOGUE. For anything like \"have I noted…\", \
 
 WRITING. Write to their notes, marks, check-ins or plans only when the member asks you to keep, note, mark, check in or plan something. Recommending or discussing a place is not saving it, and mentioning somewhere is not checking in (recording a recommendation a Discriminantly workflow presents is its own act; see RECOMMENDATIONS). When what they want is clear, just do it; ask only when it is genuinely ambiguous. For a note, write a crisp headline and a short description in the member's voice, propose tags, then note_object. For a place use add_travel_mark, and call verify_place first unless you already have a precise address — show the member the match, or the fact that nothing matched, and never invent coordinates. Both tools refuse near-duplicates: if that happens, say what already exists and ask before retrying with allow_duplicate. Use edit_note / edit_travel_mark to change things, passing only the fields that change.
 
-IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again.
+IMAGES THE MEMBER ALREADY HAS. Every note and mark reports has_image and image_uid. If a thing is already in their catalogue, its picture is already here: look at it with view_images, and pass its image_uid straight on. Never ask the member to attach a picture of something they have already noted, and never upload it again. A note can carry several pictures: its images field lists them all, the cover first; to add more, upload each and pass their references as images on note_object or edit_note.
 
 ${ingestDirective(user).line}\n\nIMAGES FROM YOUR OWN SANDBOX. An attachment or a picture you generated is a local file — that file is the SOURCE of the bytes, not the argument. A file id or a path means nothing to this server and is never a reason to stop. Read the bytes in your code environment, keep good visual quality, then call begin_image_upload with the first slice. Every reply says what to do next and there are only two answers: 'receiving' means call upload_image_chunk with the index in next_index; 'stored' means the image is saved and image_uid is ready. Keep going until 'stored' without pausing. Never put a whole image in one tool argument: runtimes truncate long arguments unpredictably, which is exactly why the bytes go in slices. An image already at a public https:// URL needs none of this — upload_image with the URL is enough.
 

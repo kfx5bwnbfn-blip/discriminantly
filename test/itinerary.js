@@ -1338,7 +1338,7 @@ console.log('\nadoption');
   ok('K1 every-row reads are single-record lookups only, on the web and behind MCP', lists.length === 0,
      lists.map((m) => m[0].slice(0, 60)).join(' | '));
   ok('K1b OBJ_SQL and MARK_SQL keep their meaning (every row), for single-record reads (author photo as a fingerprint, v2.104.2)',
-     /const OBJ_SQL = 'SELECT o\.\*, u\.handle, u\.name uname, ' \+ AVATAR_COL \+ ' FROM objects o JOIN users u ON u\.id=o\.user_id';/.test(SRC)
+     /const OBJ_SQL = 'SELECT o\.\*, u\.handle, u\.name uname, \(SELECT COUNT\(\*\) FROM object_images x WHERE x\.object_id=o\.id\) extra_images, ' \+ AVATAR_COL \+ ' FROM objects o JOIN users u ON u\.id=o\.user_id';/.test(SRC)
      && /const MARK_SQL = 'SELECT m\.\*, u\.handle, u\.name uname, ' \+ AVATAR_COL \+ ' FROM marks m JOIN users u ON u\.id=m\.user_id';/.test(SRC));
   ok('K1c the projection constants read the adopted views',
      /const ADOPTED_OBJ_SQL = '[^']*' \+ AVATAR_COL \+ ' FROM adopted_objects o /.test(SRC) && /const ADOPTED_MARK_SQL = '[^']*' \+ AVATAR_COL \+ ' FROM adopted_marks m /.test(SRC));
@@ -1504,26 +1504,36 @@ console.log('\nlifecycle invariants (source)');
 console.log('\nMCP contract (definitions)');
 {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8'));
-  const cur = read('mcp-contract-v2.61.json'), rel = read('mcp-contract-v2.60.json'), hist = read('submitted-mcp-contract.json');
+  const cur = read('mcp-contract-v2.62.json'), rel = read('mcp-contract-v2.61.json'), hist = read('submitted-mcp-contract.json');
   const norm = (v) => JSON.parse(JSON.stringify(v).split('https://www.discriminantly.com').join('{ORIGIN}'));
   const gen = norm(loadToolsFromSource(SRC));
   const names = (l) => l.map((t) => t.name);
-  ok('MC1 the v2.61 snapshot holds 67 tools, as did v2.60; the historical one still holds the submitted 54', cur.tools.length === 67 && rel.tools.length === 67 && hist.tools.length === 54);
+  ok('MC1 the v2.62 snapshot holds 67 tools, as did v2.61; the historical one still holds the submitted 54', cur.tools.length === 67 && rel.tools.length === 67 && hist.tools.length === 54);
   // v2.58 against v2.56: delegated itinerary authoring and place identity.
   // Only these descriptions and my_travel_marks' result changed; two tools added;
   // every existing annotation and the server instructions are unchanged.
   // v2.59 against v2.58: the deferred items (field status, images, expansion audit, build_itinerary).
   // v2.61 against v2.60: no tool changed; only the server capabilities (Skills extension).
-  const V258_CHANGED = [];
+  // v2.62 against v2.61: a note's several pictures (additive). The three note
+  // result shapes gain `images`; note_object and edit_note gain an optional
+  // `images` input; the server instructions gain one sentence saying so.
+  const V258_CHANGED = ['edit_note', 'my_notes', 'note_object', 'recent_notes', 'search_catalogue'];
   const V258_ADDED = [];
+  const INSTRUCTIONS_ADDED = ' A note can carry several pictures: its images field lists them all, the cover first; to add more, upload each and pass their references as images on note_object or edit_note.';
   const incChanged = rel.tools.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name).sort();
   const incAdded = cur.tools.filter((t) => !rel.tools.find((x) => x.name === t.name)).map((t) => t.name).sort();
-  ok('MC9 against v2.60, no tool changed or was added (v2.61 adds only the Skills extension); existing annotations and the instructions unchanged',
+  ok('MC9 against v2.61, only the five note tools changed (pictures, additive) and none were added; existing annotations unchanged; the instructions gained only the pictures sentence',
      JSON.stringify(incChanged) === JSON.stringify(V258_CHANGED) && JSON.stringify(incAdded) === JSON.stringify(V258_ADDED)
      && rel.tools.every((t) => JSON.stringify(t.annotations) === JSON.stringify(cur.tools.find((x) => x.name === t.name).annotations))
-     && rel.initialize.instructions === cur.initialize.instructions, `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
+     && cur.initialize.instructions === rel.initialize.instructions.replace('and never upload it again.', 'and never upload it again.' + INSTRUCTIONS_ADDED), `changed: ${incChanged.join(', ')} | added: ${incAdded.join(', ')}`);
+  // additive means additive: every property and required key the previous
+  // snapshot declared is still declared, unchanged, on the five tools
+  const subset = (prev, now) => Object.keys(prev || {}).every((k) => k in (now || {}) && (k === 'properties' || k === 'items' ? subset(prev[k], now[k]) : JSON.stringify(prev[k]) === JSON.stringify(now[k]) || (typeof prev[k] === "object" && subset(prev[k], now[k]))));
+  ok('MC10 the five changed tools only gained: every input property, output property and required key from v2.61 is still there, unchanged',
+     V258_CHANGED.every((n) => { const p = rel.tools.find((x) => x.name === n), c = cur.tools.find((x) => x.name === n);
+       return subset(p.inputSchema.properties, c.inputSchema.properties) && JSON.stringify(p.inputSchema.required || []) === JSON.stringify(c.inputSchema.required || []) && subset(p.outputSchema, c.outputSchema); }));
   const drift = gen.filter((t) => { const c = cur.tools.find((x) => x.name === t.name); return !c || JSON.stringify(c) !== JSON.stringify(t); }).map((t) => t.name);
-  ok('MC2 every tool definition generated from source matches the v2.56 snapshot (names, descriptions, schemas, annotations, security)',
+  ok('MC2 every tool definition generated from source matches the v2.62 snapshot (names, descriptions, schemas, annotations, security)',
      !drift.length && gen.length === cur.tools.length, 'differs: ' + drift.join(', '));
   ok('MC3 every tool is complete: title, description, input and output schemas, all three hints, OAuth security',
      gen.every((t) => t.title && t.description && t.inputSchema && t.outputSchema && t.annotations
@@ -1532,7 +1542,7 @@ console.log('\nMCP contract (definitions)');
   // Historical regression reference: what changed since the cancelled
   // submission, and only that. A change outside these lists is a finding.
   // delete_note / delete_travel_mark: descriptions state de-resolution (final semantic pass)
-  const APPROVED_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark', 'discard_ensemble', 'keep_ensemble', 'my_itineraries', 'my_travel_marks', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component', 'resolve_itinerary_stop', 'upload_image', 'verify_place'];
+  const APPROVED_CHANGED = ['add_itinerary_stops', 'add_travel_mark', 'arrange_itinerary', 'create_pending_ensemble', 'delete_ensemble', 'delete_note', 'delete_travel_mark', 'discard_ensemble', 'edit_note', 'keep_ensemble', 'my_itineraries', 'my_notes', 'my_travel_marks', 'note_object', 're_note', 'recent_notes', 'resolve_ensemble_component', 'resolve_itinerary_stop', 'search_catalogue', 'upload_image', 'verify_place'];
   // The shared write result gained one action, 'kept' (note_object /
   // add_travel_mark keeping an already-recommended record). That alone is
   // not a change to a tool's meaning, so it is compared without it.
