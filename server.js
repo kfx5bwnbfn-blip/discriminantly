@@ -1642,6 +1642,18 @@ const MIGRATIONS = [
   ['065-connections-removed', () => {
     if (!hasColumn('connections', 'removed_at')) db.exec('ALTER TABLE connections ADD COLUMN removed_at TEXT');
   }],
+  // v2.113: a note may carry more pictures than its cover. objects.image stays
+  // the cover (everything that shows one picture keeps reading it); the rest
+  // live here in order. Deleted with the note.
+  ['066-object-images', () => {
+    db.exec(`CREATE TABLE IF NOT EXISTS object_images (
+      id        INTEGER PRIMARY KEY,
+      object_id INTEGER NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+      image     TEXT NOT NULL,
+      pos       INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_object_images_obj ON object_images(object_id, pos)');
+  }],
 ];
 
 
@@ -1771,6 +1783,9 @@ function imageIsPublic(img) {
   // is private to that member whatever its own flag says.
   if (q('SELECT 1 FROM adopted_objects WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
   if (q('SELECT 1 FROM adopted_marks WHERE private=0 AND (image=? OR image=?)').get(a, b)) return true;
+  if (hasTable('object_images')
+    && q(`SELECT 1 FROM object_images x JOIN adopted_objects o ON o.id=x.object_id
+          WHERE o.private=0 AND (x.image=? OR x.image=?)`).get(a, b)) return true;
   if (hasTable('ensemble_artifacts')
     && q(`SELECT 1 FROM ensemble_artifacts f JOIN ensembles e ON e.id=f.ensemble_id
           WHERE e.private=0 AND f.image_uid=?`).get(img.uid)) return true;
@@ -3940,6 +3955,41 @@ function readImage(file, cb) {
     if (window.ResizeObserver) new ResizeObserver(syncBar).observe(bar, { box: 'border-box' });   // padding (the status-bar allowance) counts
   })();
 
+  // v2.113: a note with several pictures. Tap a thumbnail, swipe the large
+  // picture, or use the arrow keys; the cover stays the first. Delegated, so
+  // it works wherever the card appears and however it arrives.
+  (function () {
+    var wire = function (gal) {
+      if (gal.__gal) return gal.__gal;
+      var fig = gal.querySelector('.figure'), big = fig && fig.querySelector('img'), count = gal.querySelector('[data-gal-count]');
+      var tabs = [].slice.call(gal.querySelectorAll('.gal-strip [role="tab"]')); if (!big || tabs.length < 2) return null;
+      var at = 0;
+      var show = function (i) {
+        at = (i + tabs.length) % tabs.length; var t = tabs[at];
+        big.removeAttribute('width'); big.removeAttribute('height');
+        if (t.dataset.srcset) big.srcset = t.dataset.srcset; else big.removeAttribute('srcset');
+        big.src = t.dataset.src;
+        tabs.forEach(function (b, j) { b.classList.toggle('is-on', j === at); b.setAttribute('aria-selected', j === at); });
+        if (count) count.textContent = (at + 1) + ' / ' + tabs.length;
+        if (t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      };
+      var x0 = null;
+      fig.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+      fig.addEventListener('touchend', function (e) { if (x0 === null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) { e.preventDefault(); show(dx < 0 ? at + 1 : at - 1); } });
+      gal.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { e.preventDefault(); show(at + 1); } if (e.key === 'ArrowLeft') { e.preventDefault(); show(at - 1); } });
+      return (gal.__gal = { show: show, tabs: tabs, fig: fig, step: function (n) { show(at + n); } });
+    };
+    document.addEventListener('click', function (e) {
+      var tab = e.target.closest('.gal-strip [role="tab"]');
+      if (tab) { var g = wire(tab.closest('[data-gal]')); if (g) { e.preventDefault(); g.show(g.tabs.indexOf(tab)); } return; }
+      var fig = e.target.closest('[data-gal] .figure');
+      // the figure links to the note's own page; on that page a tap steps forward instead of reloading
+      if (fig && fig.getAttribute('href') === location.pathname) { var g2 = wire(fig.closest('[data-gal]')); if (g2) { e.preventDefault(); g2.step(1); } }
+    });
+    var ready = function () { document.querySelectorAll('[data-gal]').forEach(wire); };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
+  })();
+
 </script>
 ${me ? `<div class="curtain dialog" id="confirm-dialog">
   <div class="curtain-frame"><div class="curtain-body">
@@ -4100,8 +4150,15 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
         <button type="button" class="img-arrow" data-step="1" aria-label="Next image">›</button>
       </div>
       <img class="nf-image-preview" id="${prevId}" src="${esc(o.image)}" alt="" ${o.image ? '' : 'hidden'}>
+      <span class="pt-badge nf-cover-badge"${o.image ? '' : ' hidden'}>Cover</span>
       <input class="nf-field" id="${inputId}" name="image" type="text" placeholder="TAP TO CHOOSE, OR DRAG AN IMAGE HERE" value="${esc(o.image)}" required>
     </div>
+    <div class="pic-tray" id="tray-${idp}" data-max="${NOTE_IMAGES_MAX}">
+      ${(editing ? noteExtraImages(o.id).map((x) => x.image) : imageListFrom(o.images)).map((src) => `<div class="pic-tile" data-src="${esc(src)}" draggable="true"><img src="${esc(src)}" alt=""><button type="button" class="pt-x" aria-label="Remove this picture">×</button><button type="button" class="pt-cover" aria-label="Make this the cover" title="Make this the cover"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9L3.5 9.7l5.9-.8z"/></svg></button><span class="pt-grip" aria-hidden="true">⋮⋮</span></div>`).join('')}
+      <button type="button" class="pic-add" id="tray-add-${idp}"><b>+</b>Add<br>picture</button>
+      <input type="hidden" name="images" id="tray-list-${idp}" value="${esc((editing ? noteExtraImages(o.id).map((x) => x.image) : imageListFrom(o.images)).join('\n'))}">
+    </div>
+    <p class="pic-hint">Up to ${NOTE_IMAGES_MAX} pictures. The first is the cover, which the feed shows; ★ makes another the cover, and you can drag to reorder.</p>
     <div class="nf-stack">
       <input class="nf-field" name="name" id="f-title-${idp}" placeholder="TITLE (REQUIRED)" required maxlength="120" value="${esc(o.name)}">
       <textarea class="nf-field" name="why" id="f-why-${idp}" rows="${compact ? 5 : 7}" maxlength="1000" placeholder="COMMENTS">${esc(o.why)}</textarea>
@@ -4136,6 +4193,87 @@ function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = f
     var uri = dt.getData('text/uri-list') || dt.getData('text/plain');
     if (uri) { input.value = uri.trim(); refresh(); }
   });
+  // v2.113: the extra pictures. Each is stored as it is added (POST /api/image)
+  // and the form posts only the refs, one per line, in order.
+  (function () {
+    var tray = document.getElementById('tray-${idp}'), add = document.getElementById('tray-add-${idp}'), list = document.getElementById('tray-list-${idp}');
+    if (!tray) return;
+    var MAX = +tray.dataset.max || 8;
+    var tiles = function () { return [].slice.call(tray.querySelectorAll('.pic-tile')); };
+    var sync = function () {
+      list.value = tiles().map(function (t) { return t.dataset.src; }).join('\\n');
+      add.hidden = tiles().length >= MAX - 1;
+      var badge = drop.querySelector('.nf-cover-badge'); if (badge) badge.hidden = !input.value;
+    };
+    var tile = function (src) {
+      var d = document.createElement('div'); d.className = 'pic-tile'; d.dataset.src = src; d.draggable = true;
+      d.innerHTML = '<img src="' + src.replace(/"/g, '&quot;') + '" alt=""><button type="button" class="pt-x" aria-label="Remove this picture">×</button><button type="button" class="pt-cover" aria-label="Make this the cover" title="Make this the cover"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1.1 5.9L12 16.9l-5.3 2.8 1.1-5.9L3.5 9.7l5.9-.8z"/></svg></button><span class="pt-grip" aria-hidden="true">⋮⋮</span>';
+      tray.insertBefore(d, add); sync();
+    };
+    var store = function (dataUrl, done) {
+      fetch('/api/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image: dataUrl }) })
+        .then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.image) done(d.image); else alert(d && d.error || 'That picture could not be stored.'); })
+        .catch(function () { alert('That picture could not be stored.'); });
+    };
+    var addFiles = function (files) {
+      var coverTaken = !!input.value;   // reading a file is asynchronous: only the first one may claim an empty cover
+      [].slice.call(files || []).forEach(function (f) {
+        if (f.type.indexOf('image/') !== 0) return;
+        if (!coverTaken) { coverTaken = true; readImage(f, function (d) { input.value = d; refresh(); sync(); }); return; }   // no cover yet: this becomes it
+        if (tiles().length >= MAX - 1) return;
+        var ph = document.createElement('div'); ph.className = 'pic-tile is-busy'; tray.insertBefore(ph, add);
+        readImage(f, function (d) { store(d, function (ref) { ph.remove(); tile(ref); }); });
+      });
+    };
+    var multi = document.createElement('input'); multi.type = 'file'; multi.accept = 'image/*'; multi.multiple = true; multi.style.display = 'none'; tray.appendChild(multi);
+    add.addEventListener('click', function () { multi.click(); });
+    multi.addEventListener('change', function () { addFiles(multi.files); multi.value = ''; });
+    ['dragenter', 'dragover'].forEach(function (ev) { tray.addEventListener(ev, function (e) { if (e.dataTransfer && [].some.call(e.dataTransfer.types, function (t) { return t === 'Files'; })) { e.preventDefault(); tray.classList.add('dragover'); } }); });
+    ['dragleave', 'drop'].forEach(function (ev) { tray.addEventListener(ev, function () { tray.classList.remove('dragover'); }); });
+    tray.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } });
+    // a second file dropped on the cover box joins the tray instead of replacing the cover
+    drop.addEventListener('drop', function (e) { var fs = e.dataTransfer && e.dataTransfer.files; if (fs && fs.length > 1) addFiles([].slice.call(fs, 1)); });
+    tray.addEventListener('click', function (e) {
+      var t = e.target.closest('.pic-tile'); if (!t) return;
+      if (e.target.closest('.pt-x')) { t.remove(); sync(); return; }
+      if (e.target.closest('.pt-cover')) {
+        // swap: this picture becomes the cover, the old cover takes its place in the tray
+        var was = input.value; input.value = t.dataset.src; refresh();
+        if (was) { t.dataset.src = was; t.querySelector('img').src = was; } else t.remove();
+        sync();
+      }
+    });
+    // reorder by dragging a tile (pointer or touch), or with the arrow keys on a focused tile
+    var dragging = null;
+    tray.addEventListener('dragstart', function (e) { var t = e.target.closest('.pic-tile'); if (!t) return; dragging = t; t.classList.add('is-dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', 'tile'); } catch (x) {} });
+    tray.addEventListener('dragend', function () { if (dragging) dragging.classList.remove('is-dragging'); dragging = null; sync(); });
+    tray.addEventListener('dragover', function (e) {
+      if (!dragging) return; e.preventDefault();
+      var over = e.target.closest('.pic-tile'); if (!over || over === dragging) return;
+      var r = over.getBoundingClientRect(); var after = e.clientX > r.left + r.width / 2;
+      tray.insertBefore(dragging, after ? over.nextSibling : over);
+    });
+    var tx = null, tt = null;
+    tray.addEventListener('touchstart', function (e) { var t = e.target.closest('.pt-grip'); if (!t) return; tt = t.closest('.pic-tile'); tx = e.touches[0].clientX; tt.classList.add('is-dragging'); }, { passive: true });
+    tray.addEventListener('touchmove', function (e) {
+      if (!tt) return; e.preventDefault();
+      var el = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY); var over = el && el.closest('.pic-tile');
+      if (!over || over === tt) return; var r = over.getBoundingClientRect();
+      tray.insertBefore(tt, e.touches[0].clientX > r.left + r.width / 2 ? over.nextSibling : over);
+    }, { passive: false });
+    tray.addEventListener('touchend', function () { if (tt) tt.classList.remove('is-dragging'); tt = null; tx = null; sync(); });
+    tiles().forEach(function (t) { t.tabIndex = 0; });
+    tray.addEventListener('keydown', function (e) {
+      var t = e.target.closest('.pic-tile'); if (!t) return;
+      if (e.key === 'ArrowLeft' && t.previousElementSibling) { e.preventDefault(); tray.insertBefore(t, t.previousElementSibling); t.focus(); sync(); }
+      if (e.key === 'ArrowRight' && t.nextElementSibling && t.nextElementSibling !== add) { e.preventDefault(); tray.insertBefore(t.nextElementSibling, t); t.focus(); sync(); }
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); t.remove(); sync(); }
+    });
+    input.addEventListener('input', sync);
+    sync();
+  })();
+
   // Flip through the images a page offered: arrows, swipe, or arrow keys.
   (function () {
     var strip = document.getElementById('pick-${idp}');
@@ -4568,6 +4706,37 @@ function storeImage(userId, value, actorCtx, source) {
   // guessable and is meaningless outside this database.
   return `/i/${uid}`;
 }
+
+// ---- a note's extra pictures (v2.113) --------------------------------------
+// The cover is objects.image; these follow it, in order. Refs are stored the
+// same way as the cover (/i/<uid>, or an outside link until adoption fetches it).
+const NOTE_IMAGES_MAX = 8;
+const noteExtraImages = (objectId) => hasTable('object_images')
+  ? q('SELECT id, image FROM object_images WHERE object_id=? ORDER BY pos, id').all(objectId) : [];
+const noteImages = (o) => [o.image, ...noteExtraImages(o.id).map((x) => x.image)].filter(Boolean);
+// Replace the note's extra pictures with this list (refs or data: URLs, which
+// are stored first). The cover is excluded if it slipped into the list.
+function setNoteExtraImages(userId, objectId, cover, list, actorCtx) {
+  const seen = new Set([cover]); const out = [];
+  for (const v of list || []) {
+    const ref = storeImage(userId, String(v || '').trim(), actorCtx);
+    if (!ref || seen.has(ref)) continue;
+    seen.add(ref); out.push(ref);
+    if (out.length >= NOTE_IMAGES_MAX - 1) break;
+  }
+  const before = noteExtraImages(objectId).map((x) => x.image);
+  if (before.join('\n') === out.join('\n')) return out;
+  q('DELETE FROM object_images WHERE object_id=?').run(objectId);
+  out.forEach((img, i) => {
+    const r = q('INSERT INTO object_images(object_id, image, pos) VALUES(?,?,?)').run(objectId, img, i);
+    // an outside link is fetched into Discriminantly's own storage, like the cover's
+    if (/^https?:/i.test(img) && hasTable('linked_image_backlog'))
+      q("INSERT OR IGNORE INTO linked_image_backlog(kind,row_id,url) VALUES('object_image',?,?)").run(r.lastInsertRowid, img);
+  });
+  return out;
+}
+// the form posts the extras as one field: newline-separated refs
+const imageListFrom = (v) => String(v || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
 
 // Feeds render a page at a time. The link works without JavaScript; with it,
 // the next page is fetched and appended in place.
@@ -5096,6 +5265,7 @@ function renoteFrom(src, me, ctx) {
   const r = q(`INSERT INTO objects(user_id,name,why,tags,url,image,private,renoted_from_uid)
     VALUES(?,?,?,?,'',?,0,?)`).run(me.id, src.name, src.why, src.url || '', src.image || '', src.uid);
   const note = q('SELECT * FROM objects WHERE id=?').get(r.lastInsertRowid);
+  noteExtraImages(src.id).forEach((x, i) => q('INSERT INTO object_images(object_id, image, pos) VALUES(?,?,?)').run(note.id, x.image, i));
   recordProvenance('object', note.uid, 'renoted', ctx, { source_kind: 'renote', source_ref: src.uid });
   // re-noting is a deliberate member act (design Q9): the new Note is Kept
   recordAdoption(me.id, 'object', note.uid, ctx, { source_kind: 'renote', source_ref: src.uid });
@@ -5274,8 +5444,10 @@ async function adoptLinkedImages(limit = 25) {
   try { rows = q("SELECT * FROM linked_image_backlog WHERE state='pending' ORDER BY id LIMIT ?").all(limit); }
   catch { return; }                                  // table not there yet
   for (const r of rows) {
-    const table = r.kind === 'mark' ? 'marks' : 'objects';
-    const rec = q(`SELECT id, user_id, image FROM ${table} WHERE id=?`).get(r.row_id);
+    const table = r.kind === 'mark' ? 'marks' : r.kind === 'object_image' ? 'object_images' : 'objects';
+    const rec = r.kind === 'object_image'
+      ? q('SELECT x.id, o.user_id, x.image FROM object_images x JOIN objects o ON o.id=x.object_id WHERE x.id=?').get(r.row_id)
+      : q(`SELECT id, user_id, image FROM ${table} WHERE id=?`).get(r.row_id);
     if (!rec || rec.image !== r.url) {               // edited or deleted since
       q("UPDATE linked_image_backlog SET state='done', note='superseded' WHERE id=?").run(r.id);
       continue;
@@ -9021,8 +9193,8 @@ function saveEnsembleComponents(ens, user, components, ctx, materialiseNotes) {
 // or uid, which is then shown through canView('object', ...). Everything that
 // lists, counts, searches or publishes the member's corpus, on the web and
 // behind the submitted MCP tools alike, reads ADOPTED_OBJ_SQL (test K1).
-const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM objects o JOIN users u ON u.id=o.user_id';
-const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, ' + AVATAR_COL + ' FROM adopted_objects o JOIN users u ON u.id=o.user_id';
+const OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, (SELECT COUNT(*) FROM object_images x WHERE x.object_id=o.id) extra_images, ' + AVATAR_COL + ' FROM objects o JOIN users u ON u.id=o.user_id';
+const ADOPTED_OBJ_SQL = 'SELECT o.*, u.handle, u.name uname, (SELECT COUNT(*) FROM object_images x WHERE x.object_id=o.id) extra_images, ' + AVATAR_COL + ' FROM adopted_objects o JOIN users u ON u.id=o.user_id';
 
 // The Warrant seal. Rendered from state alone — never from `published`, which
 // is social metadata about the announcement, not part of what a warrant means.
@@ -9110,7 +9282,17 @@ function objectCard(o, me, full = false) {
         return inner ? `<div class="noteit">${inner}</div>` : '';
       })()}
     </div>
-    ${o.image ? `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)} alt="${esc(o.name)}"></a>` : ''}
+    ${o.image ? (() => {
+      // v2.113: the cover is the picture everything else knows; the extras
+      // appear only on the note's own page, as a strip under the cover.
+      const extras = full ? noteExtraImages(o.id).map((x) => x.image) : [];
+      const extraCount = full ? extras.length : (o.extra_images != null ? +o.extra_images : noteExtraImages(o.id).length);
+      const fig = `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)} alt="${esc(o.name)}">${!full && extraCount ? `<span class="gal-more" aria-label="${extraCount + 1} pictures"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="4.5" width="9" height="8" rx="1.5"/><path d="M5.5 2.5h8v8"/></svg>+${extraCount}</span>` : ''}${full && extraCount ? `<span class="gal-count" data-gal-count>1 / ${extraCount + 1}</span>` : ''}</a>`;
+      if (!full || !extraCount) return fig;
+      const all = [o.image, ...extras];
+      const srcsetOf = (src) => (sharpLib && /^\/i\/[0-9a-f-]{36}$/i.test(src)) ? RENDITION_WIDTHS.map((w) => `${src}?w=${w} ${w}w`).join(', ') : '';
+      return `<div class="gal" data-gal>${fig}<div class="gal-strip" role="tablist" aria-label="Pictures">${all.map((src, i) => `<button type="button" role="tab" aria-selected="${i === 0}" class="${i === 0 ? 'is-on' : ''}" data-src="${esc(src)}" data-srcset="${esc(srcsetOf(src))}" aria-label="Picture ${i + 1} of ${all.length}"><img src="${esc(src)}" alt="" loading="lazy" decoding="async"${imgSet(src, '80px')}></button>`).join('')}</div></div>`;
+    })() : ''}
     ${(() => {
       // Owned is private evidence: rendered only for the member themselves,
       // and only where they actually have a relationship to the object.
@@ -14860,6 +15042,17 @@ async function handle(req, res) {
   if (p === '/mcp') return mcp(req, res, null);
   // Read a page's Open Graph tags so a pasted link can fill the form. Done on
   // the server because the browser cannot fetch other origins.
+  // v2.113: the note form stores each extra picture as it is added, and posts
+  // only the refs. Signed-in members only; the same checks as any upload.
+  if (p === '/api/image' && m === 'POST') {
+    const jerr = (msg, code) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: msg })); };
+    if (!me) return jerr('Sign in first.', 401);
+    const body = await new Promise((ok) => { let b = ''; req.on('data', (c) => { b += c; if (b.length > 30e6) req.destroy(); }); req.on('end', () => ok(b)); });
+    let v = ''; try { v = String(JSON.parse(body).image || ''); } catch { v = body; }
+    const ref = storeImage(me.id, v.trim(), webActor(me), 'upload');
+    if (!ref || !ref.startsWith('/i/')) return jerr('That picture could not be stored.', 400);
+    return json(res, { image: ref });
+  }
   if (p === '/api/unfurl' && m === 'GET') {
     if (!me) return send(res, JSON.stringify({ error: 'auth' }), 403, 'application/json');
     const target = url.searchParams.get('url') || '';
@@ -15864,10 +16057,12 @@ async function handle(req, res) {
     const b = await readBodyMulti(req); const colls = [...b.coll, ...(b.newcoll || '').split(',')];
     if (!(b.name || '').trim()) return pages.form(req, res, me, b, 'A note needs a title.', colls);
     if (!(b.image || '').trim()) return pages.form(req, res, me, b, 'Every note needs an image.', colls);
+    const cover = storeImage(me.id, b.image);
     const r = noteCreate(me, {
       name: b.name, why: b.why, tags: tagList(b.tags).join(', '), url: b.url,
-      image: storeImage(me.id, b.image), private: !!b.private, collections: colls,
+      image: cover, private: !!b.private, collections: colls,
     }, webActor(me));
+    setNoteExtraImages(me.id, r.id, cover, imageListFrom(b.images), webActor(me));
     // Owned and Warrant stay a separate act, here as everywhere.
     applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(r.id), me);
     return redirect(res, `/o/${r.id}`);
@@ -15980,8 +16175,10 @@ async function handle(req, res) {
     try { assertEditable('object', o); } catch (e) { return send(res, esc(e.message), 409); }
     if (m === 'GET') return pages.form(req, res, me, o);
     const b = await readBodyMulti(req);
+    const cover = storeImage(me.id, b.image);
     q('UPDATE objects SET name=?,why=?,tags=?,url=?,image=?,private=? WHERE id=?')
-      .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', storeImage(me.id, b.image), b.private ? 1 : 0, o.id);
+      .run((b.name || o.name).trim(), (b.why || '').trim(), tagList(b.tags).join(', '), b.url || '', cover, b.private ? 1 : 0, o.id);
+    setNoteExtraImages(me.id, o.id, cover, imageListFrom(b.images), webActor(me));
     setCollections(o.user_id, o.id, [...b.coll, ...(b.newcoll || '').split(',')]);
     recordProvenance('object', o.uid, 'edited', webActor(me), { source_kind: 'manual' });
     applyFormIntents(b, 'object', q('SELECT * FROM objects WHERE id=?').get(o.id), me);

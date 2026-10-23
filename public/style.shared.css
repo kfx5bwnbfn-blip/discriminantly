@@ -2331,3 +2331,53 @@ body[data-skin="modern"] .app-menu-foot button:hover { background: var(--m-glass
 /* ---- the record pages carry their record's glyph above the title (20 Oct) ---- */
 .pub-hero-ico { display: inline-flex; margin: 0 auto .9rem; }
 .pub-hero-ico svg { width: 2.3rem; height: 2.5rem; }
+
+/* ---- a note with several pictures (v2.113) ----------------------------------
+   Note page: the cover large with a count in its corner, the rest as a strip
+   of thumbnails beneath; the one showing is outlined. Feed card: the cover
+   only, with a quiet +N. Form: a tray of tiles under the cover box. */
+.note-full .gal { display: block; grid-area: figure; min-width: 0; }
+.note-full .gal .figure { position: relative; display: block; }
+.gal-count, .gal-more { position: absolute; z-index: 2; font-family: var(--slab); font-weight: 600; letter-spacing: .15em; border-radius: 999px; background: rgba(20,22,30,.55); color: rgba(255,255,255,.92); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); pointer-events: none; }
+.gal-count { right: .8rem; top: .8rem; font-size: .62rem; padding: .38rem .7rem; }
+.note .figure { position: relative; }
+.gal-more { right: .7rem; bottom: .7rem; font-size: .6rem; letter-spacing: .14em; padding: .32rem .6rem; display: inline-flex; align-items: center; gap: .35rem; }
+.gal-more svg { width: .8rem; height: .8rem; }
+.gal-strip { display: flex; gap: .5rem; padding: .7rem 1.1rem .2rem; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.gal-strip::-webkit-scrollbar { display: none; }
+.gal-strip [role="tab"] { flex: 0 0 auto; width: 4.6rem; height: 4.6rem; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.14); opacity: .72; transition: opacity .2s, transform .2s; scroll-snap-align: start; }
+.gal-strip [role="tab"] img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.gal-strip [role="tab"].is-on { opacity: 1; box-shadow: 0 0 0 2px var(--m-accent, #b9aaf2), inset 0 1px 0 rgba(255,255,255,.14); }
+.gal-strip [role="tab"]:hover { opacity: 1; transform: translateY(-1px); }
+body[data-skin="modern"] .gal-strip [role="tab"] { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .gal-strip [role="tab"].is-on { box-shadow: 0 0 0 2px var(--m-accent), inset 0 1px 0 var(--m-line); }
+@media (min-width: 52.01rem) {
+  /* desktop: four thumbnails fill the picture column; more than four scroll */
+  .note-full .gal .gal-strip { padding: .6rem 0 0; gap: .5rem; }
+  .note-full .gal .gal-strip [role="tab"] { width: calc((100% - 1.5rem) / 4); height: auto; aspect-ratio: 1; }
+}
+/* the form's tray */
+.pic-tray { display: grid; grid-template-columns: repeat(4, 1fr); gap: .55rem; margin: .35rem 0 0; padding: .25rem; border-radius: 16px; }
+.pic-tray.dragover { outline: 2px dashed var(--m-accent, #b9aaf2); outline-offset: 2px; }
+.pic-tile { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.14); cursor: grab; outline: none; }
+.pic-tile:focus-visible { box-shadow: 0 0 0 2px var(--m-accent, #b9aaf2); }
+.pic-tile.is-dragging { opacity: .45; }
+.pic-tile.is-busy { animation: pic-busy 1s ease-in-out infinite alternate; }
+@keyframes pic-busy { from { opacity: .35; } to { opacity: .8; } }
+.pic-tile img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.pt-badge { position: absolute; left: .6rem; top: .6rem; z-index: 2; font-family: var(--slab); font-weight: 600; font-size: .58rem; letter-spacing: .15em; text-transform: uppercase; padding: .3rem .6rem; border-radius: 999px; background: var(--m-accent, #b9aaf2); color: #17141f; pointer-events: none; }
+.pt-badge[hidden] { display: none; }
+.pic-tile .pt-x, .pic-tile .pt-cover, .pic-tile .pt-grip { position: absolute; display: grid; place-items: center; border: 0; cursor: pointer; color: rgba(255,255,255,.92); background: rgba(20,22,30,.55); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 1px 0 rgba(255,255,255,.18); padding: 0; font: inherit; }
+.pic-tile .pt-x { right: .45rem; top: .45rem; width: 1.6rem; height: 1.6rem; border-radius: 50%; font-size: .95rem; line-height: 1; }
+.pic-tile .pt-cover { left: .45rem; bottom: .45rem; width: 1.5rem; height: 1.5rem; border-radius: 50%; }
+.pic-tile .pt-grip { right: .45rem; bottom: .45rem; width: 1.5rem; height: 1.5rem; border-radius: 8px; cursor: grab; font-size: .8rem; letter-spacing: -.1em; touch-action: none; }
+.pic-add { aspect-ratio: 1; border-radius: 14px; display: grid; place-items: center; text-align: center; border: 1px dashed rgba(255,255,255,.3); background: transparent; color: inherit; opacity: .75; cursor: pointer; font-family: var(--slab); font-weight: 600; font-size: .55rem; letter-spacing: .14em; text-transform: uppercase; padding: .4rem; line-height: 1.5; }
+.pic-add b { display: block; font-size: 1.4rem; line-height: 1; margin-bottom: .25rem; font-weight: 400; }
+.pic-add[hidden] { display: none; }
+.pic-hint { margin: .45rem 0 .2rem; font-size: .74rem; line-height: 1.45; opacity: .75; text-align: center; }
+body[data-skin="modern"] .pic-tile { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .pic-add { border-color: var(--m-line); color: var(--m-ink-2); opacity: 1; }
+body[data-skin="modern"] .pic-hint { color: var(--m-ink-2); opacity: 1; }
+.nf-image .nf-cover-badge { left: .7rem; top: .7rem; }
+/* ---- a full-width picture meets the card's header square-edged (20 Oct) ---- */
+@media (max-width: 52rem) { body[data-skin="modern"] .note.has-image:not(.travelmark) .figure { border-radius: 0; } }
