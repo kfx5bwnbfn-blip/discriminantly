@@ -42,7 +42,7 @@ const post = (p, body, sid) => fetch(BASE + p, { method: 'POST', redirect: 'manu
   // 3. the note page: gallery; the feed: marker only
   let h = await (await get('/o/' + oid, A.sid)).text();
   ok('note page: a gallery with the cover first, four tabs, and a 1 / 4 count', /class="gal" data-gal/.test(h) && ((h.match(/<div class="gal-strip"[\s\S]*?<\/div>/) || [''])[0].match(/role="tab"/g) || []).length === 4 && /data-gal-count>1 \/ 4</.test(h) && h.indexOf(o.image) < h.indexOf(e1.image), [/class="gal" data-gal/.test(h), ((h.match(/<div class="gal-strip"[\s\S]*?<\/div>/) || [''])[0].match(/role="tab"/g) || []).length, /data-gal-count>1 \/ 4</.test(h), h.indexOf(o.image), h.indexOf(e1.image)].join());
-  ok('note page: every extra is a tab with its own srcset for the large view', [e1, e2, e3].every((e) => new RegExp(`data-src="${e.image}" data-srcset="${e.image}\\?w=400`).test(h)));
+  ok('note page: every picture is a slide on the track with its own srcset, and a tab beneath', [e1, e2, e3].every((e) => new RegExp(`<div class="gal-slide"><img [^>]*src="${e.image}"[^>]*srcset="${e.image}\\?w=400`).test(h) && new RegExp(`role="tab"[^>]*data-src="${e.image}"`).test(h)) && (h.match(/class="gal-slide"/g) || []).length === 4);
   const feed = await (await get('/u/alba?tab=notes', A.sid)).text();
   ok('feed card: the cover with a +3 marker, no gallery, no extras', /gal-more[^>]*>[\s\S]{0,400}\+3</.test(feed) && !/class="gal" data-gal/.test(feed) && !feed.includes(e1.image), [/gal-more[^>]*>[\s\S]{0,400}\+3</.test(feed), /data-gal/.test(feed), feed.includes(e1.image)].join());
   const home = await (await get('/', A.sid)).text();

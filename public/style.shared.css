@@ -2379,3 +2379,12 @@ body[data-skin="modern"] .pic-tile { background: var(--m-glass); box-shadow: ins
 body[data-skin="modern"] .pic-add { border-color: var(--m-line); color: var(--m-ink-2); opacity: 1; }
 body[data-skin="modern"] .pic-hint { color: var(--m-ink-2); opacity: 1; }
 .nf-image .nf-cover-badge { left: .7rem; top: .7rem; }
+
+/* ---- the pictures on one track (v2.114.1): each slide the figure's width,
+   snapping; the scrollbar hidden; shorter pictures centred against the
+   tallest so the card does not jump as you swipe ---- */
+.gal-figure { display: block; }
+.gal-track { display: flex; align-items: stretch; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+.gal-track::-webkit-scrollbar { display: none; }
+.gal-slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; scroll-snap-stop: always; }
+.gal-slide img { display: block; width: 100%; }

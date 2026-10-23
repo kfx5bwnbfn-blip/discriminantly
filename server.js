@@ -3955,34 +3955,35 @@ function readImage(file, cb) {
     if (window.ResizeObserver) new ResizeObserver(syncBar).observe(bar, { box: 'border-box' });   // padding (the status-bar allowance) counts
   })();
 
-  // v2.113: a note with several pictures. Tap a thumbnail, swipe the large
-  // picture, or use the arrow keys; the cover stays the first. Delegated, so
-  // it works wherever the card appears and however it arrives.
+  // v2.113: a note with several pictures, side by side on one track. Swipe
+  // the picture (the track scrolls and snaps), tap a thumbnail, tap the
+  // picture to step, or use the arrow keys. Delegated, so it works wherever
+  // the card appears and however it arrives.
   (function () {
     var wire = function (gal) {
       if (gal.__gal) return gal.__gal;
-      var fig = gal.querySelector('.figure'), big = fig && fig.querySelector('img'), count = gal.querySelector('[data-gal-count]');
-      var tabs = [].slice.call(gal.querySelectorAll('.gal-strip [role="tab"]')); if (!big || tabs.length < 2) return null;
-      var at = 0;
-      var show = function (i) {
-        at = (i + tabs.length) % tabs.length; var t = tabs[at];
-        big.removeAttribute('width'); big.removeAttribute('height');
-        if (t.dataset.srcset) big.srcset = t.dataset.srcset; else big.removeAttribute('srcset');
-        big.src = t.dataset.src;
+      var track = gal.querySelector('[data-gal-track]'), count = gal.querySelector('[data-gal-count]');
+      var tabs = [].slice.call(gal.querySelectorAll('.gal-strip [role="tab"]')); if (!track || tabs.length < 2) return null;
+      var n = tabs.length, at = 0;
+      var mark = function (i) {
+        at = i;
         tabs.forEach(function (b, j) { b.classList.toggle('is-on', j === at); b.setAttribute('aria-selected', j === at); });
-        if (count) count.textContent = (at + 1) + ' / ' + tabs.length;
-        if (t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+        if (count) count.textContent = (at + 1) + ' / ' + n;
+        var t = tabs[at]; if (t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
       };
-      var x0 = null;
-      fig.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
-      fig.addEventListener('touchend', function (e) { if (x0 === null) return; var dx = e.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) { e.preventDefault(); show(dx < 0 ? at + 1 : at - 1); } });
-      gal.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { e.preventDefault(); show(at + 1); } if (e.key === 'ArrowLeft') { e.preventDefault(); show(at - 1); } });
-      return (gal.__gal = { show: show, tabs: tabs, fig: fig, step: function (n) { show(at + n); } });
+      var go = function (i) { i = (i + n) % n; track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' }); mark(i); };
+      var timer = null;
+      track.addEventListener('scroll', function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { var i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); if (i !== at && i >= 0 && i < n) mark(i); }, 60);
+      }, { passive: true });
+      gal.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { e.preventDefault(); go(at + 1); } if (e.key === 'ArrowLeft') { e.preventDefault(); go(at - 1); } });
+      return (gal.__gal = { go: go, tabs: tabs, step: function (k) { go(at + k); } });
     };
     document.addEventListener('click', function (e) {
       var tab = e.target.closest('.gal-strip [role="tab"]');
-      if (tab) { var g = wire(tab.closest('[data-gal]')); if (g) { e.preventDefault(); g.show(g.tabs.indexOf(tab)); } return; }
-      var fig = e.target.closest('[data-gal] .figure');
+      if (tab) { var g = wire(tab.closest('[data-gal]')); if (g) { e.preventDefault(); g.go(g.tabs.indexOf(tab)); } return; }
+      var fig = e.target.closest('[data-gal] .gal-figure');
       // the figure links to the note's own page; on that page a tap steps forward instead of reloading
       if (fig && fig.getAttribute('href') === location.pathname) { var g2 = wire(fig.closest('[data-gal]')); if (g2) { e.preventDefault(); g2.step(1); } }
     });
@@ -9290,11 +9291,13 @@ function objectCard(o, me, full = false) {
       // appear only on the note's own page, as a strip under the cover.
       const extras = full ? noteExtraImages(o.id).map((x) => x.image) : [];
       const extraCount = full ? extras.length : (o.extra_images != null ? +o.extra_images : noteExtraImages(o.id).length);
-      const fig = `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)} alt="${esc(o.name)}">${!full && extraCount ? `<span class="gal-more" aria-label="${extraCount + 1} pictures"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="4.5" width="9" height="8" rx="1.5"/><path d="M5.5 2.5h8v8"/></svg>+${extraCount}</span>` : ''}${full && extraCount ? `<span class="gal-count" data-gal-count>1 / ${extraCount + 1}</span>` : ''}</a>`;
+      const fig = `<a class="figure" href="/o/${o.id}"><img loading="lazy" decoding="async" src="${esc(o.image)}"${imgSet(o.image, full ? undefined : FEED_SIZES)} alt="${esc(o.name)}">${!full && extraCount ? `<span class="gal-more" aria-label="${extraCount + 1} pictures"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2.5" y="4.5" width="9" height="8" rx="1.5"/><path d="M5.5 2.5h8v8"/></svg>+${extraCount}</span>` : ''}</a>`;
       if (!full || !extraCount) return fig;
       const all = [o.image, ...extras];
-      const srcsetOf = (src) => (sharpLib && /^\/i\/[0-9a-f-]{36}$/i.test(src)) ? RENDITION_WIDTHS.map((w) => `${src}?w=${w} ${w}w`).join(', ') : '';
-      return `<div class="gal" data-gal>${fig}<div class="gal-strip" role="tablist" aria-label="Pictures">${all.map((src, i) => `<button type="button" role="tab" aria-selected="${i === 0}" class="${i === 0 ? 'is-on' : ''}" data-src="${esc(src)}" data-srcset="${esc(srcsetOf(src))}" aria-label="Picture ${i + 1} of ${all.length}"><img src="${esc(src)}" alt="" loading="lazy" decoding="async"${imgSet(src, '80px')}></button>`).join('')}</div></div>`;
+      // The note's page: the pictures side by side on one track that swipes
+      // (scroll-snap), the count over it, thumbnails beneath to jump.
+      const track = `<a class="figure gal-figure" href="/o/${o.id}"><div class="gal-track" data-gal-track>${all.map((src, i) => `<div class="gal-slide"><img loading="${i ? 'lazy' : 'eager'}" decoding="async" src="${esc(src)}"${imgSet(src)} alt="${esc(o.name)}${i ? ` (picture ${i + 1})` : ''}"></div>`).join('')}</div><span class="gal-count" data-gal-count>1 / ${all.length}</span></a>`;
+      return `<div class="gal" data-gal>${track}<div class="gal-strip" role="tablist" aria-label="Pictures">${all.map((src, i) => `<button type="button" role="tab" aria-selected="${i === 0}" class="${i === 0 ? 'is-on' : ''}" data-src="${esc(src)}" aria-label="Picture ${i + 1} of ${all.length}"><img src="${esc(src)}" alt="" loading="lazy" decoding="async"${imgSet(src, '80px')}></button>`).join('')}</div></div>`;
     })() : ''}
     ${(() => {
       // Owned is private evidence: rendered only for the member themselves,
