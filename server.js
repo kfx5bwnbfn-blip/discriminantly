@@ -3330,6 +3330,10 @@ function readImage(file, cb) {
       // Medium: as many 480px columns as fit, as always.
       var phone = matchMedia('(max-width: 52rem)').matches;
       var density = document.body.getAttribute('data-density') || 'm'; if (density === 'l' && phone) density = 'm';
+      // v2.118.2: the size applies to feeds only. A note or mark on its own
+      // page, and the smaller grids (picks, an ensemble's notes), are always
+      // drawn at the standard size.
+      if (grid.id !== 'feed-grid') density = 'm';
       var MIN = 480, GAP = density === 's' ? (phone ? 12 : 20) : 32;
       var n = density === 's' ? (phone ? 2 : 3) : density === 'l' ? 1 : Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN + GAP)));
       // in Small, an item that is not a card (a plan, a follow, the welcome
@@ -3378,7 +3382,7 @@ function readImage(file, cb) {
   // allows (the svg's viewBox is 460 wide whatever the name), up to 1.7x.
   var arcFit = function () {
     var small = (document.body.getAttribute('data-density') || 'm') === 's';
-    document.querySelectorAll('.feed-col > .travelmark .arc-title, .act-note > .travelmark .arc-title').forEach(function (svg) {
+    document.querySelectorAll('#feed-grid .feed-col > .travelmark .arc-title, #feed-grid .act-note > .travelmark .arc-title').forEach(function (svg) {
       var ext = +svg.getAttribute('data-ext');
       if (!small || !ext) { svg.style.width = ''; return; }
       svg.style.width = (Math.min(1.7, 460 / ext) * 100).toFixed(1) + '%';
