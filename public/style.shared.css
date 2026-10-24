@@ -2427,7 +2427,7 @@ body[data-skin="modern"] .density-seg { background: color-mix(in srgb, var(--m-g
 body[data-skin="modern"] .density-seg button { color: var(--m-ink-2, var(--m-ink)); }
 body[data-skin="modern"] .density-seg button.on { color: var(--m-ink); background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
 /* the row above a notes or marks grid: right-aligned, nothing else in it */
-.feed-tools { display: flex; justify-content: flex-end; margin: 0 0 .5rem; }
+.feed-tools { display: flex; justify-content: center; margin: 0 0 .7rem; }   /* centred, as in every strip */
 /* v2.118: the fold on the notes and marks tabs. One subtle container: the
    chevron is a full-width bar at its top; opened, the controls sit inside. */
 .feed-fold { margin: 0 0 .8rem; border-radius: var(--m-r, 22px); background: rgba(255,255,255,.035); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), inset 0 1px 0 rgba(255,255,255,.1); }
@@ -2448,7 +2448,6 @@ body[data-skin="modern"] .fold-arrow { color: var(--m-ink-2, var(--m-ink)); opac
 body[data-skin="modern"] .fold-arrow:hover { color: var(--m-ink); background: var(--m-glass); opacity: 1; }
 .feed-tools .density-seg { margin: 0; }
 @media (max-width: 52rem) { .density-seg .density-l { display: none; } }
-@media (min-width: 52.01rem) { .strip .density-seg { position: absolute; right: 1.2rem; top: 50%; transform: translateY(-50%); margin: 0; } }
 
 /* bands and spanning items (Small) */
 .feed-band + .feed-span, .feed-span + .feed-band, .feed-span + .feed-span { margin-top: .9rem; }
