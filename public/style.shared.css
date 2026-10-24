@@ -2428,21 +2428,24 @@ body[data-skin="modern"] .density-seg button { color: var(--m-ink-2, var(--m-ink
 body[data-skin="modern"] .density-seg button.on { color: var(--m-ink); background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line); }
 /* the row above a notes or marks grid: right-aligned, nothing else in it */
 .feed-tools { display: flex; justify-content: flex-end; margin: 0 0 .5rem; }
-/* v2.118: the fold on the notes and marks tabs */
-.feed-fold { margin: 0 0 .6rem; }
-.fold-arrow { display: flex; width: 2.6rem; height: 1.7rem; margin: 0 auto .5rem; padding: 0; border: 0; border-radius: 999px; align-items: center; justify-content: center; background: rgba(255,255,255,.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,.09), inset 0 1px 0 rgba(255,255,255,.14); color: inherit; opacity: .6; cursor: pointer; transition: opacity .2s, background .2s; }
+/* v2.118: the fold on the notes and marks tabs. One subtle container: the
+   chevron is a full-width bar at its top; opened, the controls sit inside. */
+.feed-fold { margin: 0 0 .8rem; border-radius: var(--m-r, 22px); background: rgba(255,255,255,.035); box-shadow: inset 0 0 0 1px rgba(255,255,255,.07), inset 0 1px 0 rgba(255,255,255,.1); }
+.fold-arrow { display: flex; width: 100%; height: 2.2rem; margin: 0; padding: 0; border: 0; border-radius: inherit; align-items: center; justify-content: center; background: transparent; color: inherit; opacity: .6; cursor: pointer; transition: opacity .2s, background .2s; }
 .fold-arrow:hover { opacity: .95; }
 .fold-arrow svg { transition: transform .3s cubic-bezier(.2,.7,.2,1); }
 .feed-fold.is-open .fold-arrow svg { transform: rotate(180deg); }
 .fold-body { display: grid; grid-template-rows: 0fr; overflow: hidden; }
 .feed-fold.is-ready .fold-body { transition: grid-template-rows .32s cubic-bezier(.2,.7,.2,1); }
 .feed-fold.is-open .fold-body { grid-template-rows: 1fr; }
-.fold-inner { min-height: 0; overflow: hidden; opacity: 0; transform: translateY(-6px); transition: opacity .25s, transform .3s; }
+.fold-inner { min-height: 0; overflow: hidden; padding: 0 .9rem; opacity: 0; transform: translateY(-6px); transition: opacity .25s, transform .3s; }
 .feed-fold.is-open .fold-inner { opacity: 1; transform: none; transition-delay: .06s; }
 .feed-fold.is-settled .fold-body, .feed-fold.is-settled .fold-inner { overflow: visible; }   /* the place dropdowns need to spill */
-.fold-inner > :last-child { margin-bottom: .4rem !important; }
-body[data-skin="modern"] .fold-arrow { background: color-mix(in srgb, var(--m-glass) 70%, transparent); box-shadow: inset 0 0 0 1px var(--m-rule), inset 0 1px 0 var(--m-line); color: var(--m-ink-2, var(--m-ink)); opacity: .8; }
-body[data-skin="modern"] .fold-arrow:hover { color: var(--m-ink); background: var(--m-glass-2); opacity: 1; }
+.fold-inner > :first-child { margin-top: .2rem !important; }
+.fold-inner > :last-child { margin-bottom: .9rem !important; }
+body[data-skin="modern"] .feed-fold { background: color-mix(in srgb, var(--m-glass) 55%, transparent); box-shadow: inset 0 0 0 1px var(--m-rule), inset 0 1px 0 var(--m-line); }
+body[data-skin="modern"] .fold-arrow { color: var(--m-ink-2, var(--m-ink)); opacity: .8; }
+body[data-skin="modern"] .fold-arrow:hover { color: var(--m-ink); background: var(--m-glass); opacity: 1; }
 .feed-tools .density-seg { margin: 0; }
 @media (max-width: 52rem) { .density-seg .density-l { display: none; } }
 @media (min-width: 52.01rem) { .strip .density-seg { position: absolute; right: 1.2rem; top: 50%; transform: translateY(-50%); margin: 0; } }
