@@ -2488,7 +2488,8 @@ body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-photo { order: -1; display: block; aspect-ratio: 4 / 3; overflow: hidden; margin: 0 0 .6rem !important; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-title { margin: .55rem .75rem 0 !important; }
-body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-title > a { display: flex; justify-content: center; overflow: visible; }
+body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-title { overflow: hidden; }   /* the scaled svg box is wider than the card; its lettering is not */
+body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-title > a { display: flex; justify-content: center; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-title .arc-title { flex: none; max-height: 4.4rem; width: 100%; max-width: none; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-where { font-size: .62rem !important; margin: .5rem .75rem 0 !important; }
 /* a plan folds to its header; a follow is already one line */
