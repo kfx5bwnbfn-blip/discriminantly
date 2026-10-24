@@ -2478,7 +2478,7 @@ body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-hint,
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-more,
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-more { display: none !important; }
 /* Directions · Check in / Mark this · Share stay, drawn compact */
-body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-visits { margin: .85rem .75rem 0 !important; padding: 0 !important; display: block !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-visits { margin: .85rem .75rem 0 !important; padding: 0 !important; display: block !important; width: auto !important; max-width: none !important; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-buttons { display: flex; flex-wrap: wrap; gap: .45rem; justify-content: center; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-buttons form { display: contents; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .btn-note { font-size: .6rem !important; letter-spacing: .06em; padding: .5rem .7rem !important; min-width: 0 !important; width: auto !important; flex: 1 1 auto; text-align: center; }

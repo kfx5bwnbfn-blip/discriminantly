@@ -4306,7 +4306,7 @@ const DENSITY_ICON = {
 // last choice for that tab, remembered in the browser, closed by default.
 function feedFold(tab, active, inner) {
   return `<div class="feed-fold${active ? ' is-open' : ''}" data-fold="${tab}"${active ? ' data-fold-active' : ''}>
-      <button type="button" class="fold-arrow" aria-expanded="${active}" aria-controls="fold-${tab}" aria-label="Search, filters and posting"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 5.5 6 6 6-6M4 10.5l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button type="button" class="fold-arrow" aria-expanded="${active}" aria-controls="fold-${tab}" aria-label="Search, filters and posting"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4.5 7.5 5.5 5.5 5.5-5.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="fold-body" id="fold-${tab}"><div class="fold-inner">${inner}</div></div>
     </div>`;
 }
