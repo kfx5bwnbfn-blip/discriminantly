@@ -3372,6 +3372,17 @@ function readImage(file, cb) {
       // an empty trailing band (the feed ended on a spanning item) is removed
       [].slice.call(grid.querySelectorAll('.feed-band')).forEach(function (b) { if (!b.querySelector('.feed-col > *')) b.remove(); });
     });
+    arcFit();
+  };
+  // v2.117.1: in Small, an arched mark name is drawn as wide as its lettering
+  // allows (the svg's viewBox is 460 wide whatever the name), up to 1.7x.
+  var arcFit = function () {
+    var small = (document.body.getAttribute('data-density') || 'm') === 's';
+    document.querySelectorAll('.feed-col > .travelmark .arc-title, .act-note > .travelmark .arc-title').forEach(function (svg) {
+      var ext = +svg.getAttribute('data-ext');
+      if (!small || !ext) { svg.style.width = ''; return; }
+      svg.style.width = (Math.min(1.7, 460 / ext) * 100).toFixed(1) + '%';
+    });
   };
   // a band: n side-by-side columns; the cards between two spanning items pack into it
   var newBand = function (grid, n, GAP) {
@@ -5102,17 +5113,21 @@ function arcTitle(text, id) {
   const r0 = lines.length === 1 ? 175 : 138 + gap * (lines.length - 1);   // a single line curves gently
   const cy = TOP + r0;
   const paths = [], texts = [];
-  let lowest = 0;
+  let lowest = 0, ext = 0;
   lines.forEach((ln, i) => {
     const r = r0 - i * gap;                                  // each line sits inside the last
     const half = Math.min(width(ln) / (2 * r), Math.asin(Math.min(MAX_CHORD / 2 / r, 1)));
     const [x0, y0] = [W / 2 - r * Math.sin(half), cy - r * Math.cos(half)];
     const [x1, y1] = [W / 2 + r * Math.sin(half), cy - r * Math.cos(half)];
+    ext = Math.max(ext, x1 - x0 + SIZE * 0.6);               // the lettering's real width, for Small cards
     paths.push(`<path id="arc-${id}-${i}" fill="none" d="M ${x0.toFixed(1)},${y0.toFixed(1)} A ${r.toFixed(1)},${r.toFixed(1)} 0 0 1 ${x1.toFixed(1)},${y1.toFixed(1)}"/>`);
     texts.push(`<text><textPath href="#arc-${id}-${i}" startOffset="50%" text-anchor="middle">${esc(ln)}</textPath></text>`);
     lowest = Math.max(lowest, y0 + SIZE * 0.34);   // the arc's ends sit lower than its apex
   });
-  return `<svg class="arc-title" viewBox="0 0 ${W} ${Math.ceil(lowest + 6)}" role="img" aria-label="${esc(text)}">
+  // v2.117.1: data-ext is how much of the viewBox the lettering actually
+  // uses. A Small card scales the drawing up by 460/ext so short names are
+  // not drawn at a third of their size on a card a third as wide.
+  return `<svg class="arc-title" viewBox="0 0 ${W} ${Math.ceil(lowest + 6)}" data-ext="${Math.ceil(Math.min(W, ext))}" role="img" aria-label="${esc(text)}">
     <defs>${paths.join('')}</defs>
     <g font-size="${SIZE}">${texts.join('')}</g>
   </svg>`;

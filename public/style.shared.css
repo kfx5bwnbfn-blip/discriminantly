@@ -2461,12 +2461,19 @@ body[data-skin="modern"][data-density="s"] :is(.feed-col, .act-note) > .travelma
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .text .who,
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-hint,
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-more,
-body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-visits,
-body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-foot { display: none !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-more { display: none !important; }
+/* Directions · Check in / Mark this · Share stay, drawn compact */
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-visits { margin: .5rem .6rem 0 !important; padding: 0 !important; display: block !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-buttons { display: flex; flex-wrap: wrap; gap: .3rem; justify-content: center; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-buttons form { display: contents; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .btn-note { font-size: .6rem !important; letter-spacing: .06em; padding: .38rem .6rem !important; min-width: 0 !important; width: auto !important; flex: 1 1 auto; text-align: center; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-foot { margin: .25rem .6rem 0 !important; padding: 0 !important; justify-content: center; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-foot .share-mark { font-size: .6rem !important; letter-spacing: .06em; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-photo { order: -1; display: block; aspect-ratio: 4 / 3; overflow: hidden; margin: 0 0 .45rem !important; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title { margin: .35rem .6rem 0 !important; }
-body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title .arc-title { max-height: 3.6rem; width: 100%; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title > a { display: flex; justify-content: center; overflow: visible; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title .arc-title { flex: none; max-height: 4.4rem; width: 100%; max-width: none; }
 body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-where { font-size: .62rem !important; margin: .3rem .6rem 0 !important; }
 /* a plan folds to its header; a follow is already one line */
 body[data-density="s"] .feed-span.itin-note .itp-body, body[data-density="s"] .feed-span > .itin-note .itp-body { display: none !important; }
