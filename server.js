@@ -4266,10 +4266,14 @@ const segControl = (active) => `<div class="seg" role="tablist">
 // v2.116: the card-size toggle in a feed's strip. Small · Medium · Large;
 // Large is hidden on a phone by CSS (one wide card there is just Medium).
 const DENSITY_ICON = {
-  s: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="3.5" width="6.5" height="13" rx="2"/><rect x="11" y="3.5" width="6.5" height="13" rx="2"/></svg>',
-  m: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/></svg>',
-  l: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="1.5" y="3.5" width="17" height="13" rx="2.5"/><path d="M5 13.5h6" stroke-linecap="round"/></svg>',
+  s: '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1.4"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1.4"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1.4"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1.4"/></svg>',
+  m: '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="14" height="5.5" rx="1.6"/><rect x="3" y="11.5" width="14" height="5.5" rx="1.6"/></svg>',
+  l: '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/></svg>',
 };
+// v2.117: on a feed whose strip sits far above the cards (the notes and marks
+// tabs, with their collections, search and filters between), the toggle sits
+// in a slim row directly above the grid instead, where what it changes is.
+function feedTools(me) { const seg = densitySeg(me); return seg ? `<div class="feed-tools">${seg}</div>` : ''; }
 function densitySeg(me) {
   if (!me) return '';
   const cur = /^[sml]$/.test(me.feed_density || '') ? me.feed_density : 'm';
@@ -11454,6 +11458,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
+      ${rows.length ? feedTools(me) : ''}
       ${(() => { const pg = pageOf(rows, url); return rows.length
         ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
         : me && me.id === u.id && !q('SELECT 1 FROM adopted_marks WHERE user_id=? LIMIT 1').get(me.id) ? emptyState(me, 'marks') : '<p class="empty pad">No travel marks here yet.</p>'; })()}
@@ -11544,6 +11549,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes', 'All'], ['public', 'Public Notes', 'Public'], ['private', 'Private Notes', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
+      ${rows.length ? feedTools(me) : ''}
       ${rows.length ? (() => { const pg = pageOf(rows, url); return `<div class="grid" id="feed-grid">${pg.slice.map((o) => objectCard(o, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
         : emptyState(me, 'notes', u)}
     <script>
