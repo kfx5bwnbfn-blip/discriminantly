@@ -1645,6 +1645,10 @@ const MIGRATIONS = [
   // v2.113: a note may carry more pictures than its cover. objects.image stays
   // the cover (everything that shows one picture keeps reading it); the rest
   // live here in order. Deleted with the note.
+  // v2.116: how big the feed's cards are, per member: s (two across on a
+  // phone, three on desktop), m (today's card), l (one wide card per row;
+  // desktop only, read as m on a phone).
+  ['067-feed-density', () => { if (!hasColumn('users', 'feed_density')) db.exec("ALTER TABLE users ADD COLUMN feed_density TEXT NOT NULL DEFAULT 'm'"); }],
   ['066-object-images', () => {
     db.exec(`CREATE TABLE IF NOT EXISTS object_images (
       id        INTEGER PRIMARY KEY,
@@ -3216,7 +3220,7 @@ window.addEventListener('appinstalled', function () {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Discriminantly">
 <meta name="theme-color" content="${skinOf(me, req) !== 'modern' ? '#262727' : modeOf(me, req) === 'light' ? '#e4e7f0' : modeOf(me, req) === 'dark' ? '#15161f' : '#15161f'}">${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `
-<meta name="theme-color" content="#e4e7f0" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#15161f" media="(prefers-color-scheme: dark)">` : ''}<link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}">${skinOf(me, req) === 'modern' ? '<div class="m-backdrop" aria-hidden="true"></div>' : ''}
+<meta name="theme-color" content="#e4e7f0" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#15161f" media="(prefers-color-scheme: dark)">` : ''}<link rel="stylesheet" href="/style.css?v=${CSS_V}"><link rel="stylesheet" href="/style.shared.css?v=${CSS_SHARED_V}">${skinOf(me, req) === 'modern' ? `<link rel="stylesheet" href="/style.modern.css?v=${CSS_MODERN_V}">` : ''}${skinOf(me, req) === 'modern' && modeOf(me, req) === 'system' ? `<script>(function(){var m=matchMedia('(prefers-color-scheme: light)');var b=document.documentElement;function f(){b.classList.toggle('m-light',m.matches);}f();m.addEventListener('change',f);})();</script>` : ''}</head><body class="${cls}${me ? ' is-in' : ''}" data-skin="${skinOf(me, req)}" data-mode="${modeOf(me, req)}"${me && /^[sl]$/.test(me.feed_density || '') ? ` data-density="${me.feed_density}"` : ''}>${skinOf(me, req) === 'modern' ? '<div class="m-backdrop" aria-hidden="true"></div>' : ''}
 ${me ? `<script>try{var z=Intl.DateTimeFormat().resolvedOptions().timeZone;if(z&&document.cookie.indexOf('tz='+encodeURIComponent(z))<0)document.cookie='tz='+encodeURIComponent(z)+'; Path=/; Max-Age=31536000; SameSite=Lax';}catch(e){}</script>` : ''}${me ? `<nav class="iconrail" aria-label="Main">
   <a href="/" title="Home" class="${nav === 'home' ? 'on' : ''}">${ICONS.home}</a>
   <a href="/u/${esc(me.handle)}" title="Your profile" class="${nav === 'profile' ? 'on' : ''}">${ICONS.person}</a>
@@ -3315,44 +3319,77 @@ function readImage(file, cb) {
     document.querySelectorAll('.grid, .activity-feed').forEach(function (grid) {
       if (!grid.__items) grid.__items = [];
       // gather anything not already parked in a column
+      var fromCol = function (col) { [].slice.call(col.children).forEach(function (g) { if (!g.classList.contains('feed-far') && grid.__items.indexOf(g) < 0) grid.__items.push(g); }); };
       [].slice.call(grid.children).forEach(function (child) {
-        if (!child.classList.contains('feed-col')) grid.__items.push(child);
-        else [].slice.call(child.children).forEach(function (g) { if (!g.classList.contains('feed-far') && grid.__items.indexOf(g) < 0) grid.__items.push(g); });
+        if (child.classList.contains('feed-band')) [].slice.call(child.children).forEach(fromCol);
+        else if (child.classList.contains('feed-col')) fromCol(child);
+        else if (grid.__items.indexOf(child) < 0) grid.__items.push(child);
       });
-      var MIN = 480, GAP = 32;
-      var n = Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN + GAP)));
-      if (grid.__cols === n && grid.__built) {
+      // v2.116: the card size decides the columns. Small: two on a phone,
+      // three on desktop; Large (desktop only): one wide card per row;
+      // Medium: as many 480px columns as fit, as always.
+      var phone = matchMedia('(max-width: 52rem)').matches;
+      var density = document.body.getAttribute('data-density') || 'm'; if (density === 'l' && phone) density = 'm';
+      var MIN = 480, GAP = density === 's' ? (phone ? 12 : 20) : 32;
+      var n = density === 's' ? (phone ? 2 : 3) : density === 'l' ? 1 : Math.max(1, Math.floor((grid.clientWidth + GAP) / (MIN + GAP)));
+      // in Small, an item that is not a card (a plan, a follow, the welcome
+      // card, a receipt) spans the feed; the cards around it pack in bands
+      var spans = function (el) {
+        if (density !== 's' || n < 2) return false;
+        var card = el.classList.contains('act-note') ? el.firstElementChild : el;   // the profile feed wraps each item
+        return !card || !card.classList.contains('note') || card.classList.contains('itin-note');
+      };
+      var key = n + ':' + density;
+      if (grid.__key === key && grid.__built) {
         // same shape: just place any newly added items
-        var cols = grid.querySelectorAll('.feed-col');
+        // same shape: just place any newly added items, into the last band
+        var bands = grid.querySelectorAll('.feed-band'); var last = bands.length ? bands[bands.length - 1] : grid;
         grid.__items.forEach(function (it) {
-          if (it.parentNode && it.parentNode.classList.contains('feed-col')) return;
+          if (it.parentNode && (it.parentNode.classList.contains('feed-col') || it.parentNode === grid && it.classList.contains('feed-span'))) return;
           if (it.__ph && it.__ph.parentNode) return;     // out of the page on purpose (feed window)
+          if (spans(it)) { it.classList.add('feed-span'); grid.appendChild(it); last = newBand(grid, n, GAP); return; }
+          var cols = last.querySelectorAll('.feed-col');
           var shortest = cols[0];
           for (var i = 1; i < cols.length; i++) if (cols[i].offsetHeight < shortest.offsetHeight) shortest = cols[i];
           shortest.appendChild(it);
         });
         return;
       }
-      grid.__cols = n; grid.__built = true;
+      grid.__key = key; grid.__cols = n; grid.__built = true;
       grid.innerHTML = '';
-      grid.style.display = 'flex';
-      grid.style.alignItems = 'flex-start';
-      grid.style.gap = GAP + 'px';
-      var cols = [];
-      for (var i = 0; i < n; i++) {
-        var c = document.createElement('div');
-        c.className = 'feed-col';
-        c.style.flex = '1 1 0'; c.style.minWidth = '0';
-        grid.appendChild(c); cols.push(c);
-      }
-      grid.__items.forEach(function (it, i) {
+      grid.style.display = 'block'; grid.style.gap = ''; grid.style.alignItems = '';
+      grid.classList.toggle('is-small', density === 's');
+      var band = newBand(grid, n, GAP);
+      grid.__items.forEach(function (it) {
+        it.classList.remove('feed-span');
+        if (spans(it)) { it.classList.add('feed-span'); grid.appendChild(it); band = newBand(grid, n, GAP); return; }
+        var cols = band.querySelectorAll('.feed-col');
         if (n === 1) { cols[0].appendChild(it); return; }
         var shortest = cols[0];
         for (var k = 1; k < cols.length; k++) if (cols[k].offsetHeight < shortest.offsetHeight) shortest = cols[k];
         shortest.appendChild(it);
       });
+      // an empty trailing band (the feed ended on a spanning item) is removed
+      [].slice.call(grid.querySelectorAll('.feed-band')).forEach(function (b) { if (!b.querySelector('.feed-col > *')) b.remove(); });
     });
   };
+  // a band: n side-by-side columns; the cards between two spanning items pack into it
+  var newBand = function (grid, n, GAP) {
+    var b = document.createElement('div'); b.className = 'feed-band';
+    b.style.display = 'flex'; b.style.alignItems = 'flex-start'; b.style.gap = GAP + 'px';
+    for (var i = 0; i < n; i++) { var c = document.createElement('div'); c.className = 'feed-col'; c.style.flex = '1 1 0'; c.style.minWidth = '0'; b.appendChild(c); }
+    grid.appendChild(b); return b;
+  };
+  // v2.116: the card-size toggle. Saves the choice, re-tiles in place.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-density-seg] button'); if (!b) return;
+    var d = b.getAttribute('data-density');
+    document.querySelectorAll('[data-density-seg] button').forEach(function (x) { var on = x.getAttribute('data-density') === d; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    if (d === 'm') document.body.removeAttribute('data-density'); else document.body.setAttribute('data-density', d);
+    if (window.feedWindowReset) window.feedWindowReset();
+    if (window.layoutFeed) window.layoutFeed();
+    fetch('/settings/feed-density', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'density=' + d }).catch(function () {});
+  });
   // v2.104.4 (replaces v2.104.3): a long feed keeps only what is near the
   // screen in the page. A card more than about two screens away is taken out
   // of the document and a spacer of exactly its height put in its place, so
@@ -3415,7 +3452,7 @@ function readImage(file, cb) {
         t.__far = !e.isIntersecting; if (!e.isIntersecting) farHide(t);
       });
     }, { rootMargin: (matchMedia('(max-width: 52rem)').matches ? 1200 : 1600) + 'px 0px' });   // phones: a tighter window, fewer glass cards alive
-    document.querySelectorAll('.grid .feed-col > *, .activity-feed .feed-col > *').forEach(function (el) {
+    document.querySelectorAll('.feed-col > *').forEach(function (el) {
       if (el.classList.contains('feed-far') || farSeen.has(el)) return; farSeen.add(el); farIO.observe(el);
     });
   };
@@ -4225,6 +4262,19 @@ const segControl = (active) => `<div class="seg" role="tablist">
   <button type="button" class="seg-btn ${active === 'note' ? 'on' : ''}" data-seg="note" role="tab" aria-selected="${active === 'note'}">Note</button>
   <button type="button" class="seg-btn ${active === 'mark' ? 'on' : ''}" data-seg="mark" role="tab" aria-selected="${active === 'mark'}">Travel Mark</button>
 </div>`;
+
+// v2.116: the card-size toggle in a feed's strip. Small · Medium · Large;
+// Large is hidden on a phone by CSS (one wide card there is just Medium).
+const DENSITY_ICON = {
+  s: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="3.5" width="6.5" height="13" rx="2"/><rect x="11" y="3.5" width="6.5" height="13" rx="2"/></svg>',
+  m: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/></svg>',
+  l: '<svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="1.5" y="3.5" width="17" height="13" rx="2.5"/><path d="M5 13.5h6" stroke-linecap="round"/></svg>',
+};
+function densitySeg(me) {
+  if (!me) return '';
+  const cur = /^[sml]$/.test(me.feed_density || '') ? me.feed_density : 'm';
+  return `<span class="density-seg" role="group" aria-label="Card size" data-density-seg>${['s', 'm', 'l'].map((k) => `<button type="button" data-density="${k}" class="${k === cur ? 'on' : ''}${k === 'l' ? ' density-l' : ''}" aria-pressed="${k === cur}" aria-label="${{ s: 'Small cards', m: 'Medium cards', l: 'Large cards' }[k]}">${DENSITY_ICON[k]}</button>`).join('')}</span>`;
+}
 
 function noteForm(me, o = {}, { err = '', picked = null, idp = 'pg', compact = false, seg = false } = {}) {
   const editing = !!o.id;
@@ -10730,7 +10780,7 @@ const pages = {
 `}
   </aside>
   <section class="feed feed-plain is-tiled">
-    <${!me && activity ? 'h1' : 'h3'} class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}</${!me && activity ? 'h1' : 'h3'}>
+    <${!me && activity ? 'h1' : 'h3'} class="strip">${s ? `Results for “${esc(s)}”` : tag ? `#${esc(tag)}` : heading}${s || tag ? '' : densitySeg(me)}</${!me && activity ? 'h1' : 'h3'}>
     ${banner.html}
     ${s ? (() => {
       // A search is answered by kind: one group per primitive, each paging on
@@ -11583,7 +11633,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         if (canSee(it, me)) acts.push({ at: it.created_at, itin: it });
       acts.sort((a, b) => (a.at < b.at ? 1 : -1));
       const apg = pageOf(acts, url);
-      main = `<h1 class="strip">${esc(u.handle)}\u2019s activity</h1>
+      main = `<h1 class="strip">${esc(u.handle)}\u2019s activity${densitySeg(me)}</h1>
       <div class="activity-feed" id="feed-grid">${apg.slice.map((a) => a.itin
         ? `<div class="act-note">${itineraryPreview(a.itin, me)}</div>`
         : a.mark
@@ -15341,6 +15391,15 @@ async function handle(req, res) {
     q('UPDATE users SET ui_skin=?, ui_mode=? WHERE id=?').run(skin, mode, me.id);
     res.setHeader('Set-Cookie', [`skin=${skin}; Path=/; Max-Age=31536000; SameSite=Lax`, `mode=${mode}; Path=/; Max-Age=31536000; SameSite=Lax`]);
     return redirect(res, '/settings');
+  }
+  // v2.116: the feed's card size, saved as the member taps the toggle
+  if (p === '/settings/feed-density' && m === 'POST') {
+    if (!me) return need();
+    const b = await readBody(req);
+    const d = /^[sml]$/.test(b.density || '') ? b.density : 'm';
+    q('UPDATE users SET feed_density=? WHERE id=?').run(d, me.id);
+    if (b.back) return redirect(res, String(b.back).startsWith('/') ? b.back : '/');
+    res.writeHead(204); return res.end();
   }
   if (p === '/settings/ingest' && m === 'POST') {
     // v2.66.3: set from the Admin page only

@@ -2411,3 +2411,67 @@ html.lb-open, html.lb-open body { overflow: hidden; }
 .note-full .figure { cursor: zoom-in; }
 .lb-slide img { cursor: zoom-in; }
 .lb.is-zoomed .lb-slide img { cursor: grab; }
+
+/* ===== feed card size (v2.116) ================================================
+   A toggle in the feed's strip: Small · Medium · Large. Medium is the card as
+   it has always been. Small packs two across on a phone and three on desktop
+   (the tiler does the packing; these rules only compact the card). Large is
+   one wide card per row and exists on desktop only. */
+.strip { position: relative; }
+.density-seg { display: inline-flex; gap: 2px; margin: .6rem auto 0; padding: 3px; border-radius: 999px; vertical-align: middle; background: rgba(255,255,255,.06); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,255,255,.08); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.strip .density-seg { display: flex; width: max-content; }
+.density-seg button { display: grid; place-items: center; width: 2.2rem; height: 1.75rem; border: 0; border-radius: 999px; background: transparent; color: inherit; opacity: .55; cursor: pointer; padding: 0; transition: opacity .2s, background .2s; }
+.density-seg button:hover { opacity: .85; }
+.density-seg button.on { background: rgba(255,255,255,.14); opacity: 1; box-shadow: inset 0 1px 0 rgba(255,255,255,.18), 0 2px 8px -4px rgba(0,0,0,.5); }
+body[data-skin="modern"] .density-seg { background: var(--m-glass); box-shadow: inset 0 1px 0 var(--m-line), inset 0 0 0 1px var(--m-rule); }
+body[data-skin="modern"] .density-seg button { color: var(--m-ink); }
+body[data-skin="modern"] .density-seg button.on { background: var(--m-glass-2); box-shadow: inset 0 1px 0 var(--m-line), 0 2px 8px -4px rgba(0,0,0,.5); }
+@media (max-width: 52rem) { .density-seg .density-l { display: none; } }
+@media (min-width: 52.01rem) { .strip .density-seg { position: absolute; right: 1.2rem; top: 50%; transform: translateY(-50%); margin: 0; } }
+
+/* bands and spanning items (Small) */
+.feed-band + .feed-span, .feed-span + .feed-band, .feed-span + .feed-span { margin-top: .9rem; }
+.grid.is-small .feed-span, .activity-feed.is-small .feed-span { width: 100%; }
+
+/* ---- Small: picture, name, place; the rest folds into the card's own page ---- */
+body[data-density="s"] :is(.feed-col, .act-note) > .note { margin: 0 0 .7rem !important; min-height: 0 !important; }
+/* the byline keeps its standard treatment (avatar, stacked date); only Edit folds away */
+body[data-density="s"] :is(.feed-col, .act-note) > .note .card-edit,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .card-head,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .text .body,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .text .tags,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .text .link,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .owned-row,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .noteit,
+body[data-density="s"] :is(.feed-col, .act-note) > .note .gal-more { display: none !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .note.has-image .card { display: flex !important; flex-direction: column; }
+body[data-density="s"] :is(.feed-col, .act-note) > .note.has-image .card .figure { order: -1; aspect-ratio: 4 / 3; max-height: none !important; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0 !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .note .card .figure img { height: 100% !important; max-height: none !important; object-fit: cover !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .note .text { padding: .6rem .7rem .7rem !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .note .text h2 { font-size: .98rem !important; line-height: 1.25 !important; margin: 0 !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+/* travel marks: the photo first, the arched name, the place; no buttons */
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .text { display: flex; flex-direction: column; padding: 0 0 .6rem !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .text .who,
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-hint,
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-more,
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-visits,
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-foot { display: none !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-photo { order: -1; display: block; aspect-ratio: 4 / 3; overflow: hidden; margin: 0 0 .45rem !important; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title { margin: 0 .5rem !important; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-title .arc-title { max-height: 3.2rem; width: 100%; }
+body[data-density="s"] :is(.feed-col, .act-note) > .travelmark .mark-where { font-size: .6rem !important; margin: .2rem .6rem 0 !important; }
+/* a plan folds to its header; a follow is already one line */
+body[data-density="s"] .feed-span.itin-note .itp-body, body[data-density="s"] .feed-span > .itin-note .itp-body { display: none !important; }
+body[data-density="s"] .feed-span.itin-note .itp, body[data-density="s"] .feed-span > .itin-note .itp { padding-bottom: .6rem !important; }
+
+
+/* ---- Large (desktop only): one wide card, the picture and type a size up ---- */
+@media (min-width: 52.01rem) {
+  body[data-density="l"] :is(.feed-col, .act-note) > .note { max-width: none !important; }
+  body[data-density="l"] :is(.feed-col, .act-note) > .note .card .figure, body[data-density="l"] :is(.feed-col, .act-note) > .note .card .figure img { max-height: 34rem !important; }
+  body[data-density="l"] :is(.feed-col, .act-note) > .note.has-image .card { grid-template-columns: 1fr 1.25fr !important; }
+  body[data-density="l"] :is(.feed-col, .act-note) > .note .text h2 { font-size: 1.6rem !important; }
+  body[data-density="l"] :is(.feed-col, .act-note) > .note .text .body { font-size: 1.05rem !important; }
+  body[data-density="l"] :is(.feed-col, .act-note) > .travelmark .mark-photo img { max-height: 34rem !important; }
+}
