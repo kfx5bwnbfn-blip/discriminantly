@@ -2457,6 +2457,7 @@ body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note { margin: 0 
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .card-edit,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .card-head,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text .body,
+body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text .more-inline,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text .tags,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text .link,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .owned-row,
@@ -2466,7 +2467,7 @@ body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note.has-image .c
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note.has-image .card .figure { order: -1; aspect-ratio: 4 / 3; max-height: none !important; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0 !important; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .card .figure img { height: 100% !important; max-height: none !important; object-fit: cover !important; }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text { padding: .6rem .7rem .7rem !important; }
-body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text h2 { font-size: .98rem !important; line-height: 1.25 !important; margin: 0 !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text h2 { font-size: .98rem !important; line-height: 1.25 !important; margin: 0 !important; }   /* the whole title, never clamped */
 /* travel marks: the photo first, the arched name, the place; no buttons */
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .text { display: flex; flex-direction: column; padding: 0 0 1rem !important; }
 /* no photo: no placeholder, just air above the arched name */
