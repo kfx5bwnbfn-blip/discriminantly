@@ -4007,17 +4007,79 @@ function readImage(file, cb) {
       lb = document.createElement('div'); lb.className = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true'); lb.setAttribute('aria-label', 'Pictures');
       lb.innerHTML = '<button type="button" class="lb-x" aria-label="Close">×</button>' + (imgs.length > 1 ? '<span class="lb-count"></span>' : '') + '<div class="lb-track"></div>';
       var track = lb.querySelector('.lb-track'), count = lb.querySelector('.lb-count');
-      imgs.forEach(function (im) { var d = document.createElement('div'); d.className = 'lb-slide'; var c = document.createElement('img'); c.src = im.currentSrc || im.src; if (im.getAttribute('srcset')) { c.srcset = im.getAttribute('srcset'); c.sizes = '100vw'; } c.alt = im.alt || ''; d.appendChild(c); track.appendChild(d); });
+      // the full picture, not the card's small rendition: the srcset lets the
+      // phone pick the width it needs for the whole screen at its pixel density
+      imgs.forEach(function (im) { var d = document.createElement('div'); d.className = 'lb-slide'; var c = document.createElement('img'); c.src = (im.getAttribute('src') || im.src).replace(/[?]w=[0-9]+$/, ''); if (im.getAttribute('srcset')) { c.srcset = im.getAttribute('srcset'); c.sizes = '100vw'; } c.alt = im.alt || ''; c.draggable = false; d.appendChild(c); track.appendChild(d); });
       document.body.appendChild(lb); document.documentElement.classList.add('lb-open');
-      var api = loop(track, function (i) { if (count) count.textContent = (i + 1) + ' / ' + imgs.length; });
+      var zoomReset = function () {};
+      var api = loop(track, function (i) { if (count) count.textContent = (i + 1) + ' / ' + imgs.length; zoomReset(); });
+      // Pinch to zoom, double-tap to toggle, one finger pans while zoomed.
+      // While a picture is zoomed the track stops scrolling, so a drag moves
+      // the picture rather than changing it.
+      (function () {
+        var z = { s: 1, x: 0, y: 0, img: null }, pts = {}, start = null, lastTap = 0;
+        var apply = function () {
+          if (z.img) {
+            z.img.style.transform = 'translate(' + z.x + 'px,' + z.y + 'px) scale(' + z.s + ')';
+            // zoomed in: the original photo, so the detail stays sharp (src already is it)
+            if (z.s > 1.3 && z.img.hasAttribute('srcset')) z.img.removeAttribute('srcset');
+          }
+          lb.classList.toggle('is-zoomed', z.s > 1.01);
+        };
+        var clamp = function () {
+          if (!z.img) return; var r = z.img.parentNode.getBoundingClientRect(), w = z.img.offsetWidth * z.s, h = z.img.offsetHeight * z.s;
+          var mx = Math.max(0, (w - r.width) / 2), my = Math.max(0, (h - r.height) / 2);
+          z.x = Math.max(-mx, Math.min(mx, z.x)); z.y = Math.max(-my, Math.min(my, z.y));
+        };
+        zoomReset = function () { if (z.img) { z.img.style.transition = 'transform .2s'; z.s = 1; z.x = 0; z.y = 0; apply(); var im = z.img; setTimeout(function () { im.style.transition = ''; }, 220); } z.img = null; };
+        var imgAt = function (e) { var t = e.target.closest && e.target.closest('.lb-slide'); return t ? t.querySelector('img') : null; };
+        var dist = function () { var k = Object.keys(pts); if (k.length < 2) return 0; var a = pts[k[0]], b = pts[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); };
+        var mid = function () { var k = Object.keys(pts); var a = pts[k[0]], b = pts[k[1]]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+        track.addEventListener('pointerdown', function (e) {
+          var im = imgAt(e); if (!im) return;
+          if (z.img && z.img !== im) zoomReset();
+          z.img = im; pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+          if (Object.keys(pts).length === 2) start = { d: dist(), s: z.s, x: z.x, y: z.y, m: mid() };
+          else if (z.s > 1.01) start = { pan: true, px: e.clientX, py: e.clientY, x: z.x, y: z.y };
+        });
+        track.addEventListener('pointermove', function (e) {
+          if (!pts[e.pointerId]) return; pts[e.pointerId] = { x: e.clientX, y: e.clientY };
+          if (!start) return;
+          if (start.d && Object.keys(pts).length >= 2) {
+            e.preventDefault(); var m = mid();
+            z.s = Math.max(1, Math.min(5, start.s * dist() / start.d));
+            z.x = start.x + (m.x - start.m.x); z.y = start.y + (m.y - start.m.y); clamp(); apply();
+          } else if (start.pan) { e.preventDefault(); z.x = start.x + e.clientX - start.px; z.y = start.y + e.clientY - start.py; clamp(); apply(); }
+        });
+        var up = function (e) {
+          delete pts[e.pointerId];
+          if (Object.keys(pts).length < 2 && start && start.d) start = z.s > 1.01 && Object.keys(pts).length === 1 ? (function () { var k = Object.keys(pts)[0]; return { pan: true, px: pts[k].x, py: pts[k].y, x: z.x, y: z.y }; })() : null;
+          if (!Object.keys(pts).length) { start = null; if (z.s <= 1.01) zoomReset(); }
+        };
+        track.addEventListener('pointerup', up); track.addEventListener('pointercancel', up);
+        // double tap (or double click) toggles 2.5x at the point tapped
+        track.addEventListener('click', function (e) {
+          var im = imgAt(e); if (!im) return; e.stopPropagation();
+          var now = Date.now(); if (now - lastTap > 300) { lastTap = now; return; } lastTap = 0;
+          if (z.s > 1.01) { zoomReset(); return; }
+          z.img = im; var r = im.getBoundingClientRect(); z.s = 2.5;
+          z.x = (r.left + r.width / 2 - e.clientX) * (z.s - 1); z.y = (r.top + r.height / 2 - e.clientY) * (z.s - 1);
+          im.style.transition = 'transform .2s'; clamp(); apply(); setTimeout(function () { im.style.transition = ''; }, 220);
+        });
+        // a trackpad pinch on a laptop arrives as a ctrl-wheel
+        track.addEventListener('wheel', function (e) {
+          if (!e.ctrlKey) return; var im = imgAt(e); if (!im) return; e.preventDefault();
+          if (z.img && z.img !== im) zoomReset(); z.img = im;
+          z.s = Math.max(1, Math.min(5, z.s * Math.exp(-e.deltaY / 100))); clamp(); apply(); if (z.s <= 1.01) zoomReset();
+        }, { passive: false });
+      })();
       if (start) api.go(start, true);
       var close = function () { if (!lb) return; document.documentElement.classList.remove('lb-open'); lb.remove(); lb = null; document.removeEventListener('keydown', keys); };
       var keys = function (e) { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') api.go(api.at + 1); if (e.key === 'ArrowLeft') api.go(api.at - 1); };
       document.addEventListener('keydown', keys);
       lb.querySelector('.lb-x').addEventListener('click', close);
       // a tap on the black, not on a picture, closes
-      lb.addEventListener('click', function (e) { if (e.target === lb || e.target.classList.contains('lb-slide') || e.target === track) close(); });
-      lb.querySelector('.lb-x').focus();
+      lb.addEventListener('click', function (e) { if (lb.classList.contains('is-zoomed')) return; if (e.target === lb || e.target.classList.contains('lb-slide') || e.target === track) close(); });
     };
     document.addEventListener('click', function (e) {
       var tab = e.target.closest('.gal-strip [role="tab"]');

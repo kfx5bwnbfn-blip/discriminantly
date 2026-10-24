@@ -2397,8 +2397,17 @@ html.lb-open, html.lb-open body { overflow: hidden; }
 .lb-track { display: flex; width: 100%; height: 100%; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
 .lb-track::-webkit-scrollbar { display: none; }
 .lb-slide { flex: 0 0 100%; min-width: 0; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; }
-.lb-slide img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block; }
+.lb-slide { overflow: hidden; touch-action: pan-x; }
+/* the picture fills the screen: as large as fits whole, black only where its
+   shape differs from the screen's */
+.lb-slide img { width: 100%; height: 100%; object-fit: contain; display: block; transform-origin: 50% 50%; will-change: transform; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* zoomed: the track holds still and the picture takes every gesture */
+.lb.is-zoomed .lb-track { overflow: hidden; scroll-snap-type: none; }
+.lb.is-zoomed .lb-slide { touch-action: none; }
+.lb-x:focus:not(:focus-visible) { outline: none; }
 .lb-x { position: fixed; top: calc(.6rem + env(safe-area-inset-top, 0px)); right: .8rem; z-index: 2; width: 2.6rem; height: 2.6rem; border-radius: 50%; border: 0; background: rgba(255,255,255,.14); color: #fff; font-size: 1.5rem; line-height: 1; cursor: pointer; display: grid; place-items: center; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .lb-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .lb-count { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); z-index: 2; font-family: var(--slab); font-weight: 600; font-size: .66rem; letter-spacing: .16em; padding: .4rem .8rem; border-radius: 999px; background: rgba(255,255,255,.14); color: #fff; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .note-full .figure { cursor: zoom-in; }
+.lb-slide img { cursor: zoom-in; }
+.lb.is-zoomed .lb-slide img { cursor: grab; }
