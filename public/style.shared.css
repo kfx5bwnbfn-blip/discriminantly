@@ -2469,10 +2469,10 @@ body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text { padd
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .note .text h2 { font-size: .98rem !important; line-height: 1.25 !important; margin: 0 !important; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* travel marks: the photo first, the arched name, the place; no buttons */
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .text { display: flex; flex-direction: column; padding: 0 0 1rem !important; }
+/* no photo: no placeholder, just air above the arched name */
+body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark:not(:has(.mark-photo)) .text { padding-top: 1.1rem !important; }
 /* no photo: a quiet bed with the pin stands in, so the tile keeps its shape
    and the arched name has room above it */
-body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark:not(:has(.mark-photo)) .text::before { content: ""; display: block; width: 100%; aspect-ratio: 4 / 3; order: -1; margin: 0 0 .6rem; flex: none; border-radius: var(--m-r, 22px) var(--m-r, 22px) 0 0; background: rgba(255,255,255,.06) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 48' fill='none' stroke='rgba(255,255,255,.45)' stroke-width='2.6'><circle cx='22' cy='15' r='11.4'/><circle cx='22' cy='15' r='2.6' fill='rgba(255,255,255,.45)'/><path d='M22 26.4 22 30.6' stroke-linecap='round'/><circle cx='22' cy='34.6' r='2.3' fill='rgba(255,255,255,.45)'/><circle cx='22' cy='40' r='1.7' fill='rgba(255,255,255,.45)'/><circle cx='22' cy='45' r='1.3' fill='rgba(255,255,255,.45)'/></svg>") center / 2.2rem no-repeat; box-shadow: inset 0 -1px 0 rgba(255,255,255,.08); }
-body[data-skin="modern"][data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark:not(:has(.mark-photo)) .text::before { background-color: var(--m-image-bed); }
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .text .who,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-hint,
 body[data-density="s"] #feed-grid :is(.feed-col, .act-note) > .travelmark .mark-more,
