@@ -3956,36 +3956,80 @@ function readImage(file, cb) {
   })();
 
   // v2.113: a note with several pictures, side by side on one track. Swipe
-  // the picture (the track scrolls and snaps), tap a thumbnail, tap the
-  // picture to step, or use the arrow keys. Delegated, so it works wherever
+  // the picture (the track scrolls and snaps), tap a thumbnail, or use the
+  // arrow keys. Past the last picture the track comes round to the first
+  // (v2.115: a copy of the last slide sits before the first and of the first
+  // after the last; landing on a copy jumps, unanimated, to the real one).
+  // Tapping the picture opens it full screen (v2.115), on a black ground,
+  // the same track, the same wrap-around. Delegated, so it works wherever
   // the card appears and however it arrives.
   (function () {
+    var loop = function (track, onIndex) {
+      var slides = [].slice.call(track.children); var n = slides.length; if (n < 2) return { go: function () {}, n: n, at: 0 };
+      var first = slides[0].cloneNode(true), last = slides[n - 1].cloneNode(true);
+      first.setAttribute('aria-hidden', 'true'); last.setAttribute('aria-hidden', 'true'); first.classList.add('is-clone'); last.classList.add('is-clone');
+      track.insertBefore(last, slides[0]); track.appendChild(first);
+      var w = function () { return Math.max(1, track.clientWidth); };
+      var at = 0, settling = null, jumping = false;
+      var jump = function (pos) { jumping = true; track.style.scrollBehavior = 'auto'; track.scrollLeft = pos * w(); track.style.scrollBehavior = ''; requestAnimationFrame(function () { jumping = false; }); };
+      jump(1);
+      var api = { n: n, at: 0, go: function (i, instant) { at = (i + n) % n; api.at = at; if (instant) jump(at + 1); else track.scrollTo({ left: (at + 1) * w(), behavior: 'smooth' }); onIndex(at); } };
+      track.addEventListener('scroll', function () {
+        if (jumping) return;
+        clearTimeout(settling);
+        settling = setTimeout(function () {
+          var p = Math.round(track.scrollLeft / w());
+          if (p === 0) { jump(n); p = n; } else if (p === n + 1) { jump(1); p = 1; }
+          var i = p - 1; if (i !== at && i >= 0 && i < n) { at = i; api.at = at; onIndex(at); }
+        }, 70);
+      }, { passive: true });
+      window.addEventListener('resize', function () { jump(at + 1); });
+      onIndex(0);
+      return api;
+    };
     var wire = function (gal) {
       if (gal.__gal) return gal.__gal;
       var track = gal.querySelector('[data-gal-track]'), count = gal.querySelector('[data-gal-count]');
       var tabs = [].slice.call(gal.querySelectorAll('.gal-strip [role="tab"]')); if (!track || tabs.length < 2) return null;
-      var n = tabs.length, at = 0;
-      var mark = function (i) {
-        at = i;
-        tabs.forEach(function (b, j) { b.classList.toggle('is-on', j === at); b.setAttribute('aria-selected', j === at); });
-        if (count) count.textContent = (at + 1) + ' / ' + n;
-        var t = tabs[at]; if (t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
-      };
-      var go = function (i) { i = (i + n) % n; track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' }); mark(i); };
-      var timer = null;
-      track.addEventListener('scroll', function () {
-        clearTimeout(timer);
-        timer = setTimeout(function () { var i = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)); if (i !== at && i >= 0 && i < n) mark(i); }, 60);
-      }, { passive: true });
-      gal.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { e.preventDefault(); go(at + 1); } if (e.key === 'ArrowLeft') { e.preventDefault(); go(at - 1); } });
-      return (gal.__gal = { go: go, tabs: tabs, step: function (k) { go(at + k); } });
+      var api = loop(track, function (i) {
+        tabs.forEach(function (b, j) { b.classList.toggle('is-on', j === i); b.setAttribute('aria-selected', j === i); });
+        if (count) count.textContent = (i + 1) + ' / ' + tabs.length;
+        var t = tabs[i]; if (t && t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      });
+      api.tabs = tabs;
+      gal.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') { e.preventDefault(); api.go(api.at + 1); } if (e.key === 'ArrowLeft') { e.preventDefault(); api.go(api.at - 1); } });
+      return (gal.__gal = api);
+    };
+    // the full-screen viewer
+    var lb = null;
+    var openViewer = function (imgs, start) {
+      if (lb) return;
+      lb = document.createElement('div'); lb.className = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true'); lb.setAttribute('aria-label', 'Pictures');
+      lb.innerHTML = '<button type="button" class="lb-x" aria-label="Close">×</button>' + (imgs.length > 1 ? '<span class="lb-count"></span>' : '') + '<div class="lb-track"></div>';
+      var track = lb.querySelector('.lb-track'), count = lb.querySelector('.lb-count');
+      imgs.forEach(function (im) { var d = document.createElement('div'); d.className = 'lb-slide'; var c = document.createElement('img'); c.src = im.currentSrc || im.src; if (im.getAttribute('srcset')) { c.srcset = im.getAttribute('srcset'); c.sizes = '100vw'; } c.alt = im.alt || ''; d.appendChild(c); track.appendChild(d); });
+      document.body.appendChild(lb); document.documentElement.classList.add('lb-open');
+      var api = loop(track, function (i) { if (count) count.textContent = (i + 1) + ' / ' + imgs.length; });
+      if (start) api.go(start, true);
+      var close = function () { if (!lb) return; document.documentElement.classList.remove('lb-open'); lb.remove(); lb = null; document.removeEventListener('keydown', keys); };
+      var keys = function (e) { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') api.go(api.at + 1); if (e.key === 'ArrowLeft') api.go(api.at - 1); };
+      document.addEventListener('keydown', keys);
+      lb.querySelector('.lb-x').addEventListener('click', close);
+      // a tap on the black, not on a picture, closes
+      lb.addEventListener('click', function (e) { if (e.target === lb || e.target.classList.contains('lb-slide') || e.target === track) close(); });
+      lb.querySelector('.lb-x').focus();
     };
     document.addEventListener('click', function (e) {
       var tab = e.target.closest('.gal-strip [role="tab"]');
       if (tab) { var g = wire(tab.closest('[data-gal]')); if (g) { e.preventDefault(); g.go(g.tabs.indexOf(tab)); } return; }
-      var fig = e.target.closest('[data-gal] .gal-figure');
-      // the figure links to the note's own page; on that page a tap steps forward instead of reloading
-      if (fig && fig.getAttribute('href') === location.pathname) { var g2 = wire(fig.closest('[data-gal]')); if (g2) { e.preventDefault(); g2.step(1); } }
+      // on the note's own page, its picture opens full screen (the figure links to that same page otherwise)
+      var fig = e.target.closest('.note-full .figure');
+      if (fig && fig.getAttribute('href') === location.pathname) {
+        e.preventDefault();
+        var gal = fig.closest('[data-gal]'), g2 = gal ? wire(gal) : null;
+        var imgs = [].slice.call(fig.querySelectorAll('img')).filter(function (im) { return !im.closest('.is-clone'); });
+        openViewer(imgs, g2 ? g2.at : 0);
+      }
     });
     var ready = function () { document.querySelectorAll('[data-gal]').forEach(wire); };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready); else ready();
