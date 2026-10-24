@@ -3391,6 +3391,21 @@ function readImage(file, cb) {
     for (var i = 0; i < n; i++) { var c = document.createElement('div'); c.className = 'feed-col'; c.style.flex = '1 1 0'; c.style.minWidth = '0'; b.appendChild(c); }
     grid.appendChild(b); return b;
   };
+  // v2.118: the fold on the notes and marks tabs. Remembered per tab.
+  document.querySelectorAll('.feed-fold').forEach(function (f) {
+    var key = 'fold:' + f.getAttribute('data-fold');
+    if (!f.hasAttribute('data-fold-active')) { try { if (localStorage.getItem(key) === '1') f.classList.add('is-open'); } catch (err) {} }
+    var btn = f.querySelector('.fold-arrow'); if (btn) btn.setAttribute('aria-expanded', f.classList.contains('is-open'));
+    f.classList.toggle('is-settled', f.classList.contains('is-open'));
+    f.querySelector('.fold-body').addEventListener('transitionend', function (e) { if (e.propertyName === 'grid-template-rows') f.classList.toggle('is-settled', f.classList.contains('is-open')); });
+    f.classList.add('is-ready');
+  });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.fold-arrow'); if (!b) return;
+    var f = b.closest('.feed-fold'); var open = !f.classList.contains('is-open');
+    f.classList.toggle('is-open', open); b.setAttribute('aria-expanded', open); if (!open) f.classList.remove('is-settled');
+    try { localStorage.setItem('fold:' + f.getAttribute('data-fold'), open ? '1' : '0'); } catch (err) {}
+  });
   // v2.116: the card-size toggle. Saves the choice, re-tiles in place.
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-density-seg] button'); if (!b) return;
@@ -4284,6 +4299,17 @@ const DENSITY_ICON = {
 // v2.117: on a feed whose strip sits far above the cards (the notes and marks
 // tabs, with their collections, search and filters between), the toggle sits
 // in a slim row directly above the grid instead, where what it changes is.
+// v2.118: on the notes and marks tabs the search, the visibility tabs, the
+// place filters and the post button fold away behind one chevron, so the
+// cards come up sooner. Open when a search or filter is in force (the
+// control that produced the page should be in view); otherwise the member's
+// last choice for that tab, remembered in the browser, closed by default.
+function feedFold(tab, active, inner) {
+  return `<div class="feed-fold${active ? ' is-open' : ''}" data-fold="${tab}"${active ? ' data-fold-active' : ''}>
+      <button type="button" class="fold-arrow" aria-expanded="${active}" aria-controls="fold-${tab}" aria-label="Search, filters and posting"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m4 5.5 6 6 6-6M4 10.5l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <div class="fold-body" id="fold-${tab}"><div class="fold-inner">${inner}</div></div>
+    </div>`;
+}
 function feedTools(me) { const seg = densitySeg(me); return seg ? `<div class="feed-tools">${seg}</div>` : ''; }
 function densitySeg(me) {
   if (!me) return '';
@@ -11452,7 +11478,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-new>Cancel</button></span></span>
           </form>` : ''}</div>
       </div>
-      <form class="place-filters" method="get" action="/u/${esc(u.handle)}" id="place-form">
+      ${feedFold('marks', !!s || vis !== 'all' || !!countrySel.length || !!citySel.length, `<form class="place-filters" method="get" action="/u/${esc(u.handle)}" id="place-form">
         <input type="hidden" name="tab" value="marks">
         ${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}
         ${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}
@@ -11472,7 +11498,7 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       </form>
       <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="marks">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
-      <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}
+      <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}`)}
       ${rows.length ? feedTools(me) : ''}
       ${(() => { const pg = pageOf(rows, url); return rows.length
         ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
@@ -11561,9 +11587,9 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
             <span class="tile-count"><input name="name" placeholder="NAME IT" maxlength="40" required><span class="tile-ctas"><button class="tile-cta tile-cta-go">Save</button><button type="button" class="tile-cta" data-cancel-new>Cancel</button></span></span>
           </form>` : ''}</div>
       </div>
-      <form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
+      ${feedFold('notes', !!s || vis !== 'all', `<form class="within" method="get" action="/u/${esc(u.handle)}"><input type="hidden" name="tab" value="notes">${cid ? `<input type="hidden" name="c" value="${cid}">` : ''}${vis !== 'all' ? `<input type="hidden" name="v" value="${esc(vis)}">` : ''}<input type="search" name="q" placeholder="Search within below" value="${esc(s)}"></form>
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes', 'All'], ['public', 'Public Notes', 'Public'], ['private', 'Private Notes', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
-      <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}
+      <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}`)}
       ${rows.length ? feedTools(me) : ''}
       ${rows.length ? (() => { const pg = pageOf(rows, url); return `<div class="grid" id="feed-grid">${pg.slice.map((o) => objectCard(o, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
         : emptyState(me, 'notes', u)}
