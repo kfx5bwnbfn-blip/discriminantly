@@ -1648,6 +1648,15 @@ const MIGRATIONS = [
   // v2.116: how big the feed's cards are, per member: s (two across on a
   // phone, three on desktop), m (today's card), l (one wide card per row;
   // desktop only, read as m on a phone).
+  // v2.119: pins. A note or mark can lead one of its owner's collections
+  // (pinned_at on the membership row) or the owner's whole notes / marks page
+  // (pinned_at on the record). Web app only; the AI surfaces never see it.
+  ['068-pins', () => {
+    if (!hasColumn('note_collections', 'pinned_at')) db.exec('ALTER TABLE note_collections ADD COLUMN pinned_at TEXT');
+    if (!hasColumn('mark_collections', 'pinned_at')) db.exec('ALTER TABLE mark_collections ADD COLUMN pinned_at TEXT');
+    if (!hasColumn('objects', 'pinned_at')) db.exec('ALTER TABLE objects ADD COLUMN pinned_at TEXT');
+    if (!hasColumn('marks', 'pinned_at')) db.exec('ALTER TABLE marks ADD COLUMN pinned_at TEXT');
+  }],
   ['067-feed-density', () => { if (!hasColumn('users', 'feed_density')) db.exec("ALTER TABLE users ADD COLUMN feed_density TEXT NOT NULL DEFAULT 'm'"); }],
   ['066-object-images', () => {
     db.exec(`CREATE TABLE IF NOT EXISTS object_images (
@@ -3339,6 +3348,7 @@ function readImage(file, cb) {
       // in Small, an item that is not a card (a plan, a follow, the welcome
       // card, a receipt) spans the feed; the cards around it pack in bands
       var spans = function (el) {
+        if (el.classList.contains('feed-span-always')) return n > 1;   // v2.119: the Pinned rules
         if (density !== 's' || n < 2) return false;
         var card = el.classList.contains('act-note') ? el.firstElementChild : el;   // the profile feed wraps each item
         return !card || !card.classList.contains('note') || card.classList.contains('itin-note');
@@ -3409,6 +3419,37 @@ function readImage(file, cb) {
     var f = b.closest('.feed-fold'); var open = !f.classList.contains('is-open');
     f.classList.toggle('is-open', open); b.setAttribute('aria-expanded', open); if (!open) f.classList.remove('is-settled');
     try { localStorage.setItem('fold:' + f.getAttribute('data-fold'), open ? '1' : '0'); } catch (err) {}
+  });
+  // v2.119: pin / unpin from a card, then regroup the grid in place.
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('.card-pin'); if (!b) return;
+    e.preventDefault();
+    var on = b.getAttribute('aria-pressed') !== 'true'; var note = b.closest('.note'); var grid = b.closest('#feed-grid');
+    b.setAttribute('aria-pressed', on); b.setAttribute('aria-label', on ? 'Unpin' : 'Pin to the top'); note.classList.toggle('is-pinned', on);
+    fetch(b.getAttribute('data-pin'), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'c=' + (b.getAttribute('data-c') || 0) + '&on=' + (on ? 1 : 0) })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+      .then(function (r) {
+        if (r.retired && grid) { var old = grid.querySelector('.card-pin[data-pin$="/' + r.retired + '/pin"]'); if (old) { old.setAttribute('aria-pressed', 'false'); old.closest('.note').classList.remove('is-pinned'); } }
+        regroup();
+      })
+      .catch(function () { b.setAttribute('aria-pressed', !on); note.classList.toggle('is-pinned', !on); });
+    function regroup() {
+      if (!grid || !window.layoutFeed) return;
+      if (window.feedWindowReset) window.feedWindowReset();
+      // gather the cards in their current order, pinned ones first (the one
+      // just pinned leads), and rebuild the grid around the two rules
+      [].slice.call(grid.querySelectorAll('.pinned-rule')).forEach(function (r) { r.remove(); });   // or the tiler gathers them back
+      var items = (grid.__items || []).filter(function (it) { return !it.classList.contains('pinned-rule'); });
+      var pinned = items.filter(function (it) { var c = it.querySelector ? (it.classList.contains('note') ? it : it.querySelector('.note')) : null; return c && c.classList.contains('is-pinned'); });
+      var rest = items.filter(function (it) { return pinned.indexOf(it) < 0; });
+      if (on) { var me = pinned.indexOf(note.closest('.act-note') || note); if (me > 0) { pinned.splice(me, 1); pinned.unshift(note.closest('.act-note') || note); } }
+      var rule = function (kind, text) { var d = document.createElement('div'); d.className = 'pinned-rule feed-span-always'; d.setAttribute('data-pin-rule', kind); d.textContent = text; return d; };
+      var order = [];
+      if (pinned.length) { order.push(rule('head', 'Pinned')); order = order.concat(pinned); if (rest.length) order.push(rule('tail', 'Everything else')); }
+      order = order.concat(rest);
+      grid.__items = order; grid.__key = null; grid.__built = false;
+      window.layoutFeed();
+    }
   });
   // v2.116: the card-size toggle. Saves the choice, re-tiles in place.
   document.addEventListener('click', function (e) {
@@ -5182,8 +5223,8 @@ function markCard(m, me, full = false) {
   const embed = mapEmbed(m);
   // Wear is private evidence, shown only to the member whose mark it is.
   const markTier = (me && m.user_id === me.id) ? markPatinaTier(m.id) : 0;
-  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}" data-private="${m.private ? 1 : 0}"${markTier ? ` data-patina="${markTier}"` + patinaOffset('mark', m.id) : ''}>
-  <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}</div>
+  return `<article class="note travelmark ${full ? 'note-full' : 'mark-collapsible'}${m.pin && m.pin.on ? ' is-pinned' : ''}" data-private="${m.private ? 1 : 0}"${markTier ? ` data-patina="${markTier}"` + patinaOffset('mark', m.id) : ''}>
+  <div class="byline"><span class="byline-who"><a href="/u/${esc(m.handle)}">${avatar({ handle: m.handle, avatar: m.avatar })}</a>${stackDate(m.created_at)}</span>${me && me.id === m.user_id ? `<a class="card-edit" href="/m/${m.id}/edit">Edit</a>` : ''}${pinButton(m, 'mark')}</div>
   <div class="card">
     ${warrantSeal(m, 'mark', me)}
     <div class="text">
@@ -9438,6 +9479,55 @@ function warrantSeal(row, subjectType, me) {
   return `<span class="warrant-seal" title="Warranted" aria-label="Warranted">${warrantSealSvg()}</span>`;
 }
 
+// v2.119: pins, web app only.
+const PINS_MAX = 5;
+const PIN_SVG = '<svg viewBox="0 0 20 20" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 2.5l5 5-1.6 1.6-.9-.3-3.4 3.4.3 3.1-1.4 1.4L7 13.2 3.5 16.7 2.3 17.7l1-1.2 3.5-3.5L3.3 9.5l1.4-1.4 3.1.3 3.4-3.4-.3-.9z"/></svg>';
+// kind: 'note' | 'mark'. cid 0 is the whole page ("All notes" / "All marks").
+const PIN_T = { note: { rec: 'objects', mem: 'note_collections', key: 'note_id', path: 'o' }, mark: { rec: 'marks', mem: 'mark_collections', key: 'mark_id', path: 'm' } };
+// pinned_at for every record of this owner in this collection: Map id -> pinned_at
+function pinMap(kind, userId, cid) {
+  const t = PIN_T[kind];
+  const rows = cid
+    ? q(`SELECT m.${t.key} id, m.pinned_at FROM ${t.mem} m JOIN collections c ON c.id=m.collection_id WHERE m.collection_id=? AND c.user_id=? AND m.pinned_at IS NOT NULL`).all(cid, userId)
+    : q(`SELECT id, pinned_at FROM ${t.rec} WHERE user_id=? AND pinned_at IS NOT NULL`).all(userId);
+  return new Map(rows.map((r) => [r.id, r.pinned_at]));
+}
+// pinned first, latest pin on top; the rest in the order given
+function pinSort(rows, pins) {
+  if (!pins.size) return rows;
+  const p = rows.filter((r) => pins.has(r.id)).sort((a, b) => (pins.get(a.id) < pins.get(b.id) ? 1 : -1));
+  return p.concat(rows.filter((r) => !pins.has(r.id)));
+}
+// sets or clears a pin; the sixth pin in a collection retires the oldest
+function setPin(kind, userId, id, cid, on) {
+  const t = PIN_T[kind];
+  const rec = q(`SELECT id FROM ${t.rec} WHERE id=? AND user_id=?`).get(id, userId); if (!rec) return { error: 'not yours' };
+  if (cid) {
+    const c = q('SELECT id FROM collections WHERE id=? AND user_id=? AND kind=?').get(cid, userId, kind); if (!c) return { error: 'no such collection' };
+    if (!q(`SELECT 1 FROM ${t.mem} WHERE ${t.key}=? AND collection_id=?`).get(id, cid)) return { error: 'not in that collection' };
+  }
+  const where = cid ? `${t.key}=? AND collection_id=?` : 'id=?';
+  const tbl = cid ? t.mem : t.rec; const args = cid ? [id, cid] : [id];
+  if (!on) { q(`UPDATE ${tbl} SET pinned_at=NULL WHERE ${where}`).run(...args); return { ok: true, on: false }; }
+  const pins = pinMap(kind, userId, cid); let retired = 0;
+  if (!pins.has(id) && pins.size >= PINS_MAX) {
+    const oldest = [...pins.entries()].sort((a, b) => (a[1] < b[1] ? -1 : 1))[0][0];
+    q(cid ? `UPDATE ${t.mem} SET pinned_at=NULL WHERE ${t.key}=? AND collection_id=?` : `UPDATE ${t.rec} SET pinned_at=NULL WHERE id=?`).run(...(cid ? [oldest, cid] : [oldest]));
+    retired = oldest;
+  }
+  q(`UPDATE ${tbl} SET pinned_at=? WHERE ${where}`).run(new Date().toISOString(), ...args);
+  return { ok: true, on: true, retired };
+}
+// the control in a card's byline: only on the owner's own collection pages
+function pinButton(o, kind) {
+  if (!o.pin) return '';
+  return `<button type="button" class="card-pin" data-pin="/${PIN_T[kind].path}/${o.id}/pin" data-c="${o.pin.c || 0}" aria-pressed="${o.pin.on ? 'true' : 'false'}" aria-label="${o.pin.on ? 'Unpin' : 'Pin to the top'}">${PIN_SVG}</button>`;
+}
+// the two rules that frame the pinned group in a grid
+const pinRules = (rows, pins) => {
+  const n = rows.filter((r) => pins.has(r.id)).length;
+  return { head: n ? '<div class="pinned-rule feed-span-always" data-pin-rule="head">Pinned</div>' : '', tail: n && n < rows.length ? '<div class="pinned-rule feed-span-always" data-pin-rule="tail">Everything else</div>' : '', n };
+};
 function objectCard(o, me, full = false) {
   const prop = me && me.id === o.user_id ? prospectiveOf('object', o) : null;
   if (prop) return proposedNoteCard(o, me, prop, full);
@@ -9455,8 +9545,8 @@ function objectCard(o, me, full = false) {
     const ow = ownedState(me.id, o.id);
     if (ow.state === 'owned') patinaTier = ownedPatinaTier(ow.since);
   }
-  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}" data-private="${o.private ? 1 : 0}"${patinaTier ? ` data-patina="${patinaTier}"` + patinaOffset('note', o.id) : ''}>
-  <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}</div>
+  return `<article class="note ${full ? 'note-full' : ''} ${o.image ? 'has-image' : ''}${o.pin && o.pin.on ? ' is-pinned' : ''}" data-private="${o.private ? 1 : 0}"${patinaTier ? ` data-patina="${patinaTier}"` + patinaOffset('note', o.id) : ''}>
+  <div class="byline"><span class="byline-who"><a href="/u/${esc(o.handle)}">${avatar({ name: o.uname, handle: o.handle, avatar: o.avatar })}</a>${stackDate(o.created_at)}</span>${me && me.id === o.user_id ? `<a class="card-edit" href="/o/${o.id}/edit">Edit</a>` : ''}${pinButton(o, 'note')}</div>
   <div class="card">
     ${warrantSeal(o, 'object', me)}
     <div class="card-head">
@@ -11504,8 +11594,14 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Marks', 'All'], ['public', 'Public Marks', 'Public'], ['private', 'Private Marks', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${q1({ c: cid || '', v: k === 'all' ? '' : k })}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}`)}
       ${rows.length ? feedTools(me) : ''}
-      ${(() => { const pg = pageOf(rows, url); return rows.length
-        ? `<div class="grid" id="feed-grid">${pg.slice.map((x) => markCard(x, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`
+      ${(() => {
+        const pins = s ? new Map() : pinMap('mark', u.id, cid);
+        rows = pinSort(rows, pins);
+        if (owner) rows.forEach((x) => { x.pin = { c: cid, on: pins.has(x.id) }; });
+        const pg = pageOf(rows, url); const rl = pinRules(pg.slice, pins);
+        const cards = pg.slice.map((x, i) => (i === rl.n && rl.tail ? rl.tail : '') + markCard(x, me));
+        return rows.length
+        ? `<div class="grid" id="feed-grid" data-pins="${owner ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`
         : me && me.id === u.id && !q('SELECT 1 FROM adopted_marks WHERE user_id=? LIMIT 1').get(me.id) ? emptyState(me, 'marks') : '<p class="empty pad">No travel marks here yet.</p>'; })()}
       <script>
       (function () {
@@ -11595,7 +11691,16 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       ${owner ? `<div class="vis-tabs">${[['all', 'Public & Private Notes', 'All'], ['public', 'Public Notes', 'Public'], ['private', 'Private Notes', 'Private']].map(([k, l, sh]) => `<a class="${vis === k ? 'on' : ''}" data-short="${sh}" href="${link('notes', `&v=${k}${cid ? '&c=' + cid : ''}`)}">${l}</a>`).join('')}</div>
       <a class="post-box" href="/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Post a new Note</span></a>` : ''}`)}
       ${rows.length ? feedTools(me) : ''}
-      ${rows.length ? (() => { const pg = pageOf(rows, url); return `<div class="grid" id="feed-grid">${pg.slice.map((o) => objectCard(o, me)).join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
+      ${rows.length ? (() => {
+        // v2.119: pinned notes lead the collection unless a search is on (a
+        // search answers a question; pins step aside). The owner gets the
+        // control on every card; the group is framed by two rules.
+        const pins = s ? new Map() : pinMap('note', u.id, cid);
+        rows = pinSort(rows, pins);
+        if (owner) rows.forEach((o) => { o.pin = { c: cid, on: pins.has(o.id) }; });
+        const pg = pageOf(rows, url); const rl = pinRules(pg.slice, pins);
+        const cards = pg.slice.map((o, i) => (i === rl.n && rl.tail ? rl.tail : '') + objectCard(o, me));
+        return `<div class="grid" id="feed-grid" data-pins="${owner ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
         : emptyState(me, 'notes', u)}
     <script>
     (function () {
@@ -15444,6 +15549,18 @@ async function handle(req, res) {
     return redirect(res, '/settings');
   }
   // v2.116: the feed's card size, saved as the member taps the toggle
+  // v2.119: pin / unpin a note or mark atop a collection (c=0: the whole page)
+  {
+    const pm = m === 'POST' && p.match(/^\/(o|m)\/(\d+)\/pin$/);
+    if (pm) {
+      const jerr = (msg, code) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: msg })); };
+      if (!me) return jerr('Sign in first.', 401);
+      const b = await readBody(req);
+      const r = setPin(pm[1] === 'o' ? 'note' : 'mark', me.id, +pm[2], +b.c || 0, b.on === '1' || b.on === 'true');
+      if (r.error) return jerr(r.error, 400);
+      res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(r));
+    }
+  }
   if (p === '/settings/feed-density' && m === 'POST') {
     if (!me) return need();
     const b = await readBody(req);
