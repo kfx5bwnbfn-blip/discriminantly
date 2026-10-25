@@ -11595,13 +11595,13 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
       <a class="post-box" href="/marks/new"><img class="plus" src="/plus.png" alt="" width="68" height="68"><span>Add a travel mark</span></a>` : ''}`)}
       ${rows.length ? feedTools(me) : ''}
       ${(() => {
-        const pins = s ? new Map() : pinMap('mark', u.id, cid);
+        const pins = s || !cid ? new Map() : pinMap('mark', u.id, cid);   // v2.119.1: inside a collection only
         rows = pinSort(rows, pins);
-        if (owner) rows.forEach((x) => { x.pin = { c: cid, on: pins.has(x.id) }; });
+        if (owner && cid) rows.forEach((x) => { x.pin = { c: cid, on: pins.has(x.id) }; });
         const pg = pageOf(rows, url); const rl = pinRules(pg.slice, pins);
         const cards = pg.slice.map((x, i) => (i === rl.n && rl.tail ? rl.tail : '') + markCard(x, me));
         return rows.length
-        ? `<div class="grid" id="feed-grid" data-pins="${owner ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`
+        ? `<div class="grid" id="feed-grid" data-pins="${owner && cid ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`
         : me && me.id === u.id && !q('SELECT 1 FROM adopted_marks WHERE user_id=? LIMIT 1').get(me.id) ? emptyState(me, 'marks') : '<p class="empty pad">No travel marks here yet.</p>'; })()}
       <script>
       (function () {
@@ -11695,12 +11695,12 @@ ${ask ? `window.askConfirm({ title: 'Were you there today?',
         // v2.119: pinned notes lead the collection unless a search is on (a
         // search answers a question; pins step aside). The owner gets the
         // control on every card; the group is framed by two rules.
-        const pins = s ? new Map() : pinMap('note', u.id, cid);
+        const pins = s || !cid ? new Map() : pinMap('note', u.id, cid);   // v2.119.1: inside a collection only
         rows = pinSort(rows, pins);
-        if (owner) rows.forEach((o) => { o.pin = { c: cid, on: pins.has(o.id) }; });
+        if (owner && cid) rows.forEach((o) => { o.pin = { c: cid, on: pins.has(o.id) }; });
         const pg = pageOf(rows, url); const rl = pinRules(pg.slice, pins);
         const cards = pg.slice.map((o, i) => (i === rl.n && rl.tail ? rl.tail : '') + objectCard(o, me));
-        return `<div class="grid" id="feed-grid" data-pins="${owner ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
+        return `<div class="grid" id="feed-grid" data-pins="${owner && cid ? cid : ''}">${rl.head}${cards.join('')}</div>${moreLink(url, pg.off, pg.more)}`; })()
         : emptyState(me, 'notes', u)}
     <script>
     (function () {
@@ -15556,6 +15556,7 @@ async function handle(req, res) {
       const jerr = (msg, code) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: msg })); };
       if (!me) return jerr('Sign in first.', 401);
       const b = await readBody(req);
+      if (!(+b.c)) return jerr('Pins live inside a collection.', 400);   // v2.119.1
       const r = setPin(pm[1] === 'o' ? 'note' : 'mark', me.id, +pm[2], +b.c || 0, b.on === '1' || b.on === 'true');
       if (r.error) return jerr(r.error, 400);
       res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify(r));

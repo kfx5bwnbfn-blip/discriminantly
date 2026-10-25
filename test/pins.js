@@ -25,51 +25,49 @@ const rules = (h) => [...h.matchAll(/data-pin-rule="(head|tail)"/g)].map((m) => 
   ok('fixture: the member has at least four notes', mine.length >= 4, mine.length);
   const page = () => get('/u/' + u.handle + '?tab=notes', sid).then((r) => r.text());
   let h = await page();
-  ok('owner sees a pin control on every card, none pressed, no rules', (h.match(/class="card-pin"/g) || []).length === titles(h).length && pressed(h) === 0 && rules(h).length === 0, [(h.match(/class="card-pin"/g) || []).length, titles(h).length, pressed(h)]);
-  const vis = await (await get('/u/' + u.handle + '?tab=notes')).text();
-  ok('a visitor sees no pin control', !/class="card-pin"/.test(vis));
+  ok('v2.119.1: no pin control on the whole notes page, no rules', !/class="card-pin"/.test(h) && rules(h).length === 0);
   ok('pinning needs a signed-in member', (await post(`/o/${mine[0]}/pin`, { c: 0, on: 1 })).status === 401);
-  let r = await post(`/o/${mine[0]}/pin`, { c: 0, on: 1 }, sid);
-  ok('POST /o/:id/pin c=0 pins to the whole notes page', r.status === 200 && (await r.json()).on === true && db.prepare('SELECT pinned_at FROM objects WHERE id=?').get(mine[0]).pinned_at);
+  ok('v2.119.1: a pin outside a collection (c=0) is refused', (await post(`/o/${mine[0]}/pin`, { c: 0, on: 1 }, sid)).status === 400 && !db.prepare('SELECT pinned_at FROM objects WHERE id=?').get(mine[0]).pinned_at);
+  // a collection with at least three notes, made for the test
+  const cid = db.prepare("INSERT INTO collections(user_id, kind, name) VALUES(?, 'note', 'Pin test')").run(u.id).lastInsertRowid;
+  const inC = mine.slice(0, Math.min(mine.length, 7));
+  for (const id of inC) db.prepare('INSERT INTO note_collections(note_id, collection_id) VALUES(?, ?)').run(id, cid);
+  const cpage = (extra = '', s2 = sid) => get(`/u/${u.handle}?tab=notes&c=${cid}${extra}`, s2).then((r) => r.text());
+  h = await cpage();
+  ok('inside a collection the owner sees a pin control on every card, none pressed, no rules', (h.match(/class="card-pin"/g) || []).length === titles(h).length && pressed(h) === 0 && rules(h).length === 0, [(h.match(/class="card-pin"/g) || []).length, titles(h).length]);
+  ok('a visitor sees no pin control', !/class="card-pin"/.test(await cpage('', '')));
+  let r = await post(`/o/${inC[0]}/pin`, { c: cid, on: 1 }, sid);
+  ok('POST /o/:id/pin pins within the collection', r.status === 200 && (await r.json()).on === true && db.prepare('SELECT pinned_at FROM note_collections WHERE note_id=? AND collection_id=?').get(inC[0], cid).pinned_at);
   await new Promise((x) => setTimeout(x, 5));
-  await post(`/o/${mine[1]}/pin`, { c: 0, on: 1 }, sid);
-  h = await page();
+  await post(`/o/${inC[1]}/pin`, { c: cid, on: 1 }, sid);
+  h = await cpage();
   let t = titles(h);
-  ok('the page leads with the pinned notes, latest pin first, then the rest', t[0] === mine[1] && t[1] === mine[0], t.slice(0, 3));
+  ok('the collection leads with the pinned notes, latest pin first, then the rest', t[0] === inC[1] && t[1] === inC[0], t.slice(0, 3));
   ok('the pinned group is framed: a head rule, then a tail rule before the rest', JSON.stringify(rules(h)) === '["head","tail"]', rules(h));
   ok('pinned cards carry is-pinned and a pressed control', (h.match(/class="note[^"]* is-pinned"/g) || []).length === 2 && pressed(h) === 2);
-  const v2 = await (await get('/u/' + u.handle + '?tab=notes')).text();
-  ok('visitor: same order, the rules, no control', titles(v2)[0] === mine[1] && rules(v2)[0] === 'head' && !/class="card-pin"/.test(v2));
-  const hs = await (await get('/u/' + u.handle + '?tab=notes&q=' + encodeURIComponent('e'), sid)).text();
+  const v2 = await cpage('', '');
+  ok('visitor: same order, the rules, no control', titles(v2)[0] === inC[1] && rules(v2)[0] === 'head' && !/class="card-pin"/.test(v2));
+  const hs = await cpage('&q=' + encodeURIComponent('e'));
   ok('a search sets pins aside: no rules, no pressed control', rules(hs).length === 0 && pressed(hs) === 0);
-  // a collection: its own pin set
-  const c = db.prepare("SELECT id FROM collections WHERE user_id=? AND kind='note' LIMIT 1").get(u.id);
-  if (c) {
-    const inC = db.prepare('SELECT note_id FROM note_collections WHERE collection_id=?').all(c.id).map((x) => x.note_id);
-    const hc0 = await (await get(`/u/${u.handle}?tab=notes&c=${c.id}`, sid)).text();
-    ok('inside a collection, page pins do not apply (its own set, empty)', rules(hc0).length === 0 && pressed(hc0) === 0);
-    r = await post(`/o/${inC[inC.length - 1]}/pin`, { c: c.id, on: 1 }, sid);
-    ok('pin within the collection', r.status === 200 && db.prepare('SELECT pinned_at FROM note_collections WHERE note_id=? AND collection_id=?').get(inC[inC.length - 1], c.id).pinned_at);
-    const hc = await (await get(`/u/${u.handle}?tab=notes&c=${c.id}`, sid)).text();
-    ok('…and it leads the collection', titles(hc)[0] === inC[inC.length - 1] && rules(hc)[0] === 'head');
-    const other = mine.find((id) => !inC.includes(id));
-    if (other) ok('a note not in the collection cannot be pinned to it', (await post(`/o/${other}/pin`, { c: c.id, on: 1 }, sid)).status === 400);
-    ok('the whole-page view is unchanged by a collection pin', titles(await page())[0] === mine[1]);
-  }
-  r = await post(`/o/${mine[0]}/pin`, { c: 0, on: 0 }, sid);
-  ok('unpin', r.status === 200 && !db.prepare('SELECT pinned_at FROM objects WHERE id=?').get(mine[0]).pinned_at);
-  // the cap
-  for (const id of mine.slice(0, 6)) { await post(`/o/${id}/pin`, { c: 0, on: 1 }, sid); await new Promise((x) => setTimeout(x, 3)); }
-  const pinned = db.prepare('SELECT COUNT(*) c FROM objects WHERE user_id=? AND pinned_at IS NOT NULL').get(u.id).c;
-  ok('at most five pins: the sixth retires the oldest', mine.length >= 6 ? pinned === 5 : pinned === Math.min(mine.length, 5), pinned);
-  const other = db.prepare('SELECT id FROM objects WHERE user_id<>? LIMIT 1').get(u.id);
-  if (other) ok('someone else’s note cannot be pinned', (await post(`/o/${other.id}/pin`, { c: 0, on: 1 }, sid)).status === 400);
-  // marks
+  ok('the whole notes page is unchanged by collection pins', rules(await page()).length === 0);
+  const other = db.prepare('SELECT id FROM objects WHERE user_id=? AND id NOT IN (SELECT note_id FROM note_collections WHERE collection_id=?) LIMIT 1').get(u.id, cid);
+  if (other) ok('a note not in the collection cannot be pinned to it', (await post(`/o/${other.id}/pin`, { c: cid, on: 1 }, sid)).status === 400);
+  r = await post(`/o/${inC[0]}/pin`, { c: cid, on: 0 }, sid);
+  ok('unpin', r.status === 200 && !db.prepare('SELECT pinned_at FROM note_collections WHERE note_id=? AND collection_id=?').get(inC[0], cid).pinned_at);
+  for (const id of inC.slice(0, 6)) { await post(`/o/${id}/pin`, { c: cid, on: 1 }, sid); await new Promise((x) => setTimeout(x, 3)); }
+  const pinned = db.prepare('SELECT COUNT(*) c FROM note_collections WHERE collection_id=? AND pinned_at IS NOT NULL').get(cid).c;
+  ok('at most five pins: the sixth retires the oldest', pinned === Math.min(inC.length, 5), pinned);
+  const theirs = db.prepare('SELECT id FROM objects WHERE user_id<>? LIMIT 1').get(u.id);
+  if (theirs) ok('someone else’s note cannot be pinned', (await post(`/o/${theirs.id}/pin`, { c: cid, on: 1 }, sid)).status === 400);
+  // marks: the same, inside a mark collection
   const mk = db.prepare('SELECT id FROM marks WHERE user_id=? ORDER BY id').all(u.id).map((x) => x.id);
   if (mk.length) {
-    r = await post(`/m/${mk[0]}/pin`, { c: 0, on: 1 }, sid);
-    const hm = await (await get('/u/' + u.handle + '?tab=marks', sid)).text();
-    ok('marks: pin to the whole marks page; the card leads and is pressed', r.status === 200 && rules(hm)[0] === 'head' && new RegExp(`is-pinned[\\s\\S]*?data-pin="/m/${mk[0]}/pin"[^>]*aria-pressed="true"`).test(hm));
+    const mc = db.prepare("INSERT INTO collections(user_id, kind, name) VALUES(?, 'mark', 'Pin test')").run(u.id).lastInsertRowid;
+    db.prepare('INSERT INTO mark_collections(mark_id, collection_id) VALUES(?, ?)').run(mk[0], mc);
+    ok('marks: no control on the whole marks page', !/class="card-pin"/.test(await (await get('/u/' + u.handle + '?tab=marks', sid)).text()));
+    r = await post(`/m/${mk[0]}/pin`, { c: mc, on: 1 }, sid);
+    const hm = await (await get(`/u/${u.handle}?tab=marks&c=${mc}`, sid)).text();
+    ok('marks: pin within a collection; the card leads and is pressed', r.status === 200 && rules(hm)[0] === 'head' && new RegExp(`is-pinned[\\s\\S]*?data-pin="/m/${mk[0]}/pin"[^>]*aria-pressed="true"`).test(hm));
   }
   // MCP untouched
   const ins = (await (await fetch(BASE + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })).text());
