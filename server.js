@@ -3372,6 +3372,11 @@ function readImage(file, cb) {
       grid.__key = key; grid.__cols = n; grid.__built = true;
       grid.innerHTML = '';
       grid.style.display = 'block'; grid.style.gap = ''; grid.style.alignItems = '';
+      // v2.119.2: the stylesheet's CSS multi-column fallback (columns: 30rem)
+      // applies to a block container, and on a wide screen it fragmented the
+      // bands into two CSS columns, bunching the cards to the left. The old
+      // flex grid was immune; a block one has to switch the fallback off.
+      grid.style.columns = 'auto'; grid.style.columnGap = '0';
       grid.classList.toggle('is-small', density === 's');
       var band = newBand(grid, n, GAP);
       grid.__items.forEach(function (it) {
